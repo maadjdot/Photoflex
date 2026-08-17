@@ -1,0 +1,4 @@
+interface:
+  display_name: "Rough Type Paper Titles"
+  short_description: "Create textured paper title cards for covers and UI."
+  default_prompt: "Use $rough-type-paper-titles to create a paper title card with my text, color, and aspect ratio."
