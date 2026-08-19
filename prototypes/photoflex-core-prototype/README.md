@@ -2,6 +2,13 @@
 
 这是用于用户访谈的可丢弃原型，不是正式产品代码。方案 B 已被选为唯一方向，A/C 方案与切换器已经移除。
 
+## 在线体验
+
+- 真实测试入口：https://maadjdot.github.io/Photoflex/
+- 快速演示入口：https://maadjdot.github.io/Photoflex/?demo=sequence
+
+建议使用桌面版 Chrome 或 Edge。真实测试入口读取参与者选择的本地 JPEG 文件夹；照片仅通过浏览器本地 Object URL 展示，不会上传，刷新或关闭页面后本轮状态会清空。
+
 它现在回答六个问题：
 
 1. 500 张 JPEG 能否通过每页 60 张的增量渲染保持可操作，而不是让页面一次解码全部照片？
