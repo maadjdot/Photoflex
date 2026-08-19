@@ -1,7 +1,7 @@
 (function () {
   "use strict";
 
-  var photos = [
+  var seedPhotos = [
     { id: "P01", title: "河岸 01", meta: "35mm · 1/250", a: "#c05f48", b: "#f2c66d" },
     { id: "P02", title: "桥下 02", meta: "28mm · 1/60", a: "#34535d", b: "#88a9a3" },
     { id: "P03", title: "归途 03", meta: "50mm · 1/125", a: "#74514f", b: "#c99e74" },
@@ -15,6 +15,12 @@
     { id: "P11", title: "石阶 11", meta: "28mm · 1/90", a: "#595d50", b: "#bab29c" },
     { id: "P12", title: "对岸 12", meta: "40mm · 1/250", a: "#516a6f", b: "#d3ad7a" }
   ];
+  var photos = seedPhotos.slice();
+  var importedPhotoUrls = [];
+  var importedLibraryName = "";
+  var MAX_LIBRARY_PHOTOS = 500;
+  var MAX_POOL_PHOTOS = 50;
+  var CONTACT_PAGE_SIZE = 60;
 
   var stages = [
     {
@@ -44,33 +50,45 @@
 
   function defaultModuleLayout() {
     return {
-      sequence: { x: 0, y: 0, width: 75, height: 600 },
-      pool: { x: 76, y: 0, width: 24, height: 600 }
+      sequence: { x: 0, y: 0, width: 75, height: 570 },
+      pool: { x: 76, y: 0, width: 24, height: 570 }
     };
   }
 
-  function createInitialState() {
+  function createInitialState(skipDemo) {
     var initial = {
       stage: "contact",
+      contactPage: 0,
       selected: [],
       pool: [],
       sequence: [],
+      selectedSequenceIds: [],
       versions: [],
       starredVersionId: null,
       compareVersionId: null,
       workingFromVersionId: null,
       sequenceView: "horizontal",
-      sequenceFrameHeight: 350,
+      sequenceFrameHeight: 290,
       sequencePhotoSizes: {},
-      photoRotations: {},
       moduleLayout: defaultModuleLayout(),
       whiteboard: false,
+      whiteboardZoom: 0.75,
       whiteboardItems: {},
+      whiteboardEntrySequence: [],
+      whiteboardEntryItems: {},
       previewPhotoId: null,
+      previewContextIds: [],
+      previewSource: null,
+      sequencePanorama: false,
+      immersiveVersionId: null,
+      libraryName: importedLibraryName,
+      importedCount: importedLibraryName ? photos.length : 0,
       versionDraftName: "",
       notice: "先凭直觉选择照片，再把它们加入 Pool。"
     };
-    if (typeof window === "undefined") return initial;
+    if (typeof window === "undefined" || skipDemo || importedLibraryName) {
+      return initial;
+    }
 
     var query = new URLSearchParams(window.location.search);
     var demo = query.get("demo");
@@ -107,9 +125,20 @@
       initial.starredVersionId = "v1";
       initial.compareVersionId = "v3";
       initial.notice = "验收预置状态：只显示星标基准与当前版本。";
+      if (
+        query.get("version") &&
+        initial.versions.some(function (version) {
+          return version.id === query.get("version");
+        })
+      ) {
+        initial.immersiveVersionId = query.get("version");
+      }
     }
     if (query.get("view") === "grid") {
       initial.sequenceView = "grid";
+    }
+    if (query.get("panorama") === "1" && initial.stage === "sequence") {
+      initial.sequencePanorama = true;
     }
     if (
       (query.get("whiteboard") === "1" || query.get("immersive") === "1") &&
@@ -123,6 +152,7 @@
       initial.sequence.indexOf(query.get("preview")) >= 0
     ) {
       initial.previewPhotoId = query.get("preview");
+      initial.previewSource = "sequence";
     }
     return initial;
   }
@@ -154,19 +184,118 @@
   }
 
   function photoThumb(photo) {
-    var rotation = state.photoRotations[photo.id] || 0;
-    var rotationScale = rotation % 180 === 0 ? 1 : 0.74;
     return (
-      '<span class="photo-thumb" style="--tone-a:' +
-      photo.a +
+      '<span class="photo-thumb' +
+      (photo.url ? " is-local" : "") +
+      '" style="--tone-a:' +
+      (photo.a || "#252a27") +
       ";--tone-b:" +
-      photo.b +
-      ";--photo-rotation:" +
-      rotation +
-      "deg;--photo-rotation-scale:" +
-      rotationScale +
-      '"></span>'
+      (photo.b || "#808780") +
+      '">' +
+      (photo.url
+        ? '<img src="' +
+          escapeHtml(photo.url) +
+          '" alt="" loading="lazy" decoding="async">'
+        : "") +
+      "</span>"
     );
+  }
+
+  function largePhoto(photo, className) {
+    return (
+      '<div class="' +
+      className +
+      (photo.url ? " is-local" : "") +
+      '" style="--tone-a:' +
+      (photo.a || "#252a27") +
+      ";--tone-b:" +
+      (photo.b || "#808780") +
+      '">' +
+      (photo.url
+        ? '<img src="' +
+          escapeHtml(photo.url) +
+          '" alt="' +
+          escapeHtml(photo.title) +
+          '" decoding="async" draggable="false">'
+        : "") +
+      "</div>"
+    );
+  }
+
+  function previewContextIds(context) {
+    if (context === "contact") {
+      return photos.map(function (photo) {
+        return photo.id;
+      });
+    }
+    if (context === "pool") return state.pool.slice();
+    return state.sequence.slice();
+  }
+
+  function formatFileSize(bytes) {
+    if (!bytes) return "大小未知";
+    if (bytes < 1024 * 1024) return Math.max(1, Math.round(bytes / 1024)) + " KB";
+    return (bytes / (1024 * 1024)).toFixed(1) + " MB";
+  }
+
+  function revokeImportedPhotoUrls() {
+    if (typeof URL === "undefined" || !URL.revokeObjectURL) return;
+    importedPhotoUrls.forEach(function (url) {
+      URL.revokeObjectURL(url);
+    });
+    importedPhotoUrls = [];
+  }
+
+  function importLocalJpegs(fileList) {
+    var allFiles = Array.prototype.slice.call(fileList || []);
+    var jpegFiles = allFiles
+      .filter(function (file) {
+        return (
+          (file.type && file.type.toLowerCase() === "image/jpeg") ||
+          /\.jpe?g$/i.test(file.name || "")
+        );
+      })
+      .sort(function (left, right) {
+        var leftPath = left.webkitRelativePath || left.name || "";
+        var rightPath = right.webkitRelativePath || right.name || "";
+        return leftPath.localeCompare(rightPath, undefined, { numeric: true });
+      });
+
+    if (!jpegFiles.length) {
+      state.notice = "这个文件夹里没有可读取的 JPEG；请选择包含 .jpg 或 .jpeg 的文件夹。";
+      render();
+      return;
+    }
+
+    var limitedFiles = jpegFiles.slice(0, MAX_LIBRARY_PHOTOS);
+    revokeImportedPhotoUrls();
+    photos = limitedFiles.map(function (file, index) {
+      var objectUrl = URL.createObjectURL(file);
+      importedPhotoUrls.push(objectUrl);
+      return {
+        id: "L" + String(index + 1).padStart(3, "0"),
+        title: file.name,
+        meta: "本地 JPEG · " + formatFileSize(file.size),
+        url: objectUrl,
+        local: true
+      };
+    });
+    var firstPath = limitedFiles[0].webkitRelativePath || "";
+    importedLibraryName = firstPath.indexOf("/") >= 0
+      ? firstPath.split("/")[0]
+      : "本地 JPEG 选择";
+    state = createInitialState(true);
+    state.notice =
+      "已从“" +
+      importedLibraryName +
+      "”读取 " +
+      photos.length +
+      " 张 JPEG" +
+      (jpegFiles.length > MAX_LIBRARY_PHOTOS
+        ? "；为本轮研究只使用前 500 张。"
+        : "。") +
+      " 可选择最多 50 张加入 Pool。";
+    render();
   }
 
   function sequencePhotoSize(id) {
@@ -199,8 +328,8 @@
     var items = {};
     ids.forEach(function (id, index) {
       items[id] = {
-        x: 80 + (index % 4) * 260,
-        y: 140 + Math.floor(index / 4) * 360,
+        x: 120 + (index % 10) * 250,
+        y: 150 + Math.floor(index / 10) * 330,
         width: 200,
         height: 280
       };
@@ -212,8 +341,8 @@
     state.sequence.forEach(function (id, index) {
       if (state.whiteboardItems[id]) return;
       state.whiteboardItems[id] = {
-        x: 80 + (index % 4) * 260,
-        y: 140 + Math.floor(index / 4) * 360,
+        x: 120 + (index % 10) * 250,
+        y: 150 + Math.floor(index / 10) * 330,
         width: 200,
         height: 280
       };
@@ -295,6 +424,17 @@
     return '<div class="page-heading">' + headingCopy + "</div>";
   }
 
+  function contactPageCount() {
+    return Math.max(1, Math.ceil(photos.length / CONTACT_PAGE_SIZE));
+  }
+
+  function contactPagePhotos() {
+    var safePage = clamp(state.contactPage, 0, contactPageCount() - 1);
+    state.contactPage = safePage;
+    var start = safePage * CONTACT_PAGE_SIZE;
+    return photos.slice(start, start + CONTACT_PAGE_SIZE);
+  }
+
   function contactPhotoCard(photo) {
     var selected = state.selected.indexOf(photo.id) >= 0;
     var inPool = state.pool.indexOf(photo.id) >= 0;
@@ -303,55 +443,85 @@
     if (inPool) classes += " is-in-pool";
 
     return (
-      '<button class="' +
+      '<article class="' +
       classes +
-      '" type="button" data-photo-id="' +
+      '" data-photo-id="' +
       photo.id +
-      '"' +
-      (inPool
-        ? " disabled"
-        : ' data-action="toggle-contact-photo" data-id="' + photo.id + '"') +
-      ' aria-pressed="' +
+      '"><button class="contact-selection-surface" type="button" data-action="toggle-contact-photo" data-id="' +
+      photo.id +
+      '" aria-pressed="' +
       selected +
-      '">' +
-      '<span class="selection-mark">✓</span>' +
-      '<span class="pool-mark">已在 Pool</span>' +
+      '"' +
+      (inPool ? " disabled" : "") +
+      ">" +
       photoThumb(photo) +
-      '<span class="photo-name">' +
+      '<div class="contact-card-copy"><span class="photo-name">' +
       escapeHtml(photo.title) +
       '</span><span class="photo-meta">' +
       escapeHtml(photo.meta) +
       " · " +
       photo.id +
-      "</span></button>"
+      '</span></div></button><span class="selection-mark">✓</span><span class="pool-mark">已在 Pool</span><div class="contact-card-actions"><button class="photo-preview-control" type="button" data-action="open-context-photo-preview" data-context="contact" data-id="' +
+      photo.id +
+      '" aria-label="预览完整大图 ' +
+      escapeHtml(photo.title) +
+      '">预览大图</button></div></article>'
     );
   }
 
   function contactContent() {
+    var pagePhotos = contactPagePhotos();
+    var pageCount = contactPageCount();
     var buttonLabel = state.pool.length
       ? "再加入 Pool（" + state.selected.length + "）"
       : "加入 Pool（" + state.selected.length + "）";
     return (
       '<section class="contact-stage">' +
-      '<div class="contact-summary"><span>本次选择 ' +
+      '<section class="library-import-panel"><div><p class="eyebrow">PH0-UX-05 · 本地研究图库</p><strong>' +
+      (state.importedCount
+        ? "已载入 “" + escapeHtml(state.libraryName) + "”"
+        : "读取参与者的 JPEG 文件夹") +
+      "</strong><span>浏览器只建立本地 Object URL，不上传、不复制为 Base64；单次最多读取 500 张。</span></div>" +
+      '<label class="folder-import-button">选择本地 JPEG 文件夹<input type="file" data-role="local-jpeg-folder" accept=".jpg,.jpeg,image/jpeg" multiple webkitdirectory directory></label></section>' +
+      '<div class="contact-summary"><span>图库 ' +
+      photos.length +
+      " 张</span><span>本次选择 " +
       state.selected.length +
-      " 张</span><span>Pool 已有 " +
+      " 张</span><span>Pool " +
       state.pool.length +
-      " 张</span></div>" +
+      " / " +
+      MAX_POOL_PHOTOS +
+      '</span></div><div class="bulk-toolbar"><div><strong>本页选择</strong><span>单击整张照片勾选；“预览大图”不会改变选择</span></div><div class="bulk-toolbar-actions"><button type="button" data-action="select-contact-page">全选本页</button><button type="button" data-action="invert-contact-page">反选本页</button></div></div>' +
       '<div class="contact-grid">' +
-      photos.map(contactPhotoCard).join("") +
-      '</div><div class="stage-actions"><button class="btn btn-primary" type="button" data-action="add-to-pool"' +
+      pagePhotos.map(contactPhotoCard).join("") +
+      '</div><nav class="contact-pagination" aria-label="Contact Sheet 分页"><button type="button" data-action="change-contact-page" data-direction="-1"' +
+      (state.contactPage === 0 ? " disabled" : "") +
+      '>← 上一页</button><span>第 ' +
+      (state.contactPage + 1) +
+      " / " +
+      pageCount +
+      " 页 · 每页最多 " +
+      CONTACT_PAGE_SIZE +
+      ' 张</span><button type="button" data-action="change-contact-page" data-direction="1"' +
+      (state.contactPage >= pageCount - 1 ? " disabled" : "") +
+      ">下一页 →</button></nav>" +
+      '<div class="stage-actions"><button class="btn btn-primary" type="button" data-action="add-to-pool"' +
       (state.selected.length ? "" : " disabled") +
       ">" +
       buttonLabel +
-      '</button><span class="action-hint">加入后会自动进入 Sequence + Pool。</span></div></section>'
+      '</button><span class="action-hint">' +
+      escapeHtml(state.notice) +
+      "</span></div></section>"
     );
   }
 
   function sequenceItem(id, index) {
     var photo = photoById(id);
+    var bulkSelected = state.selectedSequenceIds.indexOf(id) >= 0;
     return (
-      '<article class="sequence-card" draggable="true" data-drag-id="' +
+      '<article class="sequence-card' +
+      (bulkSelected ? " is-bulk-selected" : "") +
+      '" draggable="true" data-drag-id="' +
       id +
       '" data-drop-id="' +
       id +
@@ -371,11 +541,15 @@
       escapeHtml(photo.title) +
       "</strong><small>" +
       photo.id +
-      '</small></span><span class="photo-card-actions"><button class="rotate-photo" type="button" data-action="rotate-photo" data-id="' +
+      '</small></span><span class="photo-card-actions"><button class="sequence-select-toggle" type="button" data-action="toggle-sequence-selection" data-id="' +
       id +
-      '" aria-label="顺时针旋转 ' +
+      '" aria-pressed="' +
+      bulkSelected +
+      '" aria-label="选择 ' +
       escapeHtml(photo.title) +
-      '">↻</button><button class="remove-from-sequence" type="button" data-action="toggle-sequence-photo" data-id="' +
+      '">' +
+      (bulkSelected ? "✓" : "○") +
+      '</button><button class="remove-from-sequence" type="button" data-action="toggle-sequence-photo" data-id="' +
       id +
       '" aria-label="从 Sequence 移除 ' +
       escapeHtml(photo.title) +
@@ -418,21 +592,13 @@
     );
   }
 
-  function sequenceWorkspaceToolbar() {
-    return (
-      '<div class="workspace-toolbar"><div><strong>直接布置工作区</strong><span>拖动模块顶部把手移动；拖四角缩放。照片卡片也可拖四角调整大小。</span></div><div class="workspace-toolbar-actions"><button class="btn btn-primary" type="button" data-action="toggle-whiteboard"' +
-      (state.sequence.length ? "" : " disabled") +
-      ">进入白板</button></div></div>"
-    );
-  }
-
   function poolPhotoCard(id) {
     var photo = photoById(id);
     var inSequence = state.sequence.indexOf(id) >= 0;
     return (
       '<article class="pool-card' +
       (inSequence ? " is-in-sequence" : "") +
-      '"><button class="pool-toggle" type="button" data-action="toggle-sequence-photo" data-id="' +
+      '"><button class="pool-selection-surface" type="button" data-action="toggle-sequence-photo" data-id="' +
       id +
       '" aria-pressed="' +
       inSequence +
@@ -442,11 +608,15 @@
       photoThumb(photo) +
       '<span class="photo-name">' +
       escapeHtml(photo.title) +
-      '</span></button><button class="pool-remove" type="button" data-action="remove-pool-photo" data-id="' +
+      '</span></button><div class="pool-card-actions"><button class="photo-preview-control" type="button" data-action="open-context-photo-preview" data-context="pool" data-id="' +
+      id +
+      '" aria-label="预览完整大图 ' +
+      escapeHtml(photo.title) +
+      '">预览大图</button><button class="pool-remove" type="button" data-action="remove-pool-photo" data-id="' +
       id +
       '" aria-label="从 Pool 删除 ' +
       escapeHtml(photo.title) +
-      '">从 Pool 删除</button></article>'
+      '">×</button></div></article>'
     );
   }
 
@@ -490,25 +660,32 @@
       : "";
 
     return (
-      sequenceWorkspaceToolbar() +
       '<section class="editor-layout" style="--editor-canvas-height:' +
       editorCanvasHeight() +
       'px">' +
       '<div class="sequence-column" data-module="sequence" style="' +
       moduleStyle("sequence") +
       '">' +
-      moduleChrome("sequence", "Sequence") +
-      '<header class="column-heading"><div><p class="eyebrow">序列模块 · 拖角缩放照片</p><h2>Sequence <span>' +
+      '<header class="column-heading"><div><p class="eyebrow">序列模块</p><h2>Sequence <span>' +
       state.sequence.length +
       '</span></h2></div>' +
       '<div class="sequence-tools">' +
       origin +
+      '<div class="sequence-mode-actions"><button class="btn btn-primary" type="button" data-action="toggle-whiteboard"' +
+      (state.sequence.length ? "" : " disabled") +
+      '>进入白板</button><button class="btn btn-secondary" type="button" data-action="open-sequence-panorama"' +
+      (state.sequence.length ? "" : " disabled") +
+      ">进入序列全景</button></div>" +
       '<div class="view-toggle" role="group" aria-label="Sequence 视角"><button class="' +
       (state.sequenceView === "horizontal" ? "is-active" : "") +
       '" type="button" data-action="set-sequence-view" data-view="horizontal">横向</button><button class="' +
       (state.sequenceView === "grid" ? "is-active" : "") +
       '" type="button" data-action="set-sequence-view" data-view="grid">网格</button></div></div>' +
-      '</header><div class="sequence-viewport"><div class="sequence-board view-' +
+      '</header><div class="bulk-toolbar bulk-toolbar-compact"><div><strong>Sequence 选择 ' +
+      state.selectedSequenceIds.length +
+      ' 张</strong><span>用于批量移除，也会同步到白板选择</span></div><div class="bulk-toolbar-actions"><button type="button" data-action="select-all-sequence">全选</button><button type="button" data-action="invert-sequence-selection">反选</button><button class="is-danger" type="button" data-action="remove-selected-sequence"' +
+      (state.selectedSequenceIds.length ? "" : " disabled") +
+      '>移除选中</button></div></div><div class="sequence-viewport"><div class="sequence-board view-' +
       state.sequenceView +
       '" data-sequence-dropzone="true" style="--sequence-frame-height:' +
       state.sequenceFrameHeight +
@@ -535,7 +712,9 @@
       moduleChrome("pool", "Pool") +
       '<header class="column-heading"><div><p class="eyebrow">候选池 · 内容独立滚动</p><h2>Pool <span>' +
       state.pool.length +
-      '</span></h2></div><button class="text-button" type="button" data-action="goto-stage" data-stage="contact">添加照片</button></header>' +
+      " / " +
+      MAX_POOL_PHOTOS +
+      '</span></h2></div><div class="pool-heading-actions"><button type="button" data-action="select-all-pool">全选</button><button type="button" data-action="invert-pool-selection">反选</button><button class="text-button" type="button" data-action="goto-stage" data-stage="contact">添加照片</button></div></header><span class="pool-preview-hint">单击照片加入或移出 Sequence；“预览大图”只负责预览</span>' +
       '<div class="pool-grid">' +
       state.pool.map(poolPhotoCard).join("") +
       "</div></aside></section>"
@@ -590,13 +769,15 @@
       starred +
       '">' +
       (starred ? "★ 已设为比较基准" : "☆ 设为喜欢的版本") +
-      '</button></header><button class="version-open" type="button" data-action="edit-version" data-id="' +
+      '</button></header><button class="version-open" type="button" data-action="open-version-preview" data-id="' +
       version.id +
-      '" aria-label="打开 ' +
+      '" aria-label="沉浸预览 ' +
       escapeHtml(version.label) +
-      ' 继续排序">' +
+      '">' +
       versionPreview(version) +
-      '<span class="open-version-hint">打开这个版本，返回 Sequence 继续排序 →</span></button></section>' +
+      '<span class="open-version-hint">点击进入沉浸预览 →</span></button><div class="version-panel-actions"><button class="open-version-edit" type="button" data-action="edit-version" data-id="' +
+      version.id +
+      '">打开版本，返回 Sequence 继续排序 →</button></div></section>' +
       '<aside class="version-memo"><label for="memo-' +
       version.id +
       '">Memo</label><textarea id="memo-' +
@@ -627,8 +808,11 @@
   function whiteboardItem(id, index) {
     var photo = photoById(id);
     var item = state.whiteboardItems[id];
+    var selected = state.selectedSequenceIds.indexOf(id) >= 0;
     return (
-      '<article class="whiteboard-item" data-whiteboard-item="' +
+      '<article class="whiteboard-item' +
+      (selected ? " is-selected" : "") +
+      '" data-whiteboard-item="' +
       id +
       '" style="left:' +
       item.x +
@@ -640,11 +824,11 @@
       item.height +
       'px"><span class="whiteboard-position">' +
       (index + 1) +
-      '</span><button class="whiteboard-rotate" type="button" data-action="rotate-photo" data-id="' +
+      '</span><button class="whiteboard-remove" type="button" data-action="remove-whiteboard-photo" data-id="' +
       id +
-      '" aria-label="顺时针旋转 ' +
+      '" aria-label="从白板和 Sequence 移除 ' +
       escapeHtml(photo.title) +
-      '">↻</button><button class="whiteboard-drag-surface" type="button" data-action="open-photo-preview" data-whiteboard-drag-handle="' +
+      '">×</button><button class="whiteboard-drag-surface" type="button" data-action="open-photo-preview" data-whiteboard-drag-handle="' +
       id +
       '" data-id="' +
       id +
@@ -652,9 +836,7 @@
       escapeHtml(photo.title) +
       '">' +
       photoThumb(photo) +
-      '</button><span class="whiteboard-photo-name">' +
-      escapeHtml(photo.title) +
-      "</span>" +
+      "</button>" +
       resizeHandles("whiteboard-photo", id) +
       "</article>"
     );
@@ -667,7 +849,7 @@
     return {
       width: Math.max.apply(
         null,
-        [1600].concat(
+        [5200].concat(
           items.map(function (item) {
             return item.x + item.width + 220;
           })
@@ -675,7 +857,7 @@
       ),
       height: Math.max.apply(
         null,
-        [1000].concat(
+        [3600].concat(
           items.map(function (item) {
             return item.y + item.height + 220;
           })
@@ -687,50 +869,133 @@
   function whiteboardContent() {
     ensureWhiteboardItems();
     var bounds = whiteboardBounds();
+    var scaledWidth = Math.round(bounds.width * state.whiteboardZoom);
+    var scaledHeight = Math.round(bounds.height * state.whiteboardZoom);
     return (
       '<main class="whiteboard-mode"><div class="whiteboard-toolbar"><span><strong>Sequence 白板</strong> · ' +
       state.sequence.length +
-      ' 张</span><span>拖动照片自由排布 · 拖四角缩放 · 退出时按从上到下、同一行从左到右回写顺序</span><button type="button" data-action="toggle-whiteboard">退出白板并保留排序</button></div><div class="whiteboard-viewport"><section class="whiteboard-canvas" aria-label="Sequence 自由白板" style="width:' +
+      ' 张 · 已选 ' +
+      state.selectedSequenceIds.length +
+      ' 张</span><span>框选多张 · 拖动选中组 · 右键拖动视角</span><div class="whiteboard-zoom-controls" role="group" aria-label="白板视角缩放"><button type="button" data-action="zoom-whiteboard" data-direction="-1" aria-label="缩小白板视角">−</button><strong>' +
+      Math.round(state.whiteboardZoom * 100) +
+      '%</strong><button type="button" data-action="zoom-whiteboard" data-direction="1" aria-label="放大白板视角">＋</button><button type="button" data-action="reset-whiteboard-view">重置视角</button></div><div class="whiteboard-bulk-actions"><button type="button" data-action="remove-whiteboard-selection"' +
+      (state.selectedSequenceIds.length ? "" : " disabled") +
+      '>移除选中</button><button class="whiteboard-discard" type="button" data-action="exit-whiteboard-discard">放弃改动退出</button><button class="whiteboard-exit" type="button" data-action="exit-whiteboard-save">保留排序退出</button></div></div><div class="whiteboard-viewport"><div class="whiteboard-space" style="width:' +
+      scaledWidth +
+      "px;height:" +
+      scaledHeight +
+      'px"><section class="whiteboard-canvas" aria-label="Sequence 自由白板" style="width:' +
       bounds.width +
       "px;height:" +
       bounds.height +
-      'px">' +
+      "px;--whiteboard-zoom:" +
+      state.whiteboardZoom +
+      '"><div class="whiteboard-selection-box" aria-hidden="true"></div>' +
       state.sequence.map(whiteboardItem).join("") +
-      "</section></div></main>"
+      "</section></div></div></main>"
+    );
+  }
+
+  function panoramaItem(id, index) {
+    var photo = photoById(id);
+    var size = Math.round(sequencePhotoSize(id) * 1.25);
+    return (
+      '<article class="panorama-item" style="--panorama-size:' +
+      size +
+      'px"><span class="panorama-position">' +
+      (index + 1) +
+      '</span><button type="button" data-action="open-panorama-photo" data-id="' +
+      id +
+      '" aria-label="完整预览 ' +
+      escapeHtml(photo.title) +
+      '">' +
+      photoThumb(photo) +
+      "</button></article>"
+    );
+  }
+
+  function panoramaContent(ids, title, eyebrow, exitAction) {
+    return (
+      '<main class="sequence-panorama-mode"><header class="panorama-toolbar"><div><span>' +
+      escapeHtml(eyebrow) +
+      " · " +
+      ids.length +
+      " 张</span><strong>" +
+      escapeHtml(title) +
+      '</strong></div><span>照片为 Sequence 模块尺寸的 1.25 倍 · 点击照片查看完整大图</span><button type="button" data-action="' +
+      exitAction +
+      '">退出序列全景</button></header><section class="panorama-strip" aria-label="照片序列全景">' +
+      ids.map(panoramaItem).join("") +
+      "</section></main>"
+    );
+  }
+
+  function immersiveVersionContent() {
+    var version = versionById(state.immersiveVersionId);
+    if (!version || !version.items.length) return "";
+    return panoramaContent(
+      version.items,
+      version.label,
+      "Compare 版本序列全景",
+      "close-version-preview"
+    );
+  }
+
+  function previewActionControls(photoId) {
+    var source = state.previewSource || "sequence";
+    var isContact = source === "contact";
+    var isReadOnly = source === "compare";
+    var selected = isContact
+      ? state.selected.indexOf(photoId) >= 0
+      : state.sequence.indexOf(photoId) >= 0;
+    var unavailableInContact =
+      isContact && state.pool.indexOf(photoId) >= 0;
+    var status = isReadOnly
+      ? "已保存版本只读"
+      : isContact
+        ? "操作 Contact 本次选择"
+        : "操作当前 Sequence";
+    return (
+      '<div class="preview-actions"><span>' +
+      status +
+      '</span><button class="preview-select-photo" type="button" data-action="preview-select-photo"' +
+      (selected || isReadOnly || unavailableInContact ? " disabled" : "") +
+      ">" +
+      (selected ? "✓ 已选择" : "选择照片") +
+      '</button><button class="preview-remove-photo" type="button" data-action="preview-remove-photo"' +
+      (!selected || isReadOnly ? " disabled" : "") +
+      ">移除照片</button></div>"
     );
   }
 
   function photoPreview() {
     if (!state.previewPhotoId) return "";
-    var index = state.sequence.indexOf(state.previewPhotoId);
+    var previewIds = state.previewContextIds.length
+      ? state.previewContextIds
+      : state.sequence;
+    var index = previewIds.indexOf(state.previewPhotoId);
     if (index < 0) return "";
     var photo = photoById(state.previewPhotoId);
-    var rotation = state.photoRotations[photo.id] || 0;
-    var rotationScale = rotation % 180 === 0 ? 1 : 0.74;
     return (
       '<div class="photo-preview" role="dialog" aria-modal="true" aria-label="照片大图预览"><button class="preview-backdrop" type="button" data-action="close-photo-preview" aria-label="关闭大图预览"></button><section class="preview-dialog"><header><span>' +
       (index + 1) +
       " / " +
-      state.sequence.length +
+      previewIds.length +
       '</span><strong>' +
       escapeHtml(photo.title) +
       '</strong><button type="button" data-action="close-photo-preview" aria-label="关闭大图预览">×</button></header><div class="preview-stage"><button class="preview-arrow preview-arrow-left" type="button" data-action="step-photo-preview" data-direction="-1"' +
       (index === 0 ? " disabled" : "") +
-      ' aria-label="上一张照片">←</button><div class="preview-photo" style="--tone-a:' +
-      photo.a +
-      ";--tone-b:" +
-      photo.b +
-      ";--photo-rotation:" +
-      rotation +
-      "deg;--photo-rotation-scale:" +
-      rotationScale +
-      '"></div><button class="preview-arrow preview-arrow-right" type="button" data-action="step-photo-preview" data-direction="1"' +
-      (index === state.sequence.length - 1 ? " disabled" : "") +
-      ' aria-label="下一张照片">→</button></div><footer><span>' +
+      ' aria-label="上一张照片">←</button>' +
+      largePhoto(photo, "preview-photo") +
+      '<button class="preview-arrow preview-arrow-right" type="button" data-action="step-photo-preview" data-direction="1"' +
+      (index === previewIds.length - 1 ? " disabled" : "") +
+      ' aria-label="下一张照片">→</button></div><footer><span class="preview-meta">' +
       escapeHtml(photo.meta) +
       " · " +
       photo.id +
-      "</span><span>键盘 ← → 浏览 · Esc 退出</span></footer></section></div>"
+      '</span>' +
+      previewActionControls(photo.id) +
+      '<span class="preview-shortcuts">键盘 ← → 浏览 · Esc 退出</span></footer></section></div>'
     );
   }
 
@@ -743,6 +1008,15 @@
   function render() {
     var content = state.whiteboard
       ? whiteboardContent()
+      : state.sequencePanorama
+        ? panoramaContent(
+            state.sequence,
+            "当前工作序列",
+            "Sequence 序列全景",
+            "close-sequence-panorama"
+          )
+      : state.immersiveVersionId
+        ? immersiveVersionContent()
       : '<div class="prototype-shell"><header class="app-header"><div class="brand-block"><span class="prototype-flag">Prototype · Memory only</span><span class="project-name">河流向北</span></div>' +
         topStageNavigation() +
         '<button class="reset-button" type="button" data-action="reset">重新开始</button></header><main class="app-main">' +
@@ -757,6 +1031,47 @@
     state.stage = stageId;
     state.whiteboard = false;
     state.previewPhotoId = null;
+    state.previewContextIds = [];
+    state.previewSource = null;
+    state.sequencePanorama = false;
+    state.immersiveVersionId = null;
+    render();
+  }
+
+  function changeContactPage(direction) {
+    state.contactPage = clamp(
+      state.contactPage + Number(direction),
+      0,
+      contactPageCount() - 1
+    );
+    render();
+  }
+
+  function bulkSelectContactPage(invert) {
+    var pageIds = contactPagePhotos()
+      .map(function (photo) {
+        return photo.id;
+      })
+      .filter(function (id) {
+        return state.pool.indexOf(id) < 0;
+      });
+    var next = state.selected.slice();
+    pageIds.forEach(function (id) {
+      var selectedIndex = next.indexOf(id);
+      if (invert && selectedIndex >= 0) {
+        next.splice(selectedIndex, 1);
+        return;
+      }
+      if (selectedIndex < 0 && state.pool.length + next.length < MAX_POOL_PHOTOS) {
+        next.push(id);
+      }
+    });
+    state.selected = next;
+    state.notice =
+      (invert ? "已反选本页；" : "已全选本页可加入的照片；") +
+      "当前共选择 " +
+      state.selected.length +
+      " 张，Pool 上限为 50 张。";
     render();
   }
 
@@ -766,6 +1081,11 @@
     if (index >= 0) {
       state.selected.splice(index, 1);
     } else {
+      if (state.pool.length + state.selected.length >= MAX_POOL_PHOTOS) {
+        state.notice = "Pool 上限是 50 张；请先取消一张当前选择或从 Pool 删除照片。";
+        render();
+        return;
+      }
       state.selected.push(id);
     }
     render();
@@ -773,10 +1093,20 @@
 
   function addSelectedToPool() {
     if (!state.selected.length) return;
-    state.pool = uniqueIds(state.pool.concat(state.selected));
+    var capacity = Math.max(0, MAX_POOL_PHOTOS - state.pool.length);
+    var additions = state.selected.slice(0, capacity);
+    state.pool = uniqueIds(state.pool.concat(additions));
     state.selected = [];
+    if (!additions.length) {
+      state.notice = "Pool 已达到 50 张上限。";
+      render();
+      return;
+    }
     state.stage = "sequence";
-    state.notice = "勾选 Pool 照片加入 Sequence；再次点击即可移除。";
+    state.notice =
+      "已加入 " +
+      additions.length +
+      " 张；勾选 Pool 照片加入 Sequence，再次点击即可移除。";
     render();
   }
 
@@ -784,9 +1114,16 @@
     if (state.pool.indexOf(id) < 0) return;
     var poolElement = document.querySelector(".pool-column");
     var poolScrollTop = poolElement ? poolElement.scrollTop : 0;
+    var sequenceElement = document.querySelector(".sequence-board");
+    var sequenceScrollTop = sequenceElement ? sequenceElement.scrollTop : 0;
+    var sequenceScrollLeft = sequenceElement ? sequenceElement.scrollLeft : 0;
     var index = state.sequence.indexOf(id);
     if (index >= 0) {
       state.sequence.splice(index, 1);
+      state.selectedSequenceIds = state.selectedSequenceIds.filter(function (selectedId) {
+        return selectedId !== id;
+      });
+      delete state.whiteboardItems[id];
       state.notice = photoById(id).title + " 已从 Sequence 移除。";
     } else {
       state.sequence.push(id);
@@ -795,6 +1132,85 @@
     render();
     var nextPoolElement = document.querySelector(".pool-column");
     if (nextPoolElement) nextPoolElement.scrollTop = poolScrollTop;
+    var nextSequenceElement = document.querySelector(".sequence-board");
+    if (nextSequenceElement) {
+      nextSequenceElement.scrollTop = sequenceScrollTop;
+      nextSequenceElement.scrollLeft = sequenceScrollLeft;
+    }
+  }
+
+  function selectAllPoolPhotos() {
+    state.sequence = state.pool.slice();
+    state.selectedSequenceIds = state.selectedSequenceIds.filter(function (id) {
+      return state.sequence.indexOf(id) >= 0;
+    });
+    state.notice = "Pool 中的全部 " + state.sequence.length + " 张照片已加入 Sequence。";
+    render();
+  }
+
+  function invertPoolPhotos() {
+    var previous = state.sequence.slice();
+    state.sequence = state.pool.filter(function (id) {
+      return previous.indexOf(id) < 0;
+    });
+    state.selectedSequenceIds = state.selectedSequenceIds.filter(function (id) {
+      return state.sequence.indexOf(id) >= 0;
+    });
+    ensureWhiteboardItems();
+    state.notice = "已反选 Pool 与 Sequence 的对应关系。";
+    render();
+  }
+
+  function toggleSequenceSelection(id) {
+    if (state.sequence.indexOf(id) < 0) return;
+    var index = state.selectedSequenceIds.indexOf(id);
+    if (index >= 0) {
+      state.selectedSequenceIds.splice(index, 1);
+    } else {
+      state.selectedSequenceIds.push(id);
+    }
+    render();
+  }
+
+  function selectAllSequencePhotos() {
+    state.selectedSequenceIds = state.sequence.slice();
+    render();
+  }
+
+  function invertSequenceSelection() {
+    state.selectedSequenceIds = state.sequence.filter(function (id) {
+      return state.selectedSequenceIds.indexOf(id) < 0;
+    });
+    render();
+  }
+
+  function removeSequencePhotos(ids, notice) {
+    var removalIds = ids.filter(function (id) {
+      return state.sequence.indexOf(id) >= 0;
+    });
+    if (!removalIds.length) return;
+    var scrollSelector = state.whiteboard
+      ? ".whiteboard-viewport"
+      : ".sequence-board";
+    var scrollElement = document.querySelector(scrollSelector);
+    var scrollTop = scrollElement ? scrollElement.scrollTop : 0;
+    var scrollLeft = scrollElement ? scrollElement.scrollLeft : 0;
+    state.sequence = state.sequence.filter(function (id) {
+      return removalIds.indexOf(id) < 0;
+    });
+    state.selectedSequenceIds = state.selectedSequenceIds.filter(function (id) {
+      return removalIds.indexOf(id) < 0;
+    });
+    removalIds.forEach(function (id) {
+      delete state.whiteboardItems[id];
+    });
+    state.notice = notice || "已从 Sequence 移除 " + removalIds.length + " 张照片。";
+    render();
+    var nextScrollElement = document.querySelector(scrollSelector);
+    if (nextScrollElement) {
+      nextScrollElement.scrollTop = scrollTop;
+      nextScrollElement.scrollLeft = scrollLeft;
+    }
   }
 
   function removePoolPhoto(id) {
@@ -807,6 +1223,10 @@
     state.selected = state.selected.filter(function (photoId) {
       return photoId !== id;
     });
+    state.selectedSequenceIds = state.selectedSequenceIds.filter(function (photoId) {
+      return photoId !== id;
+    });
+    delete state.whiteboardItems[id];
     state.notice = photoById(id).title + " 已从 Pool 删除；Contact Sheet 已恢复彩色。";
     if (!state.pool.length) state.stage = "contact";
     render();
@@ -869,6 +1289,7 @@
     state.sequence = version.items.slice();
     state.workingFromVersionId = version.id;
     state.stage = "sequence";
+    state.immersiveVersionId = null;
     state.notice =
       "正在编辑 " +
       version.label +
@@ -895,23 +1316,12 @@
     return Math.max(min, Math.min(max, value));
   }
 
-  function rotatePhoto(id) {
-    if (!photoById(id)) return;
-    state.photoRotations[id] = ((state.photoRotations[id] || 0) + 90) % 360;
-    state.notice =
-      photoById(id).title + " 已旋转 " + state.photoRotations[id] + "°。";
-    var scrollSelector = state.whiteboard
-      ? ".whiteboard-viewport"
-      : ".sequence-board";
-    var scrollElement = document.querySelector(scrollSelector);
-    var scrollTop = scrollElement ? scrollElement.scrollTop : 0;
-    var scrollLeft = scrollElement ? scrollElement.scrollLeft : 0;
-    render();
-    var nextScrollElement = document.querySelector(scrollSelector);
-    if (nextScrollElement) {
-      nextScrollElement.scrollTop = scrollTop;
-      nextScrollElement.scrollLeft = scrollLeft;
-    }
+  function cloneWhiteboardItems(items) {
+    var clone = {};
+    Object.keys(items).forEach(function (id) {
+      clone[id] = Object.assign({}, items[id]);
+    });
+    return clone;
   }
 
   function orderedWhiteboardIds() {
@@ -958,32 +1368,163 @@
     state.notice = "白板排序已按从上到下、同一行从左到右写回 Sequence。";
   }
 
-  function openPhotoPreview(id) {
-    if (state.sequence.indexOf(id) < 0) return;
+  function openPhotoPreview(id, contextIds, source) {
+    var ids = (contextIds || state.sequence).filter(function (photoId) {
+      return Boolean(photoById(photoId));
+    });
+    if (ids.indexOf(id) < 0) return;
+    state.previewContextIds = ids.slice();
     state.previewPhotoId = id;
+    state.previewSource = source || "sequence";
     render();
   }
 
+  function closePhotoPreview() {
+    state.previewPhotoId = null;
+    state.previewContextIds = [];
+    state.previewSource = null;
+    render();
+  }
+
+  function selectPreviewPhoto() {
+    var id = state.previewPhotoId;
+    if (!id || state.previewSource === "compare") return;
+    if (state.previewSource === "contact") {
+      if (state.selected.indexOf(id) < 0) toggleContactPhoto(id);
+      return;
+    }
+    if (state.sequence.indexOf(id) < 0) toggleSequencePhoto(id);
+  }
+
+  function removePreviewPhoto() {
+    var id = state.previewPhotoId;
+    if (!id || state.previewSource === "compare") return;
+    if (state.previewSource === "contact") {
+      if (state.selected.indexOf(id) >= 0) toggleContactPhoto(id);
+      return;
+    }
+    if (state.sequence.indexOf(id) >= 0) toggleSequencePhoto(id);
+  }
+
   function stepPhotoPreview(direction) {
-    var index = state.sequence.indexOf(state.previewPhotoId);
+    var ids = state.previewContextIds.length
+      ? state.previewContextIds
+      : state.sequence;
+    var index = ids.indexOf(state.previewPhotoId);
     if (index < 0) return;
     var nextIndex = index + Number(direction);
-    if (nextIndex < 0 || nextIndex >= state.sequence.length) return;
-    state.previewPhotoId = state.sequence[nextIndex];
+    if (nextIndex < 0 || nextIndex >= ids.length) return;
+    state.previewPhotoId = ids[nextIndex];
     render();
   }
 
   function toggleWhiteboard() {
     if (!state.sequence.length) return;
     if (state.whiteboard) {
-      commitWhiteboardOrder();
-      state.whiteboard = false;
-    } else {
-      ensureWhiteboardItems();
-      state.whiteboard = true;
+      exitWhiteboard(true);
+      return;
     }
+    ensureWhiteboardItems();
+    state.whiteboardEntrySequence = state.sequence.slice();
+    state.whiteboardEntryItems = cloneWhiteboardItems(state.whiteboardItems);
+    state.whiteboard = true;
     state.previewPhotoId = null;
+    state.previewContextIds = [];
+    state.previewSource = null;
+    state.sequencePanorama = false;
+    state.immersiveVersionId = null;
     render();
+  }
+
+  function exitWhiteboard(saveChanges) {
+    if (!state.whiteboard) return;
+    if (saveChanges) {
+      commitWhiteboardOrder();
+    } else {
+      state.sequence = state.whiteboardEntrySequence.slice();
+      state.whiteboardItems = cloneWhiteboardItems(state.whiteboardEntryItems);
+      state.selectedSequenceIds = state.selectedSequenceIds.filter(function (id) {
+        return state.sequence.indexOf(id) >= 0;
+      });
+      state.notice = "已放弃本次白板中的排序、移动、缩放和移除改动。";
+    }
+    state.whiteboard = false;
+    state.whiteboardEntrySequence = [];
+    state.whiteboardEntryItems = {};
+    render();
+  }
+
+  function openSequencePanorama() {
+    if (!state.sequence.length) return;
+    state.sequencePanorama = true;
+    state.previewPhotoId = null;
+    state.previewContextIds = [];
+    state.previewSource = null;
+    render();
+  }
+
+  function openVersionPreview(id) {
+    var version = versionById(id);
+    if (!version || !version.items.length) return;
+    state.immersiveVersionId = id;
+    state.previewPhotoId = null;
+    state.previewContextIds = [];
+    state.previewSource = null;
+    render();
+  }
+
+  function currentPanoramaIds() {
+    if (state.sequencePanorama) return state.sequence.slice();
+    var version = versionById(state.immersiveVersionId);
+    return version ? version.items.slice() : [];
+  }
+
+  function resetPrototype() {
+    state = createInitialState(true);
+    state.notice = importedLibraryName
+      ? "工作状态已清空；本地 JPEG 图库仍保留，可重新开始筛选。"
+      : "工作状态已清空，请重新建立候选池。";
+    render();
+  }
+
+  function changeWhiteboardZoom(nextZoom, resetView) {
+    var viewport = document.querySelector(".whiteboard-viewport");
+    var oldZoom = state.whiteboardZoom;
+    var rect =
+      viewport && viewport.getBoundingClientRect
+        ? viewport.getBoundingClientRect()
+        : { width: 1200, height: 700 };
+    var viewportWidth = viewport && viewport.clientWidth
+      ? viewport.clientWidth
+      : rect.width;
+    var viewportHeight = viewport && viewport.clientHeight
+      ? viewport.clientHeight
+      : rect.height;
+    var centerX = viewport
+      ? (viewport.scrollLeft + viewportWidth / 2) / oldZoom
+      : 0;
+    var centerY = viewport
+      ? (viewport.scrollTop + viewportHeight / 2) / oldZoom
+      : 0;
+
+    state.whiteboardZoom = clamp(nextZoom, 0.25, 1.5);
+    render();
+
+    var nextViewport = document.querySelector(".whiteboard-viewport");
+    if (!nextViewport) return;
+    if (resetView) {
+      nextViewport.scrollLeft = 0;
+      nextViewport.scrollTop = 0;
+      return;
+    }
+    nextViewport.scrollLeft = Math.max(
+      0,
+      centerX * state.whiteboardZoom - viewportWidth / 2
+    );
+    nextViewport.scrollTop = Math.max(
+      0,
+      centerY * state.whiteboardZoom - viewportHeight / 2
+    );
   }
 
   document.addEventListener("click", function (event) {
@@ -1000,8 +1541,44 @@
       addSelectedToPool();
       return;
     }
+    if (action === "select-contact-page") {
+      bulkSelectContactPage(false);
+      return;
+    }
+    if (action === "invert-contact-page") {
+      bulkSelectContactPage(true);
+      return;
+    }
+    if (action === "change-contact-page") {
+      changeContactPage(target.getAttribute("data-direction"));
+      return;
+    }
     if (action === "toggle-sequence-photo") {
       toggleSequencePhoto(id);
+      return;
+    }
+    if (action === "select-all-pool") {
+      selectAllPoolPhotos();
+      return;
+    }
+    if (action === "invert-pool-selection") {
+      invertPoolPhotos();
+      return;
+    }
+    if (action === "toggle-sequence-selection") {
+      toggleSequenceSelection(id);
+      return;
+    }
+    if (action === "select-all-sequence") {
+      selectAllSequencePhotos();
+      return;
+    }
+    if (action === "invert-sequence-selection") {
+      invertSequenceSelection();
+      return;
+    }
+    if (action === "remove-selected-sequence") {
+      removeSequencePhotos(state.selectedSequenceIds.slice());
       return;
     }
     if (action === "remove-pool-photo") {
@@ -1024,12 +1601,65 @@
       editVersion(id);
       return;
     }
-    if (action === "rotate-photo") {
-      rotatePhoto(id);
+    if (action === "open-version-preview") {
+      openVersionPreview(id);
+      return;
+    }
+    if (action === "close-version-preview") {
+      state.immersiveVersionId = null;
+      render();
+      return;
+    }
+    if (action === "open-sequence-panorama") {
+      openSequencePanorama();
+      return;
+    }
+    if (action === "close-sequence-panorama") {
+      state.sequencePanorama = false;
+      render();
+      return;
+    }
+    if (action === "open-panorama-photo") {
+      openPhotoPreview(
+        id,
+        currentPanoramaIds(),
+        state.immersiveVersionId ? "compare" : "sequence"
+      );
       return;
     }
     if (action === "toggle-whiteboard") {
       toggleWhiteboard();
+      return;
+    }
+    if (action === "zoom-whiteboard") {
+      changeWhiteboardZoom(
+        state.whiteboardZoom +
+          Number(target.getAttribute("data-direction")) * 0.25,
+        false
+      );
+      return;
+    }
+    if (action === "reset-whiteboard-view") {
+      changeWhiteboardZoom(0.75, true);
+      return;
+    }
+    if (action === "exit-whiteboard-save") {
+      exitWhiteboard(true);
+      return;
+    }
+    if (action === "exit-whiteboard-discard") {
+      exitWhiteboard(false);
+      return;
+    }
+    if (action === "remove-whiteboard-photo") {
+      removeSequencePhotos([id], photoById(id).title + " 已从白板和 Sequence 移除。");
+      return;
+    }
+    if (action === "remove-whiteboard-selection") {
+      removeSequencePhotos(
+        state.selectedSequenceIds.slice(),
+        "已从白板和 Sequence 移除选中的照片。"
+      );
       return;
     }
     if (action === "open-photo-preview") {
@@ -1037,12 +1667,24 @@
         suppressPhotoClick = false;
         return;
       }
-      openPhotoPreview(id);
+      openPhotoPreview(id, state.sequence, "sequence");
+      return;
+    }
+    if (action === "open-context-photo-preview") {
+      var previewContext = target.getAttribute("data-context");
+      openPhotoPreview(id, previewContextIds(previewContext), previewContext);
+      return;
+    }
+    if (action === "preview-select-photo") {
+      selectPreviewPhoto();
+      return;
+    }
+    if (action === "preview-remove-photo") {
+      removePreviewPhoto();
       return;
     }
     if (action === "close-photo-preview") {
-      state.previewPhotoId = null;
-      render();
+      closePhotoPreview();
       return;
     }
     if (action === "step-photo-preview") {
@@ -1072,9 +1714,17 @@
       return;
     }
     if (action === "reset") {
-      state = createInitialState();
-      render();
+      resetPrototype();
     }
+  });
+
+  document.addEventListener("change", function (event) {
+    var target = event.target;
+    if (!target || target.getAttribute("data-role") !== "local-jpeg-folder") {
+      return;
+    }
+    importLocalJpegs(target.files);
+    target.value = "";
   });
 
   document.addEventListener("input", function (event) {
@@ -1090,7 +1740,6 @@
   });
 
   document.addEventListener("keydown", function (event) {
-    if (!state.previewPhotoId) return;
     var target = event.target;
     var tagName = target && target.tagName ? target.tagName.toLowerCase() : "";
     if (
@@ -1100,23 +1749,117 @@
     ) {
       return;
     }
-    if (event.key === "Escape") {
-      state.previewPhotoId = null;
+    if (state.previewPhotoId) {
+      if (event.key === "Escape") {
+        state.previewPhotoId = null;
+        state.previewContextIds = [];
+        state.previewSource = null;
+        render();
+        return;
+      }
+      if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
+        if (event.preventDefault) event.preventDefault();
+        stepPhotoPreview(event.key === "ArrowLeft" ? -1 : 1);
+      }
+      return;
+    }
+    if (event.key === "Escape" && state.immersiveVersionId) {
+      state.immersiveVersionId = null;
       render();
       return;
     }
-    if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
-      if (event.preventDefault) event.preventDefault();
-      stepPhotoPreview(event.key === "ArrowLeft" ? -1 : 1);
+    if (event.key === "Escape" && state.sequencePanorama) {
+      state.sequencePanorama = false;
+      render();
     }
   });
 
+  function syncWhiteboardSelectionDom() {
+    if (!document.querySelectorAll) return;
+    Array.prototype.forEach.call(
+      document.querySelectorAll("[data-whiteboard-item]"),
+      function (element) {
+        var selected =
+          state.selectedSequenceIds.indexOf(
+            element.getAttribute("data-whiteboard-item")
+          ) >= 0;
+        if (element.classList && element.classList.toggle) {
+          element.classList.toggle("is-selected", selected);
+        }
+      }
+    );
+  }
+
   document.addEventListener("pointerdown", function (event) {
+    var whiteboardViewportTarget = event.target.closest(".whiteboard-viewport");
+    if (
+      state.whiteboard &&
+      event.button === 2 &&
+      whiteboardViewportTarget
+    ) {
+      if (event.preventDefault) event.preventDefault();
+      pointerInteraction = {
+        kind: "whiteboard-pan",
+        startX: event.clientX,
+        startY: event.clientY,
+        startScrollLeft: whiteboardViewportTarget.scrollLeft,
+        startScrollTop: whiteboardViewportTarget.scrollTop,
+        viewport: whiteboardViewportTarget,
+        moved: false,
+        pointerId: event.pointerId
+      };
+      if (whiteboardViewportTarget.classList) {
+        whiteboardViewportTarget.classList.add("is-panning");
+      }
+      if (event.target.setPointerCapture && event.pointerId != null) {
+        event.target.setPointerCapture(event.pointerId);
+      }
+      return;
+    }
     var resizeTarget = event.target.closest("[data-resize-kind]");
     var moduleDragTarget = event.target.closest("[data-module-drag-handle]");
     var whiteboardDragTarget = event.target.closest(
       "[data-whiteboard-drag-handle]"
     );
+    var whiteboardCanvasTarget = event.target.closest(".whiteboard-canvas");
+    if (
+      state.whiteboard &&
+      (event.button == null || event.button === 0) &&
+      whiteboardCanvasTarget &&
+      !resizeTarget &&
+      !whiteboardDragTarget
+    ) {
+      if (event.preventDefault) event.preventDefault();
+      var canvasRect = whiteboardCanvasTarget.getBoundingClientRect();
+      var viewportForSelection = document.querySelector(".whiteboard-viewport");
+      pointerInteraction = {
+        kind: "whiteboard-marquee",
+        startX: event.clientX,
+        startY: event.clientY,
+        startBoardX: (event.clientX - canvasRect.left) / state.whiteboardZoom,
+        startBoardY: (event.clientY - canvasRect.top) / state.whiteboardZoom,
+        canvasRect: canvasRect,
+        zoom: state.whiteboardZoom,
+        scrollTop: viewportForSelection ? viewportForSelection.scrollTop : 0,
+        scrollLeft: viewportForSelection ? viewportForSelection.scrollLeft : 0,
+        moved: false,
+        pointerId: event.pointerId
+      };
+      state.selectedSequenceIds = [];
+      syncWhiteboardSelectionDom();
+      var selectionBox = document.querySelector(".whiteboard-selection-box");
+      if (selectionBox && selectionBox.style) {
+        selectionBox.style.display = "block";
+        selectionBox.style.left = pointerInteraction.startBoardX + "px";
+        selectionBox.style.top = pointerInteraction.startBoardY + "px";
+        selectionBox.style.width = "0px";
+        selectionBox.style.height = "0px";
+      }
+      if (event.target.setPointerCapture && event.pointerId != null) {
+        event.target.setPointerCapture(event.pointerId);
+      }
+      return;
+    }
     if (!resizeTarget && !moduleDragTarget && !whiteboardDragTarget) return;
     if (event.preventDefault) event.preventDefault();
 
@@ -1153,13 +1896,25 @@
       interaction.kind === "whiteboard-photo" ||
       interaction.kind === "whiteboard-move"
     ) {
-      interaction.start = Object.assign(
-        {},
-        state.whiteboardItems[interaction.id]
-      );
+      if (
+        interaction.kind === "whiteboard-move" &&
+        state.selectedSequenceIds.indexOf(interaction.id) < 0
+      ) {
+        state.selectedSequenceIds = [interaction.id];
+        syncWhiteboardSelectionDom();
+      }
+      interaction.ids = interaction.kind === "whiteboard-move"
+        ? state.selectedSequenceIds.slice()
+        : [interaction.id];
+      interaction.starts = {};
+      interaction.ids.forEach(function (id) {
+        interaction.starts[id] = Object.assign({}, state.whiteboardItems[id]);
+      });
+      interaction.start = interaction.starts[interaction.id];
       var viewport = document.querySelector(".whiteboard-viewport");
       interaction.scrollTop = viewport ? viewport.scrollTop : 0;
       interaction.scrollLeft = viewport ? viewport.scrollLeft : 0;
+      interaction.zoom = state.whiteboardZoom;
     } else if (interaction.kind === "sequence-photo") {
       interaction.startSize = sequencePhotoSize(interaction.id);
       var sequenceBoard = document.querySelector(".sequence-board");
@@ -1179,6 +1934,45 @@
     var dy = event.clientY - pointerInteraction.startY;
     if (Math.abs(dx) + Math.abs(dy) > 2) pointerInteraction.moved = true;
     if (event.preventDefault) event.preventDefault();
+
+    if (pointerInteraction.kind === "whiteboard-pan") {
+      pointerInteraction.viewport.scrollLeft =
+        pointerInteraction.startScrollLeft - dx;
+      pointerInteraction.viewport.scrollTop =
+        pointerInteraction.startScrollTop - dy;
+      return;
+    }
+
+    if (pointerInteraction.kind === "whiteboard-marquee") {
+      var currentBoardX =
+        (event.clientX - pointerInteraction.canvasRect.left) /
+        pointerInteraction.zoom;
+      var currentBoardY =
+        (event.clientY - pointerInteraction.canvasRect.top) /
+        pointerInteraction.zoom;
+      var selectionLeft = Math.min(pointerInteraction.startBoardX, currentBoardX);
+      var selectionTop = Math.min(pointerInteraction.startBoardY, currentBoardY);
+      var selectionRight = Math.max(pointerInteraction.startBoardX, currentBoardX);
+      var selectionBottom = Math.max(pointerInteraction.startBoardY, currentBoardY);
+      state.selectedSequenceIds = state.sequence.filter(function (id) {
+        var item = state.whiteboardItems[id];
+        return (
+          item.x < selectionRight &&
+          item.x + item.width > selectionLeft &&
+          item.y < selectionBottom &&
+          item.y + item.height > selectionTop
+        );
+      });
+      var activeSelectionBox = document.querySelector(".whiteboard-selection-box");
+      if (activeSelectionBox && activeSelectionBox.style) {
+        activeSelectionBox.style.left = selectionLeft + "px";
+        activeSelectionBox.style.top = selectionTop + "px";
+        activeSelectionBox.style.width = selectionRight - selectionLeft + "px";
+        activeSelectionBox.style.height = selectionBottom - selectionTop + "px";
+      }
+      syncWhiteboardSelectionDom();
+      return;
+    }
 
     if (
       pointerInteraction.kind === "module" ||
@@ -1275,47 +2069,61 @@
       return;
     }
 
+    var whiteboardDx = dx / (pointerInteraction.zoom || 1);
+    var whiteboardDy = dy / (pointerInteraction.zoom || 1);
+    if (pointerInteraction.kind === "whiteboard-move") {
+      pointerInteraction.ids.forEach(function (id) {
+        var start = pointerInteraction.starts[id];
+        var itemState = state.whiteboardItems[id];
+        itemState.x = clamp(start.x + whiteboardDx, 20, 5000);
+        itemState.y = clamp(start.y + whiteboardDy, 80, 3400);
+        var itemElement = document.querySelector(
+          '[data-whiteboard-item="' + id + '"]'
+        );
+        if (itemElement && itemElement.style) {
+          itemElement.style.left = itemState.x + "px";
+          itemElement.style.top = itemState.y + "px";
+        }
+      });
+      return;
+    }
+
     var whiteboardItemState = state.whiteboardItems[pointerInteraction.id];
     var whiteboardStart = pointerInteraction.start;
-    if (pointerInteraction.kind === "whiteboard-move") {
-      whiteboardItemState.x = clamp(whiteboardStart.x + dx, 20, 3600);
-      whiteboardItemState.y = clamp(whiteboardStart.y + dy, 80, 2400);
-    } else {
-      var photoCorner = pointerInteraction.corner;
-      if (photoCorner.indexOf("e") >= 0) {
-        whiteboardItemState.width = clamp(
-          whiteboardStart.width + dx,
-          120,
-          720
-        );
-      }
-      if (photoCorner.indexOf("w") >= 0) {
-        var nextPhotoX = clamp(
-          whiteboardStart.x + dx,
-          20,
-          whiteboardStart.x + whiteboardStart.width - 120
-        );
-        whiteboardItemState.width =
-          whiteboardStart.width + whiteboardStart.x - nextPhotoX;
-        whiteboardItemState.x = nextPhotoX;
-      }
-      if (photoCorner.indexOf("s") >= 0) {
-        whiteboardItemState.height = clamp(
-          whiteboardStart.height + dy,
-          140,
-          900
-        );
-      }
-      if (photoCorner.indexOf("n") >= 0) {
-        var nextPhotoY = clamp(
-          whiteboardStart.y + dy,
-          80,
-          whiteboardStart.y + whiteboardStart.height - 140
-        );
-        whiteboardItemState.height =
-          whiteboardStart.height + whiteboardStart.y - nextPhotoY;
-        whiteboardItemState.y = nextPhotoY;
-      }
+    var photoCorner = pointerInteraction.corner;
+    if (photoCorner.indexOf("e") >= 0) {
+      whiteboardItemState.width = clamp(
+        whiteboardStart.width + whiteboardDx,
+        120,
+        720
+      );
+    }
+    if (photoCorner.indexOf("w") >= 0) {
+      var nextPhotoX = clamp(
+        whiteboardStart.x + whiteboardDx,
+        20,
+        whiteboardStart.x + whiteboardStart.width - 120
+      );
+      whiteboardItemState.width =
+        whiteboardStart.width + whiteboardStart.x - nextPhotoX;
+      whiteboardItemState.x = nextPhotoX;
+    }
+    if (photoCorner.indexOf("s") >= 0) {
+      whiteboardItemState.height = clamp(
+        whiteboardStart.height + whiteboardDy,
+        140,
+        900
+      );
+    }
+    if (photoCorner.indexOf("n") >= 0) {
+      var nextPhotoY = clamp(
+        whiteboardStart.y + whiteboardDy,
+        80,
+        whiteboardStart.y + whiteboardStart.height - 140
+      );
+      whiteboardItemState.height =
+        whiteboardStart.height + whiteboardStart.y - nextPhotoY;
+      whiteboardItemState.y = nextPhotoY;
     }
     var whiteboardElement = document.querySelector(
       '[data-whiteboard-item="' + pointerInteraction.id + '"]'
@@ -1332,6 +2140,21 @@
     if (!pointerInteraction) return;
     var finished = pointerInteraction;
     pointerInteraction = null;
+    if (finished.kind === "whiteboard-pan") {
+      if (finished.viewport && finished.viewport.classList) {
+        finished.viewport.classList.remove("is-panning");
+      }
+      return;
+    }
+    if (finished.kind === "whiteboard-marquee") {
+      render();
+      var marqueeViewport = document.querySelector(".whiteboard-viewport");
+      if (marqueeViewport) {
+        marqueeViewport.scrollTop = finished.scrollTop || 0;
+        marqueeViewport.scrollLeft = finished.scrollLeft || 0;
+      }
+      return;
+    }
     if (!finished.moved) return;
 
     if (finished.kind === "whiteboard-move") {
@@ -1361,6 +2184,12 @@
 
   document.addEventListener("pointerup", finishPointerInteraction);
   document.addEventListener("pointercancel", finishPointerInteraction);
+
+  document.addEventListener("contextmenu", function (event) {
+    if (state.whiteboard && event.target.closest(".whiteboard-viewport")) {
+      event.preventDefault();
+    }
+  });
 
   document.addEventListener("dragstart", function (event) {
     if (event.target.closest("[data-resize-kind]")) {
