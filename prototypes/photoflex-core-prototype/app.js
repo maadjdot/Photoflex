@@ -39,6 +39,8 @@
 
   var state = createInitialState();
   var draggedPhotoId = null;
+  var pointerInteraction = null;
+  var suppressPhotoClick = false;
 
   function defaultModuleLayout() {
     return {
@@ -60,9 +62,10 @@
       sequenceView: "horizontal",
       sequenceFrameHeight: 350,
       sequencePhotoSizes: {},
-      layoutEditing: false,
+      photoRotations: {},
       moduleLayout: defaultModuleLayout(),
-      immersive: false,
+      whiteboard: false,
+      whiteboardItems: {},
       previewPhotoId: null,
       versionDraftName: "",
       notice: "先凭直觉选择照片，再把它们加入 Pool。"
@@ -108,11 +111,12 @@
     if (query.get("view") === "grid") {
       initial.sequenceView = "grid";
     }
-    if (query.get("layout") === "1" && initial.stage === "sequence") {
-      initial.layoutEditing = true;
-    }
-    if (query.get("immersive") === "1" && initial.stage === "sequence") {
-      initial.immersive = true;
+    if (
+      (query.get("whiteboard") === "1" || query.get("immersive") === "1") &&
+      initial.stage === "sequence"
+    ) {
+      initial.whiteboard = true;
+      initial.whiteboardItems = createWhiteboardItems(initial.sequence);
     }
     if (
       query.get("preview") &&
@@ -150,11 +154,17 @@
   }
 
   function photoThumb(photo) {
+    var rotation = state.photoRotations[photo.id] || 0;
+    var rotationScale = rotation % 180 === 0 ? 1 : 0.74;
     return (
       '<span class="photo-thumb" style="--tone-a:' +
       photo.a +
       ";--tone-b:" +
       photo.b +
+      ";--photo-rotation:" +
+      rotation +
+      "deg;--photo-rotation-scale:" +
+      rotationScale +
       '"></span>'
     );
   }
@@ -183,6 +193,34 @@
       state.moduleLayout.sequence.y + state.moduleLayout.sequence.height,
       state.moduleLayout.pool.y + state.moduleLayout.pool.height
     );
+  }
+
+  function createWhiteboardItems(ids) {
+    var items = {};
+    ids.forEach(function (id, index) {
+      items[id] = {
+        x: 80 + (index % 4) * 260,
+        y: 140 + Math.floor(index / 4) * 360,
+        width: 200,
+        height: 280
+      };
+    });
+    return items;
+  }
+
+  function ensureWhiteboardItems() {
+    state.sequence.forEach(function (id, index) {
+      if (state.whiteboardItems[id]) return;
+      state.whiteboardItems[id] = {
+        x: 80 + (index % 4) * 260,
+        y: 140 + Math.floor(index / 4) * 360,
+        width: 200,
+        height: 280
+      };
+    });
+    Object.keys(state.whiteboardItems).forEach(function (id) {
+      if (state.sequence.indexOf(id) < 0) delete state.whiteboardItems[id];
+    });
   }
 
   function canOpenStage(stageId) {
@@ -333,83 +371,58 @@
       escapeHtml(photo.title) +
       "</strong><small>" +
       photo.id +
-      '</small></span><span class="photo-size-controls" aria-label="' +
+      '</small></span><span class="photo-card-actions"><button class="rotate-photo" type="button" data-action="rotate-photo" data-id="' +
+      id +
+      '" aria-label="顺时针旋转 ' +
       escapeHtml(photo.title) +
-      ' 显示大小"><button type="button" data-action="resize-sequence-photo" data-id="' +
-      id +
-      '" data-delta="-30" aria-label="缩小照片">−</button><small>' +
-      sequencePhotoSize(id) +
-      ' px</small><button type="button" data-action="resize-sequence-photo" data-id="' +
-      id +
-      '" data-delta="30" aria-label="放大照片">＋</button></span><button class="remove-from-sequence" type="button" data-action="toggle-sequence-photo" data-id="' +
+      '">↻</button><button class="remove-from-sequence" type="button" data-action="toggle-sequence-photo" data-id="' +
       id +
       '" aria-label="从 Sequence 移除 ' +
       escapeHtml(photo.title) +
-      '">×</button></div></article>'
+      '">×</button></span></div>' +
+      resizeHandles("sequence-photo", id) +
+      "</article>"
     );
   }
 
-  function layoutRange(moduleName, property, label, min, max, step, suffix) {
-    var value =
-      moduleName === "sequence" && property === "frameHeight"
-        ? state.sequenceFrameHeight
-        : state.moduleLayout[moduleName][property];
-    var outputKey = moduleName + "-" + property;
+  function resizeHandles(kind, id) {
     return (
-      '<label class="layout-range"><span>' +
+      ["nw", "ne", "sw", "se"]
+        .map(function (corner) {
+          return (
+            '<span class="resize-corner resize-' +
+            corner +
+            '" data-resize-kind="' +
+            kind +
+            '" data-corner="' +
+            corner +
+            '"' +
+            (id ? ' data-id="' + id + '"' : "") +
+            ' aria-hidden="true"></span>'
+          );
+        })
+        .join("")
+    );
+  }
+
+  function moduleChrome(name, label) {
+    return (
+      '<button class="module-drag-handle" type="button" data-module-drag-handle="' +
+      name +
+      '" aria-label="拖动 ' +
       escapeHtml(label) +
-      '<output data-layout-output="' +
-      outputKey +
-      '">' +
-      value +
-      escapeHtml(suffix) +
-      '</output></span><input type="range" min="' +
-      min +
-      '" max="' +
-      max +
-      '" step="' +
-      step +
-      '" value="' +
-      value +
-      '" data-role="layout-range" data-module="' +
-      moduleName +
-      '" data-property="' +
-      property +
-      '" data-suffix="' +
-      escapeHtml(suffix) +
-      '"></label>'
-    );
-  }
-
-  function layoutEditor() {
-    if (!state.layoutEditing) return "";
-    return (
-      '<section class="layout-editor" aria-label="模块布局设置">' +
-      '<fieldset><legend>Sequence 模块</legend>' +
-      layoutRange("sequence", "x", "X 位置", 0, 80, 1, "%") +
-      layoutRange("sequence", "y", "Y 位置", 0, 480, 10, " px") +
-      layoutRange("sequence", "width", "模块宽度", 20, 100, 1, "%") +
-      layoutRange("sequence", "height", "模块高度", 380, 1000, 10, " px") +
-      layoutRange("sequence", "frameHeight", "横向画布高度", 280, 720, 10, " px") +
-      '</fieldset><fieldset><legend>Pool 模块</legend>' +
-      layoutRange("pool", "x", "X 位置", 0, 80, 1, "%") +
-      layoutRange("pool", "y", "Y 位置", 0, 480, 10, " px") +
-      layoutRange("pool", "width", "模块宽度", 20, 100, 1, "%") +
-      layoutRange("pool", "height", "模块高度", 320, 1200, 10, " px") +
-      '</fieldset><div class="layout-editor-note"><span>模块可以重叠；Pool 内容超出模块高度时会独立滚动。</span><button class="text-button" type="button" data-action="reset-layout">恢复默认布局</button></div></section>'
+      ' 模块"><span aria-hidden="true">⠿</span> 拖动 ' +
+      escapeHtml(label) +
+      "</button>" +
+      resizeHandles("module", name)
     );
   }
 
   function sequenceWorkspaceToolbar() {
     return (
-      '<div class="workspace-toolbar"><div><strong>工作区布局</strong><span>模块位置、模块大小和照片大小互相独立。</span></div><div class="workspace-toolbar-actions"><button class="btn btn-secondary' +
-      (state.layoutEditing ? " is-active" : "") +
-      '" type="button" data-action="toggle-layout-editing">' +
-      (state.layoutEditing ? "完成布局调整" : "调整模块") +
-      '</button><button class="btn btn-primary" type="button" data-action="toggle-immersive"' +
+      '<div class="workspace-toolbar"><div><strong>直接布置工作区</strong><span>拖动模块顶部把手移动；拖四角缩放。照片卡片也可拖四角调整大小。</span></div><div class="workspace-toolbar-actions"><button class="btn btn-primary" type="button" data-action="toggle-whiteboard"' +
       (state.sequence.length ? "" : " disabled") +
-      ">进入沉浸模式</button></div></div>" +
-      layoutEditor()
+      ">进入白板</button></div></div>"
     );
   }
 
@@ -483,7 +496,9 @@
       'px">' +
       '<div class="sequence-column" data-module="sequence" style="' +
       moduleStyle("sequence") +
-      '"><header class="column-heading"><div><p class="eyebrow">序列模块 · 照片可独立缩放</p><h2>Sequence <span>' +
+      '">' +
+      moduleChrome("sequence", "Sequence") +
+      '<header class="column-heading"><div><p class="eyebrow">序列模块 · 拖角缩放照片</p><h2>Sequence <span>' +
       state.sequence.length +
       '</span></h2></div>' +
       '<div class="sequence-tools">' +
@@ -516,7 +531,9 @@
       '</span></div></div>' +
       '<aside class="pool-column" data-module="pool" style="' +
       moduleStyle("pool") +
-      '"><header class="column-heading"><div><p class="eyebrow">候选池 · 内容独立滚动</p><h2>Pool <span>' +
+      '">' +
+      moduleChrome("pool", "Pool") +
+      '<header class="column-heading"><div><p class="eyebrow">候选池 · 内容独立滚动</p><h2>Pool <span>' +
       state.pool.length +
       '</span></h2></div><button class="text-button" type="button" data-action="goto-stage" data-stage="contact">添加照片</button></header>' +
       '<div class="pool-grid">' +
@@ -607,32 +624,79 @@
     );
   }
 
-  function immersiveSequenceItem(id, index) {
+  function whiteboardItem(id, index) {
     var photo = photoById(id);
+    var item = state.whiteboardItems[id];
     return (
-      '<button class="immersive-photo" type="button" data-action="open-photo-preview" data-id="' +
+      '<article class="whiteboard-item" data-whiteboard-item="' +
       id +
-      '" style="--sequence-photo-size:' +
-      sequencePhotoSize(id) +
-      'px" aria-label="大图预览 ' +
-      escapeHtml(photo.title) +
-      '"><span class="immersive-position">' +
+      '" style="left:' +
+      item.x +
+      "px;top:" +
+      item.y +
+      "px;width:" +
+      item.width +
+      "px;height:" +
+      item.height +
+      'px"><span class="whiteboard-position">' +
       (index + 1) +
-      "</span>" +
-      photoThumb(photo) +
-      '<span class="immersive-photo-name">' +
+      '</span><button class="whiteboard-rotate" type="button" data-action="rotate-photo" data-id="' +
+      id +
+      '" aria-label="顺时针旋转 ' +
       escapeHtml(photo.title) +
-      "</span></button>"
+      '">↻</button><button class="whiteboard-drag-surface" type="button" data-action="open-photo-preview" data-whiteboard-drag-handle="' +
+      id +
+      '" data-id="' +
+      id +
+      '" aria-label="拖动；点击大图预览 ' +
+      escapeHtml(photo.title) +
+      '">' +
+      photoThumb(photo) +
+      '</button><span class="whiteboard-photo-name">' +
+      escapeHtml(photo.title) +
+      "</span>" +
+      resizeHandles("whiteboard-photo", id) +
+      "</article>"
     );
   }
 
-  function immersiveContent() {
+  function whiteboardBounds() {
+    var items = Object.keys(state.whiteboardItems).map(function (id) {
+      return state.whiteboardItems[id];
+    });
+    return {
+      width: Math.max.apply(
+        null,
+        [1600].concat(
+          items.map(function (item) {
+            return item.x + item.width + 220;
+          })
+        )
+      ),
+      height: Math.max.apply(
+        null,
+        [1000].concat(
+          items.map(function (item) {
+            return item.y + item.height + 220;
+          })
+        )
+      )
+    };
+  }
+
+  function whiteboardContent() {
+    ensureWhiteboardItems();
+    var bounds = whiteboardBounds();
     return (
-      '<main class="immersive-sequence"><div class="immersive-toolbar"><span><strong>Sequence</strong> · ' +
+      '<main class="whiteboard-mode"><div class="whiteboard-toolbar"><span><strong>Sequence 白板</strong> · ' +
       state.sequence.length +
-      ' 张</span><span>点击任一照片进入大图浏览</span><button type="button" data-action="toggle-immersive">退出沉浸模式</button></div><div class="immersive-track" aria-label="沉浸式照片序列">' +
-      state.sequence.map(immersiveSequenceItem).join("") +
-      "</div></main>"
+      ' 张</span><span>拖动照片自由排布 · 拖四角缩放 · 退出时按从上到下、同一行从左到右回写顺序</span><button type="button" data-action="toggle-whiteboard">退出白板并保留排序</button></div><div class="whiteboard-viewport"><section class="whiteboard-canvas" aria-label="Sequence 自由白板" style="width:' +
+      bounds.width +
+      "px;height:" +
+      bounds.height +
+      'px">' +
+      state.sequence.map(whiteboardItem).join("") +
+      "</section></div></main>"
     );
   }
 
@@ -641,6 +705,8 @@
     var index = state.sequence.indexOf(state.previewPhotoId);
     if (index < 0) return "";
     var photo = photoById(state.previewPhotoId);
+    var rotation = state.photoRotations[photo.id] || 0;
+    var rotationScale = rotation % 180 === 0 ? 1 : 0.74;
     return (
       '<div class="photo-preview" role="dialog" aria-modal="true" aria-label="照片大图预览"><button class="preview-backdrop" type="button" data-action="close-photo-preview" aria-label="关闭大图预览"></button><section class="preview-dialog"><header><span>' +
       (index + 1) +
@@ -654,6 +720,10 @@
       photo.a +
       ";--tone-b:" +
       photo.b +
+      ";--photo-rotation:" +
+      rotation +
+      "deg;--photo-rotation-scale:" +
+      rotationScale +
       '"></div><button class="preview-arrow preview-arrow-right" type="button" data-action="step-photo-preview" data-direction="1"' +
       (index === state.sequence.length - 1 ? " disabled" : "") +
       ' aria-label="下一张照片">→</button></div><footer><span>' +
@@ -671,8 +741,8 @@
   }
 
   function render() {
-    var content = state.immersive
-      ? immersiveContent()
+    var content = state.whiteboard
+      ? whiteboardContent()
       : '<div class="prototype-shell"><header class="app-header"><div class="brand-block"><span class="prototype-flag">Prototype · Memory only</span><span class="project-name">河流向北</span></div>' +
         topStageNavigation() +
         '<button class="reset-button" type="button" data-action="reset">重新开始</button></header><main class="app-main">' +
@@ -685,7 +755,7 @@
   function gotoStage(stageId) {
     if (!canOpenStage(stageId)) return;
     state.stage = stageId;
-    state.immersive = false;
+    state.whiteboard = false;
     state.previewPhotoId = null;
     render();
   }
@@ -712,6 +782,8 @@
 
   function toggleSequencePhoto(id) {
     if (state.pool.indexOf(id) < 0) return;
+    var poolElement = document.querySelector(".pool-column");
+    var poolScrollTop = poolElement ? poolElement.scrollTop : 0;
     var index = state.sequence.indexOf(id);
     if (index >= 0) {
       state.sequence.splice(index, 1);
@@ -721,6 +793,8 @@
       state.notice = photoById(id).title + " 已加入 Sequence。";
     }
     render();
+    var nextPoolElement = document.querySelector(".pool-column");
+    if (nextPoolElement) nextPoolElement.scrollTop = poolScrollTop;
   }
 
   function removePoolPhoto(id) {
@@ -817,55 +891,71 @@
     render();
   }
 
-  function resizeSequencePhoto(id, delta) {
-    if (state.sequence.indexOf(id) < 0) return;
-    var nextSize = Math.max(
-      120,
-      Math.min(360, sequencePhotoSize(id) + Number(delta))
-    );
-    state.sequencePhotoSizes[id] = nextSize;
-    state.notice = photoById(id).title + " 已调整为 " + nextSize + " px。";
-    render();
+  function clamp(value, min, max) {
+    return Math.max(min, Math.min(max, value));
   }
 
-  function updateLayoutRange(target) {
-    var moduleName = target.getAttribute("data-module");
-    var property = target.getAttribute("data-property");
-    var value = Number(target.value);
-    var suffix = target.getAttribute("data-suffix") || "";
-    if (!Number.isFinite(value)) return;
-
-    if (moduleName === "sequence" && property === "frameHeight") {
-      state.sequenceFrameHeight = value;
-      var board = document.querySelector(".sequence-board");
-      if (board && board.style) {
-        board.style.setProperty("--sequence-frame-height", value + "px");
-      }
-    } else if (
-      state.moduleLayout[moduleName] &&
-      Object.prototype.hasOwnProperty.call(state.moduleLayout[moduleName], property)
-    ) {
-      state.moduleLayout[moduleName][property] = value;
-      var moduleElement = document.querySelector(
-        '[data-module="' + moduleName + '"]'
-      );
-      if (moduleElement && moduleElement.style) {
-        var unit = property === "x" || property === "width" ? "%" : "px";
-        moduleElement.style.setProperty("--module-" + property, value + unit);
-      }
-      var editor = document.querySelector(".editor-layout");
-      if (editor && editor.style) {
-        editor.style.setProperty(
-          "--editor-canvas-height",
-          editorCanvasHeight() + "px"
-        );
-      }
+  function rotatePhoto(id) {
+    if (!photoById(id)) return;
+    state.photoRotations[id] = ((state.photoRotations[id] || 0) + 90) % 360;
+    state.notice =
+      photoById(id).title + " 已旋转 " + state.photoRotations[id] + "°。";
+    var scrollSelector = state.whiteboard
+      ? ".whiteboard-viewport"
+      : ".sequence-board";
+    var scrollElement = document.querySelector(scrollSelector);
+    var scrollTop = scrollElement ? scrollElement.scrollTop : 0;
+    var scrollLeft = scrollElement ? scrollElement.scrollLeft : 0;
+    render();
+    var nextScrollElement = document.querySelector(scrollSelector);
+    if (nextScrollElement) {
+      nextScrollElement.scrollTop = scrollTop;
+      nextScrollElement.scrollLeft = scrollLeft;
     }
+  }
 
-    var output = document.querySelector(
-      '[data-layout-output="' + moduleName + "-" + property + '"]'
-    );
-    if (output) output.textContent = value + suffix;
+  function orderedWhiteboardIds() {
+    var byY = state.sequence.slice().sort(function (leftId, rightId) {
+      return state.whiteboardItems[leftId].y - state.whiteboardItems[rightId].y;
+    });
+    var rows = [];
+    byY.forEach(function (id) {
+      var item = state.whiteboardItems[id];
+      var centerY = item.y + item.height / 2;
+      var row = rows.find(function (candidate) {
+        return Math.abs(candidate.centerY - centerY) <= 120;
+      });
+      if (!row) {
+        row = { centerY: centerY, ids: [] };
+        rows.push(row);
+      }
+      row.ids.push(id);
+      row.centerY =
+        row.ids.reduce(function (sum, rowId) {
+          var rowItem = state.whiteboardItems[rowId];
+          return sum + rowItem.y + rowItem.height / 2;
+        }, 0) / row.ids.length;
+    });
+    return rows
+      .sort(function (left, right) {
+        return left.centerY - right.centerY;
+      })
+      .reduce(function (ordered, row) {
+        return ordered.concat(
+          row.ids.sort(function (leftId, rightId) {
+            return (
+              state.whiteboardItems[leftId].x -
+              state.whiteboardItems[rightId].x
+            );
+          })
+        );
+      }, []);
+  }
+
+  function commitWhiteboardOrder() {
+    if (!state.sequence.length) return;
+    state.sequence = orderedWhiteboardIds();
+    state.notice = "白板排序已按从上到下、同一行从左到右写回 Sequence。";
   }
 
   function openPhotoPreview(id) {
@@ -883,10 +973,15 @@
     render();
   }
 
-  function toggleImmersive() {
+  function toggleWhiteboard() {
     if (!state.sequence.length) return;
-    state.immersive = !state.immersive;
-    state.layoutEditing = false;
+    if (state.whiteboard) {
+      commitWhiteboardOrder();
+      state.whiteboard = false;
+    } else {
+      ensureWhiteboardItems();
+      state.whiteboard = true;
+    }
     state.previewPhotoId = null;
     render();
   }
@@ -929,26 +1024,19 @@
       editVersion(id);
       return;
     }
-    if (action === "resize-sequence-photo") {
-      resizeSequencePhoto(id, target.getAttribute("data-delta"));
+    if (action === "rotate-photo") {
+      rotatePhoto(id);
       return;
     }
-    if (action === "toggle-layout-editing") {
-      state.layoutEditing = !state.layoutEditing;
-      render();
-      return;
-    }
-    if (action === "reset-layout") {
-      state.moduleLayout = defaultModuleLayout();
-      state.sequenceFrameHeight = 350;
-      render();
-      return;
-    }
-    if (action === "toggle-immersive") {
-      toggleImmersive();
+    if (action === "toggle-whiteboard") {
+      toggleWhiteboard();
       return;
     }
     if (action === "open-photo-preview") {
+      if (suppressPhotoClick) {
+        suppressPhotoClick = false;
+        return;
+      }
       openPhotoPreview(id);
       return;
     }
@@ -992,10 +1080,6 @@
   document.addEventListener("input", function (event) {
     var target = event.target;
     if (!target) return;
-    if (target.getAttribute("data-role") === "layout-range") {
-      updateLayoutRange(target);
-      return;
-    }
     if (target.getAttribute("data-role") === "version-name") {
       state.versionDraftName = target.value;
       return;
@@ -1027,7 +1111,262 @@
     }
   });
 
+  document.addEventListener("pointerdown", function (event) {
+    var resizeTarget = event.target.closest("[data-resize-kind]");
+    var moduleDragTarget = event.target.closest("[data-module-drag-handle]");
+    var whiteboardDragTarget = event.target.closest(
+      "[data-whiteboard-drag-handle]"
+    );
+    if (!resizeTarget && !moduleDragTarget && !whiteboardDragTarget) return;
+    if (event.preventDefault) event.preventDefault();
+
+    var interaction = {
+      startX: event.clientX,
+      startY: event.clientY,
+      moved: false,
+      pointerId: event.pointerId
+    };
+
+    if (resizeTarget) {
+      interaction.kind = resizeTarget.getAttribute("data-resize-kind");
+      interaction.id = resizeTarget.getAttribute("data-id");
+      interaction.corner = resizeTarget.getAttribute("data-corner");
+    } else if (moduleDragTarget) {
+      interaction.kind = "module-move";
+      interaction.id = moduleDragTarget.getAttribute("data-module-drag-handle");
+    } else {
+      interaction.kind = "whiteboard-move";
+      interaction.id = whiteboardDragTarget.getAttribute(
+        "data-whiteboard-drag-handle"
+      );
+    }
+
+    if (interaction.kind === "module" || interaction.kind === "module-move") {
+      interaction.start = Object.assign({}, state.moduleLayout[interaction.id]);
+      var editor = document.querySelector(".editor-layout");
+      var editorRect =
+        editor && editor.getBoundingClientRect
+          ? editor.getBoundingClientRect()
+          : { width: 1200 };
+      interaction.editorWidth = editorRect.width || 1200;
+    } else if (
+      interaction.kind === "whiteboard-photo" ||
+      interaction.kind === "whiteboard-move"
+    ) {
+      interaction.start = Object.assign(
+        {},
+        state.whiteboardItems[interaction.id]
+      );
+      var viewport = document.querySelector(".whiteboard-viewport");
+      interaction.scrollTop = viewport ? viewport.scrollTop : 0;
+      interaction.scrollLeft = viewport ? viewport.scrollLeft : 0;
+    } else if (interaction.kind === "sequence-photo") {
+      interaction.startSize = sequencePhotoSize(interaction.id);
+      var sequenceBoard = document.querySelector(".sequence-board");
+      interaction.scrollTop = sequenceBoard ? sequenceBoard.scrollTop : 0;
+      interaction.scrollLeft = sequenceBoard ? sequenceBoard.scrollLeft : 0;
+    }
+
+    pointerInteraction = interaction;
+    if (event.target.setPointerCapture && event.pointerId != null) {
+      event.target.setPointerCapture(event.pointerId);
+    }
+  });
+
+  document.addEventListener("pointermove", function (event) {
+    if (!pointerInteraction) return;
+    var dx = event.clientX - pointerInteraction.startX;
+    var dy = event.clientY - pointerInteraction.startY;
+    if (Math.abs(dx) + Math.abs(dy) > 2) pointerInteraction.moved = true;
+    if (event.preventDefault) event.preventDefault();
+
+    if (
+      pointerInteraction.kind === "module" ||
+      pointerInteraction.kind === "module-move"
+    ) {
+      var moduleLayout = state.moduleLayout[pointerInteraction.id];
+      var moduleStart = pointerInteraction.start;
+      var dxPercent = (dx / pointerInteraction.editorWidth) * 100;
+      if (pointerInteraction.kind === "module-move") {
+        moduleLayout.x = clamp(
+          moduleStart.x + dxPercent,
+          0,
+          Math.max(0, 100 - moduleStart.width)
+        );
+        moduleLayout.y = clamp(moduleStart.y + dy, 0, 1200);
+      } else {
+        var moduleCorner = pointerInteraction.corner;
+        if (moduleCorner.indexOf("e") >= 0) {
+          moduleLayout.width = clamp(
+            moduleStart.width + dxPercent,
+            20,
+            100 - moduleStart.x
+          );
+        }
+        if (moduleCorner.indexOf("w") >= 0) {
+          var nextModuleX = clamp(
+            moduleStart.x + dxPercent,
+            0,
+            moduleStart.x + moduleStart.width - 20
+          );
+          moduleLayout.width = moduleStart.width + moduleStart.x - nextModuleX;
+          moduleLayout.x = nextModuleX;
+        }
+        if (moduleCorner.indexOf("s") >= 0) {
+          moduleLayout.height = clamp(moduleStart.height + dy, 320, 1200);
+        }
+        if (moduleCorner.indexOf("n") >= 0) {
+          var nextModuleY = clamp(
+            moduleStart.y + dy,
+            0,
+            moduleStart.y + moduleStart.height - 320
+          );
+          moduleLayout.height =
+            moduleStart.height + moduleStart.y - nextModuleY;
+          moduleLayout.y = nextModuleY;
+        }
+      }
+      var moduleElement = document.querySelector(
+        '[data-module="' + pointerInteraction.id + '"]'
+      );
+      if (moduleElement && moduleElement.style) {
+        moduleElement.style.setProperty("--module-x", moduleLayout.x + "%");
+        moduleElement.style.setProperty("--module-y", moduleLayout.y + "px");
+        moduleElement.style.setProperty(
+          "--module-width",
+          moduleLayout.width + "%"
+        );
+        moduleElement.style.setProperty(
+          "--module-height",
+          moduleLayout.height + "px"
+        );
+      }
+      var editorElement = document.querySelector(".editor-layout");
+      if (editorElement && editorElement.style) {
+        editorElement.style.setProperty(
+          "--editor-canvas-height",
+          editorCanvasHeight() + "px"
+        );
+      }
+      return;
+    }
+
+    if (pointerInteraction.kind === "sequence-photo") {
+      var horizontalDelta =
+        pointerInteraction.corner.indexOf("e") >= 0 ? dx : -dx;
+      var verticalDelta =
+        pointerInteraction.corner.indexOf("s") >= 0 ? dy : -dy;
+      var nextPhotoSize = clamp(
+        pointerInteraction.startSize +
+          (horizontalDelta + verticalDelta) / 2,
+        120,
+        420
+      );
+      state.sequencePhotoSizes[pointerInteraction.id] = Math.round(nextPhotoSize);
+      var sequenceCard = document.querySelector(
+        '[data-drag-id="' + pointerInteraction.id + '"]'
+      );
+      if (sequenceCard && sequenceCard.style) {
+        sequenceCard.style.setProperty(
+          "--sequence-photo-size",
+          Math.round(nextPhotoSize) + "px"
+        );
+      }
+      return;
+    }
+
+    var whiteboardItemState = state.whiteboardItems[pointerInteraction.id];
+    var whiteboardStart = pointerInteraction.start;
+    if (pointerInteraction.kind === "whiteboard-move") {
+      whiteboardItemState.x = clamp(whiteboardStart.x + dx, 20, 3600);
+      whiteboardItemState.y = clamp(whiteboardStart.y + dy, 80, 2400);
+    } else {
+      var photoCorner = pointerInteraction.corner;
+      if (photoCorner.indexOf("e") >= 0) {
+        whiteboardItemState.width = clamp(
+          whiteboardStart.width + dx,
+          120,
+          720
+        );
+      }
+      if (photoCorner.indexOf("w") >= 0) {
+        var nextPhotoX = clamp(
+          whiteboardStart.x + dx,
+          20,
+          whiteboardStart.x + whiteboardStart.width - 120
+        );
+        whiteboardItemState.width =
+          whiteboardStart.width + whiteboardStart.x - nextPhotoX;
+        whiteboardItemState.x = nextPhotoX;
+      }
+      if (photoCorner.indexOf("s") >= 0) {
+        whiteboardItemState.height = clamp(
+          whiteboardStart.height + dy,
+          140,
+          900
+        );
+      }
+      if (photoCorner.indexOf("n") >= 0) {
+        var nextPhotoY = clamp(
+          whiteboardStart.y + dy,
+          80,
+          whiteboardStart.y + whiteboardStart.height - 140
+        );
+        whiteboardItemState.height =
+          whiteboardStart.height + whiteboardStart.y - nextPhotoY;
+        whiteboardItemState.y = nextPhotoY;
+      }
+    }
+    var whiteboardElement = document.querySelector(
+      '[data-whiteboard-item="' + pointerInteraction.id + '"]'
+    );
+    if (whiteboardElement && whiteboardElement.style) {
+      whiteboardElement.style.left = whiteboardItemState.x + "px";
+      whiteboardElement.style.top = whiteboardItemState.y + "px";
+      whiteboardElement.style.width = whiteboardItemState.width + "px";
+      whiteboardElement.style.height = whiteboardItemState.height + "px";
+    }
+  });
+
+  function finishPointerInteraction() {
+    if (!pointerInteraction) return;
+    var finished = pointerInteraction;
+    pointerInteraction = null;
+    if (!finished.moved) return;
+
+    if (finished.kind === "whiteboard-move") {
+      commitWhiteboardOrder();
+      suppressPhotoClick = true;
+      setTimeout(function () {
+        suppressPhotoClick = false;
+      }, 0);
+    }
+    render();
+
+    var scrollSelector =
+      finished.kind === "whiteboard-move" ||
+      finished.kind === "whiteboard-photo"
+        ? ".whiteboard-viewport"
+        : finished.kind === "sequence-photo"
+          ? ".sequence-board"
+          : null;
+    if (scrollSelector) {
+      var scrollElement = document.querySelector(scrollSelector);
+      if (scrollElement) {
+        scrollElement.scrollTop = finished.scrollTop || 0;
+        scrollElement.scrollLeft = finished.scrollLeft || 0;
+      }
+    }
+  }
+
+  document.addEventListener("pointerup", finishPointerInteraction);
+  document.addEventListener("pointercancel", finishPointerInteraction);
+
   document.addEventListener("dragstart", function (event) {
+    if (event.target.closest("[data-resize-kind]")) {
+      if (event.preventDefault) event.preventDefault();
+      return;
+    }
     var target = event.target.closest("[data-drag-id]");
     if (!target) return;
     draggedPhotoId = target.getAttribute("data-drag-id");

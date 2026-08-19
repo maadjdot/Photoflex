@@ -6,6 +6,34 @@ var path = require("node:path");
 var appNode = { innerHTML: "" };
 var listeners = {};
 var scrollCalls = [];
+var mockElements = {};
+
+function createMockElement(selector) {
+  return {
+    selector: selector,
+    scrollTop: 0,
+    scrollLeft: 0,
+    style: {
+      values: {},
+      setProperty: function (name, value) {
+        this.values[name] = value;
+      }
+    },
+    getBoundingClientRect: function () {
+      return { width: 1200, height: 700 };
+    },
+    scrollBy: function (options) {
+      scrollCalls.push(options);
+    }
+  };
+}
+
+function elementFor(selector) {
+  if (!mockElements[selector]) {
+    mockElements[selector] = createMockElement(selector);
+  }
+  return mockElements[selector];
+}
 
 global.document = {
   getElementById: function (id) {
@@ -13,12 +41,21 @@ global.document = {
     return null;
   },
   querySelector: function (selector) {
-    if (selector !== ".sequence-board.view-horizontal") return null;
-    return {
-      scrollBy: function (options) {
-        scrollCalls.push(options);
-      }
-    };
+    if (selector === ".sequence-board.view-horizontal") {
+      return elementFor(".sequence-board");
+    }
+    if (
+      selector === ".sequence-board" ||
+      selector === ".pool-column" ||
+      selector === ".editor-layout" ||
+      selector === ".whiteboard-viewport" ||
+      selector.indexOf('[data-module="') === 0 ||
+      selector.indexOf('[data-drag-id="') === 0 ||
+      selector.indexOf('[data-whiteboard-item="') === 0
+    ) {
+      return elementFor(selector);
+    }
+    return null;
   },
   addEventListener: function (type, handler) {
     listeners[type] = handler;
@@ -127,6 +164,49 @@ function drag(sourceId, targetId) {
   });
 }
 
+function pointerGesture(attributes, dx, dy) {
+  var target = {
+    getAttribute: function (name) {
+      return attributes[name] || null;
+    },
+    closest: function (selector) {
+      if (
+        selector === "[data-resize-kind]" &&
+        attributes["data-resize-kind"]
+      ) {
+        return this;
+      }
+      if (
+        selector === "[data-module-drag-handle]" &&
+        attributes["data-module-drag-handle"]
+      ) {
+        return this;
+      }
+      if (
+        selector === "[data-whiteboard-drag-handle]" &&
+        attributes["data-whiteboard-drag-handle"]
+      ) {
+        return this;
+      }
+      return null;
+    },
+    setPointerCapture: function () {}
+  };
+  listeners.pointerdown({
+    target: target,
+    clientX: 0,
+    clientY: 0,
+    pointerId: 1,
+    preventDefault: function () {}
+  });
+  listeners.pointermove({
+    clientX: dx,
+    clientY: dy,
+    preventDefault: function () {}
+  });
+  listeners.pointerup({});
+}
+
 require(path.join(__dirname, "app.js"));
 
 expectText("Contact Sheet", "初始阶段应为 Contact Sheet");
@@ -181,8 +261,27 @@ expectText(
   "Sequence 默认应使用横向单排视角"
 );
 expectText("横向滚动", "横向视角应显示滚动条辅助按钮");
-expectText("调整模块", "Sequence 工作区应提供模块布局调整入口");
-expectText("进入沉浸模式", "Sequence 应提供沉浸模式入口");
+expectText("直接布置工作区", "工作区应说明模块采用直接拖动与角点缩放");
+expectText("拖动 Sequence", "Sequence 模块应提供直接拖动把手");
+expectText("拖动 Pool", "Pool 模块应提供直接拖动把手");
+expectText("进入白板", "Sequence 应提供白板入口");
+expectNoText("模块布局设置", "应删除旧的布局滑杆面板");
+expectNoText("调整模块", "应删除旧的调整模块按钮");
+expectNoText("photo-size-controls", "应删除照片底部的加减尺寸控件");
+
+elementFor(".pool-column").scrollTop = 275;
+click("toggle-sequence-photo", { "data-id": "P04" });
+assert.equal(
+  elementFor(".pool-column").scrollTop,
+  275,
+  "从 Pool 反选照片后应保留原滚动位置"
+);
+click("toggle-sequence-photo", { "data-id": "P04" });
+assert.equal(
+  elementFor(".pool-column").scrollTop,
+  275,
+  "从 Pool 选择照片后应保留原滚动位置"
+);
 click("scroll-sequence", { "data-direction": "1" });
 assert.equal(scrollCalls.length, 1, "右箭头应触发一次横向滚动");
 assert.equal(scrollCalls[0].left, 360, "右箭头应向右滚动");
@@ -200,50 +299,40 @@ assert.ok(
   "拖曳后 Sequence 顺序应改变"
 );
 
-click("toggle-layout-editing");
-expectText("模块布局设置", "布局模式应同时提供 Sequence 与 Pool 控制");
-expectText("横向画布高度", "横向画布尺寸应能独立于照片调整");
-listeners.input({
-  target: {
-    value: "68",
-    getAttribute: function (name) {
-      var attrs = {
-        "data-role": "layout-range",
-        "data-module": "sequence",
-        "data-property": "width",
-        "data-suffix": "%"
-      };
-      return attrs[name] || null;
-    }
-  }
-});
-listeners.input({
-  target: {
-    value: "80",
-    getAttribute: function (name) {
-      var attrs = {
-        "data-role": "layout-range",
-        "data-module": "pool",
-        "data-property": "y",
-        "data-suffix": " px"
-      };
-      return attrs[name] || null;
-    }
-  }
-});
-click("toggle-layout-editing");
-expectText("--module-width:68%", "Sequence 模块宽度调整应保留在内存状态");
-expectText("--module-y:80px", "Pool 模块位置调整应保留在内存状态");
+pointerGesture({ "data-module-drag-handle": "sequence" }, 120, 40);
+expectText("--module-x:10%", "拖动 Sequence 模块应直接更新横向位置");
+expectText("--module-y:40px", "拖动 Sequence 模块应直接更新纵向位置");
+pointerGesture(
+  {
+    "data-resize-kind": "module",
+    "data-id": "pool",
+    "data-corner": "sw"
+  },
+  -120,
+  80
+);
+expectText("--module-width:34%", "向左拖动 Pool 左下角应扩大模块宽度");
+expectText("--module-height:680px", "向下拖动 Pool 左下角应扩大模块高度");
 
-click("resize-sequence-photo", { "data-id": "P01", "data-delta": "30" });
+pointerGesture(
+  {
+    "data-resize-kind": "sequence-photo",
+    "data-id": "P01",
+    "data-corner": "se"
+  },
+  60,
+  60
+);
 expectText(
-  "--sequence-photo-size:220px",
-  "单张 Sequence 照片应能独立放大"
+  "--sequence-photo-size:250px",
+  "拖动照片右下角应直接放大单张 Sequence 照片"
 );
 expectText(
   "--sequence-frame-height:350px",
   "调整单张照片不应改变横向画布高度"
 );
+click("rotate-photo", { "data-id": "P01" });
+expectText("--photo-rotation:90deg", "照片旋转按钮应顺时针旋转 90 度");
 
 click("open-photo-preview", { "data-id": "P06" });
 expectText("照片大图预览", "点击 Sequence 照片应打开大图预览");
@@ -255,20 +344,47 @@ listeners.keydown({
   target: { tagName: "BODY", isContentEditable: false },
   preventDefault: function () {}
 });
-expectText("码头 04", "键盘右键应继续按 Sequence 顺序浏览");
+expectText("归途 03", "键盘右键应继续按 Sequence 顺序浏览");
 listeners.keydown({
   key: "Escape",
   target: { tagName: "BODY", isContentEditable: false }
 });
 expectNoText("照片大图预览", "Escape 应关闭大图预览");
 
-click("toggle-immersive");
-expectText("immersive-sequence", "沉浸模式应呈现独立照片序列");
-expectText("退出沉浸模式", "沉浸模式应保留清楚的退出入口");
-expectNoText('class="app-header"', "沉浸模式不应显示普通页面头部");
-expectNoText('class="pool-column"', "沉浸模式不应显示 Pool");
-click("toggle-immersive");
-expectText("工作区布局", "退出沉浸模式应返回 Sequence 工作区");
+click("toggle-whiteboard");
+expectText("whiteboard-mode", "进入白板后应呈现自由二维画布");
+expectText("退出白板并保留排序", "白板应说明退出时会保留排序");
+expectText("data-resize-kind=\"whiteboard-photo\"", "白板照片应提供四角缩放");
+expectNoText('class="app-header"', "白板不应显示普通页面头部");
+expectNoText('class="pool-column"', "白板不应显示 Pool");
+
+pointerGesture({ "data-whiteboard-drag-handle": "P01" }, -340, 0);
+var whiteboardP01 = appNode.innerHTML.indexOf('data-whiteboard-item="P01"');
+var whiteboardP06 = appNode.innerHTML.indexOf('data-whiteboard-item="P06"');
+assert.ok(
+  whiteboardP01 < whiteboardP06,
+  "在白板中将 P01 拖到最左侧后应成为第一张"
+);
+pointerGesture(
+  {
+    "data-resize-kind": "whiteboard-photo",
+    "data-id": "P01",
+    "data-corner": "se"
+  },
+  50,
+  40
+);
+expectText("width:250px;height:320px", "白板照片应能通过角点自由改变宽高");
+click("rotate-photo", { "data-id": "P01" });
+expectText("--photo-rotation:180deg", "白板中的旋转应沿用同一照片状态");
+click("toggle-whiteboard");
+expectText("直接布置工作区", "退出白板应返回 Sequence 工作区");
+var persistedP01 = appNode.innerHTML.indexOf('data-drag-id="P01"');
+var persistedP06 = appNode.innerHTML.indexOf('data-drag-id="P06"');
+assert.ok(
+  persistedP01 < persistedP06,
+  "白板中的位置排序应在退出后保留到 Sequence"
+);
 
 listeners.input({
   target: {
@@ -370,5 +486,5 @@ assert.doesNotMatch(
 );
 
 process.stdout.write(
-  "PhotoFlex prototype feedback-3 test passed: adjustable Sequence/Pool modules, independent photo and frame sizing, immersive Sequence, keyboard/click photo preview, plus all previous selection, ordering, and version flows.\n"
+  "PhotoFlex prototype feedback-4 test passed: direct module drag/corner resize, preserved Pool scroll, photo rotation, corner-resized Sequence cards, free whiteboard layout, and whiteboard order persisted back to Sequence, plus all previous version flows.\n"
 );
