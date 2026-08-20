@@ -287,6 +287,47 @@ function rightButtonPan(dx, dy) {
   return viewport;
 }
 
+function wheelGesture(kind, deltaX, deltaY, options) {
+  var selectorByKind = {
+    sequence: ".sequence-board.view-horizontal",
+    panorama: ".panorama-strip",
+    whiteboard: ".whiteboard-viewport"
+  };
+  var elementSelector = {
+    sequence: ".sequence-board",
+    panorama: ".panorama-strip",
+    whiteboard: ".whiteboard-viewport"
+  }[kind];
+  var viewport = elementFor(elementSelector);
+  var selector = selectorByKind[kind];
+  var prevented = false;
+  var stopped = false;
+  var target = {
+    closest: function (query) {
+      return query.indexOf(selector) >= 0 ? viewport : null;
+    }
+  };
+  var event = Object.assign(
+    {
+      target: target,
+      deltaX: deltaX,
+      deltaY: deltaY,
+      deltaMode: 0,
+      ctrlKey: false,
+      shiftKey: false,
+      preventDefault: function () {
+        prevented = true;
+      },
+      stopPropagation: function () {
+        stopped = true;
+      }
+    },
+    options || {}
+  );
+  listeners.wheel(event);
+  return { viewport: viewport, prevented: prevented, stopped: stopped };
+}
+
 function marqueeGesture(startX, startY, endX, endY) {
   var canvas = elementFor(".whiteboard-canvas");
   var target = {
@@ -423,7 +464,7 @@ assert.match(
   /<header class="column-heading">[\s\S]*sequence-mode-actions[\s\S]*进入白板[\s\S]*进入序列全景[\s\S]*<\/header>/,
   "白板与序列全景入口应位于 Sequence 标题右侧"
 );
-expectText("保存首个版本并自动打星", "收紧后的 Sequence 首屏应保留保存入口");
+expectText("保存首个版本", "收紧后的 Sequence 首屏应保留保存入口");
 expectNoText("模块布局设置", "应删除旧的布局滑杆面板");
 expectNoText("调整模块", "应删除旧的调整模块按钮");
 expectNoText("photo-size-controls", "应删除照片底部的加减尺寸控件");
@@ -460,6 +501,29 @@ click("set-sequence-view", { "data-view": "grid" });
 expectText("sequence-board view-grid", "用户应能切换到网格视角");
 expectNoText("横向滚动", "网格视角不应显示横向滚动按钮");
 click("set-sequence-view", { "data-view": "horizontal" });
+assert.equal(typeof listeners.wheel, "function", "应注册 wheel 接管逻辑");
+var sequenceWheel = wheelGesture("sequence", 80, 5);
+assert.equal(
+  sequenceWheel.prevented,
+  true,
+  "Sequence 横向 wheel 应阻止浏览器默认导航"
+);
+assert.equal(
+  sequenceWheel.stopped,
+  true,
+  "Sequence 横向 wheel 应阻止事件继续冒泡"
+);
+assert.equal(
+  sequenceWheel.viewport.scrollLeft,
+  800,
+  "Sequence 横向 wheel 应由图库容器接管并移动 scrollLeft"
+);
+var sequenceVerticalWheel = wheelGesture("sequence", 5, 80);
+assert.equal(
+  sequenceVerticalWheel.prevented,
+  false,
+  "Sequence 垂直 wheel 不应被横向接管逻辑误伤"
+);
 
 drag("P06", "P01");
 var p06Position = appNode.innerHTML.indexOf('data-drag-id="P06"');
@@ -504,6 +568,18 @@ expectText("sequence-panorama-mode", "Sequence 应进入只显示照片序列的
 expectText("Sequence 序列全景", "全景模式应标明来源");
 assert.equal(countText('class="panorama-item"'), 4, "全景模式应呈现完整 Sequence");
 expectText("--panorama-size:313px", "全景照片应为 Sequence 卡片尺寸的 1.25 倍");
+elementFor(".panorama-strip").scrollLeft = 200;
+var panoramaWheel = wheelGesture("panorama", -120, 4);
+assert.equal(
+  panoramaWheel.prevented,
+  true,
+  "序列全景横向 wheel 应阻止浏览器默认导航"
+);
+assert.equal(
+  panoramaWheel.viewport.scrollLeft,
+  80,
+  "序列全景横向 wheel 应由全景容器接管"
+);
 click("open-panorama-photo", { "data-id": "P06" });
 expectText("照片大图预览", "全景模式点击照片应打开大图预览");
 expectText("1 / 4", "大图预览应显示当前照片在序列中的位置");
@@ -524,7 +600,7 @@ listeners.keydown({
 expectNoText("照片大图预览", "Escape 应关闭大图预览");
 expectText("sequence-panorama-mode", "关闭单张大图后应返回序列全景");
 click("close-sequence-panorama");
-expectText("保存首个版本并自动打星", "退出序列全景应回到可见保存入口的 Sequence 工作区");
+expectText("保存首个版本", "退出序列全景应回到可见保存入口的 Sequence 工作区");
 
 click("toggle-whiteboard");
 expectText("whiteboard-mode", "进入白板后应呈现自由二维画布");
@@ -539,6 +615,23 @@ expectNoText("whiteboard-photo-name", "白板照片应移除照片名等附加�
 expectNoText("whiteboard-rotate", "白板应彻底移除旋转功能");
 expectNoText('class="app-header"', "白板不应显示普通页面头部");
 expectNoText('class="pool-column"', "白板不应显示 Pool");
+
+var whiteboardWheel = wheelGesture("whiteboard", 120, 90);
+assert.equal(
+  whiteboardWheel.prevented,
+  true,
+  "白板 wheel 应阻止浏览器默认导航"
+);
+assert.equal(
+  whiteboardWheel.viewport.scrollLeft,
+  120,
+  "白板横向 wheel 应平移白板视角"
+);
+assert.equal(
+  whiteboardWheel.viewport.scrollTop,
+  90,
+  "白板纵向 wheel 应平移白板视角"
+);
 
 click("zoom-whiteboard", { "data-direction": "1" });
 expectText("100%", "白板应支持放大视角");
@@ -579,7 +672,7 @@ pointerGesture(
 );
 expectText("width:250px;height:320px", "白板照片应能通过角点自由改变宽高");
 click("exit-whiteboard-save");
-expectText("保存首个版本并自动打星", "退出白板应返回可见保存入口的 Sequence 工作区");
+expectText("保存首个版本", "退出白板应返回可见保存入口的 Sequence 工作区");
 var persistedP01 = appNode.innerHTML.indexOf('data-drag-id="P01"');
 var persistedP06 = appNode.innerHTML.indexOf('data-drag-id="P06"');
 assert.ok(
@@ -596,7 +689,7 @@ listeners.input({
   }
 });
 click("save-version");
-expectText("安静开头 已保存并自动打星", "首个命名版本应自动成为星标基准");
+expectText("安静开头 已保存", "首个命名版本应保存成功");
 click("toggle-sequence-photo", { "data-id": "P03" });
 listeners.input({
   target: {
@@ -607,16 +700,23 @@ listeners.input({
   }
 });
 click("save-version");
-expectText("画面只保留两个版本", "第二次保存后应进入精简 Compare");
+expectText("选择两个版本", "第二次保存后应进入精简 Compare");
 assert.equal(countText('class="compare-row'), 2, "Compare 应只显示两个版本");
 assert.equal(
-  countText('data-action="select-compare-version"'),
+  countText('data-action="toggle-compare-version"'),
   2,
   "Compare 标题右侧应显示全部已保存版本包"
 );
 expectText("安静开头", "版本包和版本模块应显示自定义名称");
 expectText("人物先行", "第二个版本应保留自定义名称");
-expectText("★ 已设为比较基准", "星标版本应清楚标记");
+expectText("选择两个版本", "Compare 应明确要求直接选择两个版本");
+assert.equal(
+  countText('aria-pressed="true"'),
+  2,
+  "保存第二个版本后应默认选择两个版本进行比较"
+);
+expectNoText("星标", "Compare 不应再使用星标比较基准");
+expectNoText("设为喜欢的版本", "Compare 不应再显示喜欢版本按钮");
 expectText("Memo", "两个版本旁边应提供 Memo");
 expectNoText("Added", "Compare 不应显示差异数据");
 expectNoText("Moved", "Compare 不应显示差异数据");
@@ -662,9 +762,10 @@ listeners.input({
     }
   }
 });
-click("star-version", { "data-id": "v2" });
+click("toggle-compare-version", { "data-id": "v2" });
+click("toggle-compare-version", { "data-id": "v2" });
 expectText("这个开头更安静", "Memo 应在内存状态中保留");
-expectText("人物先行", "新的星标版本应继续显示");
+expectText("人物先行", "已选择的第二个版本应继续显示");
 
 click("edit-version", { "data-id": "v1" });
 expectText("工作副本来自 V1", "点击版本应回到 Sequence 排序界面");
@@ -679,44 +780,22 @@ listeners.input({
 click("save-version");
 assert.equal(countText('class="compare-row'), 2, "再次保存仍只能显示两个版本");
 assert.equal(
-  countText('data-action="select-compare-version"'),
+  countText('data-action="toggle-compare-version"'),
   3,
   "三个已保存版本都应成为可点击版本包"
 );
-assert.match(
-  compareStackHtml(),
-  /人物先行/,
-  "比较应始终包含当前星标版本"
-);
-assert.match(
-  compareStackHtml(),
-  /回到河岸/,
-  "工作副本保存后应以自定义名称参与比较"
-);
-assert.doesNotMatch(
-  compareStackHtml(),
-  /安静开头/,
-  "未选中的旧版本不应占用两个放大比较位"
-);
+assert.match(compareStackHtml(), /安静开头/, "保存新版本后应保留旧比较版本");
+assert.match(compareStackHtml(), /回到河岸/, "工作副本保存后应以自定义名称参与比较");
+assert.doesNotMatch(compareStackHtml(), /人物先行/, "未选中的旧版本不应占用两个放大比较位");
 
-click("select-compare-version", { "data-id": "v1" });
-assert.match(
-  compareStackHtml(),
-  /人物先行/,
-  "点击版本包后仍应保留星标版本"
-);
-assert.match(
-  compareStackHtml(),
-  /安静开头/,
-  "点击版本包应将该版本切换为比较对象"
-);
-assert.doesNotMatch(
-  compareStackHtml(),
-  /回到河岸/,
-  "切换后旧比较对象应退出两个放大比较位"
-);
+click("toggle-compare-version", { "data-id": "v1" });
+click("toggle-compare-version", { "data-id": "v2" });
+assert.match(compareStackHtml(), /人物先行/, "用户选择的第二个版本应进入比较");
+assert.match(compareStackHtml(), /回到河岸/, "用户选择的新版本应继续参与比较");
+assert.doesNotMatch(compareStackHtml(), /安静开头/, "取消选择的版本不应继续出现在比较区");
+expectNoText("星标", "版本数量增加后仍不应恢复星标逻辑");
 
-var localFiles = Array.from({ length: 505 }, function (_value, index) {
+var localFiles = Array.from({ length: 1205 }, function (_value, index) {
   var number = index + 1;
   return {
     name: "photo-" + number + ".jpg",
@@ -735,8 +814,8 @@ listeners.change({
   }
 });
 expectText("已载入 “ux05-set”", "导入后应显示本地文件夹名称");
-expectText("图库 500 张", "本地研究图库应最多读取 500 张 JPEG");
-expectText("第 1 / 9 页", "500 张图库应分页而不是一次渲染全部照片");
+expectText("图库 1200 张", "本地研究图库应最多读取 1200 张 JPEG");
+expectText("第 1 / 20 页", "1200 张图库应分页而不是一次渲染全部照片");
 assert.equal(
   countText('data-photo-id="'),
   60,
@@ -744,39 +823,39 @@ assert.equal(
 );
 expectText("L060", "第一页应渲染到第 60 张 JPEG");
 expectNoText("L061", "第一页不应渲染下一页 JPEG");
-assert.equal(objectUrlCalls, 500, "导入应为 500 张 JPEG 分别建立 Object URL");
+assert.equal(objectUrlCalls, 1200, "导入应为 1200 张 JPEG 分别建立 Object URL");
 click("open-context-photo-preview", { "data-context": "contact", "data-id": "L001" });
-expectText("1 / 500", "本地 JPEG 应能从 Contact Sheet 进入完整图库预览");
+expectText("1 / 1200", "本地 JPEG 应能从 Contact Sheet 进入完整图库预览");
 expectText('src="blob:local-photo-1"', "本地 JPEG 大图预览应复用原始 Object URL");
 expectText('draggable="false"', "本地大图应使用独立的完整图片元素");
 click("close-photo-preview");
 click("change-contact-page", { "data-direction": "1" });
-expectText("第 2 / 9 页", "分页按钮应进入下一批照片");
+expectText("第 2 / 20 页", "分页按钮应进入下一批照片");
 expectText("L061", "第二页应从第 61 张 JPEG 开始");
 expectNoText('data-photo-id="L001"', "翻页后不应继续保留第一页照片 DOM");
 click("change-contact-page", { "data-direction": "-1" });
 
 click("select-contact-page");
-expectText("本次选择 50 张", "全选本页应遵守 Pool 的 50 张上限");
-click("toggle-contact-photo", { "data-id": "L051" });
-expectText("Pool 上限是 50 张", "第 51 张候选应被 Pool 上限拦截");
+expectText("本次选择 60 张", "全选本页应遵守 Pool 的 60 张上限");
+click("toggle-contact-photo", { "data-id": "L061" });
+expectText("Pool 上限是 60 张", "第 61 张候选应被 Pool 上限拦截");
 click("add-to-pool");
-expectText("Pool <span>50 / 50", "Pool 应支持并限制为 50 张照片");
+expectText("Pool <span>60 / 60", "Pool 应支持并限制为 60 张照片");
 
 click("select-all-pool");
-expectText("Sequence <span>50", "Sequence 应能承载完整的 50 张 Pool");
+expectText("Sequence <span>60", "Sequence 应能承载完整的 60 张 Pool");
 click("toggle-whiteboard");
 assert.equal(
   countText('class="whiteboard-item"'),
-  50,
-  "大白板应同时呈现 50 张照片"
+  60,
+  "大白板应同时呈现 60 张照片"
 );
 expectText("width:5200px;height:3600px", "50 张照片应使用扩大的白板画布");
 click("exit-whiteboard-discard");
 click("reset");
 expectText("Contact Sheet", "重新开始应返回空白 Contact Sheet");
-expectText("Pool 0 / 50", "重新开始应清空 Pool");
-expectText("图库 500 张", "重新开始应保留已选择的本地 JPEG 图库");
+expectText("Pool 0 / 60", "重新开始应清空 Pool");
+expectText("图库 1200 张", "重新开始应保留已选择的本地 JPEG 图库");
 
 var styles = fs.readFileSync(path.join(__dirname, "styles.css"), "utf8");
 var previewImageRule = styles.match(/\.preview-photo\.is-local img\s*\{([^}]*)\}/);
@@ -797,7 +876,19 @@ assert.doesNotMatch(
   "大图图片元素不应再被强制同时撑满容器宽高"
 );
 assert.doesNotMatch(styles, /photo-rotation|rotate-photo|whiteboard-rotate/, "旋转样式应彻底删除");
+var horizontalRule = styles.match(/\.sequence-board\.view-horizontal\s*\{([^}]*)\}/);
+assert.ok(horizontalRule, "横向 Sequence 应存在独立滚动样式");
+assert.match(horizontalRule[1], /touch-action:\s*pan-x\s+pinch-zoom/, "横向 Sequence 应声明横向触控意图");
+assert.match(horizontalRule[1], /overscroll-behavior-x:\s*none/, "横向 Sequence 不应把边界手势传给页面导航");
+var panoramaRule = styles.match(/\.panorama-strip\s*\{([^}]*)\}/);
+assert.ok(panoramaRule, "序列全景应存在独立滚动样式");
+assert.match(panoramaRule[1], /touch-action:\s*pan-x\s+pinch-zoom/, "序列全景应声明横向触控意图");
+assert.match(panoramaRule[1], /overscroll-behavior-x:\s*none/, "序列全景不应把边界手势传给页面导航");
+var whiteboardRule = styles.match(/\.whiteboard-viewport\s*\{([^}]*)\}/);
+assert.ok(whiteboardRule, "白板应存在独立滚动视口样式");
+assert.match(whiteboardRule[1], /touch-action:\s*none/, "白板应接管触摸与指针手势");
+assert.match(whiteboardRule[1], /overscroll-behavior:\s*none/, "白板不应把 wheel 边界手势传给页面导航");
 
 process.stdout.write(
-  "PhotoFlex prototype feedback-7 test passed: whole-photo selection with preview-only buttons, context-aware preview select/remove actions, compact Sequence header modes with visible save, paged 500-photo import, full-ratio preview, sequence/Compare panoramas, whiteboard group editing, and stable removal scroll.\n"
+  "PhotoFlex prototype feedback-9 test passed: whole-photo selection with preview-only buttons, context-aware preview select/remove actions, compact Sequence header modes with visible save, paged 1200-photo import, full-ratio preview, sequence/Compare panoramas, whiteboard group editing, direct two-version Compare selection, wheel-owned horizontal navigation, touch boundary rules, and stable removal scroll.\n"
 );

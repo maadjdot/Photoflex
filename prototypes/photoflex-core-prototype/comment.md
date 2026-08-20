@@ -1,3 +1,19 @@
+# 改动意见8
+- 浏览 Sequence 横向视图、Sequence 序列全景或 Compare 版本全景时，两指左右滑动容易触发 Windows/浏览器自带的返回上一页或前进手势，导致用户意外离开当前原型；
+- 为横向照片浏览区域增加触控边界控制：优先在 `.sequence-board.view-horizontal` 与 `.panorama-strip` 上设置 `touch-action: pan-x pinch-zoom` 和 `overscroll-behavior-x: contain`，阻止滚动到左右边界后把手势传递给页面导航；
+- 不应要求参与者修改 Windows 或浏览器系统设置；若局部设置仍无法阻止导航，再评估是否对原型页面的 `html/body` 增加 `overscroll-behavior-x: none` 作为兜底；
+- 保留现有左右箭头与键盘左右键浏览方式，并在 Chrome、Edge 的触控板与触摸屏上分别测试：横向浏览中间位置、滚动到最左端、滚动到最右端均不能误触返回/前进；
+- compare部分优化多version互相比较的逻辑，不用星号，直接给用户选择要比较哪两个版本；
+- 在进入 Contact Sheet 之前增加一个最小化的 Project 建立流程，不要直接从空白 Contact Sheet 开始；
+- 首屏提供“从已有照片开始”和“从核心问题开始”两个入口；
+- 输入项目名称，建立项目；
+- 项目建立后支持连续添加多个照片资料夹（Source），每个 Source 独立显示名称、照片数量、读取状态和问题，不要把多个资料夹伪装成一个来源；
+- 导入过程采用非阻塞的研究版表现：先显示已经读取完成的照片，同时显示 Loading、Partial、Offline、Permission Lost 等状态和下一步出口；
+- 点进单个照片资料夹即进入contact sheet界面；
+- pool能够保留同一个project中来自不同source的照片；
+- 本轮只需验证用户是否理解 Project、Source、Contact Sheet 的关系，不要求实现真实 `.photoflex` 项目目录、数据库、完整后台索引、代理生成或 10,000 张照片性能；
+- 验收目标：新用户能在不解释术语的情况下创建项目、添加至少两个资料夹、理解每个资料夹的状态，并继续进入 Contact Sheet 开始选片；
+
 # 改动意见7
 - 选择方式变回改动意见6时那样，即单击整张照片勾选，保留预览按钮进入大图，双击不进入大图；
 - 增加大图预览时的选择照片与移除照片按钮

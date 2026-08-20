@@ -18,8 +18,8 @@
   var photos = seedPhotos.slice();
   var importedPhotoUrls = [];
   var importedLibraryName = "";
-  var MAX_LIBRARY_PHOTOS = 500;
-  var MAX_POOL_PHOTOS = 50;
+  var MAX_LIBRARY_PHOTOS = 1200;
+  var MAX_POOL_PHOTOS = 60;
   var CONTACT_PAGE_SIZE = 60;
 
   var stages = [
@@ -39,7 +39,7 @@
       id: "compare",
       number: "03",
       label: "Compare",
-      description: "只比较当前版本与星标版本"
+      description: "直接选择两个版本进行比较"
     }
   ];
 
@@ -64,8 +64,7 @@
       sequence: [],
       selectedSequenceIds: [],
       versions: [],
-      starredVersionId: null,
-      compareVersionId: null,
+      compareSelectionIds: [],
       workingFromVersionId: null,
       sequenceView: "horizontal",
       sequenceFrameHeight: 290,
@@ -122,9 +121,8 @@
           memo: "结尾更明确，但中间还需要一次呼吸。"
         }
       ];
-      initial.starredVersionId = "v1";
-      initial.compareVersionId = "v3";
-      initial.notice = "验收预置状态：只显示星标基准与当前版本。";
+      initial.compareSelectionIds = ["v1", "v3"];
+      initial.notice = "验收预置状态：可直接选择两个版本进行比较。";
       if (
         query.get("version") &&
         initial.versions.some(function (version) {
@@ -292,9 +290,9 @@
       photos.length +
       " 张 JPEG" +
       (jpegFiles.length > MAX_LIBRARY_PHOTOS
-        ? "；为本轮研究只使用前 500 张。"
+        ? "；为本轮研究只使用前 " + MAX_LIBRARY_PHOTOS + " 张。"
         : "。") +
-      " 可选择最多 50 张加入 Pool。";
+      " 可选择最多 " + MAX_POOL_PHOTOS + " 张加入 Pool。";
     render();
   }
 
@@ -401,7 +399,7 @@
       compare: {
         eyebrow: "版本判断",
         title: "Compare",
-        lede: "画面只保留两个版本。星标版本始终是比较基准，Memo 用来记录你的判断。"
+        lede: "直接选择两个版本进行比较，Memo 用来记录你的判断。"
       }
     };
     var current = copy[state.stage];
@@ -481,7 +479,9 @@
       (state.importedCount
         ? "已载入 “" + escapeHtml(state.libraryName) + "”"
         : "读取参与者的 JPEG 文件夹") +
-      "</strong><span>浏览器只建立本地 Object URL，不上传、不复制为 Base64；单次最多读取 500 张。</span></div>" +
+      "</strong><span>浏览器只建立本地 Object URL，不上传、不复制为 Base64；单次最多读取 " +
+      MAX_LIBRARY_PHOTOS +
+      " 张。</span></div>" +
       '<label class="folder-import-button">选择本地 JPEG 文件夹<input type="file" data-role="local-jpeg-folder" accept=".jpg,.jpeg,image/jpeg" multiple webkitdirectory directory></label></section>' +
       '<div class="contact-summary"><span>图库 ' +
       photos.length +
@@ -622,25 +622,22 @@
 
   function versionShelf() {
     return (
-      '<aside class="version-shelf"><span class="version-shelf-label">Saved versions</span><div class="version-pack-list">' +
+      '<aside class="version-shelf"><span class="version-shelf-label">选择两个版本</span><div class="version-pack-list">' +
       state.versions
         .map(function (version) {
-          var starred = version.id === state.starredVersionId;
-          var comparing = version.id === state.compareVersionId;
+          var selectedIndex = state.compareSelectionIds.indexOf(version.id);
+          var selected = selectedIndex >= 0;
           return (
             '<button class="version-pack' +
-            (starred ? " is-starred" : "") +
-            (comparing ? " is-comparing" : "") +
-            '" type="button" data-action="select-compare-version" data-id="' +
+            (selected ? " is-comparing" : "") +
+            '" type="button" data-action="toggle-compare-version" data-id="' +
             version.id +
-            '"' +
-            (starred ? " disabled" : "") +
-            '><span class="version-pack-icon">' +
-            (starred ? "★" : "▰") +
-            '</span><span class="version-pack-copy"><strong>' +
+            '" aria-pressed="' +
+            selected +
+            '"><span class="version-pack-icon">▰</span><span class="version-pack-copy"><strong>' +
             escapeHtml(version.label) +
             "</strong><small>" +
-            (starred ? "星标基准" : comparing ? "正在比较" : "点击比较") +
+            (selected ? "已选择 " + (selectedIndex + 1) + " / 2" : "点击选择") +
             "</small></span></button>"
           );
         })
@@ -652,7 +649,7 @@
   function sequenceContent() {
     var saveLabel = state.versions.length
       ? "保存新版本"
-      : "保存首个版本并自动打星";
+      : "保存首个版本";
     var origin = state.workingFromVersionId
       ? '<span class="working-copy">工作副本来自 ' +
         escapeHtml(state.workingFromVersionId.toUpperCase()) +
@@ -687,7 +684,7 @@
       (state.selectedSequenceIds.length ? "" : " disabled") +
       '>移除选中</button></div></div><div class="sequence-viewport"><div class="sequence-board view-' +
       state.sequenceView +
-      '" data-sequence-dropzone="true" style="--sequence-frame-height:' +
+      '" data-sequence-dropzone="true" data-wheel-owner="sequence" style="--sequence-frame-height:' +
       state.sequenceFrameHeight +
       'px">' +
       (state.sequence.length
@@ -722,17 +719,12 @@
   }
 
   function comparisonVersions() {
-    var starred = versionById(state.starredVersionId);
-    var other = versionById(state.compareVersionId);
-    if (!other || (starred && other.id === starred.id)) {
-      other = state.versions
-        .slice()
-        .reverse()
-        .find(function (version) {
-          return !starred || version.id !== starred.id;
-        });
-    }
-    return [starred, other].filter(Boolean);
+    return state.compareSelectionIds
+      .map(function (id) {
+        return versionById(id);
+      })
+      .filter(Boolean)
+      .slice(0, 2);
   }
 
   function versionPreview(version) {
@@ -755,21 +747,10 @@
   }
 
   function compareVersionRow(version) {
-    var starred = version.id === state.starredVersionId;
     return (
-      '<article class="compare-row' +
-      (starred ? " is-starred" : "") +
-      '"><section class="version-panel"><header><h2>' +
+      '<article class="compare-row"><section class="version-panel"><header><h2>' +
       escapeHtml(version.label) +
-      '</h2><button class="star-button' +
-      (starred ? " is-starred" : "") +
-      '" type="button" data-action="star-version" data-id="' +
-      version.id +
-      '" aria-pressed="' +
-      starred +
-      '">' +
-      (starred ? "★ 已设为比较基准" : "☆ 设为喜欢的版本") +
-      '</button></header><button class="version-open" type="button" data-action="open-version-preview" data-id="' +
+      '</h2><span class="compare-selected-label">已选择进行比较</span></header><button class="version-open" type="button" data-action="open-version-preview" data-id="' +
       version.id +
       '" aria-label="沉浸预览 ' +
       escapeHtml(version.label) +
@@ -794,12 +775,14 @@
     var pair = comparisonVersions();
     if (pair.length < 2) {
       return (
-        '<div class="empty-compare"><strong>还需要另一个版本</strong><span>回到 Sequence 调整顺序并再次保存，才能开始比较。</span>' +
+        '<div class="empty-compare"><strong>请选择两个版本</strong><span>在标题右侧选择两个已保存版本，才能开始比较。</span>' +
         '<button class="btn btn-primary" type="button" data-action="goto-stage" data-stage="sequence">返回 Sequence</button></div>'
       );
     }
     return (
-      '<section class="compare-stack">' +
+      '<section class="compare-stack"><p class="compare-selection-hint">选择两个版本 · 当前已选择 ' +
+      pair.length +
+      " / 2</p>" +
       pair.map(compareVersionRow).join("") +
       "</section>"
     );
@@ -880,7 +863,7 @@
       Math.round(state.whiteboardZoom * 100) +
       '%</strong><button type="button" data-action="zoom-whiteboard" data-direction="1" aria-label="放大白板视角">＋</button><button type="button" data-action="reset-whiteboard-view">重置视角</button></div><div class="whiteboard-bulk-actions"><button type="button" data-action="remove-whiteboard-selection"' +
       (state.selectedSequenceIds.length ? "" : " disabled") +
-      '>移除选中</button><button class="whiteboard-discard" type="button" data-action="exit-whiteboard-discard">放弃改动退出</button><button class="whiteboard-exit" type="button" data-action="exit-whiteboard-save">保留排序退出</button></div></div><div class="whiteboard-viewport"><div class="whiteboard-space" style="width:' +
+      '>移除选中</button><button class="whiteboard-discard" type="button" data-action="exit-whiteboard-discard">放弃改动退出</button><button class="whiteboard-exit" type="button" data-action="exit-whiteboard-save">保留排序退出</button></div></div><div class="whiteboard-viewport" data-wheel-owner="whiteboard"><div class="whiteboard-space" style="width:' +
       scaledWidth +
       "px;height:" +
       scaledHeight +
@@ -924,7 +907,7 @@
       escapeHtml(title) +
       '</strong></div><span>照片为 Sequence 模块尺寸的 1.25 倍 · 点击照片查看完整大图</span><button type="button" data-action="' +
       exitAction +
-      '">退出序列全景</button></header><section class="panorama-strip" aria-label="照片序列全景">' +
+      '">退出序列全景</button></header><section class="panorama-strip" data-wheel-owner="panorama" aria-label="照片序列全景">' +
       ids.map(panoramaItem).join("") +
       "</section></main>"
     );
@@ -1071,7 +1054,9 @@
       (invert ? "已反选本页；" : "已全选本页可加入的照片；") +
       "当前共选择 " +
       state.selected.length +
-      " 张，Pool 上限为 50 张。";
+      " 张，Pool 上限为 " +
+      MAX_POOL_PHOTOS +
+      " 张。";
     render();
   }
 
@@ -1082,7 +1067,10 @@
       state.selected.splice(index, 1);
     } else {
       if (state.pool.length + state.selected.length >= MAX_POOL_PHOTOS) {
-        state.notice = "Pool 上限是 50 张；请先取消一张当前选择或从 Pool 删除照片。";
+        state.notice =
+          "Pool 上限是 " +
+          MAX_POOL_PHOTOS +
+          " 张；请先取消一张当前选择或从 Pool 删除照片。";
         render();
         return;
       }
@@ -1098,7 +1086,7 @@
     state.pool = uniqueIds(state.pool.concat(additions));
     state.selected = [];
     if (!additions.length) {
-      state.notice = "Pool 已达到 50 张上限。";
+      state.notice = "Pool 已达到 " + MAX_POOL_PHOTOS + " 张上限。";
       render();
       return;
     }
@@ -1234,6 +1222,7 @@
 
   function saveVersion() {
     if (!state.sequence.length) return;
+    var previousSelection = state.compareSelectionIds.slice();
     var versionNumber = state.versions.length + 1;
     var version = {
       id: "v" + versionNumber,
@@ -1246,39 +1235,41 @@
     state.workingFromVersionId = null;
     state.versionDraftName = "";
 
-    if (!state.starredVersionId) {
-      state.starredVersionId = version.id;
-      state.notice =
-        version.label +
-        " 已保存并自动打星。现在调整 Sequence，再保存另一个版本。";
+    if (!previousSelection.length) {
+      state.compareSelectionIds = [version.id];
+    } else if (previousSelection.length === 1) {
+      state.compareSelectionIds = uniqueIds(previousSelection.concat(version.id)).slice(0, 2);
+    } else {
+      state.compareSelectionIds = [previousSelection[0], version.id];
+    }
+    state.stage = state.compareSelectionIds.length === 2 ? "compare" : "sequence";
+    state.notice =
+      version.label +
+      " 已保存。请选择两个版本进行比较。";
+    render();
+  }
+
+  function toggleCompareVersion(id) {
+    var version = versionById(id);
+    if (!version) return;
+    var index = state.compareSelectionIds.indexOf(id);
+    if (index >= 0) {
+      state.compareSelectionIds.splice(index, 1);
+      state.notice = version.label + " 已取消选择。请选择两个版本进行比较。";
       render();
       return;
     }
-
-    state.compareVersionId = version.id;
-    state.stage = "compare";
-    state.notice = version.label + " 正在与星标版本比较。";
-    render();
-  }
-
-  function starVersion(id) {
-    var version = versionById(id);
-    if (!version) return;
-    var previousStar = state.starredVersionId;
-    if (previousStar && previousStar !== id) {
-      state.compareVersionId = previousStar;
+    if (state.compareSelectionIds.length >= 2) {
+      state.notice = "已经选择两个版本；请先取消一个版本，再选择新的版本。";
+      render();
+      return;
     }
-    state.starredVersionId = id;
-    state.notice = version.label + " 已成为新的比较基准。";
-    render();
-  }
-
-  function selectCompareVersion(id) {
-    var version = versionById(id);
-    if (!version || id === state.starredVersionId) return;
-    state.compareVersionId = id;
-    state.stage = "compare";
-    state.notice = version.label + " 正在与星标版本比较。";
+    state.compareSelectionIds.push(id);
+    state.stage = state.compareSelectionIds.length === 2 ? "compare" : state.stage;
+    state.notice =
+      version.label +
+      " 已选择" +
+      (state.compareSelectionIds.length === 2 ? "，现在可以比较。" : "，还需要选择一个版本。");
     render();
   }
 
@@ -1589,12 +1580,8 @@
       saveVersion();
       return;
     }
-    if (action === "star-version") {
-      starVersion(id);
-      return;
-    }
-    if (action === "select-compare-version") {
-      selectCompareVersion(id);
+    if (action === "toggle-compare-version") {
+      toggleCompareVersion(id);
       return;
     }
     if (action === "edit-version") {
@@ -1738,6 +1725,59 @@
     var version = versionById(target.getAttribute("data-version-id"));
     if (version) version.memo = target.value;
   });
+
+  function wheelDeltaPixels(event, key) {
+    var value = Number(event[key]) || 0;
+    if (event.deltaMode === 1) return value * 16;
+    if (event.deltaMode === 2) {
+      var viewportSize =
+        typeof window !== "undefined" && window.innerWidth
+          ? window.innerWidth
+          : 800;
+      return value * viewportSize;
+    }
+    return value;
+  }
+
+  document.addEventListener(
+    "wheel",
+    function (event) {
+      var target = event.target;
+      if (!target || !target.closest) return;
+
+      var whiteboardViewport = target.closest(".whiteboard-viewport");
+      var horizontalViewport = whiteboardViewport
+        ? null
+        : target.closest(
+            ".sequence-board.view-horizontal, .panorama-strip"
+          );
+      var viewport = whiteboardViewport || horizontalViewport;
+      if (!viewport || event.ctrlKey) return;
+
+      var deltaX = wheelDeltaPixels(event, "deltaX");
+      var deltaY = wheelDeltaPixels(event, "deltaY");
+
+      // Shift + wheel is the standard fallback for horizontal scrolling.
+      if (event.shiftKey && Math.abs(deltaX) < 0.5 && Math.abs(deltaY) >= 0.5) {
+        deltaX = deltaY;
+        deltaY = 0;
+      }
+
+      var isWhiteboard = Boolean(whiteboardViewport);
+      var isHorizontalGesture =
+        Math.abs(deltaX) > Math.abs(deltaY) && Math.abs(deltaX) >= 0.5;
+      if (!isWhiteboard && !isHorizontalGesture) return;
+      if (isWhiteboard && Math.abs(deltaX) + Math.abs(deltaY) < 0.5) return;
+
+      // Capture the gesture before it can chain to the document or browser
+      // history navigation, then apply the motion to the intended viewport.
+      if (event.preventDefault) event.preventDefault();
+      if (event.stopPropagation) event.stopPropagation();
+      viewport.scrollLeft += deltaX;
+      if (isWhiteboard) viewport.scrollTop += deltaY;
+    },
+    { capture: true, passive: false }
+  );
 
   document.addEventListener("keydown", function (event) {
     var target = event.target;

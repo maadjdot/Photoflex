@@ -755,6 +755,8 @@ button[disabled] {
   display: flex;
   overflow-x: auto;
   overflow-y: hidden;
+  touch-action: pan-x pinch-zoom;
+  overscroll-behavior-x: none;
   padding-bottom: 18px;
   scroll-behavior: smooth;
   scroll-snap-type: x proximity;
@@ -1001,6 +1003,13 @@ button[disabled] {
   gap: 18px;
 }
 
+.compare-selection-hint {
+  margin: 0;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+}
+
 .compare-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 330px;
@@ -1010,11 +1019,6 @@ button[disabled] {
   border-radius: 22px;
   background: var(--line);
   box-shadow: var(--shadow);
-}
-
-.compare-row.is-starred {
-  border-color: rgba(243, 201, 95, 0.55);
-  background: rgba(243, 201, 95, 0.55);
 }
 
 .version-panel,
@@ -1042,21 +1046,12 @@ button[disabled] {
   font-weight: 500;
 }
 
-.star-button {
-  min-height: 36px;
-  padding: 7px 12px;
-  border: 1px solid var(--line-strong);
-  border-radius: 999px;
-  background: transparent;
-  color: var(--muted);
+.compare-selected-label {
+  color: var(--accent);
   font-size: 10px;
   font-weight: 850;
-}
-
-.star-button.is-starred {
-  border-color: var(--star);
-  background: rgba(243, 201, 95, 0.1);
-  color: var(--star);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 
 .version-open {
@@ -1527,6 +1522,8 @@ button[disabled] {
   width: 100%;
   height: 100vh;
   overflow: auto;
+  touch-action: none;
+  overscroll-behavior: none;
   scrollbar-color: var(--accent) rgba(255, 255, 255, 0.08);
 }
 
@@ -1733,6 +1730,8 @@ button[disabled] {
   padding: 32px;
   overflow-x: auto;
   overflow-y: hidden;
+  touch-action: pan-x pinch-zoom;
+  overscroll-behavior-x: none;
   scrollbar-color: var(--accent) rgba(255, 255, 255, 0.08);
 }
 
@@ -1917,11 +1916,6 @@ button[disabled] {
   background: var(--accent-soft);
 }
 
-.version-pack.is-starred {
-  border-color: rgba(243, 201, 95, 0.65);
-  opacity: 1;
-}
-
 .version-pack-icon {
   display: grid;
   width: 25px;
@@ -1931,10 +1925,6 @@ button[disabled] {
   background: rgba(255, 255, 255, 0.07);
   color: var(--muted);
   font-size: 12px;
-}
-
-.version-pack.is-starred .version-pack-icon {
-  color: var(--star);
 }
 
 .version-pack-copy strong,
