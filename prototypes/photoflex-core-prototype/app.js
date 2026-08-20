@@ -21,6 +21,7 @@
   });
   var importedPhotoUrls = [];
   var nextSourceNumber = 1;
+  var nextProjectNumber = 1;
   var MAX_LIBRARY_PHOTOS = 1200;
   var MAX_POOL_PHOTOS = 60;
   var CONTACT_PAGE_SIZE = 60;
@@ -47,6 +48,9 @@
   ];
 
   var state = createInitialState();
+  // The prototype keeps Project records in memory so switching projects can
+  // replace the active workspace without destroying another project's work.
+  var projects = [];
   var draggedPhotoId = null;
   var pointerInteraction = null;
   var suppressPhotoClick = false;
@@ -60,7 +64,7 @@
 
   function createInitialState(skipDemo) {
     var initial = {
-      projectStep: "welcome",
+      projectStep: "home",
       projectEntryMode: null,
       projectDraftName: "",
       projectDraftQuestion: "",
@@ -91,7 +95,7 @@
       sequencePanorama: false,
       immersiveVersionId: null,
       versionDraftName: "",
-      notice: "先建立 Project，再添加一个或多个照片资料夹。"
+      notice: "从 Home 选择一个 Project，或建立新的 Project。"
     };
     if (typeof window === "undefined" || skipDemo) {
       return initial;
@@ -238,6 +242,54 @@
     targetState.activeSourceId = DEMO_SOURCE_ID;
   }
 
+  function cloneState(value) {
+    return JSON.parse(JSON.stringify(value));
+  }
+
+  function persistActiveProject() {
+    if (!state.project || !state.project.id) return;
+    var snapshot = cloneState(state);
+    if (snapshot.projectStep === "home" || snapshot.projectStep === "create") {
+      snapshot.projectStep = "sources";
+    }
+    var record = projects.find(function (project) {
+      return project.id === state.project.id;
+    });
+    var nextRecord = {
+      id: state.project.id,
+      name: state.project.name,
+      question: state.project.question || "",
+      snapshot: snapshot,
+      updatedAt: Date.now()
+    };
+    if (record) {
+      Object.assign(record, nextRecord);
+    } else {
+      projects.push(nextRecord);
+    }
+  }
+
+  function openProjectHome() {
+    persistActiveProject();
+    state.projectStep = "home";
+    state.projectEntryMode = null;
+    state.notice = projects.length
+      ? "选择一个 Project 继续，或建立新的 Project。"
+      : "还没有 Project；先建立第一个工作空间。";
+    render();
+  }
+
+  function openProject(id) {
+    var record = projects.find(function (project) {
+      return project.id === id;
+    });
+    if (!record || !record.snapshot) return;
+    state = cloneState(record.snapshot);
+    state.projectStep = "sources";
+    state.notice = "已打开“" + record.name + "”；这个 Project 的工作状态已恢复。";
+    render();
+  }
+
   function escapeHtml(value) {
     return String(value)
       .replace(/&/g, "&amp;")
@@ -287,6 +339,35 @@
   function uniqueIds(ids) {
     return ids.filter(function (id, index) {
       return ids.indexOf(id) === index;
+    });
+  }
+
+  function captureScroll(selector) {
+    var element = document.querySelector(selector);
+    return {
+      top: element ? element.scrollTop : 0,
+      left: element ? element.scrollLeft : 0
+    };
+  }
+
+  function restoreScroll(selector, position) {
+    if (!position) return;
+    var apply = function () {
+      var element = document.querySelector(selector);
+      if (!element) return;
+      element.scrollTop = position.top;
+      element.scrollLeft = position.left;
+    };
+    // Apply immediately for the prototype test harness and once after layout
+    // for a real browser, where a rerender may recalculate overflow later.
+    apply();
+    if (typeof requestAnimationFrame === "function") requestAnimationFrame(apply);
+    if (typeof setTimeout === "function") setTimeout(apply, 0);
+  }
+
+  function restoreScrollPositions(positions) {
+    Object.keys(positions).forEach(function (selector) {
+      restoreScroll(selector, positions[selector]);
     });
   }
 
@@ -559,8 +640,45 @@
   }
 
   function projectWelcomeContent() {
+    var projectCards = projects.length
+      ? '<section class="project-library"><div class="project-library-heading"><div><p class="eyebrow">Your Projects</p><h2>继续一个工作空间</h2></div><span>' +
+        projects.length +
+        " 个 Project 保存在本轮内存中</span></div><div class=\"project-card-grid\" data-project-list>" +
+        projects
+          .map(function (project) {
+            var snapshot = project.snapshot || {};
+            var sources = snapshot.sources || [];
+            var pool = snapshot.pool || [];
+            var stageLabel =
+              snapshot.projectStep === "workspace"
+                ? (snapshot.stage || "contact") === "contact"
+                  ? "Contact Sheet"
+                  : (snapshot.stage || "contact") === "sequence"
+                    ? "Sequence + Pool"
+                    : "Compare"
+                : "Project Stage";
+            return (
+              '<article class="project-card"><div class="project-card-top"><span class="project-card-status">' +
+              escapeHtml(stageLabel) +
+              '</span><span>' +
+              sources.length +
+              " Sources</span></div><h3>" +
+              escapeHtml(project.name) +
+              '</h3><p>' +
+              escapeHtml(project.question || "还没有写下核心问题。") +
+              '</p><footer><span>Pool ' +
+              pool.length +
+              " 张</span><button type=\"button\" data-action=\"open-project\" data-id=\"" +
+              escapeHtml(project.id) +
+              '\">打开 Project →</button></footer></article>'
+            );
+          })
+          .join("") +
+        "</div></section>"
+      : '<section class="project-library project-library-empty"><p class="eyebrow">Your Projects</p><h2>还没有 Project</h2><p>建立后，照片资料夹、Pool、Sequence 和版本都会留在各自的工作空间里。</p></section>';
     return (
-      '<main class="project-flow project-welcome"><header class="project-intro"><span class="prototype-flag">Prototype · Memory only</span><p class="eyebrow">PhotoFlex Project</p><h1>先决定从哪里开始</h1><p>这个原型验证一件事：Project 保存一次选片工作，Source 是 Project 里的照片资料夹，点进 Source 才进入 Contact Sheet。</p></header>' +
+      '<main class="project-flow project-welcome"><header class="project-intro"><span class="prototype-flag">Prototype · Memory only</span><p class="eyebrow">PhotoFlex Home</p><h1>管理你的 Projects</h1><p>每个 Project 都是独立的选片工作空间：Source、Pool、Sequence 和版本互不覆盖。选择已有 Project，或从下面建立新的 Project。</p></header>' +
+      projectCards +
       '<section class="project-entry-grid"><button type="button" data-action="choose-project-entry" data-mode="photos"><span class="entry-number">01</span><strong>从已有照片开始</strong><small>先建立 Project，再连续添加一个或多个照片资料夹。</small><em>适合已经准备好拍摄资料的工作</em></button>' +
       '<button type="button" data-action="choose-project-entry" data-mode="question"><span class="entry-number">02</span><strong>从核心问题开始</strong><small>先写下这次编辑想回答的问题，照片资料夹可以之后再加。</small><em>适合从命题或叙事方向开始</em></button></section>' +
       '<footer class="project-memory-note">本轮原型只保存在浏览器内存中，不会建立真实 .photoflex 文件。</footer></main>'
@@ -652,12 +770,12 @@
         : '<div class="empty-sources"><strong>还没有照片资料夹</strong><span>添加第一个 Source；之后可以继续添加，不会覆盖前一个资料夹。</span></div>') +
       '</section><section class="source-status-legend"><strong>读取状态不会阻塞整个 Project</strong><span><b>Loading</b> 正在读取</span><span><b>Partial</b> 可先用已读取照片</span><span><b>Offline</b> 其他 Source 仍可工作</span><span><b>Permission Lost</b> 重新选择资料夹</span></section><footer class="source-hub-footer"><span>' +
       escapeHtml(state.notice) +
-      '</span><button type="button" data-action="new-project">建立另一个 Project</button></footer></main>'
+      '</span><div><button type="button" data-action="open-project-home">Project Home</button><button type="button" data-action="new-project">建立另一个 Project</button></div></footer></main>'
     );
   }
 
   function projectFlowContent() {
-    if (state.projectStep === "welcome") return projectWelcomeContent();
+    if (state.projectStep === "home" || state.projectStep === "welcome") return projectWelcomeContent();
     if (state.projectStep === "create") return projectCreateContent();
     return sourceHubContent();
   }
@@ -793,7 +911,7 @@
       '</p><strong>' +
       escapeHtml(source.name) +
       "</strong><span>这里只显示当前资料夹的照片；加入 Pool 后，切换 Source 也不会丢失。</span></div>" +
-      '<button class="folder-import-button" type="button" data-action="open-source-hub">返回 Project 资料夹</button></section>' +
+      '<span class="source-stage-note">从顶部 Project 模块返回 Home；当前 Source 的照片和 Pool 会继续保留。</span></section>' +
       '<div class="contact-summary"><span>图库 ' +
       activeSourcePhotos().length +
       " 张</span><span>本次选择 " +
@@ -1304,6 +1422,7 @@
 
   function render() {
     var content;
+    persistActiveProject();
     if (state.projectStep !== "workspace") {
       content = projectFlowContent();
     } else {
@@ -1318,7 +1437,7 @@
             )
         : state.immersiveVersionId
           ? immersiveVersionContent()
-        : '<div class="prototype-shell"><header class="app-header"><div class="brand-block"><span class="prototype-flag">Prototype · Memory only</span><button class="project-name" type="button" data-action="open-source-hub">' +
+        : '<div class="prototype-shell"><header class="app-header"><div class="brand-block"><span class="prototype-flag">Prototype · Memory only</span><button class="project-name" type="button" data-action="open-project-home" aria-label="打开 Project Home">' +
           escapeHtml(state.project ? state.project.name : "未命名 Project") +
           " · " +
           state.sources.length +
@@ -1364,10 +1483,12 @@
       return;
     }
     state.project = {
-      id: "project-" + Date.now(),
+      id: "project-local-" + nextProjectNumber++,
       name: name,
       question: state.projectDraftQuestion.trim()
     };
+    state.projectDraftName = "";
+    state.projectDraftQuestion = "";
     state.projectStep = "sources";
     state.notice =
       "Project 已建立。现在添加第一个 Source；之后可以继续添加，不会覆盖前一个资料夹。";
@@ -1464,13 +1585,10 @@
   }
 
   function newProject() {
-    revokeImportedPhotoUrls();
-    photos = seedPhotos.map(function (photo) {
-      return Object.assign({ sourceId: DEMO_SOURCE_ID }, photo);
-    });
-    nextSourceNumber = 1;
+    persistActiveProject();
     state = createInitialState(true);
-    state.notice = "上一轮内存状态已清空，请建立新的 Project。";
+    state.projectStep = "home";
+    state.notice = "旧 Project 已保留；选择入口建立一个新的 Project。";
     render();
   }
 
@@ -1553,11 +1671,10 @@
 
   function toggleSequencePhoto(id) {
     if (state.pool.indexOf(id) < 0) return;
-    var poolElement = document.querySelector(".pool-column");
-    var poolScrollTop = poolElement ? poolElement.scrollTop : 0;
-    var sequenceElement = document.querySelector(".sequence-board");
-    var sequenceScrollTop = sequenceElement ? sequenceElement.scrollTop : 0;
-    var sequenceScrollLeft = sequenceElement ? sequenceElement.scrollLeft : 0;
+    var scrollPositions = {
+      ".pool-column": captureScroll(".pool-column"),
+      ".sequence-board": captureScroll(".sequence-board")
+    };
     var index = state.sequence.indexOf(id);
     if (index >= 0) {
       state.sequence.splice(index, 1);
@@ -1571,13 +1688,7 @@
       state.notice = photoById(id).title + " 已加入 Sequence。";
     }
     render();
-    var nextPoolElement = document.querySelector(".pool-column");
-    if (nextPoolElement) nextPoolElement.scrollTop = poolScrollTop;
-    var nextSequenceElement = document.querySelector(".sequence-board");
-    if (nextSequenceElement) {
-      nextSequenceElement.scrollTop = sequenceScrollTop;
-      nextSequenceElement.scrollLeft = sequenceScrollLeft;
-    }
+    restoreScrollPositions(scrollPositions);
   }
 
   function selectAllPoolPhotos() {
@@ -1630,12 +1741,12 @@
       return state.sequence.indexOf(id) >= 0;
     });
     if (!removalIds.length) return;
-    var scrollSelector = state.whiteboard
-      ? ".whiteboard-viewport"
-      : ".sequence-board";
-    var scrollElement = document.querySelector(scrollSelector);
-    var scrollTop = scrollElement ? scrollElement.scrollTop : 0;
-    var scrollLeft = scrollElement ? scrollElement.scrollLeft : 0;
+    var scrollPositions = state.whiteboard
+      ? { ".whiteboard-viewport": captureScroll(".whiteboard-viewport") }
+      : {
+          ".sequence-board": captureScroll(".sequence-board"),
+          ".pool-column": captureScroll(".pool-column")
+        };
     state.sequence = state.sequence.filter(function (id) {
       return removalIds.indexOf(id) < 0;
     });
@@ -1647,14 +1758,14 @@
     });
     state.notice = notice || "已从 Sequence 移除 " + removalIds.length + " 张照片。";
     render();
-    var nextScrollElement = document.querySelector(scrollSelector);
-    if (nextScrollElement) {
-      nextScrollElement.scrollTop = scrollTop;
-      nextScrollElement.scrollLeft = scrollLeft;
-    }
+    restoreScrollPositions(scrollPositions);
   }
 
   function removePoolPhoto(id) {
+    var scrollPositions = {
+      ".pool-column": captureScroll(".pool-column"),
+      ".sequence-board": captureScroll(".sequence-board")
+    };
     state.pool = state.pool.filter(function (photoId) {
       return photoId !== id;
     });
@@ -1668,9 +1779,13 @@
       return photoId !== id;
     });
     delete state.whiteboardItems[id];
-    state.notice = photoById(id).title + " 已从 Pool 删除；Contact Sheet 已恢复彩色。";
+    var photo = photoById(id);
+    state.notice =
+      (photo ? photo.title : "照片") +
+      " 已从 Pool 删除；Contact Sheet 已恢复彩色。";
     if (!state.pool.length) state.stage = "contact";
     render();
+    restoreScrollPositions(scrollPositions);
   }
 
   function saveVersion() {
@@ -2005,7 +2120,7 @@
       return;
     }
     if (action === "back-project-welcome") {
-      state.projectStep = "welcome";
+      state.projectStep = "home";
       state.notice = "选择这次 Project 的起点。";
       render();
       return;
@@ -2020,6 +2135,14 @@
     }
     if (action === "open-source") {
       openSource(id);
+      return;
+    }
+    if (action === "open-project") {
+      openProject(id);
+      return;
+    }
+    if (action === "open-project-home") {
+      openProjectHome();
       return;
     }
     if (action === "open-source-hub") {
@@ -2264,11 +2387,17 @@
       if (!target || !target.closest) return;
 
       var whiteboardViewport = target.closest(".whiteboard-viewport");
+      var sequenceColumn = target.closest(".sequence-column");
       var horizontalViewport = whiteboardViewport
         ? null
         : target.closest(
             ".sequence-board.view-horizontal, .panorama-strip"
           );
+      if (!whiteboardViewport && !horizontalViewport && sequenceColumn) {
+        horizontalViewport = sequenceColumn.querySelector
+          ? sequenceColumn.querySelector(".sequence-board.view-horizontal")
+          : null;
+      }
       var viewport = whiteboardViewport || horizontalViewport;
       if (!viewport || event.ctrlKey) return;
 
@@ -2282,8 +2411,18 @@
       }
 
       var isWhiteboard = Boolean(whiteboardViewport);
+      var isSequence = Boolean(
+        horizontalViewport &&
+          horizontalViewport.classList &&
+          horizontalViewport.classList.contains("sequence-board")
+      );
+      if (!isSequence && horizontalViewport && horizontalViewport.selector) {
+        isSequence = horizontalViewport.selector.indexOf("sequence-board") >= 0;
+      }
       var isHorizontalGesture =
-        Math.abs(deltaX) > Math.abs(deltaY) && Math.abs(deltaX) >= 0.5;
+        Math.abs(deltaX) >= 0.5 &&
+        (Math.abs(deltaX) > Math.abs(deltaY) ||
+          (isSequence && Math.abs(deltaX) >= Math.abs(deltaY) * 0.35));
       if (!isWhiteboard && !isHorizontalGesture) return;
       if (isWhiteboard && Math.abs(deltaX) + Math.abs(deltaY) < 0.5) return;
 
@@ -2291,6 +2430,7 @@
       // history navigation, then apply the motion to the intended viewport.
       if (event.preventDefault) event.preventDefault();
       if (event.stopPropagation) event.stopPropagation();
+      if (event.stopImmediatePropagation) event.stopImmediatePropagation();
       viewport.scrollLeft += deltaX;
       if (isWhiteboard) viewport.scrollTop += deltaY;
     },

@@ -387,6 +387,11 @@ click("add-demo-sources");
 assert.equal(countText('<article class="source-card'), 2, "示例入口应添加两个独立 Source");
 expectText("北岸散步", "第一个示例 Source 应保持独立名称");
 expectText("南岸补拍", "第二个示例 Source 应保持独立名称");
+click("open-project-home");
+expectText("管理你的 Projects", "顶部 Project 模块应能回到 Project Home");
+expectText("河流向北", "Project Home 应列出已建立的 Project");
+click("open-project", { "data-id": "project-local-1" });
+expectText("北岸散步", "从 Home 打开 Project 后应恢复 Source 列表");
 click("set-source-status", {
   "data-id": "source-demo-2",
   "data-status": "offline"
@@ -465,7 +470,19 @@ assert.match(
 );
 
 click("goto-stage", { "data-stage": "sequence" });
+elementFor(".pool-column").scrollTop = 310;
+elementFor(".sequence-board").scrollLeft = 640;
 click("remove-pool-photo", { "data-id": "P08" });
+assert.equal(
+  elementFor(".pool-column").scrollTop,
+  310,
+  "从 Pool 删除照片后应保留 Pool 垂直滚动位置"
+);
+assert.equal(
+  elementFor(".sequence-board").scrollLeft,
+  640,
+  "从 Pool 删除照片后应保留 Sequence 横向滚动位置"
+);
 click("goto-stage", { "data-stage": "contact" });
 assert.doesNotMatch(
   contactCardOpeningTag("P08"),
@@ -567,6 +584,29 @@ assert.equal(
   false,
   "Sequence 垂直 wheel 不应被横向接管逻辑误伤"
 );
+
+click("open-project-home");
+expectText("从已有照片开始", "Project Home 应保留新建入口");
+click("new-project");
+click("choose-project-entry", { "data-mode": "photos" });
+listeners.input({
+  target: {
+    value: "第二个 Project",
+    getAttribute: function (name) {
+      return name === "data-role" ? "project-name" : null;
+    }
+  }
+});
+click("create-project");
+expectText("第二个 Project", "新建 Project 后应进入新的 Project Stage");
+click("add-demo-sources");
+click("open-project-home");
+expectText("河流向北", "旧 Project 应继续出现在 Home");
+expectText("第二个 Project", "新 Project 应出现在 Home");
+click("open-project", { "data-id": "project-local-1" });
+click("open-source", { "data-id": "source-demo" });
+click("goto-stage", { "data-stage": "sequence" });
+expectText("Pool <span>4 / 60", "切回旧 Project 后应恢复原来的 Pool 状态");
 
 drag("P06", "P01");
 var p06Position = appNode.innerHTML.indexOf('data-drag-id="P06"');
@@ -944,7 +984,10 @@ assert.doesNotMatch(styles, /photo-rotation|rotate-photo|whiteboard-rotate/, "�
 var horizontalRule = styles.match(/\.sequence-board\.view-horizontal\s*\{([^}]*)\}/);
 assert.ok(horizontalRule, "横向 Sequence 应存在独立滚动样式");
 assert.match(horizontalRule[1], /touch-action:\s*pan-x\s+pinch-zoom/, "横向 Sequence 应声明横向触控意图");
-assert.match(horizontalRule[1], /overscroll-behavior-x:\s*none/, "横向 Sequence 不应把边界手势传给页面导航");
+assert.match(horizontalRule[1], /overscroll-behavior:\s*contain/, "横向 Sequence 不应把边界手势传给页面导航");
+var sequenceColumnRule = styles.match(/\.sequence-column\s*,\s*\n\.pool-column\s*\{([^}]*)\}/);
+assert.ok(sequenceColumnRule, "Sequence 与 Pool 应存在滚动容器样式");
+assert.match(sequenceColumnRule[1], /overscroll-behavior:\s*contain/, "Sequence 外层容器不应把触控板边界手势传给页面导航");
 var panoramaRule = styles.match(/\.panorama-strip\s*\{([^}]*)\}/);
 assert.ok(panoramaRule, "序列全景应存在独立滚动样式");
 assert.match(panoramaRule[1], /touch-action:\s*pan-x\s+pinch-zoom/, "序列全景应声明横向触控意图");
@@ -955,5 +998,5 @@ assert.match(whiteboardRule[1], /touch-action:\s*none/, "白板应接管触摸�
 assert.match(whiteboardRule[1], /overscroll-behavior:\s*none/, "白板不应把 wheel 边界手势传给页面导航");
 
 process.stdout.write(
-  "PhotoFlex prototype feedback-10 test passed: project-first onboarding, independent multi-source states, cross-source Pool retention, paged 1200-photo import, whole-photo selection with preview-only buttons, sequence/Compare panoramas, whiteboard group editing, direct two-version Compare selection, wheel-owned navigation, and stable removal scroll.\n"
+  "PhotoFlex prototype feedback-11 test passed: multi-project Home and isolated workspaces, independent multi-source states, cross-source Pool retention, paged 1200-photo import, whole-photo selection with preview-only buttons, sequence/Compare panoramas, whiteboard group editing, direct two-version Compare selection, wheel-owned navigation, and stable removal scroll.\n"
 );

@@ -160,6 +160,98 @@ button[disabled] {
   font-size: 10px;
 }
 
+.project-library {
+  margin-top: 42px;
+}
+
+.project-library-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: 20px;
+  align-items: end;
+  margin-bottom: 14px;
+}
+
+.project-library-heading h2,
+.project-library-empty h2 {
+  margin: 5px 0 0;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 28px;
+  font-weight: 500;
+}
+
+.project-library-heading > span,
+.project-library-empty > p:last-child {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.project-card-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.project-card {
+  display: flex;
+  min-height: 210px;
+  flex-direction: column;
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: var(--surface);
+}
+
+.project-card-top,
+.project-card footer {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: center;
+  color: var(--muted);
+  font-size: 9px;
+}
+
+.project-card-status {
+  color: var(--green);
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.project-card h3 {
+  margin: 26px 0 8px;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 25px;
+  font-weight: 500;
+}
+
+.project-card p {
+  flex: 1;
+  margin: 0;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.55;
+}
+
+.project-card footer {
+  margin-top: 20px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+
+.project-card footer button {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  font-size: 10px;
+  font-weight: 850;
+}
+
+.project-library-empty {
+  padding: 18px 0 0;
+}
+
 .project-back {
   margin-bottom: 36px;
   padding: 0;
@@ -437,6 +529,19 @@ button[disabled] {
   margin-top: 20px;
   color: var(--muted);
   font-size: 10px;
+}
+
+.source-hub-footer > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.source-stage-note {
+  max-width: 420px;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.5;
 }
 
 .app-header {
@@ -1039,6 +1144,7 @@ button[disabled] {
   height: var(--module-height);
   padding: 16px;
   overflow: auto;
+  overscroll-behavior: contain;
   border: 1px solid var(--line);
   border-radius: 22px;
   background: var(--surface);
@@ -1137,7 +1243,7 @@ button[disabled] {
   overflow-x: auto;
   overflow-y: hidden;
   touch-action: pan-x pinch-zoom;
-  overscroll-behavior-x: none;
+  overscroll-behavior: contain;
   padding-bottom: 18px;
   scroll-behavior: smooth;
   scroll-snap-type: x proximity;
@@ -1592,7 +1698,8 @@ button[disabled] {
   }
 
   .project-entry-grid,
-  .source-grid {
+  .source-grid,
+  .project-card-grid {
     grid-template-columns: 1fr;
   }
 
