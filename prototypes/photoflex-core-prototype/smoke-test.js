@@ -355,7 +355,50 @@ function marqueeGesture(startX, startY, endX, endY) {
 
 require(path.join(__dirname, "app.js"));
 
-expectText("Contact Sheet", "初始阶段应为 Contact Sheet");
+expectText("从已有照片开始", "首屏应提供从已有照片开始入口");
+expectText("从核心问题开始", "首屏应提供从核心问题开始入口");
+expectNoText("stage-navigation", "建立 Project 前不应显示 Contact Sheet 工作区导航");
+click("choose-project-entry", { "data-mode": "question" });
+expectText("建立一个 Project", "选择入口后应进入 Project 建立步骤");
+listeners.input({
+  target: {
+    value: "河流向北",
+    getAttribute: function (name) {
+      return name === "data-role" ? "project-name" : null;
+    }
+  }
+});
+listeners.input({
+  target: {
+    value: "一段沿河行走的记忆，应该从哪里开始？",
+    getAttribute: function (name) {
+      return name === "data-role" ? "project-question" : null;
+    }
+  }
+});
+click("create-project");
+expectText("1 Project", "建立后应解释 Project 与 Source 的关系");
+expectText("还没有照片资料夹", "新 Project 应从空的 Source 列表开始");
+expectText("Loading", "Source Hub 应解释 Loading 状态");
+expectText("Partial", "Source Hub 应解释 Partial 状态");
+expectText("Offline", "Source Hub 应解释 Offline 状态");
+expectText("Permission Lost", "Source Hub 应解释 Permission Lost 状态");
+click("add-demo-sources");
+assert.equal(countText('<article class="source-card'), 2, "示例入口应添加两个独立 Source");
+expectText("北岸散步", "第一个示例 Source 应保持独立名称");
+expectText("南岸补拍", "第二个示例 Source 应保持独立名称");
+click("set-source-status", {
+  "data-id": "source-demo-2",
+  "data-status": "offline"
+});
+expectText("资料夹目前离线", "Source 应能独立呈现 Offline 问题");
+click("set-source-status", {
+  "data-id": "source-demo-2",
+  "data-status": "ready"
+});
+click("open-source", { "data-id": "source-demo" });
+expectText("Contact Sheet", "点进单个 Source 后才应进入 Contact Sheet");
+expectText("当前 Source · Ready", "Contact Sheet 应标明当前 Source 与状态");
 expectText("Sequence + Pool", "顶部应显示合并后的 Sequence + Pool 阶段");
 expectText("Compare", "顶部应显示 Compare 阶段");
 expectNoText("当前意图", "应删除当前意图");
@@ -804,16 +847,22 @@ var localFiles = Array.from({ length: 1205 }, function (_value, index) {
     webkitRelativePath: "ux05-set/photo-" + number + ".jpg"
   };
 });
+click("open-source-hub");
+expectText("北岸散步", "返回 Project 后应保留已有 Source");
 listeners.change({
   target: {
     files: localFiles,
     value: "folder",
     getAttribute: function (name) {
-      return name === "data-role" ? "local-jpeg-folder" : null;
+      return name === "data-role" ? "source-folder" : null;
     }
   }
 });
-expectText("已载入 “ux05-set”", "导入后应显示本地文件夹名称");
+expectText("ux05-set", "新 Source 应独立显示本地文件夹名称");
+expectText("1200 / 1205 张", "超过研究上限的 Source 应显示已读取数与总数");
+expectText("Partial", "只读取前 1200 张时应显示 Partial 状态");
+expectText("已经可以开始选片", "Partial Source 应提供非阻塞下一步出口");
+click("open-source", { "data-id": "source-local-1" });
 expectText("图库 1200 张", "本地研究图库应最多读取 1200 张 JPEG");
 expectText("第 1 / 20 页", "1200 张图库应分页而不是一次渲染全部照片");
 assert.equal(
@@ -821,23 +870,36 @@ assert.equal(
   60,
   "Contact Sheet 每次只应渲染 60 张以降低 DOM 与解码压力"
 );
-expectText("L060", "第一页应渲染到第 60 张 JPEG");
-expectNoText("L061", "第一页不应渲染下一页 JPEG");
+expectText("Slocal-1-P0060", "第一页应渲染到第 60 张 JPEG");
+expectNoText("Slocal-1-P0061", "第一页不应渲染下一页 JPEG");
 assert.equal(objectUrlCalls, 1200, "导入应为 1200 张 JPEG 分别建立 Object URL");
-click("open-context-photo-preview", { "data-context": "contact", "data-id": "L001" });
+click("open-context-photo-preview", { "data-context": "contact", "data-id": "Slocal-1-P0001" });
 expectText("1 / 1200", "本地 JPEG 应能从 Contact Sheet 进入完整图库预览");
 expectText('src="blob:local-photo-1"', "本地 JPEG 大图预览应复用原始 Object URL");
 expectText('draggable="false"', "本地大图应使用独立的完整图片元素");
 click("close-photo-preview");
 click("change-contact-page", { "data-direction": "1" });
 expectText("第 2 / 20 页", "分页按钮应进入下一批照片");
-expectText("L061", "第二页应从第 61 张 JPEG 开始");
-expectNoText('data-photo-id="L001"', "翻页后不应继续保留第一页照片 DOM");
+expectText("Slocal-1-P0061", "第二页应从第 61 张 JPEG 开始");
+expectNoText('data-photo-id="Slocal-1-P0001"', "翻页后不应继续保留第一页照片 DOM");
 click("change-contact-page", { "data-direction": "-1" });
 
+click("toggle-contact-photo", { "data-id": "Slocal-1-P0001" });
+click("add-to-pool");
+expectText("ux05-set", "Pool 照片应标记所属的新 Source");
+expectText("北岸散步", "Pool 应同时保留先前 Source 的照片");
+click("open-source-hub");
+click("open-source", { "data-id": "source-demo" });
+click("goto-stage", { "data-stage": "sequence" });
+expectText("Pool <span>5 / 60", "切换 Source 后 Project Pool 不应清空");
+expectText("ux05-set", "切回旧 Source 后仍应看到新 Source 的 Pool 照片");
+click("open-source-hub");
+click("open-source", { "data-id": "source-local-1" });
+click("reset");
+expectText("Pool 0 / 60", "清空本轮编辑后应保留当前 Source 但清空 Pool");
 click("select-contact-page");
 expectText("本次选择 60 张", "全选本页应遵守 Pool 的 60 张上限");
-click("toggle-contact-photo", { "data-id": "L061" });
+click("toggle-contact-photo", { "data-id": "Slocal-1-P0061" });
 expectText("Pool 上限是 60 张", "第 61 张候选应被 Pool 上限拦截");
 click("add-to-pool");
 expectText("Pool <span>60 / 60", "Pool 应支持并限制为 60 张照片");
@@ -855,9 +917,12 @@ click("exit-whiteboard-discard");
 click("reset");
 expectText("Contact Sheet", "重新开始应返回空白 Contact Sheet");
 expectText("Pool 0 / 60", "重新开始应清空 Pool");
-expectText("图库 1200 张", "重新开始应保留已选择的本地 JPEG 图库");
+expectText("图库 1200 张", "重新开始应保留 Project 当前 Source");
 
 var styles = fs.readFileSync(path.join(__dirname, "styles.css"), "utf8");
+assert.match(styles, /\.project-entry-grid\s*\{/, "Project 首屏应存在两个入口布局");
+assert.match(styles, /\.source-grid\s*\{/, "Project Hub 应存在独立 Source 卡片布局");
+assert.match(styles, /\.relationship-strip\s*\{/, "Project、Source、Contact Sheet 关系应可视化");
 var previewImageRule = styles.match(/\.preview-photo\.is-local img\s*\{([^}]*)\}/);
 assert.ok(previewImageRule, "应存在本地照片大图样式");
 assert.match(
@@ -890,5 +955,5 @@ assert.match(whiteboardRule[1], /touch-action:\s*none/, "白板应接管触摸�
 assert.match(whiteboardRule[1], /overscroll-behavior:\s*none/, "白板不应把 wheel 边界手势传给页面导航");
 
 process.stdout.write(
-  "PhotoFlex prototype feedback-9 test passed: whole-photo selection with preview-only buttons, context-aware preview select/remove actions, compact Sequence header modes with visible save, paged 1200-photo import, full-ratio preview, sequence/Compare panoramas, whiteboard group editing, direct two-version Compare selection, wheel-owned horizontal navigation, touch boundary rules, and stable removal scroll.\n"
+  "PhotoFlex prototype feedback-10 test passed: project-first onboarding, independent multi-source states, cross-source Pool retention, paged 1200-photo import, whole-photo selection with preview-only buttons, sequence/Compare panoramas, whiteboard group editing, direct two-version Compare selection, wheel-owned navigation, and stable removal scroll.\n"
 );

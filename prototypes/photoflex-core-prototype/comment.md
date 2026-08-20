@@ -1,3 +1,12 @@
+# 改动意见9
+- 需要一个home页面管理不同的projects，新增另一个project不影响原来的project；
+- project单独变成一个阶段，用来管理不同的contact sheet/照片资料夹；
+- 返回project资料夹的按钮改为直接按上端的project模块；
+- sequence模块中，触摸板的横向滑动不可用，需要修复，白板跟序列全景部分这个问题已得到解决；
+- sequence与pool模块移除照片后留在原地，不回到开头
+
+
+
 # 改动意见8
 - 浏览 Sequence 横向视图、Sequence 序列全景或 Compare 版本全景时，两指左右滑动容易触发 Windows/浏览器自带的返回上一页或前进手势，导致用户意外离开当前原型；
 - 为横向照片浏览区域增加触控边界控制：优先在 `.sequence-board.view-horizontal` 与 `.panorama-strip` 上设置 `touch-action: pan-x pinch-zoom` 和 `overscroll-behavior-x: contain`，阻止滚动到左右边界后把手势传递给页面导航；

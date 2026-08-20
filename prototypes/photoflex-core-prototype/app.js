@@ -15,9 +15,12 @@
     { id: "P11", title: "石阶 11", meta: "28mm · 1/90", a: "#595d50", b: "#bab29c" },
     { id: "P12", title: "对岸 12", meta: "40mm · 1/250", a: "#516a6f", b: "#d3ad7a" }
   ];
-  var photos = seedPhotos.slice();
+  var DEMO_SOURCE_ID = "source-demo";
+  var photos = seedPhotos.map(function (photo) {
+    return Object.assign({ sourceId: DEMO_SOURCE_ID }, photo);
+  });
   var importedPhotoUrls = [];
-  var importedLibraryName = "";
+  var nextSourceNumber = 1;
   var MAX_LIBRARY_PHOTOS = 1200;
   var MAX_POOL_PHOTOS = 60;
   var CONTACT_PAGE_SIZE = 60;
@@ -57,6 +60,13 @@
 
   function createInitialState(skipDemo) {
     var initial = {
+      projectStep: "welcome",
+      projectEntryMode: null,
+      projectDraftName: "",
+      projectDraftQuestion: "",
+      project: null,
+      sources: [],
+      activeSourceId: null,
       stage: "contact",
       contactPage: 0,
       selected: [],
@@ -80,24 +90,71 @@
       previewSource: null,
       sequencePanorama: false,
       immersiveVersionId: null,
-      libraryName: importedLibraryName,
-      importedCount: importedLibraryName ? photos.length : 0,
       versionDraftName: "",
-      notice: "先凭直觉选择照片，再把它们加入 Pool。"
+      notice: "先建立 Project，再添加一个或多个照片资料夹。"
     };
-    if (typeof window === "undefined" || skipDemo || importedLibraryName) {
+    if (typeof window === "undefined" || skipDemo) {
       return initial;
     }
 
     var query = new URLSearchParams(window.location.search);
     var demo = query.get("demo");
+    if (demo === "project") {
+      initial.projectStep = "sources";
+      initial.projectEntryMode = "question";
+      initial.project = {
+        id: "project-demo",
+        name: "河流向北",
+        question: "一段沿河行走的记忆，应该从哪里开始？"
+      };
+      var readyDemoSource = demoSource("ready");
+      readyDemoSource.photoIds = readyDemoSource.photoIds.slice(0, 6);
+      readyDemoSource.totalCount = 6;
+      readyDemoSource.loadedCount = 6;
+      initial.sources = [
+        readyDemoSource,
+        {
+          id: "source-loading-demo",
+          name: "旧城补拍",
+          status: "partial",
+          totalCount: 240,
+          loadedCount: 6,
+          photoIds: seedPhotos.slice(6).map(function (photo) {
+            return photo.id;
+          }),
+          issue: "6 张已经可以使用，其余照片仍在读取。"
+        },
+        {
+          id: "source-offline-demo",
+          name: "移动硬盘 · 夜景",
+          status: "offline",
+          totalCount: 184,
+          loadedCount: 0,
+          photoIds: [],
+          issue: "移动硬盘目前未连接。"
+        },
+        {
+          id: "source-permission-demo",
+          name: "手机导出",
+          status: "permission-lost",
+          totalCount: 96,
+          loadedCount: 0,
+          photoIds: [],
+          issue: "浏览器已经失去这个资料夹的读取权限。"
+        }
+      ];
+      initial.notice = "验收预置状态：观察不同 Source 状态与下一步出口。";
+      return initial;
+    }
     if (demo === "sequence") {
+      prepareDemoProject(initial, "workspace");
       initial.stage = "sequence";
       initial.pool = ["P01", "P03", "P04", "P06", "P08", "P10"];
       initial.sequence = ["P03", "P01", "P06", "P04", "P08", "P10"];
       initial.notice = "验收预置状态：可直接检查 Pool 勾选与 Sequence 拖曳。";
     }
     if (demo === "compare") {
+      prepareDemoProject(initial, "workspace");
       initial.stage = "compare";
       initial.pool = ["P01", "P03", "P04", "P06", "P08", "P10"];
       initial.sequence = ["P03", "P01", "P06", "P08"];
@@ -155,6 +212,32 @@
     return initial;
   }
 
+  function demoSource(status) {
+    return {
+      id: DEMO_SOURCE_ID,
+      name: "北岸散步",
+      status: status || "ready",
+      totalCount: seedPhotos.length,
+      loadedCount: seedPhotos.length,
+      photoIds: seedPhotos.map(function (photo) {
+        return photo.id;
+      }),
+      issue: ""
+    };
+  }
+
+  function prepareDemoProject(targetState, step) {
+    targetState.projectStep = step || "sources";
+    targetState.projectEntryMode = "photos";
+    targetState.project = {
+      id: "project-demo",
+      name: "河流向北",
+      question: ""
+    };
+    targetState.sources = [demoSource("ready")];
+    targetState.activeSourceId = DEMO_SOURCE_ID;
+  }
+
   function escapeHtml(value) {
     return String(value)
       .replace(/&/g, "&amp;")
@@ -166,6 +249,32 @@
   function photoById(id) {
     return photos.find(function (photo) {
       return photo.id === id;
+    });
+  }
+
+  function sourceById(id) {
+    return state.sources.find(function (source) {
+      return source.id === id;
+    });
+  }
+
+  function activeSource() {
+    return sourceById(state.activeSourceId);
+  }
+
+  function activeSourcePhotos() {
+    var source = activeSource();
+    if (!source) return [];
+    return source.photoIds
+      .map(function (id) {
+        return photoById(id);
+      })
+      .filter(Boolean);
+  }
+
+  function sourceForPhoto(id) {
+    return state.sources.find(function (source) {
+      return source.photoIds.indexOf(id) >= 0;
     });
   }
 
@@ -222,7 +331,7 @@
 
   function previewContextIds(context) {
     if (context === "contact") {
-      return photos.map(function (photo) {
+      return activeSourcePhotos().map(function (photo) {
         return photo.id;
       });
     }
@@ -244,7 +353,83 @@
     importedPhotoUrls = [];
   }
 
-  function importLocalJpegs(fileList) {
+  function sourceNameFromFiles(files, fallback) {
+    var firstFile = files[0];
+    var firstPath = firstFile ? firstFile.webkitRelativePath || "" : "";
+    return firstPath.indexOf("/") >= 0
+      ? firstPath.split("/")[0]
+      : fallback;
+  }
+
+  function renderSourceProgress() {
+    // Once the participant has opened a Contact Sheet, background chunks must
+    // not replace the whole workspace DOM and jump their scroll position.
+    if (state.projectStep === "sources") render();
+  }
+
+  function appendSourceImportChunk(source, files, jpegCount, startIndex) {
+    if (!sourceById(source.id)) return;
+    var chunkSize =
+      typeof window === "undefined" || !window.setTimeout ? files.length : 60;
+    var endIndex = Math.min(files.length, startIndex + chunkSize);
+    files.slice(startIndex, endIndex).forEach(function (file, chunkIndex) {
+      var index = startIndex + chunkIndex;
+      var objectUrl = URL.createObjectURL(file);
+      importedPhotoUrls.push(objectUrl);
+      var photoId =
+        source.id.replace(/^source-/, "S").replace(/[^a-z0-9-]/gi, "") +
+        "-P" +
+        String(index + 1).padStart(4, "0");
+      photos.push({
+        id: photoId,
+        sourceId: source.id,
+        title: file.name,
+        meta: "本地 JPEG · " + formatFileSize(file.size),
+        url: objectUrl,
+        local: true
+      });
+      source.photoIds.push(photoId);
+    });
+    source.loadedCount = source.photoIds.length;
+    if (endIndex < files.length) {
+      source.status = "partial";
+      source.issue =
+        source.loadedCount +
+        " 张已经可以使用；其余照片仍在读取，不影响进入 Contact Sheet。";
+      state.notice =
+        "“" +
+        source.name +
+        "”已读取 " +
+        source.loadedCount +
+        " / " +
+        jpegCount +
+        " 张；可以先开始选片。";
+      renderSourceProgress();
+      window.setTimeout(function () {
+        appendSourceImportChunk(source, files, jpegCount, endIndex);
+      }, 16);
+      return;
+    }
+    source.status =
+      jpegCount > MAX_LIBRARY_PHOTOS ? "partial" : "ready";
+    source.issue =
+      jpegCount > MAX_LIBRARY_PHOTOS
+        ? "资料夹共有 " +
+          jpegCount +
+          " 张 JPEG；研究原型先读取前 " +
+          MAX_LIBRARY_PHOTOS +
+          " 张，已经可以开始选片。"
+        : "";
+    state.notice =
+      "“" +
+      source.name +
+      "”已读取 " +
+      source.loadedCount +
+      " 张；可以打开 Contact Sheet，也可以继续添加其他资料夹。";
+    renderSourceProgress();
+  }
+
+  function importSourceFolder(fileList) {
     var allFiles = Array.prototype.slice.call(fileList || []);
     var jpegFiles = allFiles
       .filter(function (file) {
@@ -259,41 +444,38 @@
         return leftPath.localeCompare(rightPath, undefined, { numeric: true });
       });
 
-    if (!jpegFiles.length) {
-      state.notice = "这个文件夹里没有可读取的 JPEG；请选择包含 .jpg 或 .jpeg 的文件夹。";
-      render();
-      return;
-    }
+    var sourceNumber = nextSourceNumber;
+    nextSourceNumber += 1;
+    var source = {
+      id: "source-local-" + sourceNumber,
+      name: sourceNameFromFiles(
+        jpegFiles.length ? jpegFiles : allFiles,
+        "照片资料夹 " + sourceNumber
+      ),
+      status: jpegFiles.length ? "loading" : "permission-lost",
+      totalCount: jpegFiles.length,
+      loadedCount: 0,
+      photoIds: [],
+      issue: jpegFiles.length
+        ? "正在建立本地照片索引；已经读取的照片会立即可用。"
+        : "没有取得可读取的 JPEG；请检查资料夹内容或重新授权。"
+    };
+    state.sources.push(source);
+    state.projectStep = "sources";
+    state.notice = jpegFiles.length
+      ? "已添加“" + source.name + "”，正在读取照片。"
+      : "资料夹尚未取得读取权限；可以重新选择，不影响其他 Source。";
+    render();
+    if (!jpegFiles.length) return;
 
     var limitedFiles = jpegFiles.slice(0, MAX_LIBRARY_PHOTOS);
-    revokeImportedPhotoUrls();
-    photos = limitedFiles.map(function (file, index) {
-      var objectUrl = URL.createObjectURL(file);
-      importedPhotoUrls.push(objectUrl);
-      return {
-        id: "L" + String(index + 1).padStart(3, "0"),
-        title: file.name,
-        meta: "本地 JPEG · " + formatFileSize(file.size),
-        url: objectUrl,
-        local: true
-      };
-    });
-    var firstPath = limitedFiles[0].webkitRelativePath || "";
-    importedLibraryName = firstPath.indexOf("/") >= 0
-      ? firstPath.split("/")[0]
-      : "本地 JPEG 选择";
-    state = createInitialState(true);
-    state.notice =
-      "已从“" +
-      importedLibraryName +
-      "”读取 " +
-      photos.length +
-      " 张 JPEG" +
-      (jpegFiles.length > MAX_LIBRARY_PHOTOS
-        ? "；为本轮研究只使用前 " + MAX_LIBRARY_PHOTOS + " 张。"
-        : "。") +
-      " 可选择最多 " + MAX_POOL_PHOTOS + " 张加入 Pool。";
-    render();
+    if (typeof window === "undefined" || !window.setTimeout) {
+      appendSourceImportChunk(source, limitedFiles, jpegFiles.length, 0);
+      return;
+    }
+    window.setTimeout(function () {
+      appendSourceImportChunk(source, limitedFiles, jpegFiles.length, 0);
+    }, 80);
   }
 
   function sequencePhotoSize(id) {
@@ -350,8 +532,138 @@
     });
   }
 
+  function sourceStatusMeta(status) {
+    var statuses = {
+      ready: {
+        label: "Ready",
+        detail: "照片已经读取完成，可以进入 Contact Sheet。"
+      },
+      loading: {
+        label: "Loading",
+        detail: "正在读取；其他 Source 和已经完成的工作不受影响。"
+      },
+      partial: {
+        label: "Partial",
+        detail: "已有部分照片可用，可以先开始选片。"
+      },
+      offline: {
+        label: "Offline",
+        detail: "原资料夹暂时不在线；已读取照片仍可继续使用。"
+      },
+      "permission-lost": {
+        label: "Permission Lost",
+        detail: "浏览器需要重新取得这个资料夹的读取权限。"
+      }
+    };
+    return statuses[status] || statuses.loading;
+  }
+
+  function projectWelcomeContent() {
+    return (
+      '<main class="project-flow project-welcome"><header class="project-intro"><span class="prototype-flag">Prototype · Memory only</span><p class="eyebrow">PhotoFlex Project</p><h1>先决定从哪里开始</h1><p>这个原型验证一件事：Project 保存一次选片工作，Source 是 Project 里的照片资料夹，点进 Source 才进入 Contact Sheet。</p></header>' +
+      '<section class="project-entry-grid"><button type="button" data-action="choose-project-entry" data-mode="photos"><span class="entry-number">01</span><strong>从已有照片开始</strong><small>先建立 Project，再连续添加一个或多个照片资料夹。</small><em>适合已经准备好拍摄资料的工作</em></button>' +
+      '<button type="button" data-action="choose-project-entry" data-mode="question"><span class="entry-number">02</span><strong>从核心问题开始</strong><small>先写下这次编辑想回答的问题，照片资料夹可以之后再加。</small><em>适合从命题或叙事方向开始</em></button></section>' +
+      '<footer class="project-memory-note">本轮原型只保存在浏览器内存中，不会建立真实 .photoflex 文件。</footer></main>'
+    );
+  }
+
+  function projectCreateContent() {
+    var questionFirst = state.projectEntryMode === "question";
+    return (
+      '<main class="project-flow project-create"><button class="project-back" type="button" data-action="back-project-welcome">← 返回起点</button><header class="project-intro"><p class="eyebrow">' +
+      (questionFirst ? "从核心问题开始" : "从已有照片开始") +
+      '</p><h1>建立一个 Project</h1><p>Project 是这次选片、排序和版本比较共同所属的工作空间。</p></header><section class="project-form"><label><span>Project 名称</span><input type="text" data-role="project-name" value="' +
+      escapeHtml(state.projectDraftName) +
+      '" placeholder="例如：河流向北" autofocus></label><label><span>核心问题' +
+      (questionFirst ? "" : "（可选）") +
+      '</span><textarea data-role="project-question" placeholder="例如：这段故事应该从哪个瞬间开始？">' +
+      escapeHtml(state.projectDraftQuestion) +
+      '</textarea></label><button class="btn btn-primary project-create-button" type="button" data-action="create-project">建立 Project →</button><span class="project-form-notice">' +
+      escapeHtml(state.notice) +
+      "</span></section></main>"
+    );
+  }
+
+  function sourceCard(source) {
+    var meta = sourceStatusMeta(source.status);
+    var canOpen = source.photoIds.length > 0;
+    var openLabel =
+      source.status === "ready"
+        ? "打开 Contact Sheet"
+        : source.status === "offline"
+          ? "使用已读取照片"
+          : "先用已读取照片";
+    var reconnectLabel =
+      source.status === "offline" || source.status === "permission-lost"
+        ? "另加替代 Source"
+        : "再次选择为新 Source";
+    return (
+      '<article class="source-card is-' +
+      source.status +
+      '"><header><span class="source-status">' +
+      escapeHtml(meta.label) +
+      '</span><span class="source-count">' +
+      source.loadedCount +
+      " / " +
+      source.totalCount +
+      ' 张</span></header><div class="source-card-copy"><strong>' +
+      escapeHtml(source.name) +
+      '</strong><p>' +
+      escapeHtml(source.issue || meta.detail) +
+      '</p></div><div class="source-card-actions"><button type="button" data-action="open-source" data-id="' +
+      source.id +
+      '"' +
+      (canOpen ? "" : " disabled") +
+      ">" +
+      openLabel +
+      '</button><label class="source-reconnect">' +
+      reconnectLabel +
+      '<input type="file" data-role="source-folder" accept=".jpg,.jpeg,image/jpeg" multiple webkitdirectory directory></label></div><details class="source-research-controls"><summary>研究状态测试</summary><div><button type="button" data-action="set-source-status" data-id="' +
+      source.id +
+      '" data-status="loading">Loading</button><button type="button" data-action="set-source-status" data-id="' +
+      source.id +
+      '" data-status="partial">Partial</button><button type="button" data-action="set-source-status" data-id="' +
+      source.id +
+      '" data-status="offline">Offline</button><button type="button" data-action="set-source-status" data-id="' +
+      source.id +
+      '" data-status="permission-lost">Permission Lost</button><button type="button" data-action="set-source-status" data-id="' +
+      source.id +
+      '" data-status="ready">恢复 Ready</button></div></details></article>'
+    );
+  }
+
+  function sourceHubContent() {
+    var project = state.project || { name: "未命名 Project", question: "" };
+    return (
+      '<main class="project-flow source-hub"><header class="source-hub-header"><div><span class="prototype-flag">Prototype · Memory only</span><p class="eyebrow">Project</p><h1>' +
+      escapeHtml(project.name) +
+      '</h1><p>' +
+      escapeHtml(
+        project.question ||
+          "把属于同一次编辑工作的照片资料夹放在这里。每个 Source 都保持独立。"
+      ) +
+      '</p></div><div class="source-hub-actions"><label class="folder-import-button">＋ 添加照片资料夹<input type="file" data-role="source-folder" accept=".jpg,.jpeg,image/jpeg" multiple webkitdirectory directory></label><button type="button" data-action="add-demo-sources">加入两个示例 Source</button></div></header>' +
+      '<section class="relationship-strip" aria-label="Project 与 Source 关系"><span><strong>1 Project</strong>' +
+      state.sources.length +
+      ' 个独立 Source</span><span aria-hidden="true">→</span><span><strong>打开 1 个 Source</strong>进入它的 Contact Sheet</span><span aria-hidden="true">→</span><span><strong>跨 Source</strong>照片汇入同一个 Pool</span></section>' +
+      '<section class="source-grid">' +
+      (state.sources.length
+        ? state.sources.map(sourceCard).join("")
+        : '<div class="empty-sources"><strong>还没有照片资料夹</strong><span>添加第一个 Source；之后可以继续添加，不会覆盖前一个资料夹。</span></div>') +
+      '</section><section class="source-status-legend"><strong>读取状态不会阻塞整个 Project</strong><span><b>Loading</b> 正在读取</span><span><b>Partial</b> 可先用已读取照片</span><span><b>Offline</b> 其他 Source 仍可工作</span><span><b>Permission Lost</b> 重新选择资料夹</span></section><footer class="source-hub-footer"><span>' +
+      escapeHtml(state.notice) +
+      '</span><button type="button" data-action="new-project">建立另一个 Project</button></footer></main>'
+    );
+  }
+
+  function projectFlowContent() {
+    if (state.projectStep === "welcome") return projectWelcomeContent();
+    if (state.projectStep === "create") return projectCreateContent();
+    return sourceHubContent();
+  }
+
   function canOpenStage(stageId) {
-    if (stageId === "contact") return true;
+    if (stageId === "contact") return Boolean(activeSource());
     if (stageId === "sequence") return state.pool.length > 0;
     return comparisonVersions().length === 2;
   }
@@ -423,14 +735,14 @@
   }
 
   function contactPageCount() {
-    return Math.max(1, Math.ceil(photos.length / CONTACT_PAGE_SIZE));
+    return Math.max(1, Math.ceil(activeSourcePhotos().length / CONTACT_PAGE_SIZE));
   }
 
   function contactPagePhotos() {
     var safePage = clamp(state.contactPage, 0, contactPageCount() - 1);
     state.contactPage = safePage;
     var start = safePage * CONTACT_PAGE_SIZE;
-    return photos.slice(start, start + CONTACT_PAGE_SIZE);
+    return activeSourcePhotos().slice(start, start + CONTACT_PAGE_SIZE);
   }
 
   function contactPhotoCard(photo) {
@@ -468,6 +780,7 @@
   }
 
   function contactContent() {
+    var source = activeSource();
     var pagePhotos = contactPagePhotos();
     var pageCount = contactPageCount();
     var buttonLabel = state.pool.length
@@ -475,16 +788,14 @@
       : "加入 Pool（" + state.selected.length + "）";
     return (
       '<section class="contact-stage">' +
-      '<section class="library-import-panel"><div><p class="eyebrow">PH0-UX-05 · 本地研究图库</p><strong>' +
-      (state.importedCount
-        ? "已载入 “" + escapeHtml(state.libraryName) + "”"
-        : "读取参与者的 JPEG 文件夹") +
-      "</strong><span>浏览器只建立本地 Object URL，不上传、不复制为 Base64；单次最多读取 " +
-      MAX_LIBRARY_PHOTOS +
-      " 张。</span></div>" +
-      '<label class="folder-import-button">选择本地 JPEG 文件夹<input type="file" data-role="local-jpeg-folder" accept=".jpg,.jpeg,image/jpeg" multiple webkitdirectory directory></label></section>' +
+      '<section class="library-import-panel"><div><p class="eyebrow">当前 Source · ' +
+      escapeHtml(sourceStatusMeta(source.status).label) +
+      '</p><strong>' +
+      escapeHtml(source.name) +
+      "</strong><span>这里只显示当前资料夹的照片；加入 Pool 后，切换 Source 也不会丢失。</span></div>" +
+      '<button class="folder-import-button" type="button" data-action="open-source-hub">返回 Project 资料夹</button></section>' +
       '<div class="contact-summary"><span>图库 ' +
-      photos.length +
+      activeSourcePhotos().length +
       " 张</span><span>本次选择 " +
       state.selected.length +
       " 张</span><span>Pool " +
@@ -594,6 +905,7 @@
 
   function poolPhotoCard(id) {
     var photo = photoById(id);
+    var source = sourceForPhoto(id);
     var inSequence = state.sequence.indexOf(id) >= 0;
     return (
       '<article class="pool-card' +
@@ -608,6 +920,8 @@
       photoThumb(photo) +
       '<span class="photo-name">' +
       escapeHtml(photo.title) +
+      '</span><span class="pool-source-name">' +
+      escapeHtml(source ? source.name : "未知 Source") +
       '</span></button><div class="pool-card-actions"><button class="photo-preview-control" type="button" data-action="open-context-photo-preview" data-context="pool" data-id="' +
       id +
       '" aria-label="预览完整大图 ' +
@@ -989,24 +1303,34 @@
   }
 
   function render() {
-    var content = state.whiteboard
-      ? whiteboardContent()
-      : state.sequencePanorama
-        ? panoramaContent(
-            state.sequence,
-            "当前工作序列",
-            "Sequence 序列全景",
-            "close-sequence-panorama"
-          )
-      : state.immersiveVersionId
-        ? immersiveVersionContent()
-      : '<div class="prototype-shell"><header class="app-header"><div class="brand-block"><span class="prototype-flag">Prototype · Memory only</span><span class="project-name">河流向北</span></div>' +
-        topStageNavigation() +
-        '<button class="reset-button" type="button" data-action="reset">重新开始</button></header><main class="app-main">' +
-        pageHeading() +
-        stageContent() +
-        "</main></div>";
-    document.getElementById("app").innerHTML = content + photoPreview();
+    var content;
+    if (state.projectStep !== "workspace") {
+      content = projectFlowContent();
+    } else {
+      content = state.whiteboard
+        ? whiteboardContent()
+        : state.sequencePanorama
+          ? panoramaContent(
+              state.sequence,
+              "当前工作序列",
+              "Sequence 序列全景",
+              "close-sequence-panorama"
+            )
+        : state.immersiveVersionId
+          ? immersiveVersionContent()
+        : '<div class="prototype-shell"><header class="app-header"><div class="brand-block"><span class="prototype-flag">Prototype · Memory only</span><button class="project-name" type="button" data-action="open-source-hub">' +
+          escapeHtml(state.project ? state.project.name : "未命名 Project") +
+          " · " +
+          state.sources.length +
+          " Sources</button></div>" +
+          topStageNavigation() +
+          '<button class="reset-button" type="button" data-action="reset">清空本轮编辑</button></header><main class="app-main">' +
+          pageHeading() +
+          stageContent() +
+          "</main></div>";
+    }
+    document.getElementById("app").innerHTML =
+      content + (state.projectStep === "workspace" ? photoPreview() : "");
   }
 
   function gotoStage(stageId) {
@@ -1018,6 +1342,135 @@
     state.previewSource = null;
     state.sequencePanorama = false;
     state.immersiveVersionId = null;
+    render();
+  }
+
+  function chooseProjectEntry(mode) {
+    if (mode !== "photos" && mode !== "question") return;
+    state.projectEntryMode = mode;
+    state.projectStep = "create";
+    state.notice =
+      mode === "question"
+        ? "先写下 Project 名称和核心问题。"
+        : "先命名 Project，建立后即可添加照片资料夹。";
+    render();
+  }
+
+  function createProject() {
+    var name = state.projectDraftName.trim();
+    if (!name) {
+      state.notice = "请先输入 Project 名称。";
+      render();
+      return;
+    }
+    state.project = {
+      id: "project-" + Date.now(),
+      name: name,
+      question: state.projectDraftQuestion.trim()
+    };
+    state.projectStep = "sources";
+    state.notice =
+      "Project 已建立。现在添加第一个 Source；之后可以继续添加，不会覆盖前一个资料夹。";
+    render();
+  }
+
+  function secondDemoSource() {
+    var sourceId = "source-demo-2";
+    var photoIds = seedPhotos.slice(6).map(function (photo, index) {
+      var id = "Q" + String(index + 1).padStart(2, "0");
+      if (!photoById(id)) {
+        photos.push(
+          Object.assign({}, photo, {
+            id: id,
+            sourceId: sourceId,
+            title: "南岸 " + String(index + 1).padStart(2, "0")
+          })
+        );
+      }
+      return id;
+    });
+    return {
+      id: sourceId,
+      name: "南岸补拍",
+      status: "ready",
+      totalCount: photoIds.length,
+      loadedCount: photoIds.length,
+      photoIds: photoIds,
+      issue: ""
+    };
+  }
+
+  function addDemoSources() {
+    if (!sourceById(DEMO_SOURCE_ID)) state.sources.push(demoSource("ready"));
+    if (!sourceById("source-demo-2")) state.sources.push(secondDemoSource());
+    state.notice =
+      "已加入两个独立示例 Source。请分别打开它们选片，观察 Pool 是否跨资料夹保留。";
+    render();
+  }
+
+  function openSource(id) {
+    var source = sourceById(id);
+    if (!source || !source.photoIds.length) return;
+    state.activeSourceId = id;
+    state.projectStep = "workspace";
+    state.stage = "contact";
+    state.contactPage = 0;
+    state.selected = [];
+    state.previewPhotoId = null;
+    state.previewContextIds = [];
+    state.previewSource = null;
+    state.notice =
+      "正在浏览“" +
+      source.name +
+      "”；加入 Pool 的照片会继续保留在当前 Project。";
+    render();
+  }
+
+  function openSourceHub() {
+    state.projectStep = "sources";
+    state.selected = [];
+    state.whiteboard = false;
+    state.sequencePanorama = false;
+    state.immersiveVersionId = null;
+    state.previewPhotoId = null;
+    state.previewContextIds = [];
+    state.previewSource = null;
+    state.notice =
+      "可以打开另一个 Source；当前 Pool、Sequence 和 Version 不会被清空。";
+    render();
+  }
+
+  function setSourceStatus(id, status) {
+    var source = sourceById(id);
+    if (
+      !source ||
+      ["ready", "loading", "partial", "offline", "permission-lost"].indexOf(
+        status
+      ) < 0
+    ) {
+      return;
+    }
+    source.status = status;
+    var messages = {
+      ready: "读取已经恢复，可以正常打开 Contact Sheet。",
+      loading: "正在读取照片；可以继续管理其他 Source。",
+      partial: "读取尚未完成；已经读取的照片可以先使用。",
+      offline: "资料夹目前离线；已读取照片仍保留在 Project 中。",
+      "permission-lost": "读取权限已失效；请重新选择资料夹授权。"
+    };
+    source.issue = messages[status];
+    state.notice = "“" + source.name + "”现在显示为 " + sourceStatusMeta(status).label + "。";
+    render();
+  }
+
+  function newProject() {
+    revokeImportedPhotoUrls();
+    photos = seedPhotos.map(function (photo) {
+      return Object.assign({ sourceId: DEMO_SOURCE_ID }, photo);
+    });
+    nextSourceNumber = 1;
+    state = createInitialState(true);
+    state.notice = "上一轮内存状态已清空，请建立新的 Project。";
     render();
   }
 
@@ -1471,10 +1924,33 @@
   }
 
   function resetPrototype() {
-    state = createInitialState(true);
-    state.notice = importedLibraryName
-      ? "工作状态已清空；本地 JPEG 图库仍保留，可重新开始筛选。"
-      : "工作状态已清空，请重新建立候选池。";
+    state.stage = "contact";
+    state.contactPage = 0;
+    state.selected = [];
+    state.pool = [];
+    state.sequence = [];
+    state.selectedSequenceIds = [];
+    state.versions = [];
+    state.compareSelectionIds = [];
+    state.workingFromVersionId = null;
+    state.sequenceView = "horizontal";
+    state.sequenceFrameHeight = 290;
+    state.sequencePhotoSizes = {};
+    state.moduleLayout = defaultModuleLayout();
+    state.whiteboard = false;
+    state.whiteboardZoom = 0.75;
+    state.whiteboardItems = {};
+    state.whiteboardEntrySequence = [];
+    state.whiteboardEntryItems = {};
+    state.previewPhotoId = null;
+    state.previewContextIds = [];
+    state.previewSource = null;
+    state.sequencePanorama = false;
+    state.immersiveVersionId = null;
+    state.versionDraftName = "";
+    state.projectStep = state.activeSourceId ? "workspace" : "sources";
+    state.notice =
+      "本轮 Pool、Sequence 和 Version 已清空；Project 与所有 Source 仍保留。";
     render();
   }
 
@@ -1524,6 +2000,40 @@
     var action = target.getAttribute("data-action");
     var id = target.getAttribute("data-id");
 
+    if (action === "choose-project-entry") {
+      chooseProjectEntry(target.getAttribute("data-mode"));
+      return;
+    }
+    if (action === "back-project-welcome") {
+      state.projectStep = "welcome";
+      state.notice = "选择这次 Project 的起点。";
+      render();
+      return;
+    }
+    if (action === "create-project") {
+      createProject();
+      return;
+    }
+    if (action === "add-demo-sources") {
+      addDemoSources();
+      return;
+    }
+    if (action === "open-source") {
+      openSource(id);
+      return;
+    }
+    if (action === "open-source-hub") {
+      openSourceHub();
+      return;
+    }
+    if (action === "set-source-status") {
+      setSourceStatus(id, target.getAttribute("data-status"));
+      return;
+    }
+    if (action === "new-project") {
+      newProject();
+      return;
+    }
     if (action === "toggle-contact-photo") {
       toggleContactPhoto(id);
       return;
@@ -1707,16 +2217,24 @@
 
   document.addEventListener("change", function (event) {
     var target = event.target;
-    if (!target || target.getAttribute("data-role") !== "local-jpeg-folder") {
+    if (!target || target.getAttribute("data-role") !== "source-folder") {
       return;
     }
-    importLocalJpegs(target.files);
+    importSourceFolder(target.files);
     target.value = "";
   });
 
   document.addEventListener("input", function (event) {
     var target = event.target;
     if (!target) return;
+    if (target.getAttribute("data-role") === "project-name") {
+      state.projectDraftName = target.value;
+      return;
+    }
+    if (target.getAttribute("data-role") === "project-question") {
+      state.projectDraftQuestion = target.value;
+      return;
+    }
     if (target.getAttribute("data-role") === "version-name") {
       state.versionDraftName = target.value;
       return;
