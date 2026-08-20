@@ -9,7 +9,7 @@
 
 建议使用桌面版 Chrome 或 Edge。真实测试入口会先建立 Project，再允许连续添加多个本地 JPEG 资料夹作为独立 Source；照片仅通过浏览器本地 Object URL 展示，不会上传，刷新或关闭页面后本轮状态会清空。
 
-它现在回答九个问题：
+它现在回答十个问题：
 
 1. 新用户能否理解 Project、Source 和 Contact Sheet 的层级关系？
 2. 用户能否连续添加多个 Source，并理解 Loading、Partial、Offline、Permission Lost 的状态与下一步出口？
@@ -20,6 +20,7 @@
 7. 白板、Sequence 序列全景和完整比例大图是否支持连续判断与排序？
 8. Compare 是否能直接选择任意两个版本，并通过版本全景完成判断？
 9. 用户能否在 Home 管理多个 Project，切换 Project 后仍恢复各自的 Source、Pool、Sequence 与版本？
+10. 五阶段导航、Source 删除确认和触控板边界接管是否足够清楚且可靠？
 
 ## 启动
 
@@ -42,23 +43,24 @@
 
     http://localhost:4173/index.html?demo=sequence&whiteboard=1
 
-然后按 Ctrl + F5 强制刷新。原型入口已为 app.js 与 styles.css 增加版本参数，之后普通刷新也会加载 feedback-11 资源。
+然后按 Ctrl + F5 强制刷新。原型入口已为 app.js 与 styles.css 增加版本参数，之后普通刷新也会加载 feedback-12 资源。
 
 ## 当前核心路径
 
-1. 从“已有照片”或“核心问题”进入，输入名称并建立 Project；
-2. 从顶部 Project 模块回到 Home，切换 Project 后恢复该 Project 自己的 Source、Pool、Sequence 与 Version；
-3. 连续添加多个本地 JPEG 资料夹；每个 Source 独立显示名称、数量、Loading／Partial／Offline／Permission Lost 状态和恢复出口；
-4. 点击一个 Source 进入它的 Contact Sheet；切换 Source 不会清空 Project 共用的 Pool、Sequence 与 Version；
-5. 浏览器用 Object URL 为每个 Source 读取最多 1200 张；读取期间已有照片可先使用，Contact Sheet 每次只渲染 60 张；
-6. 使用分页、全选本页或反选本页建立最多 60 张的跨 Source Pool；Pool 卡片标明照片来源；
-7. 单击整张 Pool 照片加入或移出 Sequence；预览按钮不改变选择，移除照片后保持原来的滚动位置；
-8. 在大图里直接选择或移除照片；Contact 操作本次选择，Pool/Sequence 操作当前 Sequence，Compare 历史版本只读；
-9. 在 Sequence 对照片全选、反选或批量移除；拖曳改变顺序，拖四角改变单张照片尺寸；
-10. 进入序列全景或 5200 × 3600 白板继续判断；三个横向/二维区域都会接管触控板 wheel；
-11. 保存至少两个命名版本；在 Compare 标题右侧直接选择两个版本进行比较；
-12. 点击 Compare 版本模块进入版本全景，再点击照片查看完整比例大图；
-13. “清空本轮编辑”会清空 Pool、Sequence、版本与布局，但保留当前 Project 和所有 Source。
+1. 通过顶部五阶段导航识别 Project Home、当前 Project、Contact Sheet、Sequence 与 Compare；
+2. 从“已有照片”或“核心问题”进入，输入名称并建立 Project；
+3. 从顶部 Project Home 模块管理多个 Project，切换后恢复各自的 Source、Pool、Sequence 与 Version；
+4. 连续添加或删除本地 JPEG 资料夹；删除前二次确认，并清理该 Source 在当前 Project 的编辑引用；
+5. 点击一个 Source 进入它的 Contact Sheet；切换 Source 不会清空 Project 共用的 Pool、Sequence 与 Version；
+6. 浏览器用 Object URL 为每个 Source 读取最多 1200 张；读取期间已有照片可先使用，Contact Sheet 每次只渲染 60 张；
+7. 使用分页、全选本页或反选本页建立最多 60 张的跨 Source Pool；Pool 卡片标明照片来源；
+8. 单击整张 Pool 照片加入或移出 Sequence；预览按钮不改变选择，移除照片后保持原来的滚动位置；
+9. 在大图里直接选择或移除照片；Contact 操作本次选择，Pool/Sequence 操作当前 Sequence，Compare 历史版本只读；
+10. 在 Sequence 对照片全选、反选或批量移除；拖曳改变顺序，拖四角改变单张照片尺寸；
+11. 进入序列全景或 5200 × 3600 白板继续判断；三个横向/二维区域都会接管触控板 wheel，页面边界不会触发上一页；
+12. 保存至少两个命名版本；在 Compare 标题右侧直接选择两个版本进行比较；
+13. 点击 Compare 版本模块进入版本全景，再点击照片查看完整比例大图；
+14. “清空本轮编辑”会清空 Pool、Sequence、版本与布局，但保留当前 Project 和所有 Source。
 
 ## 界面预览
 
@@ -107,6 +109,7 @@
 - 用户是否能说清 Project 包含多个 Source，而 Contact Sheet 只显示当前 Source；
 - 用户是否会先通过 Home 管理 Project，并确认切换后没有覆盖另一组工作；
 - 用户是否理解 Loading、Partial、Offline、Permission Lost，并能找到继续或重新选择资料夹的出口；
+- 用户是否能找到删除资料夹，并理解确认提示所说明的 Pool、Sequence 与版本影响；
 - 用户从第二个 Source 选片后，是否会确认 Pool 中的照片仍属于同一个 Project；
 - 用户是否理解灰阶照片已经进入 Pool；
 - 用户是否理解单击整张照片是选择，而“预览大图”不会改变选择；
@@ -114,6 +117,7 @@
 - 用户是否自然尝试拖曳，以及放置位置是否符合预期；
 - 用户是否理解横向/网格是同一 Sequence 的两种视角；
 - 滚动条和左右箭头哪个先被发现，是否需要同时保留；
+- 触控板横滑在 Sequence 中间及左右边界是否都可用，且不会触发浏览器返回／前进；
 - 用户是否把 Sequence 照片拖曳理解为排序、把四角拖曳理解为缩放；
 - Pool 有很多照片时，用户是否能发现模块内部滚动；
 - Pool 勾选后滚动位置保持不变，是否减少寻找上下文的成本；

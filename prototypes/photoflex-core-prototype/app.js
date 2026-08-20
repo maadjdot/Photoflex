@@ -28,20 +28,32 @@
 
   var stages = [
     {
-      id: "contact",
+      id: "project-home",
       number: "01",
+      label: "Project Home",
+      description: "管理所有 Projects"
+    },
+    {
+      id: "project",
+      number: "02",
+      label: "Project",
+      description: "管理照片资料夹"
+    },
+    {
+      id: "contact",
+      number: "03",
       label: "Contact Sheet",
       description: "选择照片加入 Pool"
     },
     {
       id: "sequence",
-      number: "02",
-      label: "Sequence + Pool",
+      number: "04",
+      label: "Sequence",
       description: "从 Pool 取片并自由排序"
     },
     {
       id: "compare",
-      number: "03",
+      number: "05",
       label: "Compare",
       description: "直接选择两个版本进行比较"
     }
@@ -68,6 +80,7 @@
       projectEntryMode: null,
       projectDraftName: "",
       projectDraftQuestion: "",
+      pendingSourceRemovalId: null,
       project: null,
       sources: [],
       activeSourceId: null,
@@ -677,7 +690,7 @@
         "</div></section>"
       : '<section class="project-library project-library-empty"><p class="eyebrow">Your Projects</p><h2>还没有 Project</h2><p>建立后，照片资料夹、Pool、Sequence 和版本都会留在各自的工作空间里。</p></section>';
     return (
-      '<main class="project-flow project-welcome"><header class="project-intro"><span class="prototype-flag">Prototype · Memory only</span><p class="eyebrow">PhotoFlex Home</p><h1>管理你的 Projects</h1><p>每个 Project 都是独立的选片工作空间：Source、Pool、Sequence 和版本互不覆盖。选择已有 Project，或从下面建立新的 Project。</p></header>' +
+      '<main class="project-flow project-welcome"><header class="project-intro"><p class="eyebrow">PhotoFlex Home</p><h1>管理你的 Projects</h1><p>每个 Project 都是独立的选片工作空间：Source、Pool、Sequence 和版本互不覆盖。选择已有 Project，或从下面建立新的 Project。</p></header>' +
       projectCards +
       '<section class="project-entry-grid"><button type="button" data-action="choose-project-entry" data-mode="photos"><span class="entry-number">01</span><strong>从已有照片开始</strong><small>先建立 Project，再连续添加一个或多个照片资料夹。</small><em>适合已经准备好拍摄资料的工作</em></button>' +
       '<button type="button" data-action="choose-project-entry" data-mode="question"><span class="entry-number">02</span><strong>从核心问题开始</strong><small>先写下这次编辑想回答的问题，照片资料夹可以之后再加。</small><em>适合从命题或叙事方向开始</em></button></section>' +
@@ -715,6 +728,16 @@
       source.status === "offline" || source.status === "permission-lost"
         ? "另加替代 Source"
         : "再次选择为新 Source";
+    var removalControls =
+      state.pendingSourceRemovalId === source.id
+        ? '<span class="source-remove-confirm"><span>同时从当前 Project 移除相关选片？</span><button type="button" data-action="confirm-remove-source" data-id="' +
+          source.id +
+          '">确认删除</button><button type="button" data-action="cancel-remove-source">取消</button></span>'
+        : '<button class="source-remove-button" type="button" data-action="remove-source" data-id="' +
+          source.id +
+          '" aria-label="删除照片资料夹 ' +
+          escapeHtml(source.name) +
+          '">删除资料夹</button>';
     return (
       '<article class="source-card is-' +
       source.status +
@@ -736,7 +759,9 @@
       openLabel +
       '</button><label class="source-reconnect">' +
       reconnectLabel +
-      '<input type="file" data-role="source-folder" accept=".jpg,.jpeg,image/jpeg" multiple webkitdirectory directory></label></div><details class="source-research-controls"><summary>研究状态测试</summary><div><button type="button" data-action="set-source-status" data-id="' +
+      '<input type="file" data-role="source-folder" accept=".jpg,.jpeg,image/jpeg" multiple webkitdirectory directory></label>' +
+      removalControls +
+      '</div><details class="source-research-controls"><summary>研究状态测试</summary><div><button type="button" data-action="set-source-status" data-id="' +
       source.id +
       '" data-status="loading">Loading</button><button type="button" data-action="set-source-status" data-id="' +
       source.id +
@@ -753,7 +778,7 @@
   function sourceHubContent() {
     var project = state.project || { name: "未命名 Project", question: "" };
     return (
-      '<main class="project-flow source-hub"><header class="source-hub-header"><div><span class="prototype-flag">Prototype · Memory only</span><p class="eyebrow">Project</p><h1>' +
+      '<main class="project-flow source-hub"><header class="source-hub-header"><div><p class="eyebrow">Project</p><h1>' +
       escapeHtml(project.name) +
       '</h1><p>' +
       escapeHtml(
@@ -780,19 +805,35 @@
     return sourceHubContent();
   }
 
+  function currentWorkflowStage() {
+    if (state.projectStep === "home" || state.projectStep === "welcome") {
+      return "project-home";
+    }
+    if (state.projectStep === "create") return "project-home";
+    if (state.projectStep === "sources") return "project";
+    return state.stage;
+  }
+
   function canOpenStage(stageId) {
+    if (stageId === "project-home") return true;
+    if (stageId === "project") return Boolean(state.project);
     if (stageId === "contact") return Boolean(activeSource());
     if (stageId === "sequence") return state.pool.length > 0;
     return comparisonVersions().length === 2;
   }
 
   function topStageNavigation() {
+    var currentStage = currentWorkflowStage();
     return (
       '<nav class="stage-navigation" aria-label="PhotoFlex 工作阶段">' +
       stages
         .map(function (stage) {
-          var active = state.stage === stage.id;
+          var active = currentStage === stage.id;
           var enabled = canOpenStage(stage.id);
+          var label =
+            stage.id === "project" && state.project
+              ? "Project · " + state.project.name
+              : stage.label;
           return (
             '<button class="stage-button' +
             (active ? " is-active" : "") +
@@ -803,7 +844,7 @@
             '><span class="stage-number">' +
             stage.number +
             '</span><span class="stage-copy"><strong>' +
-            escapeHtml(stage.label) +
+            escapeHtml(label) +
             "</strong><small>" +
             escapeHtml(stage.description) +
             "</small></span></button>"
@@ -1420,11 +1461,33 @@
     return compareContent();
   }
 
+  function appHeaderContent() {
+    var canReset = state.projectStep === "workspace";
+    return (
+      '<header class="app-header"><div class="brand-block"><span class="prototype-flag">Prototype · Memory only</span><span class="project-context">' +
+      escapeHtml(state.project ? state.project.name : "尚未选择 Project") +
+      "</span></div>" +
+      topStageNavigation() +
+      '<button class="reset-button" type="button" data-action="reset"' +
+      (canReset ? "" : " disabled") +
+      ">清空本轮编辑</button></header>"
+    );
+  }
+
+  function standardShell(content) {
+    return (
+      '<div class="prototype-shell">' +
+      appHeaderContent() +
+      content +
+      "</div>"
+    );
+  }
+
   function render() {
     var content;
     persistActiveProject();
     if (state.projectStep !== "workspace") {
-      content = projectFlowContent();
+      content = standardShell(projectFlowContent());
     } else {
       content = state.whiteboard
         ? whiteboardContent()
@@ -1437,16 +1500,10 @@
             )
         : state.immersiveVersionId
           ? immersiveVersionContent()
-        : '<div class="prototype-shell"><header class="app-header"><div class="brand-block"><span class="prototype-flag">Prototype · Memory only</span><button class="project-name" type="button" data-action="open-project-home" aria-label="打开 Project Home">' +
-          escapeHtml(state.project ? state.project.name : "未命名 Project") +
-          " · " +
-          state.sources.length +
-          " Sources</button></div>" +
-          topStageNavigation() +
-          '<button class="reset-button" type="button" data-action="reset">清空本轮编辑</button></header><main class="app-main">' +
+        : standardShell('<main class="app-main">' +
           pageHeading() +
           stageContent() +
-          "</main></div>";
+          "</main>");
     }
     document.getElementById("app").innerHTML =
       content + (state.projectStep === "workspace" ? photoPreview() : "");
@@ -1454,6 +1511,15 @@
 
   function gotoStage(stageId) {
     if (!canOpenStage(stageId)) return;
+    if (stageId === "project-home") {
+      openProjectHome();
+      return;
+    }
+    if (stageId === "project") {
+      openSourceHub();
+      return;
+    }
+    state.projectStep = "workspace";
     state.stage = stageId;
     state.whiteboard = false;
     state.previewPhotoId = null;
@@ -1581,6 +1647,105 @@
     };
     source.issue = messages[status];
     state.notice = "“" + source.name + "”现在显示为 " + sourceStatusMeta(status).label + "。";
+    render();
+  }
+
+  function requestSourceRemoval(id) {
+    var source = sourceById(id);
+    if (!source) return;
+    state.pendingSourceRemovalId = id;
+    state.notice =
+      "删除“" +
+      source.name +
+      "”会同时移除这个 Source 在当前 Project 的 Pool、Sequence 与版本引用。";
+    render();
+  }
+
+  function cancelSourceRemoval() {
+    state.pendingSourceRemovalId = null;
+    state.notice = "已取消删除照片资料夹。";
+    render();
+  }
+
+  function confirmSourceRemoval(id) {
+    var source = sourceById(id);
+    if (!source || state.pendingSourceRemovalId !== id) return;
+    var removalIds = source.photoIds.slice();
+    var removedFromPool = state.pool.filter(function (photoId) {
+      return removalIds.indexOf(photoId) >= 0;
+    }).length;
+    var removedFromSequence = state.sequence.filter(function (photoId) {
+      return removalIds.indexOf(photoId) >= 0;
+    }).length;
+
+    state.sources = state.sources.filter(function (item) {
+      return item.id !== id;
+    });
+    state.selected = state.selected.filter(function (photoId) {
+      return removalIds.indexOf(photoId) < 0;
+    });
+    state.pool = state.pool.filter(function (photoId) {
+      return removalIds.indexOf(photoId) < 0;
+    });
+    state.sequence = state.sequence.filter(function (photoId) {
+      return removalIds.indexOf(photoId) < 0;
+    });
+    state.selectedSequenceIds = state.selectedSequenceIds.filter(function (photoId) {
+      return removalIds.indexOf(photoId) < 0;
+    });
+    state.versions = state.versions
+      .map(function (version) {
+        return Object.assign({}, version, {
+          items: version.items.filter(function (photoId) {
+            return removalIds.indexOf(photoId) < 0;
+          })
+        });
+      })
+      .filter(function (version) {
+        return version.items.length > 0;
+      });
+    var validVersionIds = state.versions.map(function (version) {
+      return version.id;
+    });
+    state.compareSelectionIds = state.compareSelectionIds.filter(function (versionId) {
+      return validVersionIds.indexOf(versionId) >= 0;
+    });
+    if (validVersionIds.indexOf(state.workingFromVersionId) < 0) {
+      state.workingFromVersionId = null;
+    }
+    removalIds.forEach(function (photoId) {
+      delete state.sequencePhotoSizes[photoId];
+      delete state.whiteboardItems[photoId];
+      delete state.whiteboardEntryItems[photoId];
+    });
+    state.whiteboardEntrySequence = state.whiteboardEntrySequence.filter(
+      function (photoId) {
+        return removalIds.indexOf(photoId) < 0;
+      }
+    );
+    state.previewContextIds = state.previewContextIds.filter(function (photoId) {
+      return removalIds.indexOf(photoId) < 0;
+    });
+    if (removalIds.indexOf(state.previewPhotoId) >= 0) {
+      state.previewPhotoId = null;
+      state.previewSource = null;
+    }
+    if (state.activeSourceId === id) {
+      var nextSource = state.sources.find(function (item) {
+        return item.photoIds.length > 0;
+      });
+      state.activeSourceId = nextSource ? nextSource.id : null;
+      state.contactPage = 0;
+    }
+    state.pendingSourceRemovalId = null;
+    state.notice =
+      "已删除“" +
+      source.name +
+      "”，并清理 Pool " +
+      removedFromPool +
+      " 张、Sequence " +
+      removedFromSequence +
+      " 张的引用。";
     render();
   }
 
@@ -2151,6 +2316,18 @@
     }
     if (action === "set-source-status") {
       setSourceStatus(id, target.getAttribute("data-status"));
+      return;
+    }
+    if (action === "remove-source") {
+      requestSourceRemoval(id);
+      return;
+    }
+    if (action === "cancel-remove-source") {
+      cancelSourceRemoval();
+      return;
+    }
+    if (action === "confirm-remove-source") {
+      confirmSourceRemoval(id);
       return;
     }
     if (action === "new-project") {

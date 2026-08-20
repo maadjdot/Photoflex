@@ -24,6 +24,7 @@
 
 html {
   background: var(--bg);
+  overscroll-behavior-x: none;
 }
 
 body {
@@ -32,6 +33,7 @@ body {
   margin: 0;
   background: var(--bg);
   color: var(--text);
+  overscroll-behavior-x: none;
 }
 
 button,
@@ -63,7 +65,7 @@ button[disabled] {
 
 .project-flow {
   width: min(1180px, calc(100% - 40px));
-  min-height: 100vh;
+  min-height: calc(100vh - 84px);
   margin: 0 auto;
   padding: 52px 0 72px;
 }
@@ -460,10 +462,47 @@ button[disabled] {
   font-weight: 850;
 }
 
+.source-card-actions .source-remove-button {
+  border-color: rgba(235, 96, 68, 0.42);
+  color: #f29a87;
+}
+
+.source-remove-confirm {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: 7px;
+  align-items: center;
+  width: 100%;
+  margin-top: 4px;
+  padding: 9px 10px;
+  border: 1px solid rgba(235, 96, 68, 0.42);
+  border-radius: 11px;
+  background: var(--accent-soft);
+  color: #f4b2a4;
+  font-size: 9px;
+}
+
+.source-remove-confirm button {
+  min-height: 30px;
+  padding: 6px 9px;
+}
+
 .source-card-actions button:not([disabled]) {
   border-color: var(--accent);
   background: var(--accent);
   color: #fff;
+}
+
+.source-card-actions .source-remove-button:not([disabled]) {
+  border-color: rgba(235, 96, 68, 0.42);
+  background: transparent;
+  color: #f29a87;
+}
+
+.source-remove-confirm button:last-child {
+  border-color: var(--line-strong);
+  background: transparent;
+  color: var(--text);
 }
 
 .source-reconnect {
@@ -549,7 +588,7 @@ button[disabled] {
   top: 0;
   z-index: 20;
   display: grid;
-  grid-template-columns: minmax(150px, 0.6fr) minmax(620px, 2.4fr) minmax(100px, 0.4fr);
+  grid-template-columns: minmax(155px, 0.48fr) minmax(820px, 3fr) minmax(105px, 0.38fr);
   gap: 16px;
   align-items: center;
   min-height: 84px;
@@ -588,9 +627,7 @@ button[disabled] {
   content: "";
 }
 
-.project-name {
-  border: 0;
-  background: transparent;
+.project-context {
   padding-left: 3px;
   color: var(--muted);
   font-family: Georgia, "Times New Roman", serif;
@@ -600,7 +637,7 @@ button[disabled] {
 
 .stage-navigation {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 10px;
 }
 
@@ -1150,6 +1187,11 @@ button[disabled] {
   background: var(--surface);
 }
 
+.sequence-column {
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
 .pool-column {
   background: var(--surface-soft);
 }
@@ -1243,10 +1285,8 @@ button[disabled] {
   overflow-x: auto;
   overflow-y: hidden;
   touch-action: pan-x pinch-zoom;
-  overscroll-behavior: contain;
+  overscroll-behavior-x: none;
   padding-bottom: 18px;
-  scroll-behavior: smooth;
-  scroll-snap-type: x proximity;
   scrollbar-color: var(--accent) rgba(255, 255, 255, 0.08);
   scrollbar-width: auto;
 }
@@ -1292,7 +1332,6 @@ button[disabled] {
 
 .sequence-board.view-horizontal .sequence-card {
   flex: 0 0 var(--sequence-photo-size);
-  scroll-snap-align: start;
 }
 
 .sequence-board.view-grid .sequence-card {

@@ -357,7 +357,10 @@ require(path.join(__dirname, "app.js"));
 
 expectText("从已有照片开始", "首屏应提供从已有照片开始入口");
 expectText("从核心问题开始", "首屏应提供从核心问题开始入口");
-expectNoText("stage-navigation", "建立 Project 前不应显示 Contact Sheet 工作区导航");
+expectText("stage-navigation", "Project Home 应与后续工作阶段共用顶部导航");
+assert.equal(countText('class="stage-button'), 5, "顶部应清楚显示五个工作阶段");
+expectText("Project Home", "第一阶段应为 Project Home");
+expectText("Project", "第二阶段应为当前 Project");
 click("choose-project-entry", { "data-mode": "question" });
 expectText("建立一个 Project", "选择入口后应进入 Project 建立步骤");
 listeners.input({
@@ -377,6 +380,7 @@ listeners.input({
   }
 });
 click("create-project");
+expectText("Project · 河流向北", "第二阶段按钮应显示当前 Project 名称");
 expectText("1 Project", "建立后应解释 Project 与 Source 的关系");
 expectText("还没有照片资料夹", "新 Project 应从空的 Source 列表开始");
 expectText("Loading", "Source Hub 应解释 Loading 状态");
@@ -387,7 +391,7 @@ click("add-demo-sources");
 assert.equal(countText('<article class="source-card'), 2, "示例入口应添加两个独立 Source");
 expectText("北岸散步", "第一个示例 Source 应保持独立名称");
 expectText("南岸补拍", "第二个示例 Source 应保持独立名称");
-click("open-project-home");
+click("goto-stage", { "data-stage": "project-home" });
 expectText("管理你的 Projects", "顶部 Project 模块应能回到 Project Home");
 expectText("河流向北", "Project Home 应列出已建立的 Project");
 click("open-project", { "data-id": "project-local-1" });
@@ -404,7 +408,7 @@ click("set-source-status", {
 click("open-source", { "data-id": "source-demo" });
 expectText("Contact Sheet", "点进单个 Source 后才应进入 Contact Sheet");
 expectText("当前 Source · Ready", "Contact Sheet 应标明当前 Source 与状态");
-expectText("Sequence + Pool", "顶部应显示合并后的 Sequence + Pool 阶段");
+expectText(">Sequence<", "顶部应显示清晰的 Sequence 阶段");
 expectText("Compare", "顶部应显示 Compare 阶段");
 expectNoText("当前意图", "应删除当前意图");
 expectNoText("VISIBLE PROTOTYPE STATE", "应删除可见状态检查器");
@@ -600,6 +604,18 @@ listeners.input({
 click("create-project");
 expectText("第二个 Project", "新建 Project 后应进入新的 Project Stage");
 click("add-demo-sources");
+click("open-source", { "data-id": "source-demo-2" });
+click("toggle-contact-photo", { "data-id": "Q01" });
+click("add-to-pool");
+click("goto-stage", { "data-stage": "project" });
+click("remove-source", { "data-id": "source-demo-2" });
+expectText("同时从当前 Project 移除相关选片", "删除 Source 前应显示影响范围确认");
+click("cancel-remove-source");
+expectText("南岸补拍", "取消删除后 Source 应继续保留");
+click("remove-source", { "data-id": "source-demo-2" });
+click("confirm-remove-source", { "data-id": "source-demo-2" });
+expectNoText('data-action="open-source" data-id="source-demo-2"', "确认删除后 Source 卡片应移除");
+expectText("清理 Pool 1 张", "删除 Source 应清理其在当前 Project Pool 中的引用");
 click("open-project-home");
 expectText("河流向北", "旧 Project 应继续出现在 Home");
 expectText("第二个 Project", "新 Project 应出现在 Home");
@@ -984,10 +1000,13 @@ assert.doesNotMatch(styles, /photo-rotation|rotate-photo|whiteboard-rotate/, "�
 var horizontalRule = styles.match(/\.sequence-board\.view-horizontal\s*\{([^}]*)\}/);
 assert.ok(horizontalRule, "横向 Sequence 应存在独立滚动样式");
 assert.match(horizontalRule[1], /touch-action:\s*pan-x\s+pinch-zoom/, "横向 Sequence 应声明横向触控意图");
-assert.match(horizontalRule[1], /overscroll-behavior:\s*contain/, "横向 Sequence 不应把边界手势传给页面导航");
+assert.match(horizontalRule[1], /overscroll-behavior-x:\s*none/, "横向 Sequence 不应把边界手势传给页面导航");
+assert.doesNotMatch(horizontalRule[1], /scroll-behavior:\s*smooth/, "Sequence 触控板滚动不应被平滑动画队列拖慢");
 var sequenceColumnRule = styles.match(/\.sequence-column\s*,\s*\n\.pool-column\s*\{([^}]*)\}/);
 assert.ok(sequenceColumnRule, "Sequence 与 Pool 应存在滚动容器样式");
 assert.match(sequenceColumnRule[1], /overscroll-behavior:\s*contain/, "Sequence 外层容器不应把触控板边界手势传给页面导航");
+assert.match(styles, /html\s*\{[^}]*overscroll-behavior-x:\s*none/s, "页面根节点应阻止横向手势升级为浏览器导航");
+assert.match(styles, /body\s*\{[^}]*overscroll-behavior-x:\s*none/s, "页面主体应阻止横向手势升级为浏览器导航");
 var panoramaRule = styles.match(/\.panorama-strip\s*\{([^}]*)\}/);
 assert.ok(panoramaRule, "序列全景应存在独立滚动样式");
 assert.match(panoramaRule[1], /touch-action:\s*pan-x\s+pinch-zoom/, "序列全景应声明横向触控意图");
@@ -998,5 +1017,5 @@ assert.match(whiteboardRule[1], /touch-action:\s*none/, "白板应接管触摸�
 assert.match(whiteboardRule[1], /overscroll-behavior:\s*none/, "白板不应把 wheel 边界手势传给页面导航");
 
 process.stdout.write(
-  "PhotoFlex prototype feedback-11 test passed: multi-project Home and isolated workspaces, independent multi-source states, cross-source Pool retention, paged 1200-photo import, whole-photo selection with preview-only buttons, sequence/Compare panoramas, whiteboard group editing, direct two-version Compare selection, wheel-owned navigation, and stable removal scroll.\n"
+  "PhotoFlex prototype feedback-12 test passed: five-stage navigation, multi-project isolation, safe Source deletion with reference cleanup, cross-source Pool retention, paged 1200-photo import, sequence/Compare panoramas, whiteboard editing, browser-boundary wheel ownership, and stable removal scroll.\n"
 );

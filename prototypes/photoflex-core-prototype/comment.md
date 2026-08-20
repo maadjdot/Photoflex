@@ -1,3 +1,9 @@
+# 改动意见10
+- projects板块像是contact sheet, sequence, compare那样是一个单独的板块，把板块按钮做的清晰：01_project_home, 02_project_XXX, 03_contact sheet, 04_sequence, 05_compare;
+- project部分增加删除照片资料夹的功能；
+- Sequence的触控板横向滑动功能尚未修复，我需要能够以触控板左右滑动，但过度时不会触发浏览器的上一页；
+
+
 # 改动意见9
 - 需要一个home页面管理不同的projects，新增另一个project不影响原来的project；
 - project单独变成一个阶段，用来管理不同的contact sheet/照片资料夹；
