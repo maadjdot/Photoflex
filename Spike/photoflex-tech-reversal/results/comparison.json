@@ -1,0 +1,44 @@
+{
+  "schemaVersion": 1,
+  "readyForDecision": false,
+  "status": "implementation_ready_formal_benchmarks_not_run",
+  "environmentLock": "../environment-lock.json",
+  "evidence": {
+    "sharedCore": {
+      "status": "pass",
+      "scope": "unit and adapter contract tests only",
+      "notes": ["Does not imply renderer performance"]
+    },
+    "browser": {
+      "build": "pass",
+      "T-01": "not_run",
+      "T-02": "not_run",
+      "WB-01": "not_run",
+      "MIX-01": "not_run",
+      "SOAK": "not_run"
+    },
+    "tauri": {
+      "configuration": "ready",
+      "environment": "pass",
+      "cargoCheck": "pass",
+      "windowsReleaseBuild": "pass",
+      "msiAndNsisBundle": "pass",
+      "formalGates": "not_run",
+      "macosEvidence": "blocked_device"
+    },
+    "electron": {
+      "version": "43.4.1",
+      "productionStartupSmoke5Seconds": "pass",
+      "unpackedPackageBuild": "pass",
+      "gridAndWhiteboardVisualCapture": "pass",
+      "adapterContract": "pass",
+      "formalGates": "not_run",
+      "macosEvidence": "blocked_device"
+    }
+  },
+  "decisionInput": null,
+  "notes": [
+    "Set readyForDecision only after every mandatory gate is represented by raw evidence from one environment cohort.",
+    "A startup smoke is not PKG-01 and is not a framework pass."
+  ]
+}

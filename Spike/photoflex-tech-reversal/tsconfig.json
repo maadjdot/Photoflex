@@ -1,0 +1,29 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "allowImportingTsExtensions": true,
+    "resolveJsonModule": true,
+    "allowJs": true,
+    "checkJs": false,
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "jsx": "react-jsx",
+    "types": ["node", "vitest/globals"],
+    "baseUrl": ".",
+    "paths": {
+      "@photoflex/host-contract": ["packages/host-contract/src/index.ts"],
+      "@photoflex/sequence-engine": ["packages/sequence-engine/src/index.ts"],
+      "@photoflex/whiteboard-engine": ["packages/whiteboard-engine/src/index.ts"],
+      "@photoflex/benchmark-core": ["packages/benchmark-core/src/index.ts"],
+      "@photoflex/fixture-tools": ["packages/fixture-tools/src/index.ts"]
+    }
+  },
+  "include": ["apps", "packages", "benchmarks", "vitest.config.ts"],
+  "exclude": ["**/target/**", "**/node_modules/**", "**/dist/**", "fixtures/generated/**", "results/**"]
+}

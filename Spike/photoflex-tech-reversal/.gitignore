@@ -1,0 +1,13 @@
+node_modules/
+dist/
+target/
+target-*/
+fixtures/generated/
+pdf/
+results/raw/
+results/screenshots/
+results/traces/
+environment-lock.local.json
+*.log
+*.db-shm
+*.db-wal

@@ -1,0 +1,30 @@
+{
+  "name": "photoflex-tech-reversal",
+  "private": true,
+  "type": "module",
+  "version": "0.1.0",
+  "packageManager": "pnpm@10.15.1",
+  "scripts": {
+    "dev": "corepack pnpm --filter @photoflex/benchmark-ui dev",
+    "dev:electron": "corepack pnpm --filter @photoflex/electron-shell dev",
+    "dev:tauri": "corepack pnpm --filter @photoflex/tauri-shell dev",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "build": "corepack pnpm --filter @photoflex/benchmark-ui build",
+    "build:electron": "corepack pnpm build && corepack pnpm --filter @photoflex/electron-shell package",
+    "fixture:generate": "node --experimental-strip-types packages/fixture-tools/src/cli.ts fixture",
+    "env:capture": "node --experimental-strip-types packages/fixture-tools/src/cli.ts env-capture",
+    "env:verify": "node --experimental-strip-types packages/fixture-tools/src/cli.ts env-verify",
+    "benchmark:browser": "node --experimental-strip-types benchmarks/run-browser.ts",
+    "benchmark:host": "node --experimental-strip-types benchmarks/run-host-gates.ts",
+    "benchmark:decision": "node --experimental-strip-types benchmarks/decide.ts",
+    "check": "corepack pnpm test && corepack pnpm typecheck && corepack pnpm build"
+  },
+  "devDependencies": {
+    "@types/node": "24.3.0",
+    "tsx": "4.20.5",
+    "typescript": "5.9.2",
+    "vitest": "3.2.4"
+  }
+}

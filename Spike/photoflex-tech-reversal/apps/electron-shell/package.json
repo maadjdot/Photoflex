@@ -1,0 +1,33 @@
+{
+  "name": "@photoflex/electron-shell",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Electron fallback shell for the PhotoFlex technical reversal spike",
+  "author": "PhotoFlex",
+  "packageManager": "pnpm@10.15.1",
+  "main": "main.cjs",
+  "scripts": {
+    "dev": "node ../../scripts/dev-electron.mjs",
+    "start": "node node_modules/electron/cli.js .",
+    "package": "node ../../scripts/package-electron.mjs"
+  },
+  "devDependencies": {
+    "concurrently": "9.2.1",
+    "cross-env": "10.0.0",
+    "electron": "43.4.1",
+    "electron-builder": "26.15.3",
+    "wait-on": "8.0.4"
+  },
+  "build": {
+    "appId": "com.photoflex.techreversal",
+    "productName": "PhotoFlex Tech Reversal",
+    "asar": true,
+    "files": ["main.cjs", "preload.cjs", "services/**/*.cjs", "package.json"],
+    "extraResources": [
+      { "from": "../benchmark-ui/dist", "to": "benchmark-ui" }
+    ],
+    "directories": { "output": "dist" },
+    "win": { "target": ["dir"] },
+    "mac": { "target": ["dir"] }
+  }
+}

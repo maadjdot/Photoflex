@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "latency": { "runs": 5, "operationsPerRun": 50, "sortAndDragOperations": 100, "keepOutliers": true },
+  "longTasks": { "runs": 7, "includeFailuresAndTimeouts": true },
+  "frames": { "warmups": 1, "runs": 5, "secondsPerRun": 60 },
+  "memory": { "sampleIntervalSeconds": 1, "baselineIdleSeconds": 120, "recoveryIdleSeconds": 300 },
+  "soak": [
+    { "id": "grid", "minutes": 10 },
+    { "id": "sequence", "minutes": 10 },
+    { "id": "whiteboard", "minutes": 20 },
+    { "id": "compare", "minutes": 5 },
+    { "id": "idle", "minutes": 5 }
+  ],
+  "mixed": { "runs": 5, "minutesPerRun": 5, "gridItems": 10000, "sequenceItems": 500, "whiteboardItems": 500 },
+  "whiteboardExploration": [500, 1000, 1500, 2000, 3000]
+}

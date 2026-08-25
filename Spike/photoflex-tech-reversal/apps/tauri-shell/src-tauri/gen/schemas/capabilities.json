@@ -1,0 +1,1 @@
+{"main-capability":{"identifier":"main-capability","description":"Only core window capabilities; no generic fs, shell, or process access.","local":true,"windows":["main"],"permissions":["core:default"]}}
