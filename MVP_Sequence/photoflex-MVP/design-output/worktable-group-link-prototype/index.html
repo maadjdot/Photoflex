@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PhotoFlex — Worktable Group / Link</title>
+  <style>
+    @font-face { font-family: Ancizar; src: url('../../src/assets/fonts/AncizarSerif.ttf'); }
+    :root { --ink:#1d1b19; --muted:#77736f; --line:#c9c7c4; --desk:#f1f1f1; }
+    * { box-sizing:border-box; }
+    html,body { width:100%; height:100%; margin:0; overflow:hidden; color:var(--ink); background:#fff; font-family:Arial,"Helvetica Neue",sans-serif; }
+    button { border:0; background:transparent; color:inherit; font:inherit; cursor:pointer; }
+    .app { width:100vw; height:100vh; display:grid; grid-template-rows:80px 38px minmax(0,1fr) 138px; background:#fff; }
+    .topbar { display:grid; grid-template-columns:220px 1fr 160px; align-items:center; padding:0 35px; border:1px solid var(--line); }
+    .brand { font-family:Ancizar,Georgia,serif; font-size:25px; font-weight:700; }
+    .nav { justify-self:center; display:flex; align-items:stretch; gap:64px; height:100%; }
+    .nav button { position:relative; min-width:58px; font-size:20px; }
+    .nav button.active { font-weight:700; }
+    .nav button.active::after { content:""; position:absolute; right:0; bottom:9px; left:0; height:2px; background:var(--ink); }
+    .login { justify-self:end; font-size:19px; }
+    .tools { display:flex; align-items:center; padding:0 26px; border-bottom:1px solid #e5e5e5; background:#fff; font-size:13px; }
+    .tools strong { font-size:13px; letter-spacing:.03em; }
+    .tool-actions { margin-left:auto; display:flex; align-items:stretch; gap:35px; height:100%; }
+    .tool-actions button { position:relative; min-width:48px; font-size:13px; }
+    .tool-actions button.active { font-weight:700; }
+    .tool-actions button.active::after { content:""; position:absolute; right:0; bottom:0; left:0; height:2px; background:var(--ink); }
+    .zoom { display:flex; align-items:center; gap:17px; margin-left:35px; }
+    .zoom button { width:14px; font-size:16px; }
+    .desk { position:relative; min-height:0; overflow:hidden; background:var(--desk); }
+    .photo { position:absolute; z-index:2; overflow:hidden; border-radius:3px; background:var(--sky); }
+    .photo.outlined { border:2px solid var(--ink); }
+    .photo .sun { position:absolute; z-index:2; top:17%; right:18%; width:8px; height:8px; border:1px solid var(--ink); border-radius:50%; background:#eee4d4; }
+    .photo .mountain-back,.photo .mountain-front { position:absolute; right:0; bottom:0; left:0; }
+    .photo .mountain-back { height:74%; background:var(--m1); clip-path:polygon(0 70%,22% 28%,45% 61%,64% 12%,100% 62%,100% 100%,0 100%); }
+    .photo .mountain-front { height:62%; background:var(--m2); clip-path:polygon(0 72%,23% 34%,48% 72%,72% 28%,100% 66%,100% 100%,0 100%); }
+    .tone-a { --sky:#c7d0d3; --m1:#81908b; --m2:#35433d; }
+    .tone-b { --sky:#d9c7b8; --m1:#927f75; --m2:#504541; }
+    .tone-c { --sky:#b6c8c4; --m1:#788984; --m2:#31483f; }
+    .tone-d { --sky:#d8d3ca; --m1:#92887f; --m2:#504d49; }
+    .tone-e { --sky:#bdc8d2; --m1:#72818e; --m2:#344452; }
+    .tone-f { --sky:#cdb9b5; --m1:#917875; --m2:#4c3c3a; }
+    .tone-g { --sky:#b4c6c2; --m1:#748a83; --m2:#344b43; }
+    .tone-h { --sky:#d5c0ae; --m1:#9b7f72; --m2:#544944; }
+    .tone-i { --sky:#d2bdb9; --m1:#937a76; --m2:#4d3c3a; }
+    .photo-id { position:absolute; z-index:4; right:7px; bottom:5px; color:rgba(255,255,255,.76); font-size:7px; letter-spacing:.03em; }
+    .group-box { position:absolute; z-index:1; border:1.5px solid var(--ink); background:rgba(255,255,255,.25); }
+    .group-box.selected { border-width:2px; }
+    .group-label { position:absolute; top:-25px; left:-1px; display:flex; align-items:center; gap:12px; height:24px; padding:0 9px; background:var(--ink); color:#fff; font-size:9px; letter-spacing:.1em; }
+    .group-label span { color:#cfcfcf; letter-spacing:0; }
+    .group-handle { position:absolute; z-index:5; width:8px; height:8px; border:1px solid var(--ink); background:#fff; }
+    .group-handle.tl { top:-5px; left:-5px; }.group-handle.tr { top:-5px; right:-5px; }.group-handle.bl { bottom:-5px; left:-5px; }.group-handle.br { right:-5px; bottom:-5px; }
+    .group-note { position:absolute; z-index:6; padding:5px 8px; border:1px solid var(--ink); background:#fff; font-size:9px; }
+    .link-line { position:absolute; z-index:3; height:1.5px; background:var(--ink); transform-origin:left center; }
+    .link-line::before,.link-line::after { content:""; position:absolute; top:50%; width:7px; height:7px; border:1.5px solid var(--ink); border-radius:50%; background:var(--desk); transform:translateY(-50%); }
+    .link-line::before { left:-4px; }.link-line::after { right:-4px; }
+    .link-tag { position:absolute; z-index:5; padding:5px 8px; border:1px solid var(--ink); background:#fff; font-size:9px; letter-spacing:.08em; text-transform:uppercase; }
+    .link-pair { position:absolute; z-index:1; border:1px dashed #aaa; }
+    .state-note { position:absolute; right:24px; bottom:18px; color:#777; font-size:10px; }
+    .sequence { position:relative; display:grid; grid-template-rows:34px 1fr; border-top:2px solid #bfbfbf; background:#fff; }
+    .sequence-head { display:flex; align-items:center; padding:0 11px; color:#969696; font-size:13px; font-weight:700; }
+    .sequence-head span { margin-left:8px; font-size:10px; font-weight:400; }
+    .collapse { position:absolute; top:6px; left:50%; width:12px; height:12px; border-right:2px solid var(--ink); border-bottom:2px solid var(--ink); transform:translateX(-50%) rotate(45deg); }
+    .seq-list { display:flex; align-items:start; gap:11px; padding:3px 38px 13px; overflow:hidden; }
+    .seq-item { position:relative; flex:0 0 106px; height:79px; }
+    .seq-item .photo { inset:0; }
+    .seq-name { position:absolute; top:84px; left:0; color:#555; font-size:7px; }
+    .next { position:absolute; right:49px; bottom:48px; width:17px; height:17px; }
+    .next::before { content:""; position:absolute; top:8px; left:0; width:16px; height:2px; background:var(--ink); }
+    .next::after { content:""; position:absolute; top:3px; right:0; width:9px; height:9px; border-top:2px solid var(--ink); border-right:2px solid var(--ink); transform:rotate(45deg); }
+    .prototype-switcher { position:fixed; z-index:50; bottom:14px; left:50%; display:flex; align-items:center; gap:5px; padding:4px; background:#111; color:#fff; box-shadow:0 5px 18px rgba(0,0,0,.2); transform:translateX(-50%); }
+    .prototype-switcher button { width:30px; height:26px; color:#fff; }
+    .prototype-label { min-width:250px; text-align:center; font-size:9px; letter-spacing:.11em; text-transform:uppercase; }
+    body.capture .prototype-switcher { display:none; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  <script>
+    const variants=['group','link'];
+    const query=new URLSearchParams(location.search);
+    const current=variants.includes(query.get('variant'))?query.get('variant'):'group';
+    if(query.get('capture')==='1') document.body.classList.add('capture');
+    const art=(tone,id,extra='')=>`<div class="photo ${tone} ${extra}"><i class="sun"></i><i class="mountain-back"></i><i class="mountain-front"></i><span class="photo-id">${id}</span></div>`;
+    const card=(tone,id,x,y,w,h,extra='')=>`<div class="photo ${tone} ${extra}" style="left:${x}px;top:${y}px;width:${w}px;height:${h}px"><i class="sun"></i><i class="mountain-back"></i><i class="mountain-front"></i><span class="photo-id">${id}</span></div>`;
+    const header=active=>`<header class="topbar"><div class="brand">Photoflex</div><nav class="nav"><button>Home</button><button>Project</button><button>Contact Sheet</button><button class="active">Table</button><button>Sequence</button></nav><button class="login">Login</button></header><div class="tools"><strong>TABLE</strong><div class="tool-actions"><button>Sequence</button><button class="${active==='group'?'active':''}">Group</button><button class="${active==='link'?'active':''}">Link</button><button>Juxtapose</button></div><div class="zoom"><button>−</button><span>75%</span><button>+</button></div></div>`;
+    const seq=()=>`<section class="sequence"><div class="sequence-head">Sequence Order <span>8 photos · drag to reorder</span></div><button class="collapse" aria-label="Collapse sequence"></button><div class="seq-list">${[['tone-a','PF_0035'],['tone-b','PF_0036'],['tone-c','PF_0037'],['tone-d','PF_0038'],['tone-e','PF_0033'],['tone-f','PF_0034'],['tone-g','PF_0031'],['tone-d','PF_0032']].map(([tone,id])=>`<div class="seq-item">${art(tone,id)}<span class="seq-name">${id}</span></div>`).join('')}</div><button class="next" aria-label="Open sequence"></button></section>`;
+    function groupView(){return `<div class="app">${header('group')}<main class="desk">
+      <div class="group-box selected" style="left:55px;top:92px;width:614px;height:340px"><div class="group-label">GROUP 01 <span>5 PHOTOS · Night streets</span></div><i class="group-handle tl"></i><i class="group-handle tr"></i><i class="group-handle bl"></i><i class="group-handle br"></i></div>
+      ${card('tone-a','PF_0035',77,118,176,132,'outlined')}${card('tone-b','PF_0036',269,111,141,178)}${card('tone-c','PF_0037',427,118,205,147,'outlined')}${card('tone-f','PF_0034',177,282,192,137)}${card('tone-d','PF_0038',387,278,205,137)}
+      <div class="group-note" style="left:572px;top:354px">Drag the frame to move the whole group</div>
+      <div class="group-box" style="left:756px;top:111px;width:566px;height:240px"><div class="group-label">GROUP 02 <span>3 PHOTOS · Open landscape</span></div></div>
+      ${card('tone-d','PF_0032',780,138,176,132)}${card('tone-e','PF_0033',974,138,176,132)}${card('tone-g','PF_0031',1168,138,130,132)}
+      ${card('tone-c','PF_0028',77,478,196,147)}${card('tone-d','PF_0029',315,484,196,147,'outlined')}${card('tone-i','PF_0030',552,470,165,205)}${card('tone-e','PF_0027',808,477,196,147)}${card('tone-g','PF_0026',1099,477,196,147)}
+      <span class="state-note">GROUP MODE · 2 groups · 5 ungrouped photos</span>
+    </main>${seq()}</div>`}
+    function linkView(){return `<div class="app">${header('link')}<main class="desk">
+      <div class="link-pair" style="left:60px;top:83px;width:455px;height:211px"></div>${card('tone-a','PF_0035',77,109,196,147,'outlined')}${card('tone-c','PF_0037',303,109,196,147,'outlined')}<div class="link-line" style="left:273px;top:183px;width:30px"></div><div class="link-tag" style="left:223px;top:267px">LINK 01 · Echo</div>
+      <div class="link-pair" style="left:578px;top:83px;width:455px;height:211px"></div>${card('tone-d','PF_0038',595,109,196,147,'outlined')}${card('tone-b','PF_0036',821,109,196,147,'outlined')}<div class="link-line" style="left:791px;top:183px;width:30px"></div><div class="link-tag" style="left:748px;top:267px">LINK 02 · Light</div>
+      ${card('tone-e','PF_0033',1100,105,196,147)}
+      <div class="link-pair" style="left:191px;top:399px;width:528px;height:230px"></div>${card('tone-g','PF_0031',211,429,196,147,'outlined')}${card('tone-i','PF_0034',435,415,165,205,'outlined')}${card('tone-d','PF_0032',622,429,76,147,'outlined')}<div class="link-line" style="left:407px;top:503px;width:28px"></div><div class="link-line" style="left:600px;top:503px;width:22px"></div><div class="link-tag" style="left:394px;top:603px">LINK 03 · Rhythm</div>
+      ${card('tone-c','PF_0028',790,446,196,147)}${card('tone-e','PF_0027',1027,440,196,147)}${card('tone-b','PF_0026',1242,477,130,147)}
+      <span class="state-note">LINK MODE · linked photos snap together · moving one preserves the relationship</span>
+    </main>${seq()}</div>`}
+    document.getElementById('root').innerHTML=current==='group'?groupView():linkView();
+    const switcher=document.createElement('div');switcher.className='prototype-switcher';switcher.innerHTML=`<button data-dir="-1">←</button><div class="prototype-label">${current==='group'?'Group · shared frame':'Link · adjacent relation'}</div><button data-dir="1">→</button>`;document.body.appendChild(switcher);
+    function move(dir){const next=variants[(variants.indexOf(current)+dir+variants.length)%variants.length];location.search='?variant='+next;}
+    switcher.onclick=e=>{if(e.target.dataset.dir)move(Number(e.target.dataset.dir));};window.onkeydown=e=>{if(['INPUT','TEXTAREA','SELECT'].includes(document.activeElement?.tagName))return;if(e.key==='ArrowLeft'||e.key==='ArrowRight')move(e.key==='ArrowLeft'?-1:1);};
+  </script>
+</body>
+</html>

@@ -5,6 +5,7 @@ import {
   type Result,
   type StorageAccessError,
 } from "../../contracts";
+import { migrateWorkspaceV2ToV3, migrateWorkspaceV3ToV4 } from "../projectStoreData";
 
 export const STORE_NAMES = {
   projects: "projects",
@@ -38,35 +39,9 @@ export function migrateToV2(database: IDBDatabase, transaction: IDBTransaction):
   if (!database.objectStoreNames.contains(STORE_NAMES.photoThumbnails)) {
     database.createObjectStore(STORE_NAMES.photoThumbnails, { keyPath: "photoId" });
   }
-
-  const projects = transaction.objectStore(STORE_NAMES.projects);
-  const cursorRequest = projects.openCursor();
-  cursorRequest.onsuccess = () => {
-    const cursor = cursorRequest.result;
-    if (!cursor) return;
-    const workspace = cursor.value as Record<string, unknown>;
-    const sources = Array.isArray(workspace.sources)
-      ? workspace.sources.map((source) => {
-          if (!source || typeof source !== "object") return source;
-          const oldSource = source as Record<string, unknown>;
-          const nextSource = { ...oldSource };
-          delete nextSource.status;
-          nextSource.createdAt =
-            typeof oldSource.createdAt === "string" ? oldSource.createdAt : workspace.createdAt;
-          return nextSource;
-        })
-      : [];
-    cursor.update({
-      ...workspace,
-      schemaVersion: 2,
-      memo: typeof workspace.memo === "string" ? workspace.memo : "",
-      expectedPhotoCount: null,
-      sources,
-      lastOpenedAt:
-        typeof workspace.lastOpenedAt === "string" ? workspace.lastOpenedAt : workspace.updatedAt,
-    });
-    cursor.continue();
-  };
+  // Project rows are normalized once by migrateToV4. Keeping this step to
+  // object-store creation avoids two concurrent cursors rewriting the same row.
+  void transaction;
 }
 
 export function migrateToV3(transaction: IDBTransaction): void {
@@ -75,6 +50,32 @@ export function migrateToV3(transaction: IDBTransaction): void {
     // The compound key keeps every Source grouped while ordering its photos by path.
     photos.createIndex("by-source-path", ["sourceId", "relativePath"]);
   }
+}
+
+export function migrateToV4(transaction: IDBTransaction): void {
+  const projects = transaction.objectStore(STORE_NAMES.projects);
+  const cursorRequest = projects.openCursor();
+  cursorRequest.onsuccess = () => {
+    const cursor = cursorRequest.result;
+    if (!cursor) return;
+    cursor.update(migrateWorkspaceV2ToV3(cursor.value as Record<string, unknown>));
+    cursor.continue();
+  };
+}
+
+export function migrateToV5(transaction: IDBTransaction): void {
+  const projects = transaction.objectStore(STORE_NAMES.projects);
+  const cursorRequest = projects.openCursor();
+  cursorRequest.onsuccess = () => {
+    const cursor = cursorRequest.result;
+    if (!cursor) return;
+    const value = cursor.value as Record<string, unknown>;
+    // v3 already owns a fully positioned Worktable. Only pre-v3 records need
+    // the Pool conversion; v3 merely receives empty relationship collections.
+    const normalized = Number(value.schemaVersion) >= 3 ? value : migrateWorkspaceV2ToV3(value);
+    cursor.update(migrateWorkspaceV3ToV4(normalized));
+    cursor.continue();
+  };
 }
 
 export function openPhotoFlexDatabase(
@@ -124,6 +125,7 @@ export function openPhotoFlexDatabase(
           if (migrationFrom === 0) migrateToV1(request.result);
           if (migrationFrom < 2) migrateToV2(request.result, request.transaction!);
           if (migrationFrom < 3) migrateToV3(request.transaction!);
+          if (migrationFrom < 5) migrateToV5(request.transaction!);
         } catch {
           migrationFailed = true;
           request.transaction?.abort();

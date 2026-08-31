@@ -13,16 +13,19 @@ afterEach(async () => {
 interface TestDirectory {
   readonly handle: FileSystemDirectoryHandle;
   readonly files: Map<string, File>;
+  getFileReadCount(): number;
   setPermission(permission: PermissionState): void;
 }
 
 function createDirectory(identity: string, displayName: string, names: readonly string[]): TestDirectory {
   const files = new Map(names.map((name) => [name, new File([name], name, { type: "image/jpeg" })]));
   let permission: PermissionState = "granted";
+  let fileReadCount = 0;
   const makeFileHandle = (name: string): FileSystemFileHandle => ({
     kind: "file",
     name,
     getFile: async () => {
+      fileReadCount += 1;
       const file = files.get(name);
       if (!file) throw new DOMException("File not found", "NotFoundError");
       return file;
@@ -49,6 +52,7 @@ function createDirectory(identity: string, displayName: string, names: readonly 
       throw new DOMException("Directory not found", "NotFoundError");
     },
     async getFileHandle(name: string) {
+      fileReadCount += 1;
       if (!files.has(name)) throw new DOMException("File not found", "NotFoundError");
       return makeFileHandle(name);
     },
@@ -56,6 +60,7 @@ function createDirectory(identity: string, displayName: string, names: readonly 
   return {
     files,
     handle: directory as unknown as FileSystemDirectoryHandle,
+    getFileReadCount: () => fileReadCount,
     setPermission(next) {
       permission = next;
     },
@@ -151,7 +156,7 @@ describe("BrowserPhotoSource", () => {
     expect(firstPage.value.items[0].id).not.toBe(secondPage.value.items[0].id);
   });
 
-  it("文件移动后保留 PhotoRef 并返回 missing-file", async () => {
+  it("listPhotos 只读索引，文件移动由 thumbnail 返回 photo-not-found", async () => {
     const directory = createDirectory("moving", "Moving", ["move.jpg"]);
     const source = new BrowserPhotoSource({
       databaseName: `photoflex-source-${crypto.randomUUID()}`,
@@ -163,20 +168,22 @@ describe("BrowserPhotoSource", () => {
     expect(grant.ok).toBe(true);
     if (!grant.ok) return;
     await scanToEnd(source, grant.value.sourceId);
+    const indexed = await source.listPhotos(grant.value.sourceId);
+    expect(indexed.ok && indexed.value.items).toHaveLength(1);
+    if (!indexed.ok) return;
     directory.files.delete("move.jpg");
 
-    await scanToEnd(source, grant.value.sourceId);
+    const fileReadsBeforeList = directory.getFileReadCount();
     const page = await source.listPhotos(grant.value.sourceId);
     expect(page.ok).toBe(true);
     if (!page.ok) return;
     expect(page.value.items).toHaveLength(1);
-    expect(page.value.issues).toEqual([
-      {
-        kind: "missing-file",
-        photoId: page.value.items[0].id,
-        relativePath: "move.jpg",
-      },
-    ]);
+    expect(page.value.issues).toEqual([]);
+    expect(directory.getFileReadCount()).toBe(fileReadsBeforeList);
+    expect(await source.thumbnail(page.value.items[0].id)).toEqual({
+      ok: false,
+      error: { kind: "photo-not-found", photoId: page.value.items[0].id },
+    });
   });
 
   it("刷新后需要重新授权时不会把仍存在的照片误报为 missing-file", async () => {

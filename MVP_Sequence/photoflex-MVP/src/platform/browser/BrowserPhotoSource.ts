@@ -3,7 +3,6 @@ import {
   ok,
   type PhotoId,
   type PhotoPage,
-  type PhotoIssue,
   type PhotoRef,
   type PhotoSource,
   type PreviewLease,
@@ -52,6 +51,7 @@ interface CachedUrl {
 }
 
 const PAGE_SIZE = 100;
+const THUMBNAIL_MAX_EDGE = 384;
 
 const requestValue = <T>(request: IDBRequest<T>): Promise<T> =>
   new Promise((resolve, reject) => {
@@ -341,11 +341,12 @@ export class BrowserPhotoSource implements PhotoSource {
       const pageLimit = Math.min(PAGE_SIZE, Math.max(1, Math.floor(limit) || PAGE_SIZE));
       const page = await this.readPhotoPage(opened.value, sourceId, cursor === "0" ? undefined : cursor, pageLimit + 1);
       const items = page.slice(0, pageLimit);
-      const issues = await this.findPhotoIssues(opened.value, items);
       return ok({
         items,
         nextCursor: page.length > pageLimit ? items.at(-1)!.relativePath : null,
-        issues,
+        // File existence is checked only when a visible thumbnail or preview is
+        // requested. Keeping pagination index-only removes up to 100 serial FS reads.
+        issues: [],
       });
     } catch {
       return err(toSourceError());
@@ -507,29 +508,6 @@ export class BrowserPhotoSource implements PhotoSource {
     }
   }
 
-  private async findPhotoIssues(database: IDBDatabase, photos: readonly PhotoRef[]): Promise<PhotoIssue[]> {
-    const issues: PhotoIssue[] = [];
-    for (const photo of photos) {
-      const handle = await this.loadHandle(photo.sourceId, database);
-      if (!handle) continue;
-      const permission = await (handle as DirectoryHandleLike).queryPermission?.({ mode: "read" });
-
-      // Lack of permission says nothing about whether the file still exists. The
-      // Source card handles re-authorization; only a readable missing path is
-      // allowed to become a MISSING photo.
-      if (permission && permission !== "granted") continue;
-      try {
-        let directory = handle;
-        const parts = photo.relativePath.split("/");
-        for (const part of parts.slice(0, -1)) directory = await directory.getDirectoryHandle(part);
-        await (await directory.getFileHandle(parts.at(-1)!)).getFile();
-      } catch {
-        issues.push({ kind: "missing-file", photoId: photo.id, relativePath: photo.relativePath });
-      }
-    }
-    return issues;
-  }
-
   private createLease(key: string, blob: Blob): PreviewLease {
     const cached = this.urlCache.get(key) ?? {
       key,
@@ -603,7 +581,7 @@ async function readDimensions(file: File): Promise<{ width: number; height: numb
 async function createThumbnail(file: Blob): Promise<Blob> {
   if (typeof createImageBitmap !== "function" || typeof document === "undefined") return file;
   const bitmap = await createImageBitmap(file);
-  const scale = Math.min(1, 320 / Math.max(bitmap.width, bitmap.height));
+  const scale = Math.min(1, THUMBNAIL_MAX_EDGE / Math.max(bitmap.width, bitmap.height));
   const canvas = document.createElement("canvas");
   canvas.width = Math.max(1, Math.round(bitmap.width * scale));
   canvas.height = Math.max(1, Math.round(bitmap.height * scale));
