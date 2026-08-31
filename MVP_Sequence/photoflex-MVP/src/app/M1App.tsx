@@ -22,15 +22,19 @@ import type {
   SourceRecord,
   SourceRuntimeState,
   SourceError,
+  WorktableDraft,
 } from "../contracts";
 import {
   calculateContactSheetVirtualGrid,
   type ContactSheetVirtualGrid,
 } from "../modules/contactSheet/contactSheetVirtualizer";
-import { addToPool, removeFromPool } from "../modules/library/pool";
+import { createWorktableEditor } from "../modules/worktable";
 import trashBinIcon from "../assets/icons/trash-bin.png";
+import { PhotoThumb } from "./PhotoThumb";
+import { TablePage } from "./TablePage";
 import { routeToHash, useAppRoute, type AppRoute } from "./router";
 import type { AppDependencies } from "./dependencies";
+import { useProjectWorkspace, type WorkspaceUpdate } from "./useProjectWorkspace";
 
 interface AppProps {
   readonly dependencies: AppDependencies;
@@ -89,10 +93,30 @@ function stopSharedScan(photoSource: AppDependencies["photoSource"], sourceId: S
 export function M1App({ dependencies }: AppProps) {
   const [route, navigate] = useAppRoute();
   const currentProjectId = route.name === "home" ? undefined : route.projectId;
+  const [contactSourceId, setContactSourceId] = useState<SourceId>();
+
+  useEffect(() => {
+    let active = true;
+    if (!currentProjectId) {
+      setContactSourceId(undefined);
+      return () => { active = false; };
+    }
+    if (route.name === "contact-sheet") {
+      setContactSourceId(route.sourceId);
+      return () => { active = false; };
+    }
+    void dependencies.projectStore.loadWorkspace(currentProjectId).then((result) => {
+      if (!active || !result.ok) return;
+      const sources = result.value.sources.filter((source) => !source.removedAt);
+      const resumed = result.value.resumeContext?.sourceId;
+      setContactSourceId(sources.some((source) => source.id === resumed) ? resumed : sources[0]?.id);
+    });
+    return () => { active = false; };
+  }, [currentProjectId, dependencies.projectStore, route]);
 
   return (
     <div className="app-shell">
-      <AppHeader route={route} projectId={currentProjectId} navigate={navigate} />
+      <AppHeader route={route} projectId={currentProjectId} contactSourceId={contactSourceId} navigate={navigate} />
       {route.name === "home" && <HomePage dependencies={dependencies} navigate={navigate} />}
       {route.name === "project" && (
         <ProjectPage dependencies={dependencies} projectId={route.projectId} navigate={navigate} />
@@ -105,6 +129,9 @@ export function M1App({ dependencies }: AppProps) {
           navigate={navigate}
         />
       )}
+      {route.name === "table" && (
+        <TablePage dependencies={dependencies} projectId={route.projectId} navigate={navigate} />
+      )}
     </div>
   );
 }
@@ -112,10 +139,12 @@ export function M1App({ dependencies }: AppProps) {
 function AppHeader({
   route,
   projectId,
+  contactSourceId,
   navigate,
 }: {
   readonly route: AppRoute;
   readonly projectId?: ProjectId;
+  readonly contactSourceId?: SourceId;
   readonly navigate: (route: AppRoute) => void;
 }) {
   const goHome = () => navigate({ name: "home" });
@@ -137,17 +166,21 @@ function AppHeader({
         </NavButton>
         <NavButton
           active={route.name === "contact-sheet"}
-          disabled={!projectId || route.name !== "contact-sheet"}
-          title={route.name === "contact-sheet" ? undefined : "请从 Source 卡片打开 Contact Sheet"}
-          onClick={() => route.name === "contact-sheet" && navigate(route)}
+          disabled={!projectId || !contactSourceId}
+          title={contactSourceId ? undefined : "项目尚未连接照片来源"}
+          onClick={() => projectId && contactSourceId && navigate({ name: "contact-sheet", projectId, sourceId: contactSourceId })}
         >
           Contact Sheet
         </NavButton>
+        <NavButton
+          active={route.name === "table"}
+          disabled={!projectId}
+          onClick={() => projectId && navigate({ name: "table", projectId })}
+        >
+          Table
+        </NavButton>
         <NavButton disabled title="Sequence 编辑将在 M2 开放" onClick={() => undefined}>
           Sequence
-        </NavButton>
-        <NavButton disabled title="Compare 编辑将在后续阶段开放" onClick={() => undefined}>
-          Compare
         </NavButton>
       </nav>
       <button className="login-button" aria-label="登录（M1 占位）">Login</button>
@@ -542,25 +575,28 @@ function ProjectPage({
   readonly projectId: ProjectId;
   readonly navigate: (route: AppRoute) => void;
 }) {
-  const { workspace, setWorkspace, loading, error } = useWorkspace(dependencies, projectId);
+  const { workspace, save, loading, error } = useProjectWorkspace(dependencies, projectId);
   const [notice, setNotice] = useState<string>();
   const [deletingProject, setDeletingProject] = useState(false);
-  const [poolPreviewId, setPoolPreviewId] = useState<PhotoId>();
   const { states, startScan } = useSourceMonitor(
     dependencies.photoSource,
     workspace?.sources.filter((source) => !source.removedAt) ?? [],
   );
-  const persist = useWorkspaceSaver(dependencies, workspace, setWorkspace, setNotice);
+  const persist = useCallback(async (update: WorkspaceUpdate) => {
+    const saved = await save(update);
+    if (!saved) setNotice("保存失败，当前状态仍保留在页面中。");
+    return saved;
+  }, [save]);
   const openedProjectRef = useRef<ProjectId | undefined>(undefined);
 
   useEffect(() => {
     if (!workspace || openedProjectRef.current === workspace.projectId) return;
     openedProjectRef.current = workspace.projectId;
-    void persist({
-      ...workspace,
+    void persist((current) => ({
+      ...current,
       lastOpenedAt: now(),
       resumeContext: { page: "project", filter: "all" },
-    });
+    }));
   }, [projectId, workspace?.projectId]);
 
   if (loading) return <LoadingPage />;
@@ -570,10 +606,10 @@ function ProjectPage({
   const updateName = async (nextName: string) => {
     const trimmed = nextName.trim();
     if (!trimmed || trimmed === workspace.name) return;
-    await persist({ ...workspace, name: trimmed, updatedAt: now() });
+    await persist((current) => ({ ...current, name: trimmed, updatedAt: now() }));
   };
   const updateMemo = (value: string) => {
-    void persist({ ...workspace, memo: value, updatedAt: now() });
+    void persist((current) => ({ ...current, memo: value, updatedAt: now() }));
   };
   const addSource = async () => {
     const result = await dependencies.photoSource.chooseFolder(workspace.sources.map((source) => source.id));
@@ -582,11 +618,13 @@ function ProjectPage({
       return;
     }
     const source: SourceRecord = { id: result.value.sourceId, displayName: result.value.displayName, createdAt: now() };
-    const existing = workspace.sources.find((item) => item.id === source.id);
-    const sources = existing
-      ? workspace.sources.map((item) => item.id === source.id ? { ...item, removedAt: undefined } : item)
-      : [...workspace.sources, source];
-    const saved = await persist({ ...workspace, sources, updatedAt: now() });
+    const saved = await persist((current) => {
+      const existing = current.sources.find((item) => item.id === source.id);
+      const sources = existing
+        ? current.sources.map((item) => item.id === source.id ? { ...item, removedAt: undefined } : item)
+        : [...current.sources, source];
+      return { ...current, sources, updatedAt: now() };
+    });
     if (saved) startScan(source.id);
   };
   const removeSource = async (source: SourceRecord) => {
@@ -597,14 +635,11 @@ function ProjectPage({
       setNotice(sourceErrorMessage(removed.error.kind));
       return;
     }
-    const removedPhotoIds = new Set(removed.value.photoIds);
-    await persist({
-      ...workspace,
-      sources: workspace.sources.filter((item) => item.id !== source.id),
-      poolPhotoIds: workspace.poolPhotoIds.filter((photoId) => !removedPhotoIds.has(photoId)),
-      coverPhotoId: workspace.coverPhotoId && removedPhotoIds.has(workspace.coverPhotoId) ? undefined : workspace.coverPhotoId,
+    await persist((current) => ({
+      ...current,
+      sources: current.sources.filter((item) => item.id !== source.id),
       updatedAt: now(),
-    });
+    }));
   };
   const deleteProject = async () => {
     if (!window.confirm(`Delete project “${workspace.name}”? Original photos will not be deleted.`)) return;
@@ -622,7 +657,7 @@ function ProjectPage({
       <ProjectRail dependencies={dependencies} currentProjectId={projectId} currentPhotoCount={totalIndexed(states)} navigate={navigate} />
       <section className="workspace-main">
         <div className="workspace-heading">
-          <div><InlineTitle value={workspace.name} onSave={updateName} /><p className="subtitle">管理照片来源与项目照片池</p></div>
+          <div><InlineTitle value={workspace.name} onSave={updateName} /><p className="subtitle">管理照片来源，并从 Contact Sheet 进入选片桌面</p></div>
           <div className="workspace-actions">
             <button className="button button-danger" disabled={deletingProject} onClick={() => void deleteProject()}>{deletingProject ? "Deleting…" : "Delete project"}</button>
             <button className="button button-primary" onClick={addSource}>Add photo folder</button>
@@ -636,8 +671,6 @@ function ProjectPage({
         </section>
         <MemoCard value={workspace.memo} onChange={updateMemo} />
       </section>
-      <PoolPanel photoSource={dependencies.photoSource} poolIds={workspace.poolPhotoIds} onOpen={setPoolPreviewId} onRemove={async (photoId) => { await persist({ ...workspace, poolPhotoIds: removeFromPool(workspace.poolPhotoIds, [photoId]), updatedAt: now() }); }} />
-      {poolPreviewId && <PreviewOverlay photoIds={workspace.poolPhotoIds} index={Math.max(0, workspace.poolPhotoIds.indexOf(poolPreviewId))} workspace={workspace} photoSource={dependencies.photoSource} onClose={() => setPoolPreviewId(undefined)} onMove={(index) => setPoolPreviewId(workspace.poolPhotoIds[index])} onTogglePool={async (photoId) => { const saved = await persist({ ...workspace, poolPhotoIds: removeFromPool(workspace.poolPhotoIds, [photoId]), updatedAt: now() }); if (saved) setPoolPreviewId(undefined); }} />}
     </main>
   );
 }
@@ -653,7 +686,7 @@ function ContactSheetPage({
   readonly sourceId: SourceId;
   readonly navigate: (route: AppRoute) => void;
 }) {
-  const { workspace, setWorkspace, loading, error } = useWorkspace(dependencies, projectId);
+  const { workspace, workspaceRef, save, loading, error } = useProjectWorkspace(dependencies, projectId);
   const source = workspace?.sources.find((item) => item.id === sourceId && !item.removedAt);
   const { states, startScan } = useSourceMonitor(
     dependencies.photoSource,
@@ -666,17 +699,16 @@ function ContactSheetPage({
   const [missingPhotoIds, setMissingPhotoIds] = useState<Set<PhotoId>>(new Set());
   const [filter, setFilter] = useState<"all" | "selected">("all");
   const [previewIndex, setPreviewIndex] = useState<number>();
-  const [poolPreviewId, setPoolPreviewId] = useState<PhotoId>();
+  const [tablePreviewPhotoId, setTablePreviewPhotoId] = useState<PhotoId>();
   const [notice, setNotice] = useState<string>();
   const [anchorPhotoId, setAnchorPhotoId] = useState<PhotoId>();
   const [sourceCollapsed, setSourceCollapsed] = useState(false);
   const [sourceSearch, setSourceSearch] = useState("");
   const [gridZoom, setGridZoom] = useState(75);
   const lastSelectedIndexRef = useRef<number | undefined>(undefined);
-  const workspaceRef = useRef(workspace);
-  workspaceRef.current = workspace;
   const resumeSavedKeyRef = useRef<string | undefined>(undefined);
   const exhaustedAtIndexedCountRef = useRef(-1);
+  const initialPageLoadRef = useRef(0);
   const handlePhotoSourceError = useCallback((photoId: PhotoId, photoError: SourceError) => {
     if (photoError.kind === "photo-not-found") {
       setMissingPhotoIds((current) => current.has(photoId) ? current : new Set([...current, photoId]));
@@ -693,17 +725,11 @@ function ContactSheetPage({
     const resumeKey = `${projectId}/${sourceId}`;
     if (!workspace || !source || resumeSavedKeyRef.current === resumeKey) return;
     resumeSavedKeyRef.current = resumeKey;
-    const next = {
-      ...workspace,
+    void save((current) => ({
+      ...current,
       lastOpenedAt: now(),
       resumeContext: { page: "contact-sheet" as const, sourceId, filter: "all" as const },
-    };
-    void dependencies.projectStore.saveWorkspace(next, workspace.revision).then((result) => {
-      if (!result.ok) return;
-      const saved = { ...next, revision: result.value.revision };
-      workspaceRef.current = saved;
-      setWorkspace(saved);
-    });
+    }));
   }, [projectId, sourceId, workspace?.projectId, source?.id]);
 
   useEffect(() => {
@@ -712,27 +738,31 @@ function ContactSheetPage({
 
   useEffect(() => {
     let active = true;
+    const requestId = initialPageLoadRef.current + 1;
+    initialPageLoadRef.current = requestId;
     exhaustedAtIndexedCountRef.current = -1;
     setPhotos([]); setCursor("0"); setSelected(new Set()); setMissingPhotoIds(new Set()); setFilter("all");
     void (async () => {
       const page = await dependencies.photoSource.listPhotos(sourceId, "0", 100);
       if (!active) return;
       if (page.ok) {
-        setPhotos([...page.value.items]);
+        setPhotos(mergeUniquePhotos([], page.value.items));
         setMissingPhotoIds(new Set(page.value.issues.filter((issue) => issue.kind === "missing-file").map((issue) => issue.photoId)));
         setCursor(page.value.nextCursor);
       }
       else setNotice("照片索引暂时无法读取，请重试。");
-    })();
+    })().finally(() => {
+      if (initialPageLoadRef.current === requestId) initialPageLoadRef.current = 0;
+    });
     return () => { active = false; };
   }, [dependencies.photoSource, sourceId]);
 
   const loadMore = async () => {
-    if (!cursor || loadingPage) return;
+    if (!cursor || loadingPage || initialPageLoadRef.current !== 0) return;
     setLoadingPage(true);
     const page = await dependencies.photoSource.listPhotos(sourceId, cursor, 100);
     if (page.ok) {
-      setPhotos((current) => [...current, ...page.value.items]);
+      setPhotos((current) => mergeUniquePhotos(current, page.value.items));
       setMissingPhotoIds((current) => new Set([...current, ...page.value.issues.filter((issue) => issue.kind === "missing-file").map((issue) => issue.photoId)]));
       setCursor(page.value.nextCursor);
     }
@@ -741,7 +771,7 @@ function ContactSheetPage({
 
   const indexedCount = states[sourceId]?.indexedCount ?? 0;
   useEffect(() => {
-    if (indexedCount <= photos.length || loadingPage || exhaustedAtIndexedCountRef.current === indexedCount) return;
+    if (indexedCount <= photos.length || loadingPage || initialPageLoadRef.current !== 0 || exhaustedAtIndexedCountRef.current === indexedCount) return;
     // A null cursor means the previous read reached the then-current tail. If a
     // running scan adds rows, continue once after the last stable path key.
     const nextCursor = cursor ?? photos.at(-1)?.relativePath ?? "0";
@@ -751,7 +781,7 @@ function ContactSheetPage({
         if (!page.value.items.length && page.value.nextCursor === null) {
           exhaustedAtIndexedCountRef.current = indexedCount;
         }
-        setPhotos((current) => [...current, ...page.value.items]);
+        setPhotos((current) => mergeUniquePhotos(current, page.value.items));
         setMissingPhotoIds((current) => new Set([...current, ...page.value.issues.filter((issue) => issue.kind === "missing-file").map((issue) => issue.photoId)]));
         setCursor(page.value.nextCursor);
       } else {
@@ -765,21 +795,13 @@ function ContactSheetPage({
   useEffect(() => {
     if (!anchorPhotoId) return;
     const timer = window.setTimeout(() => {
-      const current = workspaceRef.current;
-      if (!current) return;
-      const next = {
-        ...current,
+      void save((latest) => ({
+        ...latest,
         resumeContext: { page: "contact-sheet" as const, sourceId, filter: "all" as const, anchorPhotoId },
-      };
-      void dependencies.projectStore.saveWorkspace(next, current.revision).then((result) => {
-        if (!result.ok) return;
-        const saved = { ...next, revision: result.value.revision };
-        workspaceRef.current = saved;
-        setWorkspace(saved);
-      });
+      }));
     }, 500);
     return () => window.clearTimeout(timer);
-  }, [anchorPhotoId, dependencies.projectStore, sourceId]);
+  }, [anchorPhotoId, save, sourceId]);
 
   if (loading) return <LoadingPage />;
   if (!workspace || !source) return <ErrorPage message={error ?? "Source 无法读取。"} />;
@@ -801,42 +823,52 @@ function ContactSheetPage({
       return next;
     });
   };
-  const persistPool = async (ids: readonly PhotoId[]) => {
+  const placeOnTable = async (ids: readonly PhotoId[]) => {
     const current = workspaceRef.current;
     if (!current) return false;
-    const change = addToPool(current.poolPhotoIds, ids);
-    const result = await dependencies.projectStore.saveWorkspace(
-      { ...current, poolPhotoIds: change.ids, updatedAt: now() },
-      current.revision,
-    );
-    if (result.ok) {
-      const next = {
-        ...current,
-        poolPhotoIds: change.ids,
-        updatedAt: now(),
-        revision: result.value.revision,
-      };
-      workspaceRef.current = next;
-      setWorkspace(next);
+    const editor = createWorktableEditor(current.worktableDraft);
+    const requested = ids.map((photoId) => photos.find((photo) => photo.id === photoId)).filter((photo): photo is PhotoRef => Boolean(photo));
+    const beforeCount = current.worktableDraft.entryOrder.length;
+    const placed = editor.execute({
+      type: "place",
+      items: requested.map((photo) => ({
+        photoId: photo.id,
+        ...worktableDisplaySize(photo.width, photo.height),
+        filename: photo.relativePath.split("/").at(-1) ?? shortId(photo.id),
+      })),
+    });
+    if (!placed.ok) {
+      setNotice("无法把当前选择放到 Table。");
+      return false;
+    }
+    const added = placed.value.entryOrder.length - beforeCount;
+    const saved = await save((latest) => ({ ...latest, worktableDraft: placed.value, updatedAt: now() }));
+    if (saved) {
       setSelected(new Set());
-      setNotice(`${change.added} photos added to Project Pool${change.existing ? ` · ${change.existing} already there` : ""}`);
+      setNotice(`${added} photos placed on Table${requested.length - added ? ` · ${requested.length - added} already there` : ""}`);
       return true;
     }
-    setNotice("加入 Pool 失败，当前选择仍然保留。");
+    setNotice("放入 Table 失败，当前选择仍然保留。");
     return false;
   };
-  const togglePool = async (photoId: PhotoId) => {
+  const toggleTable = async (photoId: PhotoId) => {
     const current = workspaceRef.current;
     if (!current) return;
-    const inPool = current.poolPhotoIds.includes(photoId);
-    const ids = inPool ? removeFromPool(current.poolPhotoIds, [photoId]) : addToPool(current.poolPhotoIds, [photoId]).ids;
-    const result = await dependencies.projectStore.saveWorkspace({ ...current, poolPhotoIds: ids, updatedAt: now() }, current.revision);
-    if (result.ok) { const next = { ...current, poolPhotoIds: ids, updatedAt: now(), revision: result.value.revision }; workspaceRef.current = next; setWorkspace(next); }
-    else setNotice("Pool 状态保存失败。");
+    const editor = createWorktableEditor(current.worktableDraft);
+    const inTable = Boolean(current.worktableDraft.placements[photoId]);
+    const photo = photos.find((item) => item.id === photoId);
+    const result = inTable
+      ? editor.execute({ type: "remove", photoIds: [photoId] })
+      : photo
+        ? editor.execute({ type: "place", items: [{ photoId, ...worktableDisplaySize(photo.width, photo.height), filename: photo.relativePath.split("/").at(-1) ?? shortId(photo.id) }] })
+        : undefined;
+    if (!result?.ok || !(await save((latest) => ({ ...latest, worktableDraft: result.value, updatedAt: now() })))) {
+      setNotice("Table 状态保存失败。");
+    }
   };
 
   return (
-    <main className={`workspace-layout contact-layout page${sourceCollapsed ? " is-source-collapsed" : ""}`}>
+    <main className={`workspace-layout contact-layout has-table-preview page${sourceCollapsed ? " is-source-collapsed" : ""}`}>
       <aside className="context-rail source-rail">
         <button className="rail-collapse" onClick={() => setSourceCollapsed((value) => !value)} aria-label={sourceCollapsed ? "展开 Source 栏" : "收起 Source 栏"}>{sourceCollapsed ? "›" : "‹"}</button>
         {!sourceCollapsed && <>
@@ -849,7 +881,7 @@ function ContactSheetPage({
           <div className="rail-updated"><span>UPDATED</span><time>{formatUpdated(workspace.updatedAt)}</time></div>
         </>}
       </aside>
-      <section className="workspace-main contact-main" onDragOver={(event) => event.dataTransfer.types.includes("application/x-photoflex-pool-photo") && event.preventDefault()} onDrop={(event) => { const photoId = event.dataTransfer.getData("application/x-photoflex-pool-photo") as PhotoId; if (photoId) void togglePool(photoId); }}>
+      <section className="workspace-main contact-main">
         <div className="workspace-heading contact-heading">
           <h1>{source.displayName}</h1>
           <div className="sheet-zoom" aria-label="Contact Sheet 缩放">
@@ -858,15 +890,66 @@ function ContactSheetPage({
             <button onClick={() => setGridZoom((value) => Math.min(125, value + 25))} disabled={gridZoom === 125} aria-label="放大照片">＋</button>
           </div>
         </div>
-        <div className="sheet-toolbar"><div className="filter-tabs"><button className={filter === "all" ? "is-active" : ""} onClick={() => setFilter("all")}>All {Math.max(states[sourceId]?.indexedCount ?? 0, photos.length)}</button><button className={filter === "selected" ? "is-active" : ""} onClick={() => setFilter("selected")}>Selected {selected.size}</button></div><div className="toolbar-actions"><button className="button button-secondary" onClick={() => setSelected(new Set(visiblePhotos.map((photo) => photo.id)))}>Select all</button><button className="button button-secondary" onClick={() => setSelected((current) => new Set(visiblePhotos.filter((photo) => !current.has(photo.id)).map((photo) => photo.id)))}>Invert</button><button className="button button-primary" disabled={!selected.size} onClick={() => void persistPool([...selected])}>Add to Pool</button></div></div>
+        <div className="sheet-toolbar"><div className="filter-tabs"><button className={filter === "all" ? "is-active" : ""} onClick={() => setFilter("all")}>All {Math.max(states[sourceId]?.indexedCount ?? 0, photos.length)}</button><button className={filter === "selected" ? "is-active" : ""} onClick={() => setFilter("selected")}>Selected {selected.size}</button></div><div className="toolbar-actions"><button className="button button-secondary" onClick={() => setSelected(new Set(visiblePhotos.map((photo) => photo.id)))}>Select all</button><button className="button button-secondary" onClick={() => setSelected((current) => new Set(visiblePhotos.filter((photo) => !current.has(photo.id)).map((photo) => photo.id)))}>Invert</button><button className="button button-primary" disabled={!selected.size} onClick={() => void placeOnTable([...selected])}>Place on Table</button></div></div>
         {notice && <InlineNotice message={notice} />}
-        {visiblePhotos.length ? <VirtualPhotoGrid photos={visiblePhotos} selected={selected} poolIds={workspace.poolPhotoIds} missingIds={missingPhotoIds} zoom={gridZoom} initialAnchorPhotoId={workspace.resumeContext?.sourceId === sourceId ? workspace.resumeContext.anchorPhotoId : undefined} onAnchorChange={setAnchorPhotoId} onToggle={toggleSelection} onOpen={(index) => setPreviewIndex(index)} onNearEnd={() => void loadMore()} onPhotoSourceError={handlePhotoSourceError} photoSource={dependencies.photoSource} /> : <EmptyPanel title={filter === "selected" ? "No selected photos" : "No supported JPEG files"} detail={filter === "selected" ? "Select photos in All to continue." : "This folder has no readable .jpg or .jpeg files."} />}
+        {visiblePhotos.length ? <VirtualPhotoGrid photos={visiblePhotos} selected={selected} tableIds={workspace.worktableDraft.entryOrder} missingIds={missingPhotoIds} zoom={gridZoom} initialAnchorPhotoId={workspace.resumeContext?.sourceId === sourceId ? workspace.resumeContext.anchorPhotoId : undefined} onAnchorChange={setAnchorPhotoId} onToggle={toggleSelection} onOpen={(index) => setPreviewIndex(index)} onNearEnd={() => void loadMore()} onPhotoSourceError={handlePhotoSourceError} photoSource={dependencies.photoSource} /> : <EmptyPanel title={filter === "selected" ? "No selected photos" : "No supported JPEG files"} detail={filter === "selected" ? "Select photos in All to continue." : "This folder has no readable .jpg or .jpeg files."} />}
         {loadingPage && <p className="loading-line">Loading more photos…</p>}
       </section>
-      <PoolPanel photoSource={dependencies.photoSource} poolIds={workspace.poolPhotoIds} onOpen={setPoolPreviewId} onAdd={async (photoId) => { await persistPool([photoId]); }} onRemove={async (photoId) => { const current = workspaceRef.current; if (!current) return; const ids = removeFromPool(current.poolPhotoIds, [photoId]); const result = await dependencies.projectStore.saveWorkspace({ ...current, poolPhotoIds: ids, updatedAt: now() }, current.revision); if (result.ok) { const next = { ...current, poolPhotoIds: ids, updatedAt: now(), revision: result.value.revision }; workspaceRef.current = next; setWorkspace(next); } }} onPhotoSourceError={handlePhotoSourceError} />
-      {previewIndex !== undefined && <PreviewOverlay photoIds={visiblePhotos.map((photo) => photo.id)} index={previewIndex} workspace={workspace} photoSource={dependencies.photoSource} onClose={() => setPreviewIndex(undefined)} onMove={setPreviewIndex} onTogglePool={togglePool} onPhotoSourceError={handlePhotoSourceError} />}
-      {poolPreviewId && <PreviewOverlay photoIds={workspace.poolPhotoIds} index={Math.max(0, workspace.poolPhotoIds.indexOf(poolPreviewId))} workspace={workspace} photoSource={dependencies.photoSource} onClose={() => setPoolPreviewId(undefined)} onMove={(index) => setPoolPreviewId(workspace.poolPhotoIds[index])} onTogglePool={async (photoId) => { await togglePool(photoId); setPoolPreviewId(undefined); }} onPhotoSourceError={handlePhotoSourceError} />}
+      <TablePreviewPanel
+        draft={workspace.worktableDraft}
+        photoSource={dependencies.photoSource}
+        onOpen={setTablePreviewPhotoId}
+        onOpenTable={() => navigate({ name: "table", projectId })}
+        onPhotoSourceError={handlePhotoSourceError}
+      />
+      {previewIndex !== undefined && <PreviewOverlay photoIds={visiblePhotos.map((photo) => photo.id)} index={previewIndex} workspace={workspace} photoSource={dependencies.photoSource} onClose={() => setPreviewIndex(undefined)} onMove={setPreviewIndex} onToggleTable={toggleTable} onPhotoSourceError={handlePhotoSourceError} />}
+      {tablePreviewPhotoId && <PreviewOverlay
+        photoIds={workspace.worktableDraft.entryOrder}
+        index={Math.max(0, workspace.worktableDraft.entryOrder.indexOf(tablePreviewPhotoId))}
+        workspace={workspace}
+        photoSource={dependencies.photoSource}
+        onClose={() => setTablePreviewPhotoId(undefined)}
+        onMove={(index) => setTablePreviewPhotoId(workspace.worktableDraft.entryOrder[index])}
+        onToggleTable={toggleTable}
+        onPhotoSourceError={handlePhotoSourceError}
+      />}
     </main>
+  );
+}
+
+function TablePreviewPanel({
+  draft,
+  photoSource,
+  onOpen,
+  onOpenTable,
+  onPhotoSourceError,
+}: {
+  readonly draft: WorktableDraft;
+  readonly photoSource: AppDependencies["photoSource"];
+  readonly onOpen: (photoId: PhotoId) => void;
+  readonly onOpenTable: () => void;
+  readonly onPhotoSourceError: (photoId: PhotoId, error: SourceError) => void;
+}) {
+  return (
+    <aside className="table-preview-panel" aria-label="Table preview">
+      <header className="table-preview-heading">
+        <span><small>TABLE</small><strong>{draft.entryOrder.length} photos</strong></span>
+        <button onClick={onOpenTable}>Open</button>
+      </header>
+      {draft.entryOrder.length ? (
+        <div className="table-preview-list">
+          {draft.entryOrder.map((photoId) => {
+            const placement = draft.placements[photoId];
+            return (
+              <button className="table-preview-item" key={photoId} onClick={() => onOpen(photoId)}>
+                <span className="table-preview-thumb"><PhotoThumb photoSource={photoSource} photoId={photoId} alt={placement.filename} onError={onPhotoSourceError} /></span>
+                <span>{placement.filename}</span>
+              </button>
+            );
+          })}
+        </div>
+      ) : <p className="table-preview-empty">Place selected photographs here, then arrange them on Table.</p>}
+    </aside>
   );
 }
 
@@ -896,63 +979,11 @@ function SourceCard({ source, state, onOpen, onRefresh, onReconnect, onRemove }:
   );
 }
 
-function PoolPanel({ photoSource, poolIds, onRemove, onOpen, onAdd, onPhotoSourceError }: { readonly photoSource: AppDependencies["photoSource"]; readonly poolIds: readonly PhotoId[]; readonly onRemove: (photoId: PhotoId) => Promise<void>; readonly onOpen?: (photoId: PhotoId) => void; readonly onAdd?: (photoId: PhotoId) => Promise<void>; readonly onPhotoSourceError?: (photoId: PhotoId, error: SourceError) => void; }) {
-  const [collapsed, setCollapsed] = useState(false);
-  const [selected, setSelected] = useState<Set<PhotoId>>(new Set());
-  const toggle = (photoId: PhotoId) => setSelected((current) => {
-    const next = new Set(current);
-    if (next.has(photoId)) next.delete(photoId); else next.add(photoId);
-    return next;
-  });
-  const dropPhoto = (event: React.DragEvent<HTMLElement>) => {
-    const photoId = event.dataTransfer.getData("application/x-photoflex-photo") as PhotoId;
-    if (!photoId || !onAdd) return;
-    event.preventDefault();
-    void onAdd(photoId);
-  };
-  return (
-    <aside className={`pool-panel${collapsed ? " is-collapsed" : ""}`} onDragOver={(event) => onAdd && event.preventDefault()} onDrop={dropPhoto}>
-      <button className="pool-heading" onClick={() => setCollapsed((value) => !value)} aria-expanded={!collapsed}>
-        <span><span className="eyebrow">PROJECT POOL</span><strong>{poolIds.length} photos</strong></span><span>{collapsed ? "‹" : "›"}</span>
-      </button>
-      {!collapsed && <div className="pool-content">
-        <div className="pool-list">
-          {poolIds.length ? poolIds.map((photoId) => <PoolItem key={photoId} photoSource={photoSource} photoId={photoId} selected={selected.has(photoId)} onToggle={() => toggle(photoId)} onOpen={() => onOpen?.(photoId)} onPhotoSourceError={onPhotoSourceError} />) : null}
-        </div>
-        <div className="pool-footer">
-          <button className="button button-primary pool-sequence-button" disabled title="Sequence 编辑将在 M2 开放">Add selected to sequence</button>
-        </div>
-      </div>}
-    </aside>
-  );
-}
-
-function PoolItem({ photoSource, photoId, selected, onToggle, onOpen, onPhotoSourceError }: { readonly photoSource: AppDependencies["photoSource"]; readonly photoId: PhotoId; readonly selected: boolean; readonly onToggle: () => void; readonly onOpen: () => void; readonly onPhotoSourceError?: (photoId: PhotoId, error: SourceError) => void; }) {
-  const [photo, setPhoto] = useState<PhotoRef>();
-  useEffect(() => { void photoSource.getPhoto(photoId).then((result) => result.ok && setPhoto(result.value)); }, [photoId, photoSource]);
-  const label = photo?.relativePath ?? photoId;
-
-  return (
-    <button
-      className={`pool-item${selected ? " is-selected" : ""}`}
-      onClick={onToggle}
-      onDoubleClick={onOpen}
-      draggable
-      onDragStart={(event) => event.dataTransfer.setData("application/x-photoflex-pool-photo", photoId)}
-      aria-label={`${label}${selected ? "，已选择" : ""}`}
-    >
-      <span className="pool-thumb">
-        <PhotoThumb photoSource={photoSource} photoId={photoId} alt={label} onError={onPhotoSourceError} />
-        {selected && <span className="check-mark">✓</span>}
-      </span>
-      <span>{photo?.relativePath.split("/").at(-1) ?? shortId(photoId)}</span>
-    </button>
-  );
-}
-
-export function VirtualPhotoGrid({ photos, selected, poolIds, missingIds, zoom = 75, initialAnchorPhotoId, onAnchorChange, onToggle, onOpen, onNearEnd, onPhotoSourceError, photoSource }: { readonly photos: readonly PhotoRef[]; readonly selected: ReadonlySet<PhotoId>; readonly poolIds: readonly PhotoId[]; readonly missingIds: ReadonlySet<PhotoId>; readonly zoom?: number; readonly initialAnchorPhotoId?: PhotoId; readonly onAnchorChange: (photoId: PhotoId | undefined) => void; readonly onToggle: (photoId: PhotoId, index: number, event?: ReactMouseEvent<HTMLElement>) => void; readonly onOpen: (index: number) => void; readonly onNearEnd: () => void; readonly onPhotoSourceError: (photoId: PhotoId, error: SourceError) => void; readonly photoSource: AppDependencies["photoSource"]; }) {
+export function VirtualPhotoGrid({ photos, selected, tableIds, missingIds, zoom = 75, initialAnchorPhotoId, onAnchorChange, onToggle, onOpen, onNearEnd, onPhotoSourceError, photoSource }: { readonly photos: readonly PhotoRef[]; readonly selected: ReadonlySet<PhotoId>; readonly tableIds: readonly PhotoId[]; readonly missingIds: ReadonlySet<PhotoId>; readonly zoom?: number; readonly initialAnchorPhotoId?: PhotoId; readonly onAnchorChange: (photoId: PhotoId | undefined) => void; readonly onToggle: (photoId: PhotoId, index: number, event?: ReactMouseEvent<HTMLElement>) => void; readonly onOpen: (index: number) => void; readonly onNearEnd: () => void; readonly onPhotoSourceError: (photoId: PhotoId, error: SourceError) => void; readonly photoSource: AppDependencies["photoSource"]; }) {
   const viewportRef = useRef<HTMLDivElement>(null);
-  const restoredAnchorRef = useRef<PhotoId | undefined>(undefined);
+  // Resume only once when the page mounts.  Subsequent anchor updates are
+  // persistence metadata, never instructions to snap a reader back in place.
+  const restoredAnchorRef = useRef(false);
   const frameRef = useRef<number | undefined>(undefined);
   const latestScrollTopRef = useRef(0);
   const photosRef = useRef(photos);
@@ -964,7 +995,7 @@ export function VirtualPhotoGrid({ photos, selected, poolIds, missingIds, zoom =
     scrollTop: 0,
   }));
   const [grid, setGrid] = useState(gridRef.current);
-  const poolIdSet = useMemo(() => new Set(poolIds), [poolIds]);
+  const tableIdSet = useMemo(() => new Set(tableIds), [tableIds]);
   const onAnchorChangeRef = useRef(onAnchorChange);
   const onNearEndRef = useRef(onNearEnd);
   photosRef.current = photos;
@@ -1019,13 +1050,17 @@ export function VirtualPhotoGrid({ photos, selected, poolIds, missingIds, zoom =
   }, []);
   useEffect(() => refreshGrid(false), [photos.length, zoom]);
   useEffect(() => {
-    if (!initialAnchorPhotoId || restoredAnchorRef.current === initialAnchorPhotoId || !viewportRef.current) return;
+    if (restoredAnchorRef.current || !viewportRef.current) return;
+    if (!initialAnchorPhotoId) {
+      restoredAnchorRef.current = true;
+      return;
+    }
     const index = photos.findIndex((photo) => photo.id === initialAnchorPhotoId);
     if (index < 0) return;
     viewportRef.current.scrollTop = Math.floor(index / grid.columns) * grid.rowHeight;
     latestScrollTopRef.current = viewportRef.current.scrollTop;
     refreshGrid(false);
-    restoredAnchorRef.current = initialAnchorPhotoId;
+    restoredAnchorRef.current = true;
   }, [grid.columns, grid.rowHeight, initialAnchorPhotoId, photos]);
   const onScroll = (event: React.UIEvent<HTMLDivElement>) => {
     latestScrollTopRef.current = event.currentTarget.scrollTop;
@@ -1048,7 +1083,7 @@ export function VirtualPhotoGrid({ photos, selected, poolIds, missingIds, zoom =
     });
   };
   const visible = photos.slice(grid.startIndex, grid.endIndex);
-  return <div className="sheet-scroll" ref={viewportRef} onScroll={onScroll} tabIndex={0}><div className="virtual-grid-inner" style={{ height: grid.totalHeight }}><div className="virtual-grid-layer">{visible.map((photo, offset) => { const index = grid.startIndex + offset; const row = Math.floor(index / grid.columns); const column = index % grid.columns; return <PhotoTile key={photo.id} photoSource={photoSource} photo={photo} selected={selected.has(photo.id)} inPool={poolIdSet.has(photo.id)} missing={missingIds.has(photo.id)} index={index} columns={grid.columns} style={{ top: row * grid.rowHeight, left: column * (grid.tileWidth + grid.gap), width: grid.tileWidth, height: grid.rowHeight - grid.gap }} onToggle={(event) => onToggle(photo.id, index, event)} onOpen={() => onOpen(index)} onMoveFocus={moveFocus} onPhotoSourceError={onPhotoSourceError} />; })}</div></div></div>;
+  return <div className="sheet-scroll" ref={viewportRef} onScroll={onScroll} tabIndex={0}><div className="virtual-grid-inner" style={{ height: grid.totalHeight }}><div className="virtual-grid-layer">{visible.map((photo, offset) => { const index = grid.startIndex + offset; const row = Math.floor(index / grid.columns); const column = index % grid.columns; return <PhotoTile key={photo.id} photoSource={photoSource} photo={photo} selected={selected.has(photo.id)} inTable={tableIdSet.has(photo.id)} missing={missingIds.has(photo.id)} index={index} columns={grid.columns} style={{ top: row * grid.rowHeight, left: column * (grid.tileWidth + grid.gap), width: grid.tileWidth, height: grid.rowHeight - grid.gap }} onToggle={(event) => onToggle(photo.id, index, event)} onOpen={() => onOpen(index)} onMoveFocus={moveFocus} onPhotoSourceError={onPhotoSourceError} />; })}</div></div></div>;
 }
 
 function sameVirtualGrid(left: ContactSheetVirtualGrid, right: ContactSheetVirtualGrid) {
@@ -1061,7 +1096,7 @@ function sameVirtualGrid(left: ContactSheetVirtualGrid, right: ContactSheetVirtu
     && left.endIndex === right.endIndex;
 }
 
-function PhotoTile({ photoSource, photo, selected, inPool, missing, index, columns, style, onToggle, onOpen, onMoveFocus, onPhotoSourceError }: { readonly photoSource: AppDependencies["photoSource"]; readonly photo: PhotoRef; readonly selected: boolean; readonly inPool: boolean; readonly missing: boolean; readonly index: number; readonly columns: number; readonly style: CSSProperties; readonly onToggle: (event?: ReactMouseEvent<HTMLElement>) => void; readonly onOpen: () => void; readonly onMoveFocus: (index: number, delta: number) => void; readonly onPhotoSourceError: (photoId: PhotoId, error: SourceError) => void; }) {
+function PhotoTile({ photoSource, photo, selected, inTable, missing, index, columns, style, onToggle, onOpen, onMoveFocus, onPhotoSourceError }: { readonly photoSource: AppDependencies["photoSource"]; readonly photo: PhotoRef; readonly selected: boolean; readonly inTable: boolean; readonly missing: boolean; readonly index: number; readonly columns: number; readonly style: CSSProperties; readonly onToggle: (event?: ReactMouseEvent<HTMLElement>) => void; readonly onOpen: () => void; readonly onMoveFocus: (index: number, delta: number) => void; readonly onPhotoSourceError: (photoId: PhotoId, error: SourceError) => void; }) {
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.key === " ") { event.preventDefault(); onToggle(); }
     if (event.key === "Enter") { event.preventDefault(); onOpen(); }
@@ -1070,11 +1105,11 @@ function PhotoTile({ photoSource, photo, selected, inPool, missing, index, colum
     if (event.key === "ArrowUp") { event.preventDefault(); onMoveFocus(index, -columns); }
     if (event.key === "ArrowDown") { event.preventDefault(); onMoveFocus(index, columns); }
   };
-  const stateLabel = `${selected ? "已选择" : "未选择"}${inPool ? "，已在 Pool" : ""}${missing ? "，文件已移动或重命名" : ""}`;
+  const stateLabel = `${selected ? "已选择" : "未选择"}${inTable ? "，已在 Table" : ""}${missing ? "，文件已移动或重命名" : ""}`;
 
   return (
     <article
-      className={`photo-tile${selected ? " is-selected" : ""}${inPool ? " is-in-pool" : ""}${missing ? " is-missing" : ""}`}
+      className={`photo-tile${selected ? " is-selected" : ""}${inTable ? " is-in-table" : ""}${missing ? " is-missing" : ""}`}
       data-photo-index={index}
       style={style}
       tabIndex={0}
@@ -1087,7 +1122,7 @@ function PhotoTile({ photoSource, photo, selected, inPool, missing, index, colum
     >
       <div className="photo-image-wrap">
         <PhotoThumb photoSource={photoSource} photoId={photo.id} alt={photo.relativePath} onError={onPhotoSourceError} />
-        {inPool && <span className="pool-mark">IN POOL</span>}
+        {inTable && <span className="table-mark">ON TABLE</span>}
         {missing && <span className="missing-mark">MISSING</span>}
         {selected && <span className="check-mark">✓</span>}
       </div>
@@ -1101,12 +1136,16 @@ function PhotoTile({ photoSource, photo, selected, inPool, missing, index, colum
   );
 }
 
-function PreviewOverlay({ photoIds, index, workspace, photoSource, onClose, onMove, onTogglePool, onPhotoSourceError }: { readonly photoIds: readonly PhotoId[]; readonly index: number; readonly workspace: ProjectWorkspace; readonly photoSource: AppDependencies["photoSource"]; readonly onClose: () => void; readonly onMove: (index: number) => void; readonly onTogglePool: (photoId: PhotoId) => Promise<void>; readonly onPhotoSourceError?: (photoId: PhotoId, error: SourceError) => void; }) {
+function PreviewOverlay({ photoIds, index, workspace, photoSource, onClose, onMove, onToggleTable, onPhotoSourceError }: { readonly photoIds: readonly PhotoId[]; readonly index: number; readonly workspace: ProjectWorkspace; readonly photoSource: AppDependencies["photoSource"]; readonly onClose: () => void; readonly onMove: (index: number) => void; readonly onToggleTable: (photoId: PhotoId) => Promise<void>; readonly onPhotoSourceError?: (photoId: PhotoId, error: SourceError) => void; }) {
   const photoId = photoIds[index];
   const [photo, setPhoto] = useState<PhotoRef>();
   const [url, setUrl] = useState<string>();
-  const [zoom, setZoom] = useState<"fit" | number>("fit");
+  // Zoom is relative to the fitted image, so the first increment always grows
+  // from the image the reader is already seeing instead of jumping to natural
+  // pixel dimensions.
+  const [zoom, setZoom] = useState(1);
   const [naturalSize, setNaturalSize] = useState<{ readonly width: number; readonly height: number }>();
+  const [imageWrapSize, setImageWrapSize] = useState<{ readonly width: number; readonly height: number }>();
   const dialogRef = useRef<HTMLDivElement>(null);
   const imageWrapRef = useRef<HTMLDivElement>(null);
   useDialogKeyboard(dialogRef, onClose);
@@ -1124,7 +1163,7 @@ function PreviewOverlay({ photoIds, index, workspace, photoSource, onClose, onMo
     let active = true;
     let lease: { url: string; release(): void } | undefined;
     setUrl(undefined);
-    setZoom("fit");
+    setZoom(1);
     setNaturalSize(undefined);
 
     // Preview URLs are leased by PhotoSource. Releasing on photo change prevents
@@ -1138,6 +1177,15 @@ function PreviewOverlay({ photoIds, index, workspace, photoSource, onClose, onMo
     return () => { active = false; lease?.release(); };
   }, [onPhotoSourceError, photoId, photoSource]);
   useEffect(() => {
+    const imageWrap = imageWrapRef.current;
+    if (!imageWrap) return;
+    const updateSize = () => setImageWrapSize({ width: imageWrap.clientWidth, height: imageWrap.clientHeight });
+    updateSize();
+    const observer = new ResizeObserver(updateSize);
+    observer.observe(imageWrap);
+    return () => observer.disconnect();
+  }, []);
+  useEffect(() => {
     for (const adjacentIndex of [index - 1, index + 1]) {
       const adjacentId = photoIds[adjacentIndex];
       if (!adjacentId) continue;
@@ -1150,7 +1198,7 @@ function PreviewOverlay({ photoIds, index, workspace, photoSource, onClose, onMo
     const onKey = (event: globalThis.KeyboardEvent) => {
       if (event.key === "ArrowLeft") onMove(Math.max(0, index - 1));
       if (event.key === "ArrowRight") onMove(Math.min(photoIds.length - 1, index + 1));
-      if (event.key === " ") { event.preventDefault(); setZoom((value) => value === "fit" ? 1 : "fit"); }
+      if (event.key === " ") { event.preventDefault(); setZoom(1); }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -1160,19 +1208,22 @@ function PreviewOverlay({ photoIds, index, workspace, photoSource, onClose, onMo
     const dialog = dialogRef.current;
     if (!dialog) return;
     const onPreviewWheel = (event: WheelEvent) => {
-      if (!event.ctrlKey) return;
+      if (!event.ctrlKey && !event.metaKey) return;
       // A non-passive native listener must cancel Ctrl+wheel before the browser
       // interprets it as page zoom. PhotoFlex then owns the same gesture locally.
       event.preventDefault();
       event.stopPropagation();
-      setZoom((value) => Math.max(.25, Math.min(4, (value === "fit" ? 1 : value) - Math.sign(event.deltaY) * .1)));
+      setZoom((value) => Math.max(1, Math.min(4, value * Math.exp(-event.deltaY * .0015))));
     };
     dialog.addEventListener("wheel", onPreviewWheel, { passive: false });
     return () => dialog.removeEventListener("wheel", onPreviewWheel);
   }, []);
 
-  const inPool = workspace.poolPhotoIds.includes(photoId);
+  const inTable = Boolean(workspace.worktableDraft.placements[photoId]);
   const label = photo?.relativePath ?? shortId(photoId);
+  const fitScale = naturalSize && imageWrapSize
+    ? Math.min(imageWrapSize.width / naturalSize.width, imageWrapSize.height / naturalSize.height)
+    : undefined;
   return (
     <div ref={dialogRef} className="preview-backdrop" role="dialog" aria-modal="true" aria-label="Full Size Preview">
       <div className="preview-top">
@@ -1180,7 +1231,7 @@ function PreviewOverlay({ photoIds, index, workspace, photoSource, onClose, onMo
         <button autoFocus onClick={onClose} aria-label="关闭预览">×</button>
       </div>
       <button className="preview-arrow preview-arrow-left" onClick={() => onMove(Math.max(0, index - 1))} disabled={!index}>‹</button>
-      <div ref={imageWrapRef} className={`preview-image-wrap${zoom === "fit" ? " is-fit" : " is-zoomed"}`}>
+      <div ref={imageWrapRef} className="preview-image-wrap is-zoomed">
         {url
           ? <img
               src={url}
@@ -1189,11 +1240,9 @@ function PreviewOverlay({ photoIds, index, workspace, photoSource, onClose, onMo
                 // The browser-decoded dimensions already reflect JPEG EXIF orientation.
                 setNaturalSize({ width: event.currentTarget.naturalWidth, height: event.currentTarget.naturalHeight });
               }}
-              style={zoom === "fit"
-                // This box never depends on the photo's decoded dimensions, so the
-                // first visible frame already contains the complete photo.
-                ? { position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "contain", objectPosition: "center" }
-                : naturalSize ? { width: `${naturalSize.width * zoom}px`, height: `${naturalSize.height * zoom}px` } : undefined}
+              style={naturalSize && fitScale
+                ? { width: `${naturalSize.width * fitScale * zoom}px`, height: `${naturalSize.height * fitScale * zoom}px` }
+                : { width: "100%", height: "100%", objectFit: "contain", objectPosition: "center" }}
             />
           : <div className="preview-placeholder">Preview unavailable</div>}
       </div>
@@ -1204,12 +1253,13 @@ function PreviewOverlay({ photoIds, index, workspace, photoSource, onClose, onMo
           <small>← / → 下一张 · Space 适应画面 · Ctrl + 滚轮缩放 · Esc 返回</small>
         </span>
         <span className="preview-zoom-controls">
-          <button onClick={() => setZoom("fit")} aria-pressed={zoom === "fit"}>Fit</button>
-          <button onClick={() => setZoom(1)} aria-pressed={zoom === 1}>Reset</button>
-          <span>{zoom === "fit" ? "Fit" : `${Math.round(zoom * 100)}%`}</span>
+          <button onClick={() => setZoom(1)} aria-pressed={zoom === 1}>Fit</button>
+          <button onClick={() => setZoom((value) => Math.max(1, value / 1.25))} disabled={zoom <= 1}>−</button>
+          <span>{Math.round(zoom * 100)}%</span>
+          <button onClick={() => setZoom((value) => Math.min(4, value * 1.25))} disabled={zoom >= 4}>+</button>
         </span>
-        <button className="button button-secondary" onClick={() => void onTogglePool(photoId)}>
-          {inPool ? "Remove from Pool" : "Add to Pool"}
+        <button className="button button-secondary" onClick={() => void onToggleTable(photoId)}>
+          {inTable ? "Remove from Table" : "Place on Table"}
         </button>
       </div>
     </div>
@@ -1231,12 +1281,6 @@ function InlineTitle({ value, onSave }: { readonly value: string; readonly onSav
   useEffect(() => setDraft(value), [value]);
   if (!editing) return <button className="editable-title" onClick={() => setEditing(true)}>{value}<span>✎</span></button>;
   return <input className="title-input" autoFocus value={draft} onChange={(event) => setDraft(event.target.value)} onBlur={() => { void onSave(draft); setEditing(false); }} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); void onSave(draft); setEditing(false); } if (event.key === "Escape") { setDraft(value); setEditing(false); } }} />;
-}
-
-function PhotoThumb({ photoSource, photoId, alt, onError }: { readonly photoSource: AppDependencies["photoSource"]; readonly photoId: PhotoId; readonly alt: string; readonly onError?: (photoId: PhotoId, error: SourceError) => void }) {
-  const [url, setUrl] = useState<string>();
-  useEffect(() => { let active = true; let lease: { url: string; release(): void } | undefined; void photoSource.thumbnail(photoId).then((result) => { if (!result.ok) { if (active) onError?.(photoId, result.error); return; } if (!active) { result.value.release(); return; } lease = result.value; setUrl(result.value.url); }); return () => { active = false; lease?.release(); }; }, [onError, photoId, photoSource]);
-  return url ? <img src={url} alt={alt} loading="lazy" /> : <div className="thumb-placeholder" aria-label={`${alt} 缩略图加载中`} />;
 }
 
 function useDialogKeyboard(ref: RefObject<HTMLElement | null>, onClose: () => void) {
@@ -1268,27 +1312,6 @@ function useDialogKeyboard(ref: RefObject<HTMLElement | null>, onClose: () => vo
       opener?.focus();
     };
   }, [ref]);
-}
-
-function useWorkspace(dependencies: AppDependencies, projectId: ProjectId) {
-  const [workspace, setWorkspace] = useState<ProjectWorkspace>();
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string>();
-  useEffect(() => { let active = true; setLoading(true); setError(undefined); setWorkspace(undefined); void dependencies.projectStore.loadWorkspace(projectId).then((result) => { if (!active) return; setLoading(false); if (result.ok) setWorkspace(result.value); else setError("项目数据无法读取，请返回 Home 重试。"); }); return () => { active = false; }; }, [dependencies.projectStore, projectId]);
-  return { workspace, setWorkspace, loading, error };
-}
-
-function useWorkspaceSaver(dependencies: AppDependencies, workspace: ProjectWorkspace | undefined, setWorkspace: (workspace: ProjectWorkspace) => void, setNotice: (message: string | undefined) => void) {
-  const workspaceRef = useRef(workspace);
-  workspaceRef.current = workspace;
-  return async (next: ProjectWorkspace): Promise<boolean> => {
-    const current = workspaceRef.current;
-    if (!current) return false;
-    const result = await dependencies.projectStore.saveWorkspace(next, current.revision);
-    if (result.ok) { const saved = { ...next, revision: result.value.revision }; workspaceRef.current = saved; setWorkspace(saved); return true; }
-    setNotice(saveErrorMessage(result.error.kind));
-    return false;
-  };
 }
 
 function useSourceMonitor(photoSource: AppDependencies["photoSource"], sources: readonly SourceRecord[]) {
@@ -1325,7 +1348,7 @@ function useSourceMonitor(photoSource: AppDependencies["photoSource"], sources: 
   return { states, startScan };
 }
 
-async function reconnectSource(dependencies: AppDependencies, workspace: ProjectWorkspace, source: SourceRecord, persist: (workspace: ProjectWorkspace) => Promise<boolean>, startScan: (sourceId: SourceId) => void) {
+async function reconnectSource(dependencies: AppDependencies, workspace: ProjectWorkspace, source: SourceRecord, persist: (update: WorkspaceUpdate) => Promise<boolean>, startScan: (sourceId: SourceId) => void) {
   const restored = await dependencies.photoSource.restoreFolder(source.id);
   if (restored.ok) {
     startScan(source.id);
@@ -1334,11 +1357,23 @@ async function reconnectSource(dependencies: AppDependencies, workspace: Project
 
   const result = await dependencies.photoSource.chooseFolder(workspace.sources.map((item) => item.id));
   if (!result.ok) return;
-  if (result.value.sourceId === source.id) { const saved = await persist({ ...workspace, sources: workspace.sources.map((item) => item.id === source.id ? { ...item, removedAt: undefined } : item), updatedAt: now() }); if (saved) startScan(source.id); }
+  if (result.value.sourceId === source.id) { const saved = await persist((current) => ({ ...current, sources: current.sources.map((item) => item.id === source.id ? { ...item, removedAt: undefined } : item), updatedAt: now() })); if (saved) startScan(source.id); }
 }
 
 function stateNeedsScan(state?: SourceRuntimeState) {
   return !state || state.status === "loading" || (state.status === "ready" && state.indexedCount === 0);
+}
+
+/** A source scan may update while its first page is being read. Merge by stable
+ * photo id so overlapping cursors can never duplicate Contact Sheet cards. */
+function mergeUniquePhotos(current: readonly PhotoRef[], additions: readonly PhotoRef[]): PhotoRef[] {
+  const knownIds = new Set(current.map((photo) => photo.id));
+  const uniqueAdditions = additions.filter((photo) => {
+    if (knownIds.has(photo.id)) return false;
+    knownIds.add(photo.id);
+    return true;
+  });
+  return uniqueAdditions.length ? [...current, ...uniqueAdditions] : [...current];
 }
 
 function stateHasPhotos(state?: SourceRuntimeState) {
@@ -1379,6 +1414,14 @@ function statusLabel(status: SourceRuntimeState["status"]) {
 
 function shortId(id: string) {
   return id.replace(/-/g, "").slice(0, 4).toUpperCase();
+}
+function worktableDisplaySize(width: number, height: number) {
+  const longest = Math.max(1, width, height);
+  const scale = 235 / longest;
+  return {
+    width: Math.max(72, Math.round(width * scale)),
+    height: Math.max(72, Math.round(height * scale)),
+  };
 }
 function sourceErrorMessage(kind: SourceError["kind"]) {
   if (kind === "permission-denied") return "文件夹访问被拒绝。";

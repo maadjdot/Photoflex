@@ -51,6 +51,7 @@ interface CachedUrl {
 }
 
 const PAGE_SIZE = 100;
+const THUMBNAIL_MAX_EDGE = 384;
 
 const requestValue = <T>(request: IDBRequest<T>): Promise<T> =>
   new Promise((resolve, reject) => {
@@ -580,7 +581,7 @@ async function readDimensions(file: File): Promise<{ width: number; height: numb
 async function createThumbnail(file: Blob): Promise<Blob> {
   if (typeof createImageBitmap !== "function" || typeof document === "undefined") return file;
   const bitmap = await createImageBitmap(file);
-  const scale = Math.min(1, 320 / Math.max(bitmap.width, bitmap.height));
+  const scale = Math.min(1, THUMBNAIL_MAX_EDGE / Math.max(bitmap.width, bitmap.height));
   const canvas = document.createElement("canvas");
   canvas.width = Math.max(1, Math.round(bitmap.width * scale));
   canvas.height = Math.max(1, Math.round(bitmap.height * scale));

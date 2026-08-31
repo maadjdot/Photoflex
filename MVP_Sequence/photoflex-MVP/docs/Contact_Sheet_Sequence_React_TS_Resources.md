@@ -1,167 +1,209 @@
-# PhotoFlex Contact Sheet 与 Sequence：React + TypeScript 开源资源与改良方案
+# PhotoFlex Contact Sheet、Worktable 与 Sequence：React + TypeScript 技术建议
 
-> 核对日期：2026-08-28  
-> 当前工程：React 19.1 + TypeScript 5.9 + Vite 7.1，本地优先。  
-> 本文中的界面图是用于验证结构的 throwaway prototype（一次性原型），不是准备直接合并的产品代码。
+> 开源资源核对日期：2026-08-28  
+> 产品方向更新：2026-08-30  
+> 当前工程：React 19.1 + TypeScript 5.9 + Vite 7.1，本地优先  
+> 产品与模块真相来源：[`PRD_Sequence.md`](./PRD_Sequence.md) 与 [`Worktable_Architecture_Interaction_Proposal.md`](./Worktable_Architecture_Interaction_Proposal.md)
+
+本文保留已完成的开源资源调查，但技术落点已按确认方向更新：Pool 与 Whiteboard 不再是用户界面；Table 是独立工作桌面；Sequence 只负责一维阅读顺序。
 
 ## 结论先行
 
-PhotoFlex 目前不需要整体替换 Contact Sheet。现有实现已经具备自定义虚拟网格、批量选择、Pool 与 Preview；Sequence 也已经定义 add / move / remove、undo / redo 等领域命令。更合适的路线是保留这些基础，只在最难且成熟度高的部分引入开源能力：
+PhotoFlex 不需要用一个大型画布框架重写现有 Contact Sheet，也不应该把 Table 和 Sequence 放进同一套拖拽模型。
 
-1. **现在采用：dnd-kit** —— 负责 Sequence 横向编辑条以及 Pool → Sequence 的可访问拖拽。
-2. **现在采用：exifr** —— 在照片索引阶段读取时间、相机、镜头、方向等必要 EXIF；不要在 React 渲染组件里解析。
-3. **做一个小型验证：react-zoom-pan-pinch** —— 用于 Map View 的缩放和平移，不介入 Sequence 的拖拽排序。
-4. **按需评估：Yet Another React Lightbox** —— 当前 Preview 已经含有 PhotoFlex 的 Pool 操作，先对比再决定是否替换底层。
-5. **暂不迁移：TanStack Virtual / React Photo Album** —— 它们很好，但当前虚拟网格已能工作；MVP 阶段重写的收益不够高。
-6. **后期再考虑：React Flow** —— 只有 Relationship View 真正成为核心功能时才值得引入。
+1. **Table 使用原生 Pointer Events + React DOM + CSS transform。** 自由移动、框选、pan / zoom 和坐标转换由 PhotoFlex 自己控制；一次手势结束后生成一个 Worktable command。
+2. **Sequence 采用 dnd-kit。** 它只负责一维横向排序、明确插入线和可访问键盘拖拽，不负责 Table 自由画布。
+3. **照片索引采用 exifr。** 必要 EXIF 在索引阶段解析，不在 React 渲染期间读取。
+4. **保留现有 Contact Sheet 虚拟网格。** 只有 profiling 证明动态布局或维护成本成为问题时，再评估 TanStack Virtual。
+5. **Preview 暂时保留现有实现。** 先把 Pick / Reject、Pin、ON TABLE 和 missing 行为接通，再决定是否用 Yet Another React Lightbox 替换底层。
+6. **MVP 不使用 React Flow。** Relationship View、AI 自动关系、真实物理碰撞和通用 Whiteboard 均不在当前范围。
 
-对应现有代码：
+## 1. 技术职责图
 
-- [Contact Sheet 与 Preview：`src/app/M1App.tsx`](../src/app/M1App.tsx)
-- [Sequence 命令契约：`src/contracts/sequence.ts`](../src/contracts/sequence.ts)
-- [Pool 领域逻辑：`src/modules/library/pool.ts`](../src/modules/library/pool.ts)
-- [IndexedDB 持久化：`src/platform/browser/IndexedDbProjectStore.ts`](../src/platform/browser/IndexedDbProjectStore.ts)
-- [Sequence PRD：`docs/PRD_Sequence.md`](./PRD_Sequence.md)
+```text
+PhotoSource
+  ├── index / EXIF / thumbnail / preview lease
+  └── missing / permission error
 
-## 开源资源清单
+Contact Sheet
+  ├── virtualized catalog view
+  ├── filtering / sorting / selection
+  └── Pick / Reject / Pin / Place on Table
+
+WorktableEditor
+  ├── membership / x / y / z
+  ├── arrange / group / stack
+  └── command history
+
+TablePage
+  ├── Pointer Events / marquee / gesture preview
+  ├── viewport coordinate conversion
+  └── Compare / Create Sequence entry actions
+
+SequenceEditor
+  ├── SequenceItem order
+  ├── add / move / remove / undo / redo
+  └── versions / Read
+```
+
+## 2. 开源资源清单
 
 | 资源 | 能解决什么 | PhotoFlex 中的合适位置 | 许可证 / 风险 | 建议 |
 |---|---|---|---|---|
-| [clauderic/dnd-kit](https://github.com/clauderic/dnd-kit) | 鼠标、触控、键盘拖拽；sortable 与 drag overlay | Sequence 编辑条、Pool 拖入 Sequence | MIT；不同尺寸的自由网格排序仍需自己设计碰撞策略 | **立即采用** |
-| [MikeKovarik/exifr](https://github.com/MikeKovarik/exifr) | 浏览器/Node 中读取 EXIF，支持按需解析标签 | 导入与索引 worker，形成标准化照片元数据 | MIT；HEIC/特殊 RAW 仍要用真实样本测试 | **立即采用** |
-| [BetterTyped/react-zoom-pan-pinch](https://github.com/BetterTyped/react-zoom-pan-pinch) | DOM 内容的 zoom / pan / pinch | Sequence Map、Distance View 的观看尺度 | MIT；CSS transform 可能干扰拖拽命中 | **小型验证** |
-| [igordanchenko/yet-another-react-lightbox](https://github.com/igordanchenko/yet-another-react-lightbox) | 键盘、触控、预加载、响应式图片、Zoom 插件 | 单张 Preview / Read View 的底层能力 | MIT；需要重新接回 Pin、Pool 与本地 URL 生命周期 | **按需评估** |
-| [TanStack/virtual](https://github.com/TanStack/virtual) | Headless 的大列表/网格虚拟化，支持动态尺寸 | 文件量很大且当前网格维护成本上升时 | MIT；拖拽与虚拟化并用需要 overscan 和 DragOverlay | **保留现状，遇到瓶颈再迁移** |
-| [igordanchenko/react-photo-album](https://github.com/igordanchenko/react-photo-album) | Rows / Columns / Masonry、自适应图像和自定义 render | 非编辑型 Overview、公开浏览页、小型项目 Map | MIT；不是“胶片接触印样”的语义模型，也不能替代大规模本地虚拟网格 | **可选视图，不替换 Contact Sheet** |
-| [xyflow/xyflow](https://github.com/xyflow/xyflow) | 节点、连线、画布交互与 TypeScript API | 后期 Relationship View | MIT；若只是图片缩放/平移则明显过重 | **后期** |
-| [GhostInTheBus/book-builder](https://github.com/GhostInTheBus/book-builder) | React + TS 的照片行、拖到页面、导出 PDF/JSON | 参考 Pool → 编排区、跨区域拖拽的产品交互 | 仓库未明确提供许可证时，不应复制代码 | **只参考交互** |
-| [hugoxxxx/GT23_Workflow](https://github.com/hugoxxxx/GT23_Workflow) | 135/645/66/67 等胶片规格、齿孔、边码、EXIF 呈现 | Contact Sheet 的 analog skin 与导出外观 | MIT；Python 桌面项目，不适合作为 React 组件直接移植 | **参考视觉与物理规则** |
-| [fabiodalez-dev/Cimaise](https://github.com/fabiodalez-dev/Cimaise) | 水平胶片条与 scroll-snap 的观看方式 | Sequence Read 的视觉参考 | LICENSE 为 GPL-3.0；README 的许可描述可能不一致 | **仅视觉参考，不复制实现** |
-| [leuvi/sweet-album](https://github.com/leuvi/sweet-album) | 虚拟滚动、选择、全屏、justified layout 的 React 适配 | 阅读源码，比较网格抽象方式 | MIT，但项目较新、采用量有限 | **研究参考，不作为首选依赖** |
+| [clauderic/dnd-kit](https://github.com/clauderic/dnd-kit) | 鼠标、触控、键盘拖拽；sortable 与 DragOverlay | Sequence 横向编辑条 | MIT；自由二维画布仍需自己设计 | **Sequence 实现时采用** |
+| [MikeKovarik/exifr](https://github.com/MikeKovarik/exifr) | 浏览器/Node 中读取 EXIF，支持按需解析标签 | 导入与索引 worker | MIT；HEIC / RAW 需真实样本测试 | **索引阶段采用** |
+| [BetterTyped/react-zoom-pan-pinch](https://github.com/BetterTyped/react-zoom-pan-pinch) | DOM 内容的 zoom / pan / pinch | 仅作为 Table viewport spike 备选 | MIT；CSS transform 与 hit test 需要验证 | **先不用，遇到证据再 spike** |
+| [igordanchenko/yet-another-react-lightbox](https://github.com/igordanchenko/yet-another-react-lightbox) | 键盘、触控、预加载、Zoom 插件 | Preview / Read 底层备选 | MIT；需重新接回本地 URL lease 与 PhotoFlex 状态 | **按需评估** |
+| [TanStack/virtual](https://github.com/TanStack/virtual) | Headless 大列表/网格虚拟化 | Contact Sheet 性能瓶颈出现时 | MIT；DnD 与虚拟化并用复杂 | **保留现状** |
+| [igordanchenko/react-photo-album](https://github.com/igordanchenko/react-photo-album) | Rows / Columns / Masonry | 非编辑 Overview 或公开浏览页 | MIT；不能表达接触印样或编辑语义 | **不用于核心编辑器** |
+| [xyflow/xyflow](https://github.com/xyflow/xyflow) | 节点、连线、图编辑 | 未来 Relationship View | MIT；对当前 Worktable 明显过重 | **MVP 不采用** |
+| [GhostInTheBus/book-builder](https://github.com/GhostInTheBus/book-builder) | 照片拖放、版面与导出参考 | 参考跨区域交互 | 仓库许可不清晰时不能复制代码 | **只参考交互** |
+| [hugoxxxx/GT23_Workflow](https://github.com/hugoxxxx/GT23_Workflow) | 胶片规格、齿孔、边码、EXIF 呈现 | Contact Sheet analog skin 参考 | MIT；Python GUI 不直接移植 | **参考视觉规则** |
+| [fabiodalez-dev/Cimaise](https://github.com/fabiodalez-dev/Cimaise) | 水平胶片条与 scroll-snap | Sequence Read 视觉参考 | GPL-3.0；不要复制实现 | **仅视觉参考** |
+| [leuvi/sweet-album](https://github.com/leuvi/sweet-album) | 虚拟滚动、选择、全屏 | 比较网格抽象方式 | MIT；项目成熟度有限 | **研究参考** |
 
-上线前仍应锁定具体版本、保留第三方 notice，并再次核对许可证。尤其是“仓库没有 LICENSE”或 README 与 LICENSE 不一致的项目，不要复制源码或资源文件。
+上线前仍应锁定具体版本、保留第三方 notice 并复核许可证。仓库没有 LICENSE 或 README 与 LICENSE 不一致时，不复制源码或资源文件。
 
-## Contact Sheet：建议怎么改
+## 3. Contact Sheet 建议
 
-### 1. 先把四种“顺序”分开
-
-Contact Sheet 最容易出现的隐性 bug，是用户按时间或文件名排序后，Sequence 也跟着变化。建议数据模型明确区分：
+### 3.1 顺序必须分开
 
 ```ts
 type ProjectOrdering = {
-  sourceOrder: PhotoId[];      // 导入时的稳定顺序
-  contactViewOrder: PhotoId[]; // 当前观看排序，可以随时重算
-  poolOrder: PhotoId[];        // 候选照片顺序
-  sequenceOrder: SequenceItemId[]; // 作者真正保存的阅读顺序
+  sourceOrder: PhotoId[];          // 导入时的稳定顺序
+  contactViewOrder: PhotoId[];     // 当前筛选/排序的派生结果
+  tableEntryOrder: PhotoId[];      // 加入 Table 的稳定先后
+  sequenceOrder: SequenceItemId[]; // 明确保存的阅读顺序
 };
 ```
 
-**不可破坏的规则：Contact Sheet 的筛选和排序永远不能直接修改 Sequence。** 只有明确的“加入 Sequence / 移动 Sequence 项目”命令可以改序列。
+关键规则：
 
-### 2. “胶片感”做成皮肤，不要做成数据结构
+- Contact Sheet 排序与过滤只计算 `contactViewOrder`。
+- `Place on Table` 只改变 Worktable membership / entryOrder。
+- 只有明确的 Sequence command 能改变 `sequenceOrder`。
+- Table 的 x/y 不能回写任何上述顺序。
 
-接触印样的齿孔、边码、红色蜡笔圈、片幅标签非常有辨识度，但它们应属于呈现层：
-
-```text
-ContactSheetModel
-  ├─ filtering / selection / rating / Pool membership
-  └─ layout input
-       ├─ ClassicGridSkin
-       └─ AnalogFilmSkin (sprocket holes, frame number, grease marks)
-```
-
-这样既能保留高性能经典网格，也能提供接近真实 contact sheet 的观看模式。GT23_Workflow 最值得借鉴的是胶片规格和标记规则，不是它的 Python GUI。
-
-### 3. 统一每张照片的状态，但不要把它们混成一个字段
+### 3.2 照片状态不要混成一个字段
 
 ```ts
 type PhotoDecision = "unrated" | "pick" | "reject";
 
-type ContactPhotoState = {
-  selected: boolean; // 当前批量操作的临时选择
+type ContactPhotoPresentation = {
+  selected: boolean; // 当前页面临时状态
   decision: PhotoDecision;
-  inPool: boolean;
   pinned: boolean;
-  missing: boolean;
+  inTable: boolean;  // 从 placement 是否存在推导
+  missing: boolean;  // 从 PhotoSource 读取结果推导
 };
 ```
 
-- `selected` 是短暂 UI 状态。
-- `pick / reject` 是作者判断，应该持久化。
-- `inPool` 是候选集合成员关系。
-- `pinned` 是跨 Read / Map / Compare 的“观看记忆”。
-- `missing` 不能让照片从序列中消失，应该保留占位与原位置。
+- `decision`、`pinned` 持久化为 project-wide photo state。
+- `selected` 不持久化。
+- `inTable` 不单独保存 boolean，避免双写。
+- `missing` 不删除 Table placement 或 Sequence item。
 
-### 4. Pool 使用底部可收起托盘
+### 3.3 交互调整
 
-收起时仍显示 `POOL 07`、展开箭头和少量缩略图；展开后支持：
+- 原 `Add to Pool` 改为 `Place on Table`。
+- 原 `IN POOL` 标记改为 `ON TABLE`。
+- Project 与 Contact Sheet 右侧 Pool panel 删除，不改名成 Table tray。
+- Preview 接回 Pick / Reject、Pin 和 Place on Table。
+- Contact Sheet 保留全量目录身份，不显示可自由拖动的桌面坐标。
 
-- 批量移除；
-- 拖到 Sequence 的明确插入线；
-- 键盘选择与 Enter 插入；
-- 显示“已在当前 Sequence 中”的状态，避免重复加入时没有反馈。
+### 3.4 性能顺序
 
-Pool 是“候选集合”，不是另一个 Sequence。除非用户明确拖动，Pool 自身排序不应改变 Sequence。
+1. 索引阶段读取基本信息和必要 EXIF。
+2. 缩略图与全尺寸 preview 分开。
+3. 集中管理并释放 `URL.createObjectURL` lease。
+4. 保留现有虚拟网格，用 1k、5k、20k 真实比例数据 profiling。
+5. 只有实际瓶颈出现时再迁移虚拟化依赖。
 
-### 5. 性能改良顺序
+## 4. Worktable 建议
 
-1. 导入阶段在 worker 中读取文件基本信息与必要 EXIF。
-2. 缩略图与全尺寸预览分开；网格只请求缩略图。
-3. `URL.createObjectURL` 要有集中管理与释放策略，不能由每个卡片随意创建。
-4. 保留现有虚拟网格；用 1k、5k、20k 张真实尺寸数据做 profiling。
-5. 只有动态行高、滚动同步或维护成本成为实际问题时，再迁移 TanStack Virtual。
+### 4.1 自由画布不用 dnd-kit
 
-### 6. 快捷键建议
-
-| 操作 | 建议按键 |
-|---|---|
-| 在照片间移动 | `← ↑ ↓ →` |
-| 预览 | `Space` |
-| Pin / 取消 Pin | `P` |
-| Pick / Reject | `1` / `X`，或与现有 Lightroom 习惯保持一致 |
-| 加入 Pool | `Enter` |
-| 连续范围选择 | `Shift + Click` |
-| 非连续选择 | `Ctrl/Cmd + Click` |
-
-快捷键应在界面中可发现；焦点位于输入框时不能劫持按键。
-
-## Sequence：建议怎么改
-
-### 1. MVP 只做三个职责清楚的模式
-
-| 模式 | 目的 | 是否能改变顺序 |
-|---|---|---|
-| **Edit** | 用横向编辑条拖动、插入空白、插入 memo、从 Pool 加照片 | 是 |
-| **Read** | 弱化 UI，按作者节奏逐张/跨页阅读 | 否 |
-| **Map** | 摊开整体，发现色彩、形状、距离与重复 | 否 |
-
-Compare 可以使用 Pin 串起来，但不必成为 Sequence 编辑器的一部分。Shuffle、Temporal、Relationship 和多人 “My Reading” 都有价值，不过应放到稳定的 Edit / Read / Map 之后。
-
-### 2. 拖拽只负责输入，领域命令负责真相
-
-dnd-kit 的 `onDragEnd` 不应直接随意改数组；它应该生成现有 `SequenceEditCommand`。推荐流程：
+Table 的核心问题不是列表重排，而是 world/screen 坐标、选择集合和完整 pointer gesture。推荐流程：
 
 ```text
-pointer move → UI 中的临时拖动预览
-drop          → 计算 beforeId / afterId
-              → 创建一个 move/add 命令
-              → domain 执行命令并记录 undo
-              → store 持久化
+pointerdown
+  → 记录 activePointer、世界坐标起点、选中 IDs 和原 placements
+pointermove × N
+  → 只更新 transient CSS transform preview
+pointerup
+  → 计算一次 world delta
+  → WorktableEditor.execute(move command)
+  → save Workspace snapshot
 ```
 
-一整次拖拽只生成一个命令，也只占一个 undo step。拖拽尚未完成时不要持续写 IndexedDB。
+使用 pointer capture 让指针移出卡片后仍能完成或取消手势。`pointercancel` 和 `Escape` 只恢复预览，不生成 command。
 
-实现上的关键点：
+### 4.2 viewport 数学集中处理
 
-- 每个 Sequence item 使用稳定 ID，不能用数组 index 作为 React key。
-- 排序区域优先使用单行横向 strip；不同宽度的 photo / blank / memo 仍比自由网格容易预测。
-- DragOverlay 放在 portal 中，避免被滚动容器裁切。
-- 小于约 200 个项目时，Sequence strip 可以先不虚拟化；这是降低 DnD 复杂度的合理交换。
-- 真正需要虚拟化时，提高 active item 附近 overscan，避免目标在拖动中被卸载。
+必须只有一处负责：
 
-### 3. Sequence item 应支持不同节奏单元
+- `screenToWorld`；
+- `worldToScreen`；
+- 以当前指针为锚点的 zoom；
+- screen-space marquee 到 world-space rect；
+- Fit all 的 bounds 计算。
 
-摄影书式阅读不只是照片排列，还需要空白与文字。后续可把当前 item 扩展为判别联合（discriminated union：通过 `kind` 让 TypeScript 安全地区分不同对象）：
+不要在 React event handlers 中散落 `clientX / zoom + offset` 公式。Worktable placement 只存 world-space x/y/z，不存屏幕像素。
+
+### 4.3 DOM 与渲染
+
+- 每张照片使用普通 DOM card。
+- 使用 `transform: translate3d(...)` 放置，避免持续改 layout properties。
+- viewport pan / zoom 放在统一父层 transform。
+- M2.1 先用真实 200–500 张 Table 数据 profiling；没有证据前不做 canvas/WebGL 重写。
+- missing placeholder 与普通卡片共享相同 placement key。
+
+### 4.4 Group 与 Stack
+
+- Group：成员一起移动，照片仍全部可见。
+- Stack：成员紧凑重叠，保存明确 bottom-to-top 顺序。
+- MVP 不允许 cluster 嵌套；一张照片最多属于一个 cluster。
+- Group / Stack order 都不是 Sequence order。
+
+### 4.5 Compare 与 Pin
+
+- Table Compare 由当前显式选择的两张照片进入。
+- Compare A / B 是临时 session 状态，不持久化。
+- 退出 Compare 后保持 Table placements 和 selection。
+- Pin 是 project-wide 持久化 annotation，不限制只能 Pin 两张。
+- Pin 与 Compare slot、Pick / Reject、Table membership 分离。
+
+## 5. Sequence 建议
+
+### 5.1 dnd-kit 只负责一维编辑
+
+```text
+pointer / keyboard drag
+  → dnd-kit 提供 active / over / DragOverlay
+drop
+  → 计算明确插入位置
+  → SequenceEditor.execute(add or move command)
+  → 一个 undo step
+  → persist SequenceDraft
+```
+
+Sequence strip 应优先使用单行横向布局和明确插入线。MVP 数量较小时可以不虚拟化，避免 sortable 与 virtualization 同时增加复杂度。
+
+### 5.2 Create Sequence 必须确认顺序
+
+从 Table 发起时：
+
+1. 获取当前显式选择。
+2. 打开横向顺序确认条。
+3. 初始顺序使用 `tableEntryOrder` 中的选中子序列。
+4. 用户可在确认条中重排。
+5. 确认后为每项生成新的稳定 `SequenceItemId`。
+
+禁止按 Table x/y 自动生成 Sequence。未来若支持“按桌面阅读路径生成”，必须是显式命名动作并先预览结果。
+
+### 5.3 阅读单元
+
+后续 Sequence 可以演进为判别联合：
 
 ```ts
 type SequenceItem =
@@ -170,123 +212,71 @@ type SequenceItem =
   | { id: SequenceItemId; kind: "memo"; text: string };
 ```
 
-如果 MVP 暂时只允许 photo，仍可先保留 `kind: "photo"`，避免以后迁移所有持久化数据。
+即使第一版只有 photo，也建议先保留 `kind: "photo"`，降低未来 workspace migration 成本。
 
-### 4. Pin 是贯穿模式的“观看记忆”
+### 5.4 版本差异
 
-Pin 不应只是一颗收藏星。它的行为应保持连续：
+不需要先引入通用 JSON diff。以稳定 SequenceItemId 比较两个版本即可得到：
 
-- Read：Pin 当前照片，继续向后阅读；
-- Map：同一照片仍有明显边框并自动进入可视区域；
-- Compare：第一张 Pin 自动占据 A 位，再选择 B；
-- Contact Sheet：Pin 与 Pick / Pool 分开显示。
+- added；
+- removed；
+- moved；
+- 后续 item 内容变化。
 
-MVP 建议最多 Pin 两张；这样状态容易理解，并自然通往 Compare。是否跨应用重启保留需要在产品层明确：若它模拟短期阅读记忆，可以只存 session；若它是研究标注，就应持久化。
+## 6. 推荐实现顺序
 
-### 5. Map 的坐标与 Sequence 顺序分离
+### M2.0：术语与数据地基
 
-Map 的自由摆放位置可独立保存：
+- Worktable contracts / editor / interface tests；
+- workspace schema migration；
+- 旧 `poolPhotoIds` 自动转换为确定性 Grid 和 `tableEntryOrder`；
+- 删除 Pool 双写与 Whiteboard contract；
+- 新 Table / Sequence route 和独立 page 文件。
 
-```ts
-type MapPlacement = {
-  photoId: PhotoId;
-  x: number;
-  y: number;
-  scale: number;
-};
-```
+### M2.1：Table 基础
 
-在 Map 中移动照片默认只改变 `MapPlacement`，不能重排 `sequenceOrder`。如果未来希望通过 Map 重编序，必须提供一个明确动作，例如“Create sequence from map reading path”，不能让两个语义在拖动时含混。
+- Contact Sheet Place on Table；
+- Pointer Events 拖动、selection、marquee；
+- pan / zoom、Grid / Row / Align；
+- remove、undo / redo、save / reload；
+- missing placeholder。
 
-### 6. 版本与差异不需要先引入通用 diff 库
+### M2.2：判断与成序
 
-以稳定的 Sequence item ID 比较两个 checkpoint，即可得到：
+- Group / Stack；
+- 两张照片 Compare；
+- 持久化 Pin；
+- Create Sequence 顺序确认；
+- Sequence dnd-kit 编辑条与 Read 基础。
 
-- added：新 ID；
-- removed：消失的 ID；
-- moved：同一 ID 的前后邻居改变；
-- edited：memo 文本或 blank 配置改变。
+### M2.3：延伸表达
 
-这比对整份 JSON 做文本 diff 更符合用户理解，也更容易在 UI 中标注“03 移到 07 之后”。
+- Table snapshot；
+- memo / paper note；
+- 手工 relationship label；
+- print-size simulation。
 
-## 推荐实现顺序
+## 7. 原型参考的当前定位
 
-### M2.1 — Sequence Edit（优先）
+`design-output/contact-sequence-react-ts-prototype/` 是一次性视觉研究，不是生产代码：
 
-- 安装并封装 dnd-kit；
-- 实现横向编辑条与明确插入线；
-- Pool 可收起，支持 Pool → Sequence；
-- 每次 drop 生成一个领域命令；
-- 接通 undo / redo、保存 checkpoint 与 missing placeholder；
-- 不做 Map 自由摆放，不做 Relationship。
+- Contact Sheet 的胶片语言、Pick / Reject / Pin 可继续参考。
+- Sequence horizontal strip 可继续参考。
+- 原 Pool tray 只作为历史构图参考，产品中不再保留。
+- 原 Map / Whiteboard 画面只参考空间密度与 Pin 视觉，不保留“由 Map 改写 Sequence”的语义。
 
-### M2.2 — Read + Pin
+前端设计稿确认后，应以设计稿与两份正式基线文档为准，不从 throwaway prototype 复制状态模型或交互实现。
 
-- 单张、双页、空白、memo 的阅读节奏；
-- 键盘 `← →`；
-- Pin 在 Read / Contact Sheet / Compare 间保持；
-- 用现有 Preview 做第一版，再决定是否接入 Yet Another React Lightbox。
+## 8. 实现检查清单
 
-### M2.3 — Map
-
-- 先用普通 DOM + SVG 关系线；
-- 用 react-zoom-pan-pinch 做缩放/平移验证；
-- Map 位置与 sequence order 分开持久化；
-- 先支持 Pin 定位，不急着加入自动关系分析。
-
-### M2.4 — Contact Sheet Analog Skin
-
-- 在现有高性能模型之上增加胶片条皮肤；
-- 根据项目配置显示 35mm / 645 / 6×6 等 frame 规则；
-- 红色圈选、边码和齿孔只作为视觉标注；
-- 导出图像时再生成高分辨率完整接触印样。
-
-## 三个示例方向
-
-### A. Analog Contact Sheet Workbench
-
-![Analog Contact Sheet Workbench](../design-output/contact-sequence-react-ts-prototype/01-contact-sheet-analog-workbench.png)
-
-验证点：黑色工作台、三条真实胶片结构、齿孔、边码、蜡笔圈、Pick / Reject / Pin 并存，以及底部收起的 Pool。左侧筛选不会改变 Sequence。
-
-### B. Sequence Edit Strip
-
-![Sequence Edit Strip](../design-output/contact-sequence-react-ts-prototype/02-sequence-edit-strip.png)
-
-验证点：中央预览与横向编辑条分工；照片、blank、memo 是同一种“节奏单元”；插入线比自由网格更容易理解；版本、未保存移动和单次 undo 的状态都可见。
-
-### C. Map + Pin Memory
-
-![Map and Pin Memory](../design-output/contact-sequence-react-ts-prototype/03-sequence-map-pin.png)
-
-验证点：Map 是观看层而不是重排序工具；Pin 作为跨模式记忆；两张照片的关系由人选择标签。第一版不需要 React Flow，只用 DOM、SVG 与 zoom/pan 即可。
-
-可交互原型入口：[打开 `design-output/contact-sequence-react-ts-prototype/index.html`](../design-output/contact-sequence-react-ts-prototype/index.html)。使用底部切换器或键盘 `← →` 查看三个方向。
-
-## 依赖控制建议
-
-不要一次安装 dnd-kit、TanStack Virtual、React Photo Album、React Flow、Zustand 和 Lightbox。每个库都带来新的状态边界、CSS 约束与升级成本。
-
-当前最小组合应是：
-
-```text
-现有 React state + 领域命令 + IndexedDB store
-  ├─ dnd-kit      → Sequence 拖拽输入
-  ├─ exifr        → 导入阶段的元数据解析
-  └─ zoom/pan POC → 只有 Map 验证通过后才正式保留
-```
-
-React Photo Album、TanStack Virtual 和 Yet Another React Lightbox 都可以作为“当现有实现出现明确痛点时的替换候选”，而不是提前建立的依赖。
-
-## 验收时必须守住的交互规则
-
-- Contact Sheet 的排序、过滤、视图切换不改变 Sequence。
-- Pool 可以收起；收起后数量与当前状态仍可见。
-- 一次完整拖拽只产生一个命令与一个 undo step。
-- 没有 drop 的取消拖拽不写入持久化。
-- 缺失文件保留 Sequence 中的位置，并显示可修复的 placeholder。
-- Map 中移动照片不改变 Sequence；用户必须能看见这一规则。
-- Pin 在 Read / Map / Compare 的语义一致，且与 Pick、Pool 成员关系分离。
-- 所有鼠标操作都有键盘路径；输入框获得焦点时快捷键不被劫持。
-- 缩略图和全尺寸图分离，并验证 object URL 能及时释放。
+- Contact Sheet sort/filter 不改变 Worktable 或 Sequence。
+- Place on Table 幂等，不出现重复 placement。
+- Table move 不改变 `tableEntryOrder` 或 Sequence。
+- 一次完整拖拽只产生一个 command、undo step 和 snapshot save。
+- Remove from Table 不删除原片、Pick、Pin 或 Sequence 引用。
+- Missing 文件保留 Table 与 Sequence 位置。
+- Pin 跨重启持久化，并与 Compare slot 分离。
+- Create Sequence 始终经过顺序确认条，不读取 x/y。
+- Compare 不建立独立持久化集合。
+- dnd-kit 不进入 Table 自由画布。
 

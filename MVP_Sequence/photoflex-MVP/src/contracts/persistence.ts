@@ -8,9 +8,10 @@ import type {
 } from "./ids";
 import type { SequenceDraft } from "./sequence";
 import type { SequenceVersion, VersionSummary } from "./versioning";
+import type { PhotoState, WorktableDraft, WorktableViewport } from "./worktable";
 
-export const INDEXED_DB_SCHEMA_VERSION = 3 as const;
-export const WORKSPACE_SCHEMA_VERSION = 2 as const;
+export const INDEXED_DB_SCHEMA_VERSION = 5 as const;
+export const WORKSPACE_SCHEMA_VERSION = 4 as const;
 
 export type SourceStatus =
   | "loading"
@@ -103,11 +104,11 @@ export interface PhotoSource {
 }
 
 export interface ResumeContext {
-  readonly page: "project" | "contact-sheet";
+  readonly page: "project" | "contact-sheet" | "table";
   readonly sourceId?: SourceId;
   readonly filter: "all";
   readonly anchorPhotoId?: PhotoId;
-  readonly poolCollapsed?: boolean;
+  readonly tableViewport?: WorktableViewport;
 }
 
 export interface ProjectWorkspace {
@@ -117,7 +118,8 @@ export interface ProjectWorkspace {
   readonly memo: string;
   readonly expectedPhotoCount: number | null;
   readonly sources: readonly SourceRecord[];
-  readonly poolPhotoIds: readonly PhotoId[];
+  readonly photoStates: Readonly<Partial<Record<PhotoId, PhotoState>>>;
+  readonly worktableDraft: WorktableDraft;
   readonly sequenceDraft: SequenceDraft;
   readonly versionIds: readonly VersionId[];
   readonly revision: WorkspaceRevision;
@@ -134,7 +136,7 @@ export interface ProjectSummary {
   readonly updatedAt: string;
   readonly lastOpenedAt: string;
   readonly sourceCount: number;
-  readonly poolCount: number;
+  readonly tableCount: number;
   readonly coverPhotoId?: PhotoId;
 }
 

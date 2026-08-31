@@ -65,7 +65,7 @@ describe("VirtualPhotoGrid", () => {
       <VirtualPhotoGrid
         photos={photos}
         selected={new Set()}
-        poolIds={[]}
+        tableIds={[]}
         missingIds={new Set()}
         onAnchorChange={() => {}}
         onToggle={() => {}}
@@ -115,7 +115,7 @@ describe("VirtualPhotoGrid", () => {
       <VirtualPhotoGrid
         photos={[photo]}
         selected={new Set()}
-        poolIds={[]}
+        tableIds={[]}
         missingIds={new Set()}
         onAnchorChange={() => {}}
         onToggle={() => {}}
@@ -177,7 +177,7 @@ describe("VirtualPhotoGrid", () => {
       <VirtualPhotoGrid
         photos={photos}
         selected={new Set()}
-        poolIds={[]}
+        tableIds={[]}
         missingIds={new Set()}
         onAnchorChange={() => {}}
         onToggle={() => {}}
@@ -299,17 +299,16 @@ describe("VirtualPhotoGrid", () => {
       return element!;
     });
 
-    // Fit mode uses the preview area's fixed box from the first frame instead
-    // of a later photo-dimension calculation, so extreme ratios stay complete.
+    // Before dimensions are decoded, the preview still has a safe fitted frame.
     expect(image.style.width).toBe("100%");
     expect(image.style.height).toBe("100%");
     expect(image.style.objectFit).toBe("contain");
     expect(image.style.objectPosition).toBe("center");
-    expect(image.closest(".preview-image-wrap")?.classList.contains("is-fit")).toBe(true);
+    expect(image.closest(".preview-image-wrap")?.classList.contains("is-zoomed")).toBe(true);
 
     const wheel = new WheelEvent("wheel", { bubbles: true, cancelable: true, ctrlKey: true, deltaY: -100 });
     act(() => { dialog.dispatchEvent(wheel); });
     expect(wheel.defaultPrevented).toBe(true);
-    expect(screen.getByText("110%")).toBeTruthy();
+    expect(screen.getByText("116%")).toBeTruthy();
   });
 });

@@ -3,268 +3,386 @@ tags:
   - PhotoFlex
   - PRD
   - 产品需求
-  - MVP00
+  - MVP
 created: 2026-08-25
-updated: 2026-08-25
-status: draft
-version: 0.1
+updated: 2026-08-30
+status: approved-direction
+version: 0.2
 ---
-# PhotoFlex_Sequence MVP产品需求文档
+
+# PhotoFlex Sequence MVP 产品需求文档
 
 ## 一、版本说明
 
-- 20260825 第一版，生成构思MVP。
+- 2026-08-25：v0.1，形成最初 Sequence / Pool / Whiteboard 构想。
+- 2026-08-30：v0.2，确认以 Contact Sheet / Table / Sequence 为核心，取消 Pool 与 Whiteboard 用户界面。
 
 ## 二、背景与目标
 
-### 2.1. 背景
-为了验证Photoflex的可行性与吸引第一波Photoflex的用户，将开发第一个网页版MVP，主要想免费提供好用、易用、轻量的照片排序工具。
+### 2.1 背景
 
-### 2.2. 目标
-- 提供免费、易用的照片排序工具；
-- 提供更好的观看照片视角；
-- 验证PHOTOFLEX的可行性；
-- 吸引第一波用户
+PhotoFlex 面向长期项目创作的摄影师、摄影爱好者与摄影专业学生，提供一个本地优先、轻量、不会修改原片的照片选择与排序工作环境。
 
-具体功能上线：
-1. 项目创立
-2. 照片导入，预览
-3. 照片筛选
-4. 照片排序，观看视角切换
-5. 多版本对比
-6. 摄影书dummy
-7. pdf导出
+摄影师通常需要先从大量照片中做判断，再把候选照片放在一个可自由比较和组织的工作桌面上，最后形成精确的一维阅读顺序。现有通用图库、白板和排版工具往往把这三个阶段混在一起，难以保持创作意图清晰。
 
-#### 2.2.1 目标指标
+### 2.2 产品目标
 
+1. 提供快速、可恢复的全量照片浏览与筛选。
+2. 提供摄影师专用的 Table，支持自由摆放、比较、分组和堆叠。
+3. 提供独立的 Sequence 编辑与 Read 模式，保存准确阅读顺序。
+4. 支持多个命名 Sequence 版本与显式比较。
+5. 始终保持原片零写入，本地离线也能完成核心闭环。
 
+### 2.3 非目标
 
-#### 2.2.2 北极星指标
-> **活跃项目中，创建第二个命名序列版本且至少完成一次 A/B 比较的项目比例。**，预计大于60%
+MVP 前三期不做：
 
+- 通用 Whiteboard 用户界面；
+- 真实物理碰撞或随机旋转；
+- AI 自动判断照片质量或自动生成关系；
+- 复杂 Relationship View；
+- 多人实时协作；
+- 复杂摄影书排版与生产级 PDF 输出。
 
-## 三、 用户场景
+### 2.4 北极星指标
+
+> 活跃项目中，摄影师将照片放上 Table、创建第二个命名 Sequence 版本，并至少完成一次 Table 照片比较或 Sequence 版本比较的项目比例。
+
+目标：Alpha 阶段达到 60% 以上。样本不足 30 个有效项目时，只作为方向性信号。
+
+## 三、用户与核心路径
 
 ### 3.1 用户画像
 
-    会进行长期项目创作的摄影师、摄影爱好者、摄影专业学生。
+- 进行长期摄影项目创作的摄影师；
+- 需要制作作品集、摄影书或展览序列的摄影学生与爱好者；
+- 已完成基础后期，希望从大量照片中形成主题与叙事的人。
 
-### 3.2 场景故事
+### 3.2 核心场景
 
-- 用户带有一堆已经经过后期的照片，希望能够将这些散乱的照片形成结构化的叙事/序列
-- 他们点进这个网页，建立起一个可能的项目名称，导入需要建构的照片库，从这些庞杂的照片中筛选出符合一个主题的照片池
-- 从这照片池中选出照片进行排序，储存这一次排序；重新换一个序列，储存，多个版本进行对比，挑出最满意的一个序列
-- 做一些记录
-- 把这个序列放到版面中看看变成书看起来怎么样
-- 导出，形成一个小的摄影书dummy。
+1. 用户创建项目并连接一个或多个本地照片文件夹。
+2. 在 Contact Sheet 中浏览全量照片，筛选、Pick / Reject、批量选择。
+3. 使用 `Place on Table` 把候选照片放到 Table。
+4. 在 Table 上自由移动、多选、框选、排列、分组、堆叠和比较照片。
+5. 用户显式选择照片并通过顺序确认条创建 Sequence。
+6. 在 Sequence 中精确调整一维顺序，保存命名版本，并使用 Read 模式观看。
+7. 用户可继续回到 Contact Sheet 或 Table 修改候选关系，但这些操作不能静默改变现有 Sequence。
 
-### 3.3 价值分析
-
-这个产品可以有效填补当前市面上没有专为项目摄影师打造的轻量级的照片观看、排序产品的空缺。
-1. 可以验证摄影师是否真的有这个需求（看使用人数，预测100人）
-2. 验证序列的比较是必须的（需要看生成版本指标，预计每个人每个项目要生成5个以上）
-3. 可以拿来做每日审美积累工作。
-
-### 3.4 核心体验路径
-```mermaid
-flowchart LR
-    Project[建立项目] --> Import[导入照片]--> Select[筛选照片] --> Sequence[排序] --> Save[储存序列] --> Compare[对比多序列] --> Dummy[放到版面中] --> Export[导出Dummy]
-
-```
-### 3.5 产品指标预测
-
-
-
-| 指标 | 目标 | 测量方法 | 层级 |
-|---|---:|---|---|
-| 点击进入网页人数 | >200 | 在发布后的 4 周窗口内，用匿名访客 ID 去重，统计进入 MVP 首页并成功加载的独立访客数；剔除机器人和重复刷新 | 流量层 |
-| 新老访客比例 | 老访客>70% | 统计窗口内按匿名访客 ID 去重的访客，`老访客数（窗口内非首次访问）/总独立访客数`；同时记录新访客数作为分母校验 | 流量层 |
-| 建立项目并导入照片的人数 | >80% | 观察式可用性测试；正式 MVP 用 `project_created` 且成功导入至少 1 张照片的独立访客数 / 进入首页的独立访客数 | 转化层 |
-| 建立序列并拖动照片保存的人数 | >80% | 记录 `sequence_created`、`photo_reordered`、`sequence_saved`；完成三事件的独立访客数 / 成功导入照片的独立访客数 | 转化层 |
-| 进入白板进行排序的人数 | >70% | 记录 `whiteboard_opened`；进入白板的独立项目数 / 已保存首个序列的独立项目数 | 转化层 |
-| 使用白板排序的平均时间 | >2 min | 记录 `whiteboard_opened` 到 `whiteboard_saved` 的活跃时长；连续无操作超过 60 秒暂停计时，报告均值并同时报告中位数 | 行为层 |
-| 使用沉浸式观看的人数 | >70% | 记录 `immersive_view_opened`；使用沉浸式观看的独立项目数 / 已保存首个序列的独立项目数 | 转化层 |
-| 在序列阶段停留的平均时间 | >5 min | 以 `sequence_opened` 到离开序列或会话结束计算活跃时长；无操作超过 60 秒暂停，按项目统计均值和中位数 | 行为层 |
-| 活跃项目产生第二个命名版本 | ≥ 60% | `named_version_created` 事件；创建过首个命名版本的活跃项目中，创建至少两个不同命名版本的项目数 / 分母项目数 | 行为层 |
-| 活跃项目使用 A/B Compare | ≥ 60% | `compare_opened` 且加载两个版本的事件；创建过至少两个命名版本的活跃项目中完成 Compare 的项目数 / 分母项目数 | 行为层 |
-| 在不同版本使用Memo记录的人数 | ≥ 30% | `memo_saved` 关联到两个或以上不同版本；完成第二版本的活跃项目中满足条件的项目数 / 分母项目数 | 行为层 |
-| 导出dummy的人的百分比 | >=10% | 记录 `export_started`、`export_succeeded`；至少成功导出 1 次 PDF 的活跃项目数 / 创建过至少一个已保存序列的活跃项目数；只计成功，不计点击按钮 | 行为层 |
-| 原文件误改、误移、误删 | 0 次 | hash 对照、事件审计、用户报告 | 技术层 |
-| 10,000 张已索引照片浏览 | 首屏已有缩略图 ≤2 秒，滚动无持续卡顿 | 使用固定 10,000 张代理图 fixture，在目标硬件上重复 3 次 benchmark；记录暖启动、首屏显示、滚动帧率、内存峰值和失败率 | 技术层 |
-| 数据丢失 | 0 个确认事件 | 对强制关闭、索引中断、导出失败和重开恢复做故障注入；核对项目快照、序列版本和 Memo，所有确认事件进入 Alpha/Beta 缺陷记录 | 技术层 |
-
-转化漏斗按以下顺序记录每一步的进入人数、完成率和流失率：`landing_viewed` → `project_created` → `photos_imported` → `sequence_saved` → `whiteboard_saved` / `immersive_view_opened` → `version_2_created` → `compare_completed` → `export_succeeded`。所有比例必须在指标名称中明确分母，避免把访客、用户和项目混用。
-
-**测量口径：**
-
-- **统计窗口：** 流量和转化指标默认按发布后 4 周统计；行为指标按项目统计，并单独报告访客数、项目数和完成该阶段的分母。
-- **匿名标识：** 不要求登录时使用匿名访客 ID、项目 ID 和版本 ID；同一访客可创建多个项目，因此用户指标与项目指标不可直接相加。
-- **活跃项目：** 统计窗口内至少完成一次照片导入，并至少打开过一次序列编辑器的项目。
-- **完成事件：** 只有状态真正持久化成功才记为完成；按钮点击、页面打开或导出开始不等于完成。
-- **样本解释：** 早期样本量较小时同时展示绝对数 `n`，不只展示百分比；不足 30 个有效项目时，行为比例只作为方向性信号，不作为稳定结论。
-
-### 3.6 路径规划
-
-> MVP后将加入灵感箱、思考箱、材料箱等，用于记录文字与材料；
-> 将有一个作品仓库保存已经做好的Dummies；
-> 将会升级白板，使其更加自由流畅，但不必加入与摄影项目无关的功能；
-> 将会有两个不同路径开始一个项目（照片先行/问题（主题）先行）；
-> 后续会接入AI来辅助项目研究、问答等；
-> 希望能够同步开发网页端与桌面端，核心技术栈最好可以相容；
-> 最远的远景是搭建一个社区平台，希望这个网站有接入新搭的社区网站的可能（用户通用、作品能够连接过去）。
-
-## 四、概要设计
-
-### 4.1 模块设计
-
-```mermaid
-subgraph Class[档案管理]
-    Proj[项目模块]
-    Photo[照片库模块]
-    Pool[待排序照片模块]
-subgraph Browse[浏览]
-    Big[大图模块]
-subgraph Seq[序列]
-    Sequence[序列模块]
-    White[白板模块]
-subgraph Compare[比较]
-    SC[序列比较模块]
-    Memo[Memo模块]
-subgraph Dummy[Dummy]
-    Preview[预览模块]
-    Design[排版模块]
-Export[导出模块]
-```
-1. 档案管理：HOME模块、项目模块、照片库模块、待排序照片模块
-2. 浏览：大图模块
-3. 序列：序列模块、白板模块
-5. 比较：序列比较模块、Memo模块
-6. Dummy：预览模块、排版模块
-7. 导出：导出pdf模块
-
-### 4.2 功能清单
-
-- HOME模块：
-1. 新建项目资料夹
-2. 管理多个项目资料夹（重命名、删除等）
-3. 登录
-4. 筛选/搜索项目资料夹
-
-- 项目模块：
-1. 添加照片资料夹
-2. 管理照片资料夹（Remove、Delete）
-3. 打开照片资料夹，进入contact sheet
-4. 预览Project Pool
-
-- 照片库（contact sheet）模块：
-1. 选择照片（全选、反选、移除）进入project pool
-2. 大图预览（可在预览状态选择、移除照片、可放大细节）
-3. 预览Project Pool
-
-- Project Pool模块
-1. 预览照片大图
-2. 选择、反选、全选、移除照片
-3. 作为一个自由模块收起、展开（参考milanote的Unsorted）
-4. 加入文字memo作为一个照片进入sequence
-5. 滚动
-
-- Sequence模块
-1. 拖动照片变换位置顺序
-2. 预览大图
-3. 增删序列中的照片（全选、反选）
-4. 标记照片顺序
-5. 命名序列
-6. 按着ctrl多选照片
-7. 键盘左右键横向移动
-8. 放缩画面
-9. 放缩照片
-10. 一键打乱
-11. 进入白板入口
-12. 进入compare
-13. 进入dummy 
-14. 右侧悬浮pool模块作为照片来源（可收起）
-
-- 白板模块
-1. 自由左键拖曳照片、调整照片大小
-2. 右键拖曳视角，（键盘上下左右键）
-3. 视角大小放缩（快捷键ctrl+滚轮）
-4. 双击照片预览大图（左右键上下一张）
-5. 右侧悬浮pool模块作为照片来源（可收起）
-6. 改变顺序若保存则需记录到sequence
-7. delete删除照片
-
-- 比较模块
-1. 展示两个序列（上下进行对比）
-2. 点击单个序列进行沉浸式序列浏览
-3. 为序列增加memo
-4. 储存整个序列
-
-- Dummy排版模块
-1. 选择单页、双页版面，将目前的照片序列单张照片放在一个白色版面的中间
-2. 版面上照片可自由移动，调整大小
-3. 可从pool中增加照片到版面上
-4. 可在版面上编辑文字
-
-- Dummy预览模块
-1. 以翻书的方式翻阅排好的dummy
-2. 可选单页、双页视角
-
-- 导出模块
-1. 将dummy导出pdf
-
-### 4.3 页面关系图
+### 3.3 核心体验路径
 
 ```mermaid
 flowchart LR
-    Home[主页]
-    Proj[项目页]
-    Photo[照片页]
-    Pool[选出的照片]
-    Sequence[序列页]
-    White[白板页]
-    SC[序列比较页]
-    Design[排版页]
-    Preview[预览页]
+    Home[Home]
+    Project[Project]
+    Contact[Contact Sheet]
+    Table[Table]
+    Sequence[Sequence]
+    Read[Read]
+    Version[Save Version]
 
-    Home --> Proj --> Photo --> Sequence --> SC --> Design --> Preview
-    Proj --> Sequence
-    Sequence --> White
-    White --> SC
-    White --> Sequence
-    White --> Photo
+    Home --> Project --> Contact --> Table --> Sequence --> Read
+    Sequence --> Version
+    Table -->|Compare 2 photos| TableCompare[Photo Compare]
+    Sequence -->|Compare versions| VersionCompare[Version Compare]
+    Table --> Contact
+    Sequence --> Table
 ```
-**Pool**不是一个单独页面，而是一个嵌套在Proj, Photo, Sequence, White的模块
 
-### 4.4 交互图
+### 3.4 产品对象
 
+| 对象 | 定义 | 是否持久化 | 是否定义 Sequence 顺序 |
+|---|---|:---:|:---:|
+| Contact Sheet view | 对全部已索引照片的当前筛选和排序结果 | 只保存必要 resume 状态 | 否 |
+| Pick / Reject | 摄影师对照片的项目级判断 | 是 | 否 |
+| Pin | 项目级研究标记，可跨重启保留 | 是 | 否 |
+| Table membership | 照片是否位于工作桌面 | 是 | 否 |
+| Table placement | 照片在桌面的 x / y / z 与 cluster 状态 | 是 | 否 |
+| Selection | 当前页面的临时选中集合 | 否 | 否 |
+| Compare A / B | 当前比较工具的临时两个槽位 | 否 | 否 |
+| Sequence items | 明确保存的阅读单元及其一维顺序 | 是 | 是 |
 
-### 4.5 产品原则
+### 3.5 产品指标
 
-1. **原片零写入**：核心操作不移动、重命名、覆盖或删除原片。
-2. **创作判断属于用户**：产品提供观看条件、差异和问题，不给艺术质量分数。
-3. **版本优于覆盖**：已保存的创作节点不可被静默改写。
-4. **恢复优于提醒**：项目管理服务于重新进入创作，不以签到和任务完成率驱动用户。
-5. **本地核心独立成立**：无网络、无 AI 也能完成 MVP 闭环。
-6. **先做专用编辑器**：序列、比较和输出是第一等对象；通用白板、社区和复杂排版延后。
-7. **错误可解释、工作可恢复**：长任务可取消重试，部分失败不抹掉成功结果。
+| 指标 | 目标 | 完成事件与口径 |
+|---|---:|---|
+| 创建项目并成功导入照片 | >80% | `project_created` 且至少 1 张 `photos_imported` 成功 |
+| 完成一次 Contact Sheet 判断 | >70% | 至少一次成功持久化的 `photo_decision_changed` |
+| 将照片放上 Table | >70% | 至少一次成功持久化的 `photos_placed_on_table` |
+| 完成一次 Table 编排 | >70% | `table_layout_saved`，且至少有一次 move / arrange command |
+| Table 活跃时长 | >2 min | `table_opened` 到离开；连续无操作超过 60 秒暂停 |
+| 完成两张照片比较 | >50% | `table_compare_completed`，成功加载并观看两张照片 |
+| 创建并保存 Sequence | >80% | `sequence_created`、`sequence_saved` 均成功 |
+| 创建第二个命名版本 | ≥60% | 活跃项目至少有两个不同命名版本 |
+| 完成 Sequence 版本比较 | ≥60% | 至少两个版本的项目中触发 `version_compare_completed` |
+| 在 Read 模式停留 | >5 min | 记录 active time 的均值、中位数与样本数 |
+| 原片误改、误移、误删 | 0 | 文件前后检查、故障测试与用户报告 |
+| 10,000 张 Contact Sheet 浏览 | 首屏缩略图 ≤2 秒，滚动无持续卡顿 | 固定 fixture 重复 benchmark |
+| 已确认数据丢失 | 0 | 强制关闭、恢复、迁移与存储失败测试 |
 
+推荐漏斗：
 
-## 五、 详细设计
+```text
+landing_viewed
+→ project_created
+→ photos_imported
+→ photos_placed_on_table
+→ table_layout_saved
+→ sequence_saved
+→ version_2_created
+→ table_compare_completed / version_compare_completed
+```
 
+只有状态持久化成功才能记录完成事件。按钮点击或页面打开不算完成。
 
+## 四、信息架构
 
+### 4.1 一级导航
 
+```text
+Home / Project / Contact Sheet / Table / Sequence
+```
 
+- Compare 是 Table 或 Sequence 内的 action，不是一级导航。
+- 不提供 Pool 页面、Pool tray 或 Whiteboard 页面。
+- Project 在没有照片时仍可进入；Contact Sheet 需要至少一个可读取 Source。
+- Table 无照片时显示引导空态，并返回 Contact Sheet。
 
+### 4.2 模块关系
 
+```mermaid
+flowchart TB
+    Project[Project module]
+    Contact[Contact Sheet module]
+    Worktable[Worktable module]
+    Sequence[Sequence module]
+    PhotoState[Project photo state]
+    PhotoSource[PhotoSource]
+    Store[ProjectStore]
 
+    Contact --> PhotoSource
+    Worktable --> PhotoSource
+    Sequence --> PhotoSource
 
+    Contact --> PhotoState
+    Worktable --> PhotoState
+    Sequence --> PhotoState
 
+    Contact -->|Place on Table| Worktable
+    Worktable -->|Explicit confirmed order| Sequence
 
+    Project --> Store
+    PhotoState --> Store
+    Worktable --> Store
+    Sequence --> Store
+```
 
+### 4.3 状态归属原则
 
+```text
+ProjectWorkspace
+├── photoStates[photoId]
+│   ├── decision: unrated | pick | reject
+│   └── pinned: boolean
+├── worktableDraft
+│   ├── entryOrder
+│   ├── placements[photoId]: x / y / z
+│   └── clusters（M2.2）
+└── sequenceDraft
+    └── SequenceItem[]
+```
 
+`inTable` 由 placement 是否存在推导，不保存重复 boolean。Table x/y 与 Sequence item order 必须独立持久化。
 
+## 五、功能需求
 
-参考
-photoprism、sequence：zine&books、Photo Book Noir； Miro； Milanote
+### 5.1 Home
+
+1. 创建项目。
+2. 搜索、打开、重命名、删除项目。
+3. 显示项目更新时间、Source 数量和 Table 照片数量。
+4. 删除项目不删除原片。
+
+### 5.2 Project
+
+1. 连接、刷新、重新授权和移除本地 Source。
+2. 显示索引进度、成功、跳过和失败数量。
+3. 编辑项目名称与 memo。
+4. 进入 Contact Sheet、Table 或已有 Sequence。
+5. 移除 Source 不得静默删除 Table placements 或 Sequence items。
+
+### 5.3 Contact Sheet
+
+1. 浏览全量已索引照片，支持大数据量虚拟化。
+2. 按来源、文件名、时间和决策状态筛选/排序；只影响当前 view。
+3. 单选、多选、Shift 范围选择、全选、反选。
+4. 显示独立的 `PINNED`、`ON TABLE`、`MISSING` 状态。
+5. 使用 `Place on Table` 幂等添加当前选择。
+6. 大图预览支持前后浏览、Fit、局部缩放、Pick / Reject、Pin 和 Place on Table。
+7. Contact Sheet 的排序、过滤、选择和缩放永远不能修改 Sequence。
+
+### 5.4 Table / Worktable
+
+#### M2.1
+
+1. 显示所有 Table placements 和 missing placeholders。
+2. Select / Hand 两种明确工具状态。
+3. 单选、Ctrl/Cmd 多选、Shift 增选、空白区域框选。
+4. 自由拖动一张或多张照片。
+5. pan、zoom、Fit all；坐标转换集中处理。
+6. Grid、Row、Align 和 Bring to front。
+7. `Remove from Table` 只移除 membership，不删除原片或其他状态。
+8. Undo / Redo 覆盖 place、move、arrange、z-order 和 remove。
+9. 一个完整 pointer gesture 只产生一个 command 和一个 undo step。
+10. command 成功后持久化 Worktable snapshot；拖动预览期间不写 IndexedDB。
+
+#### M2.2
+
+1. Group：照片一起移动，但仍全部可见。
+2. Stack：照片紧凑重叠，有显式内部顺序和顶部照片。
+3. 选择恰好两张照片后打开 Compare；关闭后保留原位置和选择。
+4. Pin 为 project-wide 持久化状态，不限制只能 Pin 两张。
+5. 从显式选择创建 Sequence，必须先打开顺序确认条。
+6. 确认条默认使用 Table `entryOrder` 中的选中子序列，不读取 x/y。
+
+#### M2.3
+
+1. Table named snapshot。
+2. memo / paper note。
+3. 手工 relationship label。
+4. print-size simulation。
+
+### 5.5 Sequence
+
+1. 使用稳定 `SequenceItemId` 表示阅读单元。
+2. 支持 add、move、remove、多选、undo / redo。
+3. 横向编辑条提供明确插入线与顺序编号。
+4. Sequence 可引用同一 PhotoId，但每个 item 保持独立 ID。
+5. 支持命名 Sequence 与不可静默覆盖的版本。
+6. Read 模式不改变顺序，支持键盘前后阅读与 Pin。
+7. Table 位置变化不能修改 Sequence。
+8. Contact Sheet 排序或过滤不能修改 Sequence。
+9. 缺失文件保留原 item 位置并显示 placeholder。
+
+### 5.6 Compare
+
+Compare 不持有独立集合：
+
+- **Table Photo Compare**：由当前显式选择的两张照片进入；退出后保留 Table 状态。
+- **Sequence Version Compare**：由两个已保存版本进入；比较 added、removed、moved 等差异。
+- Pin 可在 Compare 中修改，但 Compare A / B 槽位本身不持久化。
+
+## 六、核心交互状态
+
+```mermaid
+stateDiagram-v2
+    [*] --> Idle
+    Idle --> Selected: click photo
+    Idle --> MarqueePreview: pointerdown empty canvas
+    Idle --> Panning: Hand/Space + pointerdown
+
+    MarqueePreview --> Selected: pointerup
+    MarqueePreview --> Idle: Escape
+    Panning --> Idle: pointerup
+
+    Selected --> DragPreview: pointerdown selected photo
+    DragPreview --> Selected: pointermove / preview only
+    DragPreview --> Selected: pointerup / one command + one save
+    DragPreview --> Selected: cancel / restore
+
+    Selected --> Compare: exactly two + Compare
+    Compare --> Selected: close / preserve placements
+
+    Selected --> SequenceConfirm: Create Sequence
+    SequenceConfirm --> Selected: cancel
+    SequenceConfirm --> SequencePage: confirm explicit order
+```
+
+## 七、关键不变量
+
+1. Contact Sheet 排序、过滤、选择和缩放不改变 Sequence。
+2. Table move、arrange、group、stack 和 viewport 不改变 Sequence。
+3. 一次完整拖拽只产生一个 command、一个 undo step 和一次 snapshot save。
+4. Remove from Table 不删除原始照片，也不清除 Pick、Pin 或现有 Sequence 引用。
+5. 缺失文件保留 Table placement 和 Sequence item 的位置。
+6. Pin、Pick / Reject、Table membership 和 selection 是不同状态。
+7. `inTable` 只能由 Worktable membership 推导，不允许与另一个字段双写。
+8. Create Sequence 不按 Table x/y 自动排序，必须由用户确认顺序。
+9. Compare 不建立第四套持久化照片集合。
+10. 所有核心功能在无网络、无 AI 时可用。
+
+## 八、持久化与迁移要求
+
+1. Workspace 增加 `photoStates` 与 `worktableDraft`，继续保留独立 `sequenceDraft`。
+2. 旧 `poolPhotoIds` 自动迁移为 Worktable：
+   - 原数组顺序成为 `entryOrder`；
+   - 使用固定、确定性的 Grid 生成 x / y / z；
+   - 迁移后删除 `poolPhotoIds`，不长期双写。
+3. Pin 作为 project-wide state 跨重启持久化。
+4. Worktable command history 在 M2.1 只保留当前 session；持久化的是 command 后 snapshot。
+5. viewport 可作为 resume context 保存，但 pan / zoom 不进入 authoring undo history。
+6. Memory 与 IndexedDB adapter 必须通过同一 ProjectStore contract tests。
+7. Source access 失败或 photo index 缺失不能删除 Worktable / Sequence 引用。
+
+## 九、验收标准
+
+### 9.1 M2.1
+
+- 从 Contact Sheet 选择多张照片并 Place on Table，重复操作不会产生重复 placement。
+- 多次 pointermove 后 pointerup，只记录一次 move 和一次 undo。
+- Undo 一次可恢复整次多选拖动。
+- Grid / Row 不改变 `entryOrder` 或 Sequence。
+- Remove from Table 后照片仍能在 Contact Sheet 中打开。
+- 刷新页面后恢复 Table 位置；undo history 重新开始。
+- missing photo 在原位置显示 placeholder。
+- Contact Sheet 的排序/过滤测试证明 `sequenceDraft` 未变化。
+
+### 9.2 M2.2
+
+- Group 与 Stack 具有可区分的视觉和行为。
+- Compare 只在恰好两张照片选择时可用，关闭后坐标不变。
+- Pin 重启后仍存在，且与 Compare 槽位无关。
+- Create Sequence 显示顺序确认条，调整后生成新的稳定 SequenceItemId。
+- Table 移动后已创建 Sequence 顺序保持不变。
+
+## 十、实现阶段
+
+### M2.0：术语与数据地基
+
+- Worktable contracts / editor / interface tests；
+- workspace schema migration；
+- Pool → Table 一次性迁移；
+- 退役 Whiteboard contract；
+- 新路由与页面文件骨架。
+
+### M2.1：Table 基础闭环
+
+- Place on Table、自由移动、多选、框选；
+- pan / zoom、Grid / Row / Align；
+- Remove、undo / redo、IndexedDB 恢复；
+- missing placeholder 与基础 E2E。
+
+### M2.2：比较与成序
+
+- Group、Stack、Photo Compare、Pin；
+- Create Sequence 顺序确认；
+- Sequence Edit / Read 基础。
+
+### M2.3：延伸表达
+
+- snapshot、memo、关系标签、打印尺寸模拟。
+
+## 十一、产品原则
+
+1. **原片零写入**：不移动、重命名、覆盖或删除原片。
+2. **创作判断属于用户**：产品提供观看与组织条件，不给艺术质量分数。
+3. **空间关系不等于阅读顺序**：Table 与 Sequence 永远通过显式动作连接。
+4. **版本优于覆盖**：已保存的创作节点不可被静默改写。
+5. **恢复优于提醒**：项目状态服务于重新进入创作。
+6. **本地核心独立成立**：无网络、无 AI 也能完成核心闭环。
+7. **摄影师工作桌优先**：先做专用 Table，不扩成通用白板。
+8. **错误可解释、工作可恢复**：部分失败不抹掉已成功状态。
+
+## 十二、相关设计文档
+
+- [Worktable 产品与模块设计基线](./Worktable_Architecture_Interaction_Proposal.md)
+- [Contact Sheet / Worktable / Sequence React + TypeScript 资源建议](./Contact_Sheet_Sequence_React_TS_Resources.md)

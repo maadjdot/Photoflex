@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-test("M1_v2 Contact Sheet 保持三栏比例与四列首屏", async ({ page }, testInfo) => {
+test("M2.1 Contact Sheet 提供 Place on Table，并移除 Pool 栏", async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 1441, height: 1027 });
   await page.goto("/");
   await expect(page.getByText("Begin with a body of work.")).toBeVisible();
@@ -16,13 +16,14 @@ test("M1_v2 Contact Sheet 保持三栏比例与四列首屏", async ({ page }, t
     const photoIds = Array.from({ length: 16 }, (_, index) => `visual-photo-${index}`);
     const transaction = database.transaction(["projects", "photo-index", "photo-thumbnails"], "readwrite");
     transaction.objectStore("projects").put({
-      schemaVersion: 2,
+      schemaVersion: 4,
       projectId,
       name: "Visual Project",
       memo: "",
       expectedPhotoCount: null,
       sources: [{ id: sourceId, displayName: "Raw Selects", createdAt }],
-      poolPhotoIds: photoIds.slice(0, 8),
+      photoStates: {},
+      worktableDraft: { projectId, entryOrder: [], placements: {}, groups: [], links: [] },
       sequenceDraft: { projectId, items: [] },
       versionIds: [],
       revision: 0,
@@ -52,7 +53,6 @@ test("M1_v2 Contact Sheet 保持三栏比例与四列首屏", async ({ page }, t
 
   const header = await page.locator(".topbar").boundingBox();
   const sourceRail = await page.locator(".source-rail").boundingBox();
-  const pool = await page.locator(".pool-panel").boundingBox();
   const firstRow = await page.locator(".photo-tile").evaluateAll((tiles) => {
     const tops = tiles.map((tile) => Math.round(tile.getBoundingClientRect().top));
     const firstTop = Math.min(...tops);
@@ -62,9 +62,34 @@ test("M1_v2 Contact Sheet 保持三栏比例与四列首屏", async ({ page }, t
   expect(header?.height).toBe(80);
   expect(sourceRail?.width).toBeGreaterThanOrEqual(210);
   expect(sourceRail?.width).toBeLessThanOrEqual(213);
-  expect(pool?.width).toBeGreaterThanOrEqual(324);
-  expect(pool?.width).toBeLessThanOrEqual(327);
-  expect(firstRow).toBe(4);
+  await expect(page.locator(".pool-panel")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Place on Table" })).toBeVisible();
+  expect(firstRow).toBeGreaterThanOrEqual(4);
 
   await page.screenshot({ path: testInfo.outputPath("contact-sheet.png"), fullPage: true });
+
+  await page.locator(".photo-tile").nth(0).click();
+  await page.locator(".photo-tile").nth(1).click();
+  await page.getByRole("button", { name: "Place on Table" }).click();
+  await expect(page.getByText(/2 photos placed on Table/)).toBeVisible();
+  await page.getByRole("button", { name: "Table", exact: true }).click();
+  await expect(page).toHaveURL(/#\/projects\/visual-project\/table$/);
+  await expect(page.locator(".worktable-card")).toHaveCount(2);
+  await expect(page.getByRole("button", { name: "Group" })).toBeDisabled();
+
+  const firstCard = page.locator(".worktable-card").first();
+  const beforeDrag = await firstCard.boundingBox();
+  if (!beforeDrag) throw new Error("Table card is not visible");
+  await page.mouse.move(beforeDrag.x + beforeDrag.width / 2, beforeDrag.y + beforeDrag.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(beforeDrag.x + beforeDrag.width / 2 + 48, beforeDrag.y + beforeDrag.height / 2 + 32, { steps: 3 });
+  await page.mouse.up();
+  await expect.poll(async () => (await firstCard.boundingBox())?.x).toBeGreaterThan(beforeDrag.x + 40);
+  const afterDrag = await firstCard.boundingBox();
+  await page.reload();
+  await expect(page.locator(".worktable-card")).toHaveCount(2);
+  const afterReload = await page.locator(".worktable-card").first().boundingBox();
+  expect(Math.round(afterReload?.x ?? 0)).toBe(Math.round(afterDrag?.x ?? 0));
+
+  await page.screenshot({ path: testInfo.outputPath("table.png"), fullPage: true });
 });

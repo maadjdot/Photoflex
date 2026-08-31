@@ -95,7 +95,7 @@ TABLE                         Sequence  Group  Link  Juxtapose   − 75% +
 
 | 状态 | 视觉表现 | 说明 |
 |---|---|---|
-| Default | 无外框 | 照片在 Table 上，未选中 |
+| Default | 无外框，保持原片比例 | 照片在 Table 上，未选中 |
 | Hover | 细灰边框或轻微提高层级 | 表示可以选择或拖动 |
 | Selected | 2px 黑色外框 | 当前操作对象 |
 | Multi-selected | 多张照片均显示黑框 | 可以一起移动或执行工具操作 |
@@ -136,6 +136,10 @@ Group 框和 Link 线不能代替 Selected 状态：用户仍需知道当前将�
 - 普通滚轮不缩放 Table；存在垂直空间时用于滚动。
 
 缩放和平移属于 View State，不进入 undo / redo；可以按项目记住最后视角。
+
+### 调整照片大小
+- 选择照片后四角调整大小
+- 不改变照片比例
 
 ## 6. Group 交互
 
