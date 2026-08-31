@@ -1,0 +1,31 @@
+name: PhotoFlex MVP CI
+
+on:
+  push:
+    paths:
+      - "MVP_Sequence/photoflex-MVP/**"
+      - ".github/workflows/photoflex-mvp-ci.yml"
+  pull_request:
+    paths:
+      - "MVP_Sequence/photoflex-MVP/**"
+      - ".github/workflows/photoflex-mvp-ci.yml"
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: MVP_Sequence/photoflex-MVP
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.15.1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: MVP_Sequence/photoflex-MVP/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm fixture:generate
+      - run: pnpm check
