@@ -3,7 +3,6 @@ import {
   ok,
   type PhotoId,
   type PhotoPage,
-  type PhotoIssue,
   type PhotoRef,
   type PhotoSource,
   type PreviewLease,
@@ -341,11 +340,12 @@ export class BrowserPhotoSource implements PhotoSource {
       const pageLimit = Math.min(PAGE_SIZE, Math.max(1, Math.floor(limit) || PAGE_SIZE));
       const page = await this.readPhotoPage(opened.value, sourceId, cursor === "0" ? undefined : cursor, pageLimit + 1);
       const items = page.slice(0, pageLimit);
-      const issues = await this.findPhotoIssues(opened.value, items);
       return ok({
         items,
         nextCursor: page.length > pageLimit ? items.at(-1)!.relativePath : null,
-        issues,
+        // File existence is checked only when a visible thumbnail or preview is
+        // requested. Keeping pagination index-only removes up to 100 serial FS reads.
+        issues: [],
       });
     } catch {
       return err(toSourceError());
@@ -505,29 +505,6 @@ export class BrowserPhotoSource implements PhotoSource {
       }
       return err({ kind: "photo-not-found", photoId });
     }
-  }
-
-  private async findPhotoIssues(database: IDBDatabase, photos: readonly PhotoRef[]): Promise<PhotoIssue[]> {
-    const issues: PhotoIssue[] = [];
-    for (const photo of photos) {
-      const handle = await this.loadHandle(photo.sourceId, database);
-      if (!handle) continue;
-      const permission = await (handle as DirectoryHandleLike).queryPermission?.({ mode: "read" });
-
-      // Lack of permission says nothing about whether the file still exists. The
-      // Source card handles re-authorization; only a readable missing path is
-      // allowed to become a MISSING photo.
-      if (permission && permission !== "granted") continue;
-      try {
-        let directory = handle;
-        const parts = photo.relativePath.split("/");
-        for (const part of parts.slice(0, -1)) directory = await directory.getDirectoryHandle(part);
-        await (await directory.getFileHandle(parts.at(-1)!)).getFile();
-      } catch {
-        issues.push({ kind: "missing-file", photoId: photo.id, relativePath: photo.relativePath });
-      }
-    }
-    return issues;
   }
 
   private createLease(key: string, blob: Blob): PreviewLease {

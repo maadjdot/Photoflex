@@ -1,0 +1,18 @@
+<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="photoSortTitle photoSortDesc">
+  <title id="photoSortTitle">Sort photos</title>
+  <desc id="photoSortDesc">Three photo thumbnails with a vertical reorder arrow.</desc>
+  <g stroke="currentColor" stroke-width="1.45" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="2.75" y="2.75" width="11.5" height="6.3" rx="0.6" fill="#FFF8F0"/>
+    <rect x="2.75" y="8.85" width="11.5" height="6.3" rx="0.6" fill="#FFF8F0"/>
+    <rect x="2.75" y="14.95" width="11.5" height="6.3" rx="0.6" fill="#FFF8F0"/>
+    <circle cx="5.45" cy="5.2" r="0.85" fill="currentColor" stroke="none"/>
+    <path d="M3.9 8.05 6.25 5.9l1.7 1.35 1.45-1.15 3.1 1.95"/>
+    <circle cx="5.45" cy="11.3" r="0.85" fill="currentColor" stroke="none"/>
+    <path d="M3.9 14.15 6.25 12l1.7 1.35 1.45-1.15 3.1 1.95"/>
+    <circle cx="5.45" cy="17.4" r="0.85" fill="currentColor" stroke="none"/>
+    <path d="M3.9 20.25 6.25 18.1l1.7 1.35 1.45-1.15 3.1 1.95"/>
+    <path d="M19 4.1v15.8"/>
+    <path d="m16.55 6.65 2.45-2.55 2.45 2.55"/>
+    <path d="m16.55 17.35 2.45 2.55 2.45-2.55"/>
+  </g>
+</svg>

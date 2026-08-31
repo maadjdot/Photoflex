@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>PhotoFlex photo sort icon</title>
+  <style>
+    @font-face { font-family: Ancizar; src: url('../src/assets/fonts/AncizarSerif.ttf'); }
+    * { box-sizing: border-box; }
+    body { margin:0; width:100vw; height:100vh; display:grid; place-items:center; background:#fff; color:#1c1814; font-family:Arial,sans-serif; }
+    .sheet { display:flex; align-items:flex-end; gap:50px; padding:60px 80px; border:1px solid #bcbcbc; background:#fff8f0; }
+    .sample { display:grid; justify-items:center; gap:14px; }
+    .button { display:grid; place-items:center; width:64px; height:64px; border:1px solid #1c1814; background:#fff; }
+    .button.dark { background:#1c1814; color:#fff8f0; }
+    .button.large { width:88px; height:88px; }
+    .button.small { width:44px; height:44px; }
+    .label { font-size:10px; letter-spacing:.12em; text-transform:uppercase; color:#72706d; }
+    h1 { position:absolute; top:25px; left:35px; margin:0; font:700 26px Ancizar,Georgia,serif; }
+    p { position:absolute; right:35px; bottom:25px; margin:0; color:#72706d; font-size:11px; }
+  </style>
+</head>
+<body>
+  <h1>PhotoFlex / Sort photos</h1>
+  <div class="sheet">
+    <div class="sample"><div class="button large"><img src="../src/assets/icons/photo-sort.svg" width="40" height="40" alt="Sort photos" /></div><span class="label">Toolbar / 40px</span></div>
+    <div class="sample"><div class="button dark"><img src="../src/assets/icons/photo-sort.svg" width="28" height="28" alt="Sort photos" /></div><span class="label">Primary / 28px</span></div>
+    <div class="sample"><div class="button small"><img src="../src/assets/icons/photo-sort.svg" width="18" height="18" alt="Sort photos" /></div><span class="label">Compact / 18px</span></div>
+  </div>
+  <p>currentColor · black / #FFF8F0 · 1.45px stroke</p>
+</body>
+</html>
