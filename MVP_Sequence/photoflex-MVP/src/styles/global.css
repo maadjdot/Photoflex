@@ -267,14 +267,14 @@ h1, h2, p { margin-top: 0; }
 .preview-image-wrap.is-fit { overflow: hidden; }
 .preview-image-wrap.is-fit img { position: absolute; inset: 0; display: block; width: 100%; height: 100%; max-width: none; max-height: none; object-fit: contain; object-position: center; }
 .preview-image-wrap.is-zoomed img { display: block; max-width: none; max-height: none; margin: auto; }
-.table-preview-backdrop { position: fixed; inset: 80px 0 0; z-index: 20; display: grid; place-items: center; padding: 32px; background: rgb(15 13 11 / 92%); }
-.table-preview-dialog { display: grid; grid-template-rows: 48px minmax(0, 1fr); width: min(1180px, 100%); height: min(820px, 100%); min-height: 0; background: #161412; box-shadow: 0 18px 60px rgb(0 0 0 / 42%); }
+.table-preview-backdrop { position: fixed; inset: 80px 0 0; z-index: 20; display: grid; box-sizing: border-box; place-items: center; padding: 32px; background: rgb(15 13 11 / 92%); }
+.table-preview-dialog { display: grid; grid-template-rows: 48px minmax(0, 1fr); width: min(1180px, 100%); height: min(820px, calc(100dvh - 144px)); max-height: 100%; min-height: 0; overflow: hidden; background: #161412; box-shadow: 0 18px 60px rgb(0 0 0 / 42%); }
 .table-preview-dialog header { display: flex; align-items: center; justify-content: space-between; padding: 0 16px; color: #fff; font-size: 12px; }
 .table-preview-dialog header button { border: 0; background: transparent; color: #fff; font-size: 26px; }
 /* Same fit rule as Contact Sheet preview: the visual area owns the available
    space, and every image is contained and centred inside it. */
-.table-preview-image-wrap { display: grid; min-width: 0; min-height: 0; overflow: hidden; place-items: center; }
-.table-preview-image-wrap img { display: block; width: 100%; height: 100%; max-width: 100%; max-height: 100%; object-fit: contain; object-position: center; }
+.table-preview-image-wrap { display: flex; min-width: 0; min-height: 0; overflow: hidden; align-items: center; justify-content: center; }
+.table-preview-image-wrap img { display: block; width: auto; height: auto; max-width: 100%; max-height: 100%; object-fit: contain; object-position: center; }
 .compare-backdrop { position: fixed; inset: 80px 0 0; z-index: 30; display: grid; grid-template-rows: 54px minmax(0, 1fr); background: rgb(15 13 11 / 96%); color: #fff; }
 .compare-backdrop > header { display: flex; align-items: center; gap: 16px; padding: 0 22px; border-bottom: 1px solid rgb(255 255 255 / 16%); font-size: 11px; letter-spacing: .13em; }
 .compare-backdrop > header span { margin-right: auto; }
