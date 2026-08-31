@@ -38,7 +38,7 @@ class Editor implements SequenceEditor {
   }
   execute(command: SequenceEditCommand): Result<SequenceDraft, SequenceCommandError> {
     const result = apply(this.current, command);
-    if (!result.ok || same(this.current, result.value)) return result.ok ? ok(this.snapshot()) : result;
+    if (!result.ok || result.value === this.current) return result.ok ? ok(this.snapshot()) : result;
     this.undoStack.push(this.current);
     this.current = result.value;
     this.redoStack.length = 0;
@@ -58,18 +58,23 @@ function apply(draft: SequenceDraft, command: SequenceEditCommand): Result<Seque
     if (draft.items.length + command.items.length > MVP_SEQUENCE_ITEM_LIMIT) {
       return err({ kind: "sequence-limit-exceeded", limit: MVP_SEQUENCE_ITEM_LIMIT, current: draft.items.length, attempted: command.items.length });
     }
+    if (!command.items.length) return ok(draft);
     return ok({ ...draft, items: [...draft.items.slice(0, at), ...command.items, ...draft.items.slice(at)] });
   }
   const selected = new Set(command.itemIds);
   const missing = command.itemIds.find((itemId) => !draft.items.some((item) => item.id === itemId));
   if (missing) return err({ kind: "unknown-item", itemId: missing });
-  if (command.type === "remove") return ok({ ...draft, items: draft.items.filter((item) => !selected.has(item.id)) });
+  if (command.type === "remove") {
+    return command.itemIds.length
+      ? ok({ ...draft, items: draft.items.filter((item) => !selected.has(item.id)) })
+      : ok(draft);
+  }
   if (!Number.isInteger(command.to) || command.to < 0 || command.to > draft.items.length) return err({ kind: "invalid-target", target: command.to });
   const moving = draft.items.filter((item) => selected.has(item.id));
   const remaining = draft.items.filter((item) => !selected.has(item.id));
   const beforeTarget = draft.items.slice(0, command.to).filter((item) => !selected.has(item.id)).length;
-  return ok({ ...draft, items: [...remaining.slice(0, beforeTarget), ...moving, ...remaining.slice(beforeTarget)] });
+  const items = [...remaining.slice(0, beforeTarget), ...moving, ...remaining.slice(beforeTarget)];
+  return ok(items.every((item, index) => item === draft.items[index]) ? draft : { ...draft, items });
 }
 
 function copy(draft: SequenceDraft): SequenceDraft { return { ...draft, items: draft.items.map((item) => ({ ...item })) }; }
-function same(left: SequenceDraft, right: SequenceDraft): boolean { return JSON.stringify(left) === JSON.stringify(right); }

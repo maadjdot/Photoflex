@@ -6,8 +6,6 @@ import {
   useRef,
   useState,
   type KeyboardEvent,
-  type PointerEvent as ReactPointerEvent,
-  type WheelEvent as ReactWheelEvent,
 } from "react";
 import type {
   PhotoId,
@@ -20,57 +18,25 @@ import type {
   WorktableDraft,
   WorktableEditCommand,
   WorktableEditor,
-  WorktablePoint,
   WorktableViewport,
 } from "../contracts";
 import {
   clampWorktableZoom,
   createWorktableEditor,
-  screenToWorld,
+  visibleWorktablePhotoIds,
   zoomAroundScreenPoint,
 } from "../modules/worktable";
 import { createSequenceEditor } from "../modules/sequence";
+import { CompareOverlay } from "./CompareOverlay";
 import type { AppDependencies } from "./dependencies";
 import { PhotoThumb } from "./PhotoThumb";
 import type { AppRoute } from "./router";
-import { useProjectWorkspace } from "./useProjectWorkspace";
+import { SequenceStrip } from "./SequenceStrip";
+import { TablePreviewOverlay } from "./TablePreviewOverlay";
+import { useProjectWorkspace, workspaceSaveErrorMessage } from "./useProjectWorkspace";
+import { useWorktableGestures } from "./useWorktableGestures";
 
 const DEFAULT_VIEWPORT: WorktableViewport = { originX: 48, originY: 38, zoom: 1 };
-const MARQUEE_OVERLAP = .3;
-
-type Gesture =
-  | {
-      readonly kind: "drag";
-      readonly pointerId: number;
-      readonly startWorld: WorktablePoint;
-      readonly photoIds: readonly PhotoId[];
-    }
-  | {
-      readonly kind: "pan";
-      readonly pointerId: number;
-      readonly startScreen: WorktablePoint;
-      readonly startViewport: WorktableViewport;
-    }
-  | {
-      readonly kind: "marquee";
-      readonly pointerId: number;
-      readonly startScreen: WorktablePoint;
-      readonly additive: boolean;
-    }
-  | {
-      readonly kind: "resize";
-      readonly pointerId: number;
-      readonly photoId: PhotoId;
-      readonly startWorld: WorktablePoint;
-      readonly startWidth: number;
-    };
-
-interface MarqueeRect {
-  readonly left: number;
-  readonly top: number;
-  readonly width: number;
-  readonly height: number;
-}
 
 export function TablePage({
   dependencies,
@@ -86,52 +52,42 @@ export function TablePage({
   const [sequenceDraft, setSequenceDraft] = useState<SequenceDraft>();
   const [selected, setSelected] = useState<Set<PhotoId>>(new Set());
   const [viewport, setViewportState] = useState<WorktableViewport>(DEFAULT_VIEWPORT);
-  const [dragDelta, setDragDelta] = useState<WorktablePoint>({ x: 0, y: 0 });
-  const [resizeScale, setResizeScale] = useState(1);
-  const [marquee, setMarquee] = useState<MarqueeRect>();
   const [missing, setMissing] = useState<Set<PhotoId>>(new Set());
   const [notice, setNotice] = useState<string>();
   const [previewPhotoId, setPreviewPhotoId] = useState<PhotoId>();
   const [comparePhotoIds, setComparePhotoIds] = useState<readonly [PhotoId, PhotoId]>();
   const [sequenceConfirmation, setSequenceConfirmation] = useState<readonly PhotoId[]>();
-  const [sequenceCollapsed, setSequenceCollapsed] = useState(false);
-  const [sequenceDragId, setSequenceDragId] = useState<SequenceItemId>();
   const [alignment, setAlignment] = useState<WorktableAlignment | "">("");
+  const [stageSize, setStageSize] = useState({ width: 0, height: 0 });
   const stageRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<WorktableEditor | undefined>(undefined);
-  const sequenceItemRefs = useRef(new Map<SequenceItemId, HTMLButtonElement>());
-  const sequenceItemPositionsRef = useRef(new Map<SequenceItemId, { readonly left: number; readonly top: number }>());
   const initializedProjectRef = useRef<ProjectId | undefined>(undefined);
-  const gestureRef = useRef<Gesture | undefined>(undefined);
-  const dragDeltaRef = useRef<WorktablePoint>({ x: 0, y: 0 });
-  const resizeScaleRef = useRef(1);
   const viewportRef = useRef(viewport);
   viewportRef.current = viewport;
-
-  // FLIP animation: after Sequence order changes, each persistent DOM card
-  // animates from its old screen position to its new position.
-  useLayoutEffect(() => {
-    const nextPositions = new Map<SequenceItemId, { readonly left: number; readonly top: number }>();
-    for (const [itemId, element] of sequenceItemRefs.current) {
-      const next = element.getBoundingClientRect();
-      const previous = sequenceItemPositionsRef.current.get(itemId);
-      const deltaX = previous ? previous.left - next.left : 0;
-      const deltaY = previous ? previous.top - next.top : 0;
-      if ((deltaX || deltaY) && typeof element.animate === "function") {
-        element.animate([
-          { transform: `translate3d(${deltaX}px, ${deltaY}px, 0)` },
-          { transform: "translate3d(0, 0, 0)" },
-        ], { duration: 220, easing: "cubic-bezier(.2,.75,.25,1)" });
-      }
-      nextPositions.set(itemId, { left: next.left, top: next.top });
-    }
-    sequenceItemPositionsRef.current = nextPositions;
-  }, [sequenceDraft?.items]);
 
   const setViewport = useCallback((next: WorktableViewport) => {
     viewportRef.current = next;
     setViewportState(next);
   }, []);
+
+  useLayoutEffect(() => {
+    const stage = stageRef.current;
+    if (!stage || !draft) return;
+    const measure = () => {
+      const rect = stage.getBoundingClientRect();
+      setStageSize((current) => current.width === rect.width && current.height === rect.height
+        ? current
+        : { width: rect.width, height: rect.height });
+    };
+    measure();
+    if (typeof ResizeObserver === "undefined") {
+      window.addEventListener("resize", measure);
+      return () => window.removeEventListener("resize", measure);
+    }
+    const observer = new ResizeObserver(measure);
+    observer.observe(stage);
+    return () => observer.disconnect();
+  }, [draft?.projectId]);
 
   useEffect(() => {
     if (!workspace || initializedProjectRef.current === projectId) return;
@@ -167,12 +123,12 @@ export function TablePage({
   }, [draft?.projectId, save, viewport]);
 
   const persistDraft = useCallback(async (next: WorktableDraft) => {
-    const saved = await save((current) => ({
+    const result = await save((current) => ({
       ...current,
       worktableDraft: next,
       updatedAt: new Date().toISOString(),
     }));
-    setNotice(saved ? undefined : "桌面状态未能保存，请刷新后重试。");
+    setNotice(result.ok ? undefined : workspaceSaveErrorMessage(result.error));
   }, [save]);
 
   const execute = useCallback((command: WorktableEditCommand) => {
@@ -199,25 +155,33 @@ export function TablePage({
 
   const commitToSequence = useCallback(async (photoIds: readonly PhotoId[]) => {
     if (!photoIds.length) return;
-    let nextDraft: SequenceDraft | undefined;
+    const requestedPhotoIds = [...new Set(photoIds)];
+    const candidates: SequenceItem[] = requestedPhotoIds
+      .map((photoId) => ({ id: sequenceItemId() as SequenceItemId, photoId }));
     const saved = await save((current) => {
       const existingPhotoIds = new Set(current.sequenceDraft.items.map((item) => item.photoId));
-      const additions: SequenceItem[] = photoIds
-        .filter((photoId) => !existingPhotoIds.has(photoId))
-        .map((photoId) => ({ id: sequenceItemId() as SequenceItemId, photoId }));
+      const additions = candidates.filter((item) => !existingPhotoIds.has(item.photoId));
+      if (!additions.length) return current;
       const editor = createSequenceEditor(current.sequenceDraft);
-      const result = editor.execute({ type: "add", items: additions });
-      if (!result.ok) return current;
-      nextDraft = result.value;
-      return { ...current, sequenceDraft: result.value, updatedAt: new Date().toISOString() };
+      const edited = editor.execute({ type: "add", items: additions });
+      return edited.ok
+        ? { ...current, sequenceDraft: edited.value, updatedAt: new Date().toISOString() }
+        : current;
     });
-    if (!saved || !nextDraft) {
-      setNotice("无法加入 Sequence，请重试。");
+    if (!saved.ok) {
+      setNotice(workspaceSaveErrorMessage(saved.error));
       return;
     }
+    const nextDraft = saved.value.sequenceDraft;
+    const nextPhotoIds = new Set(nextDraft.items.map((item) => item.photoId));
+    if (!requestedPhotoIds.every((photoId) => nextPhotoIds.has(photoId))) {
+      setNotice("无法加入 Sequence，请检查数量限制后重试。");
+      return;
+    }
+    const added = new Set(nextDraft.items.map((item) => item.id));
     setSequenceDraft(nextDraft);
     setSequenceConfirmation(undefined);
-    setNotice("照片已加入 Sequence。");
+    setNotice(candidates.some((item) => added.has(item.id)) ? "照片已加入 Sequence。" : "所选照片已经在 Sequence 中。");
   }, [save]);
 
   const requestSequence = (photoIds: readonly PhotoId[]) => {
@@ -230,21 +194,31 @@ export function TablePage({
   };
 
   const reorderSequence = async (itemId: SequenceItemId, to: number) => {
-    let nextDraft: SequenceDraft | undefined;
     const saved = await save((current) => {
       const editor = createSequenceEditor(current.sequenceDraft);
-      const result = editor.execute({ type: "move", itemIds: [itemId], to });
-      if (!result.ok) return current;
-      nextDraft = result.value;
-      return { ...current, sequenceDraft: result.value, updatedAt: new Date().toISOString() };
+      const edited = editor.execute({ type: "move", itemIds: [itemId], to });
+      if (!edited.ok || edited.value.items.every((item, index) => item.id === current.sequenceDraft.items[index]?.id)) {
+        return current;
+      }
+      return { ...current, sequenceDraft: edited.value, updatedAt: new Date().toISOString() };
     });
-    if (saved && nextDraft) setSequenceDraft(nextDraft);
+    if (saved.ok) setSequenceDraft(saved.value.sequenceDraft);
+    else setNotice(workspaceSaveErrorMessage(saved.error));
   };
 
   const selectedIds = useMemo(
     () => draft?.entryOrder.filter((photoId) => selected.has(photoId)) ?? [],
     [draft, selected],
   );
+  const visiblePhotoIds = useMemo(
+    () => draft
+      ? visibleWorktablePhotoIds(draft, viewport, stageSize)
+      : new Set<PhotoId>(),
+    [draft, stageSize, viewport],
+  );
+  const sequenceIndexByPhotoId = useMemo(() => new Map(
+    (sequenceDraft?.items ?? workspace?.sequenceDraft.items ?? []).map((item, index) => [item.photoId, index] as const),
+  ), [sequenceDraft?.items, workspace?.sequenceDraft.items]);
 
   const onPhotoError = useCallback((photoId: PhotoId, photoError: SourceError) => {
     if (photoError.kind === "photo-not-found" || photoError.kind === "preview-unavailable") {
@@ -252,193 +226,25 @@ export function TablePage({
     }
   }, []);
 
-  const startPan = (event: ReactPointerEvent<HTMLElement>) => {
-    const stage = stageRef.current;
-    if (!stage) return;
-    stage.focus();
-    stage.setPointerCapture(event.pointerId);
-    gestureRef.current = {
-      kind: "pan",
-      pointerId: event.pointerId,
-      startScreen: { x: event.clientX, y: event.clientY },
-      startViewport: viewportRef.current,
-    };
-  };
-
-  const onCardPointerDown = (event: ReactPointerEvent<HTMLElement>, photoId: PhotoId) => {
-    event.preventDefault();
-    event.stopPropagation();
-    if (event.button === 2) {
-      startPan(event);
-      return;
-    }
-    if (event.button !== 0 || !stageRef.current) return;
-    stageRef.current.focus();
-    const toggle = event.shiftKey || event.metaKey || event.ctrlKey;
-    let dragIds: readonly PhotoId[];
-    if (toggle) {
-      const next = new Set(selected);
-      if (next.has(photoId)) next.delete(photoId);
-      else next.add(photoId);
-      setSelected(next);
-      if (!next.has(photoId)) return;
-      dragIds = [...next];
-    } else if (selected.has(photoId)) {
-      dragIds = [...selected];
-    } else {
-      setSelected(new Set([photoId]));
-      dragIds = [photoId];
-    }
-    const rect = stageRef.current.getBoundingClientRect();
-    stageRef.current.setPointerCapture(event.pointerId);
-    gestureRef.current = {
-      kind: "drag",
-      pointerId: event.pointerId,
-      startWorld: screenToWorld({ x: event.clientX, y: event.clientY }, rect, viewportRef.current),
-      photoIds: dragIds,
-    };
-    dragDeltaRef.current = { x: 0, y: 0 };
-    setDragDelta({ x: 0, y: 0 });
-  };
-
-  const onResizePointerDown = (event: ReactPointerEvent<HTMLButtonElement>, photoId: PhotoId) => {
-    const stage = stageRef.current;
-    const item = draft?.placements[photoId];
-    if (event.button !== 0 || !stage || !item) return;
-    event.preventDefault();
-    event.stopPropagation();
-    stage.focus();
-    stage.setPointerCapture(event.pointerId);
-    gestureRef.current = {
-      kind: "resize",
-      pointerId: event.pointerId,
-      photoId,
-      startWorld: screenToWorld({ x: event.clientX, y: event.clientY }, stage.getBoundingClientRect(), viewportRef.current),
-      startWidth: item.width,
-    };
-    resizeScaleRef.current = 1;
-    setResizeScale(1);
-  };
-
-  const onStagePointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
-    if (event.target !== event.currentTarget || !stageRef.current) return;
-    if (event.button === 2) {
-      startPan(event);
-      return;
-    }
-    if (event.button !== 0) return;
-    stageRef.current.focus();
-    stageRef.current.setPointerCapture(event.pointerId);
-    const rect = stageRef.current.getBoundingClientRect();
-    const start = { x: event.clientX, y: event.clientY };
-    gestureRef.current = {
-      kind: "marquee",
-      pointerId: event.pointerId,
-      startScreen: start,
-      additive: event.shiftKey || event.metaKey || event.ctrlKey,
-    };
-    setMarquee({ left: start.x - rect.left, top: start.y - rect.top, width: 0, height: 0 });
-    if (!(event.shiftKey || event.metaKey || event.ctrlKey)) setSelected(new Set());
-  };
-
-  const onStagePointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
-    const gesture = gestureRef.current;
-    const stage = stageRef.current;
-    if (!gesture || gesture.pointerId !== event.pointerId || !stage) return;
-    const rect = stage.getBoundingClientRect();
-    if (gesture.kind === "pan") {
-      setViewport({
-        ...gesture.startViewport,
-        originX: gesture.startViewport.originX + event.clientX - gesture.startScreen.x,
-        originY: gesture.startViewport.originY + event.clientY - gesture.startScreen.y,
-      });
-      return;
-    }
-    if (gesture.kind === "marquee") {
-      const left = Math.min(gesture.startScreen.x, event.clientX);
-      const top = Math.min(gesture.startScreen.y, event.clientY);
-      setMarquee({
-        left: left - rect.left,
-        top: top - rect.top,
-        width: Math.abs(event.clientX - gesture.startScreen.x),
-        height: Math.abs(event.clientY - gesture.startScreen.y),
-      });
-      return;
-    }
-    if (gesture.kind === "resize") {
-      const item = draft?.placements[gesture.photoId];
-      if (!item) return;
-      const current = screenToWorld({ x: event.clientX, y: event.clientY }, rect, viewportRef.current);
-      const nextScale = Math.max(.25, Math.min(4, (current.x - item.x) / gesture.startWidth));
-      resizeScaleRef.current = nextScale;
-      setResizeScale(nextScale);
-      return;
-    }
-
-    let nextViewport = viewportRef.current;
-    const edge = 36;
-    const panStep = 10;
-    const localX = event.clientX - rect.left;
-    const localY = event.clientY - rect.top;
-    const panX = localX < edge ? panStep : localX > rect.width - edge ? -panStep : 0;
-    const panY = localY < edge ? panStep : localY > rect.height - edge ? -panStep : 0;
-    if (panX || panY) {
-      nextViewport = {
-        ...nextViewport,
-        originX: nextViewport.originX + panX,
-        originY: nextViewport.originY + panY,
-      };
-      setViewport(nextViewport);
-    }
-    const current = screenToWorld({ x: event.clientX, y: event.clientY }, rect, nextViewport);
-    const delta = {
-      x: current.x - gesture.startWorld.x,
-      y: current.y - gesture.startWorld.y,
-    };
-    dragDeltaRef.current = delta;
-    setDragDelta(delta);
-  };
-
-  const finishPointer = (event: ReactPointerEvent<HTMLDivElement>, cancelled = false) => {
-    const gesture = gestureRef.current;
-    const stage = stageRef.current;
-    if (!gesture || gesture.pointerId !== event.pointerId || !stage) return;
-    if (stage.hasPointerCapture(event.pointerId)) stage.releasePointerCapture(event.pointerId);
-    gestureRef.current = undefined;
-
-    if (!cancelled && gesture.kind === "drag") {
-      const delta = dragDeltaRef.current;
-      if (Math.abs(delta.x) > .25 || Math.abs(delta.y) > .25) {
-        execute({ type: "move", photoIds: gesture.photoIds, by: delta });
-      }
-    }
-    if (!cancelled && gesture.kind === "resize" && Math.abs(resizeScaleRef.current - 1) > .01) {
-      execute({ type: "resize", photoIds: [gesture.photoId], scale: resizeScaleRef.current });
-    }
-    if (!cancelled && gesture.kind === "marquee" && draft) {
-      const rect = stage.getBoundingClientRect();
-      const start = screenToWorld(gesture.startScreen, rect, viewportRef.current);
-      const end = screenToWorld({ x: event.clientX, y: event.clientY }, rect, viewportRef.current);
-      const bounds = {
-        left: Math.min(start.x, end.x),
-        top: Math.min(start.y, end.y),
-        right: Math.max(start.x, end.x),
-        bottom: Math.max(start.y, end.y),
-      };
-      const hits = draft.entryOrder.filter((photoId) => {
-        const item = draft.placements[photoId];
-        const overlapWidth = Math.max(0, Math.min(bounds.right, item.x + item.width) - Math.max(bounds.left, item.x));
-        const overlapHeight = Math.max(0, Math.min(bounds.bottom, item.y + item.height) - Math.max(bounds.top, item.y));
-        return overlapWidth * overlapHeight / (item.width * item.height) >= MARQUEE_OVERLAP;
-      });
-      setSelected((current) => gesture.additive ? new Set([...current, ...hits]) : new Set(hits));
-    }
-    dragDeltaRef.current = { x: 0, y: 0 };
-    setDragDelta({ x: 0, y: 0 });
-    resizeScaleRef.current = 1;
-    setResizeScale(1);
-    setMarquee(undefined);
-  };
+  const {
+    gestureRef,
+    dragDelta,
+    resizeScale,
+    marquee,
+    onCardPointerDown,
+    onResizePointerDown,
+    onStagePointerDown,
+    onStagePointerMove,
+    finishPointer,
+  } = useWorktableGestures({
+    draft,
+    selected,
+    setSelected,
+    execute,
+    stageRef,
+    viewportRef,
+    setViewportState,
+  });
 
   const zoomAtCenter = (nextZoom: number) => {
     const stage = stageRef.current;
@@ -478,33 +284,28 @@ export function TablePage({
   useEffect(() => {
     const stage = stageRef.current;
     if (!stage) return;
-    const onNativeWheel = (event: WheelEvent) => {
-      if (!event.ctrlKey && !event.metaKey) return;
-      // React's wheel listener may be passive. Cancel natively so this gesture
-      // belongs to the Table instead of changing the browser page zoom.
+    const onWheel = (event: WheelEvent) => {
       event.preventDefault();
-      event.stopPropagation();
-      setViewport(zoomAroundScreenPoint(
-        viewportRef.current,
-        { x: event.clientX, y: event.clientY },
-        stage.getBoundingClientRect(),
-        viewportRef.current.zoom * Math.exp(-event.deltaY * .002),
-      ));
+      if (event.ctrlKey || event.metaKey) {
+        setViewport(zoomAroundScreenPoint(
+          viewportRef.current,
+          { x: event.clientX, y: event.clientY },
+          stage.getBoundingClientRect(),
+          viewportRef.current.zoom * Math.exp(-event.deltaY * .002),
+        ));
+        return;
+      }
+      setViewport({
+        ...viewportRef.current,
+        originX: viewportRef.current.originX - event.deltaX,
+        originY: viewportRef.current.originY - event.deltaY,
+      });
     };
-    stage.addEventListener("wheel", onNativeWheel, { passive: false });
-    return () => stage.removeEventListener("wheel", onNativeWheel);
+    // Native non-passive handling owns both zoom and pan, so browser zoom can
+    // be cancelled without a second React wheel path.
+    stage.addEventListener("wheel", onWheel, { passive: false });
+    return () => stage.removeEventListener("wheel", onWheel);
   }, [draft?.projectId, setViewport]);
-
-  const onWheel = (event: ReactWheelEvent<HTMLDivElement>) => {
-    event.preventDefault();
-    const stage = stageRef.current;
-    if (!stage) return;
-    setViewport({
-      ...viewportRef.current,
-      originX: viewportRef.current.originX - event.deltaX,
-      originY: viewportRef.current.originY - event.deltaY,
-    });
-  };
 
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "a") {
@@ -602,7 +403,6 @@ export function TablePage({
         onPointerMove={onStagePointerMove}
         onPointerUp={(event) => finishPointer(event)}
         onPointerCancel={(event) => finishPointer(event, true)}
-        onWheel={onWheel}
         onContextMenu={(event) => event.preventDefault()}
         onKeyDown={onKeyDown}
         aria-label="Photo worktable"
@@ -627,7 +427,7 @@ export function TablePage({
             const isSelected = selected.has(photoId);
             const preview = isSelected && gestureRef.current?.kind === "drag" ? dragDelta : { x: 0, y: 0 };
             const visualScale = gestureRef.current?.kind === "resize" && gestureRef.current.photoId === photoId ? resizeScale : 1;
-            const sequenceIndex = activeSequence.items.findIndex((item) => item.photoId === photoId);
+            const sequenceIndex = sequenceIndexByPhotoId.get(photoId);
             return (
               <article
                 key={photoId}
@@ -643,9 +443,11 @@ export function TablePage({
                 aria-label={`${item.filename}${isSelected ? "，已选择" : ""}`}
               >
                 <div className="worktable-photo" style={{ height: item.height * visualScale }}>
-                  <PhotoThumb photoSource={dependencies.photoSource} photoId={photoId} alt={item.filename} onError={onPhotoError} eager resolution="full" />
+                  {visiblePhotoIds.has(photoId)
+                    ? <PhotoThumb photoSource={dependencies.photoSource} photoId={photoId} alt={item.filename} onError={onPhotoError} eager />
+                    : <div className="thumb-placeholder" aria-hidden="true" />}
                   {missing.has(photoId) && <span className="worktable-missing">MISSING</span>}
-                  {sequenceIndex >= 0 && <span className="worktable-sequence-number">S{String(sequenceIndex + 1).padStart(2, "0")}</span>}
+                  {sequenceIndex !== undefined && <span className="worktable-sequence-number">S{String(sequenceIndex + 1).padStart(2, "0")}</span>}
                 </div>
                 {isSelected && selectedIds.length === 1 && (
                   <button className="worktable-resize-handle" onPointerDown={(event) => onResizePointerDown(event, photoId)} aria-label="Resize photo" />
@@ -673,32 +475,14 @@ export function TablePage({
           <div><button onClick={() => setSequenceConfirmation(undefined)}>Cancel</button><button className="button button-primary" onClick={() => void commitToSequence(sequenceConfirmation)}>Add to Sequence</button></div>
         </section>
       )}
-      <section className={`sequence-strip${sequenceCollapsed ? " is-collapsed" : ""}`} aria-label="Sequence Order">
-        <header>
-          <button onClick={() => setSequenceCollapsed((value) => !value)} aria-label={sequenceCollapsed ? "Expand Sequence Order" : "Collapse Sequence Order"}>{sequenceCollapsed ? "↑" : "↓"}</button>
-          <strong>SEQUENCE ORDER</strong><span>{activeSequence.items.length} photos</span><small>drag to reorder</small>
-        </header>
-        {!sequenceCollapsed && <div className="sequence-strip-items">
-          {activeSequence.items.map((item, index) => {
-            const placement = draft.placements[item.photoId];
-            return <button
-              key={item.id}
-              ref={(element) => {
-                if (element) sequenceItemRefs.current.set(item.id, element);
-                else sequenceItemRefs.current.delete(item.id);
-              }}
-              className={`sequence-strip-item${sequenceDragId === item.id ? " is-dragging" : ""}`}
-              draggable
-              onDragStart={() => setSequenceDragId(item.id)}
-              onDragOver={(event) => event.preventDefault()}
-              onDrop={(event) => { event.preventDefault(); if (sequenceDragId) void reorderSequence(sequenceDragId, index); setSequenceDragId(undefined); }}
-              onDragEnd={() => setSequenceDragId(undefined)}
-              onClick={() => setSelected(new Set([item.photoId]))}
-              aria-label={`Sequence ${index + 1}`}
-            ><PhotoThumb photoSource={dependencies.photoSource} photoId={item.photoId} alt={placement?.filename ?? `Sequence ${index + 1}`} onError={onPhotoError} /><span>{String(index + 1).padStart(2, "0")}</span></button>;
-          })}
-        </div>}
-      </section>
+      <SequenceStrip
+        sequence={activeSequence}
+        worktable={draft}
+        photoSource={dependencies.photoSource}
+        onPhotoError={onPhotoError}
+        onReorder={(itemId, to) => { void reorderSequence(itemId, to); }}
+        onSelect={(photoId) => setSelected(new Set([photoId]))}
+      />
       {previewPhotoId && draft.placements[previewPhotoId] && (
         <TablePreviewOverlay
           photoId={previewPhotoId}
@@ -711,93 +495,6 @@ export function TablePage({
       {comparePhotoIds && <CompareOverlay photoIds={comparePhotoIds} draft={draft} photoSource={dependencies.photoSource} onClose={() => setComparePhotoIds(undefined)} />}
     </main>
   );
-}
-
-function TablePreviewOverlay({
-  photoId,
-  filename,
-  photoSource,
-  onClose,
-  onPhotoSourceError,
-}: {
-  readonly photoId: PhotoId;
-  readonly filename: string;
-  readonly photoSource: AppDependencies["photoSource"];
-  readonly onClose: () => void;
-  readonly onPhotoSourceError: (photoId: PhotoId, error: SourceError) => void;
-}) {
-  const [url, setUrl] = useState<string>();
-  useEffect(() => {
-    let active = true;
-    let lease: { readonly url: string; release(): void } | undefined;
-    void photoSource.preview(photoId).then((result) => {
-      if (!result.ok) {
-        if (active) onPhotoSourceError(photoId, result.error);
-        return;
-      }
-      if (!active) {
-        result.value.release();
-        return;
-      }
-      lease = result.value;
-      setUrl(lease.url);
-    });
-    return () => { active = false; lease?.release(); };
-  }, [onPhotoSourceError, photoId, photoSource]);
-  useEffect(() => {
-    const onKey = (event: globalThis.KeyboardEvent) => { if (event.key === "Escape") onClose(); };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
-
-  return (
-    <div className="table-preview-backdrop" role="dialog" aria-modal="true" aria-label={`Preview ${filename}`} onPointerDown={onClose}>
-      <section className="table-preview-dialog" onPointerDown={(event) => event.stopPropagation()}>
-        <header><span>{filename}</span><button autoFocus onClick={onClose} aria-label="Close preview">×</button></header>
-        <div className="table-preview-image-wrap">
-          {url ? <img src={url} alt={filename} /> : <div className="preview-placeholder">Preview unavailable</div>}
-        </div>
-      </section>
-    </div>
-  );
-}
-
-function CompareOverlay({
-  photoIds,
-  draft,
-  photoSource,
-  onClose,
-}: {
-  readonly photoIds: readonly [PhotoId, PhotoId];
-  readonly draft: WorktableDraft;
-  readonly photoSource: AppDependencies["photoSource"];
-  readonly onClose: () => void;
-}) {
-  const [order, setOrder] = useState(photoIds);
-  const [urls, setUrls] = useState<readonly string[]>([]);
-  useEffect(() => {
-    let active = true;
-    const leases: Array<{ release(): void }> = [];
-    void Promise.all(order.map((photoId) => photoSource.preview(photoId))).then((results) => {
-      if (!active) {
-        results.forEach((result) => { if (result.ok) result.value.release(); });
-        return;
-      }
-      const loaded = results.flatMap((result) => result.ok ? [result.value] : []);
-      leases.push(...loaded);
-      setUrls(results.map((result) => result.ok ? result.value.url : ""));
-    });
-    return () => { active = false; leases.forEach((lease) => lease.release()); };
-  }, [order, photoSource]);
-  useEffect(() => {
-    const onKey = (event: globalThis.KeyboardEvent) => { if (event.key === "Escape") onClose(); };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
-  return <div className="compare-backdrop" role="dialog" aria-modal="true" aria-label="Compare two photos">
-    <header><span>COMPARE</span><button onClick={() => setOrder([order[1], order[0]])}>Swap</button><button onClick={onClose} aria-label="Close compare">×</button></header>
-    <div className="compare-images">{order.map((photoId, index) => <figure key={photoId}><span>{index === 0 ? "A" : "B"}</span>{urls[index] ? <img src={urls[index]} alt={draft.placements[photoId].filename} /> : <div className="preview-placeholder">Preview unavailable</div>}</figure>)}</div>
-  </div>;
 }
 
 function groupBounds(draft: WorktableDraft, photoIds: readonly PhotoId[]) {

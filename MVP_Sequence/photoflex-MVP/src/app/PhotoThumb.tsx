@@ -7,23 +7,19 @@ export function PhotoThumb({
   alt,
   onError,
   eager = false,
-  resolution = "thumbnail",
 }: {
   readonly photoSource: PhotoSource;
   readonly photoId: PhotoId;
   readonly alt: string;
   readonly onError?: (photoId: PhotoId, error: SourceError) => void;
   readonly eager?: boolean;
-  /** Table deliberately uses the original-file lease; contact grids use thumbnails. */
-  readonly resolution?: "thumbnail" | "full";
 }) {
   const [url, setUrl] = useState<string>();
   useEffect(() => {
     let active = true;
     let lease: { url: string; release(): void } | undefined;
     setUrl(undefined);
-    const load = resolution === "full" ? photoSource.preview(photoId) : photoSource.thumbnail(photoId);
-    void load.then((result) => {
+    void photoSource.thumbnail(photoId).then((result) => {
       if (!result.ok) {
         if (active) onError?.(photoId, result.error);
         return;
@@ -39,15 +35,14 @@ export function PhotoThumb({
       active = false;
       lease?.release();
     };
-  }, [onError, photoId, photoSource, resolution]);
+  }, [onError, photoId, photoSource]);
 
   return url ? (
     <img
       src={url}
       alt={alt}
       loading={eager ? "eager" : "lazy"}
-      decoding={resolution === "full" ? "sync" : "async"}
-      fetchPriority={resolution === "full" ? "high" : "auto"}
+      decoding="async"
       draggable={false}
     />
   ) : (

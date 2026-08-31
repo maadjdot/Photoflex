@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { PhotoId, ProjectId, WorktablePlacementSeed } from "../../contracts";
-import { createEmptyWorktable, createWorktableEditor } from "./worktableEditor";
+import { createEmptyWorktable, createWorktableEditor, migratePoolToWorktable } from "./worktableEditor";
 
 const projectId = "project-1" as ProjectId;
 const photoId = (id: string) => id as PhotoId;
@@ -134,5 +134,20 @@ describe("WorktableEditor", () => {
     expect(editor.canRedo()).toBe(true);
     editor.execute({ type: "place", items: [seed("b")] });
     expect(editor.canRedo()).toBe(false);
+  });
+
+  it("recognizes an already-applied arrangement without serializing or adding history", () => {
+    const setup = createWorktableEditor(createEmptyWorktable(projectId));
+    setup.execute({ type: "place", items: [seed("a"), seed("b"), seed("c")] });
+    setup.execute({ type: "arrange", photoIds: [photoId("a"), photoId("b"), photoId("c")], layout: { type: "row" } });
+    const editor = createWorktableEditor(setup.snapshot());
+
+    expect(editor.execute({ type: "arrange", photoIds: [photoId("a"), photoId("b"), photoId("c")], layout: { type: "row" } }).ok).toBe(true);
+    expect(editor.canUndo()).toBe(false);
+  });
+
+  it("labels migrated photos honestly when the legacy pool has no filename", () => {
+    const migrated = migratePoolToWorktable(projectId, [photoId("abc-def")]);
+    expect(migrated.placements[photoId("abc-def")].filename).toBe("Photo ABCDEF (filename unavailable)");
   });
 });

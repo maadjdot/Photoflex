@@ -209,4 +209,31 @@ describe("BrowserPhotoSource", () => {
     const restored = await source.restoreFolder(grant.value.sourceId);
     expect(restored.ok).toBe(true);
   });
+
+  it("deduplicates concurrent thumbnail generation for the same photo", async () => {
+    const directory = createDirectory("thumbnail-dedupe", "Thumbnail dedupe", ["same.jpg"]);
+    const source = new BrowserPhotoSource({
+      databaseName: `photoflex-source-${crypto.randomUUID()}`,
+      picker: async () => directory.handle,
+    });
+    databases.push(source);
+
+    const grant = await source.chooseFolder([]);
+    expect(grant.ok).toBe(true);
+    if (!grant.ok) return;
+    await scanToEnd(source, grant.value.sourceId);
+    const page = await source.listPhotos(grant.value.sourceId);
+    expect(page.ok).toBe(true);
+    if (!page.ok) return;
+    const readsBefore = directory.getFileReadCount();
+
+    const results = await Promise.all([
+      source.thumbnail(page.value.items[0].id),
+      source.thumbnail(page.value.items[0].id),
+    ]);
+
+    expect(results.every((result) => result.ok)).toBe(true);
+    expect(directory.getFileReadCount() - readsBefore).toBe(2);
+    results.forEach((result) => { if (result.ok) result.value.release(); });
+  });
 });

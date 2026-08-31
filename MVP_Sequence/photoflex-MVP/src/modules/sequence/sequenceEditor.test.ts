@@ -18,4 +18,10 @@ describe("SequenceEditor", () => {
     expect(editor.execute({ type: "remove", itemIds: [] }).ok).toBe(true);
     expect(editor.canUndo()).toBe(false);
   });
+
+  it("does not create history when a move preserves the existing order", () => {
+    const editor = createSequenceEditor({ projectId: "project" as ProjectId, items: [item("a"), item("b")] });
+    expect(editor.execute({ type: "move", itemIds: ["b" as SequenceItemId], to: 2 }).ok).toBe(true);
+    expect(editor.canUndo()).toBe(false);
+  });
 });

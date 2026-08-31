@@ -40,6 +40,7 @@ interface StoredGrant {
 interface StoredThumbnail {
   readonly photoId: PhotoId;
   readonly blob: Blob;
+  readonly maxEdge?: number;
 }
 
 interface CachedUrl {
@@ -51,7 +52,10 @@ interface CachedUrl {
 }
 
 const PAGE_SIZE = 100;
-const THUMBNAIL_MAX_EDGE = 384;
+const THUMBNAIL_GENERATION_CONCURRENCY = 4;
+// A 512 px edge remains compact while rendering the default 235 px Table card
+// crisply on common high-density displays.
+const THUMBNAIL_MAX_EDGE = 512;
 
 const requestValue = <T>(request: IDBRequest<T>): Promise<T> =>
   new Promise((resolve, reject) => {
@@ -83,6 +87,9 @@ export class BrowserPhotoSource implements PhotoSource {
   private readonly handles = new Map<SourceId, FileSystemDirectoryHandle>();
   private readonly states = new Map<SourceId, SourceRuntimeState>();
   private readonly urlCache = new Map<string, CachedUrl>();
+  private readonly thumbnailJobs = new Map<PhotoId, Promise<Result<Blob, SourceError>>>();
+  private readonly thumbnailWaiters: Array<() => void> = [];
+  private activeThumbnailJobs = 0;
   private urlClock = 0;
   private readonly picker: DirectoryPicker;
   private readonly database: Promise<Result<IDBDatabase, unknown>>;
@@ -378,19 +385,22 @@ export class BrowserPhotoSource implements PhotoSource {
         .objectStore(STORE_NAMES.photoThumbnails)
         .get(photoId),
     ).catch(() => undefined);
-    if (stored) return ok(this.createLease(`thumbnail:${photoId}`, stored.blob));
-
-    const file = await this.readPhotoFile(opened.value, photoId);
-    if (!file.ok) return file;
-    try {
-      const blob = await createThumbnail(file.value);
-      const transaction = opened.value.transaction(STORE_NAMES.photoThumbnails, "readwrite");
-      transaction.objectStore(STORE_NAMES.photoThumbnails).put({ photoId, blob } satisfies StoredThumbnail);
-      await transactionResult(transaction);
-      return ok(this.createLease(`thumbnail:${photoId}`, blob));
-    } catch {
-      return err({ kind: "preview-unavailable", photoId });
+    if (stored?.maxEdge === THUMBNAIL_MAX_EDGE) {
+      return ok(this.createLease(`thumbnail:${photoId}`, stored.blob));
     }
+
+    let job = this.thumbnailJobs.get(photoId);
+    if (!job) {
+      job = this.generateThumbnail(opened.value, photoId);
+      this.thumbnailJobs.set(photoId, job);
+      void job.finally(() => {
+        if (this.thumbnailJobs.get(photoId) === job) this.thumbnailJobs.delete(photoId);
+      });
+    }
+    const generated = await job;
+    return generated.ok
+      ? ok(this.createLease(`thumbnail:${photoId}`, generated.value))
+      : generated;
   }
 
   async preview(photoId: PhotoId): Promise<Result<PreviewLease, SourceError>> {
@@ -398,6 +408,37 @@ export class BrowserPhotoSource implements PhotoSource {
     if (!opened.ok) return err(toSourceError());
     const file = await this.readPhotoFile(opened.value, photoId);
     return file.ok ? ok(this.createLease(`preview:${photoId}`, file.value)) : err(file.error);
+  }
+
+  private async generateThumbnail(database: IDBDatabase, photoId: PhotoId): Promise<Result<Blob, SourceError>> {
+    await this.acquireThumbnailSlot();
+    try {
+      const file = await this.readPhotoFile(database, photoId);
+      if (!file.ok) return file;
+      const blob = await createThumbnail(file.value);
+      const transaction = database.transaction(STORE_NAMES.photoThumbnails, "readwrite");
+      transaction.objectStore(STORE_NAMES.photoThumbnails).put({ photoId, blob, maxEdge: THUMBNAIL_MAX_EDGE } satisfies StoredThumbnail);
+      await transactionResult(transaction);
+      return ok(blob);
+    } catch {
+      return err({ kind: "preview-unavailable", photoId });
+    } finally {
+      this.releaseThumbnailSlot();
+    }
+  }
+
+  private acquireThumbnailSlot(): Promise<void> {
+    if (this.activeThumbnailJobs < THUMBNAIL_GENERATION_CONCURRENCY) {
+      this.activeThumbnailJobs += 1;
+      return Promise.resolve();
+    }
+    return new Promise((resolve) => this.thumbnailWaiters.push(resolve));
+  }
+
+  private releaseThumbnailSlot(): void {
+    const next = this.thumbnailWaiters.shift();
+    if (next) next();
+    else this.activeThumbnailJobs -= 1;
   }
 
   private async loadHandle(sourceId: SourceId, database: IDBDatabase): Promise<FileSystemDirectoryHandle | undefined> {
@@ -592,5 +633,5 @@ async function createThumbnail(file: Blob): Promise<Blob> {
   }
   context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
   bitmap.close();
-  return new Promise((resolve) => canvas.toBlob((blob) => resolve(blob ?? file), "image/webp", 0.78));
+  return new Promise((resolve) => canvas.toBlob((blob) => resolve(blob ?? file), "image/webp", 0.82));
 }

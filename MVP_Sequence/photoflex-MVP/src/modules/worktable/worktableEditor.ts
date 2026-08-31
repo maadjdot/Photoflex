@@ -33,14 +33,14 @@ export function migratePoolToWorktable(
   poolPhotoIds: readonly PhotoId[],
 ): WorktableDraft {
   const editor = createWorktableEditor(createEmptyWorktable(projectId));
-  const uniquePhotoIds = poolPhotoIds.filter((photoId, index) => poolPhotoIds.indexOf(photoId) === index);
+  const uniquePhotoIds = [...new Set(poolPhotoIds)];
   editor.execute({
     type: "place",
     items: uniquePhotoIds.map((photoId) => ({
       photoId,
       width: DEFAULT_WORKTABLE_CARD_WIDTH,
       height: DEFAULT_WORKTABLE_CARD_HEIGHT,
-      filename: shortPhotoId(photoId),
+      filename: placeholderFilename(photoId),
     })),
   });
   return editor.snapshot();
@@ -66,7 +66,7 @@ class Editor implements WorktableEditor {
   execute(command: WorktableEditCommand): Result<WorktableDraft, WorktableCommandError> {
     const result = applyCommand(this.current, command);
     if (!result.ok) return result;
-    if (sameDraft(this.current, result.value)) return ok(this.snapshot());
+    if (result.value === this.current) return ok(this.snapshot());
     this.undoStack.push(this.current);
     this.current = result.value;
     this.redoStack.length = 0;
@@ -221,18 +221,21 @@ function resize(
   if (!Number.isFinite(scale) || scale <= 0) return err({ kind: "invalid-coordinate" });
   if (Math.abs(scale - 1) < .0001) return ok(draft);
   const placements = { ...draft.placements } as Record<PhotoId, WorktablePlacement>;
+  let changed = false;
   for (const photoId of photoIds) {
     const current = placements[photoId];
     const minimumScale = Math.max(72 / current.width, 72 / current.height);
     const maximumScale = Math.min(1200 / current.width, 1200 / current.height);
     const appliedScale = Math.max(minimumScale, Math.min(maximumScale, scale));
-    placements[photoId] = {
+    const resized = {
       ...current,
       width: current.width * appliedScale,
       height: current.height * appliedScale,
     };
+    placements[photoId] = resized;
+    changed ||= resized.width !== current.width || resized.height !== current.height;
   }
-  return ok({ ...draft, placements });
+  return ok(changed ? { ...draft, placements } : draft);
 }
 
 function place(
@@ -291,7 +294,8 @@ function arrange(
   layout: WorktableLayout,
 ): Result<WorktableDraft, WorktableCommandError> {
   if (photoIds.length < 2) return ok(draft);
-  const ordered = draft.entryOrder.filter((photoId) => photoIds.includes(photoId));
+  const requested = new Set(photoIds);
+  const ordered = draft.entryOrder.filter((photoId) => requested.has(photoId));
   const selected = ordered.map((photoId) => draft.placements[photoId]);
   const minX = Math.min(...selected.map((item) => item.x));
   const minY = Math.min(...selected.map((item) => item.y));
@@ -333,7 +337,12 @@ function arrange(
       if (layout.edge === "bottom") placements[photoId] = { ...item, y: maxBottom - item.height };
     });
   }
-  return ok({ ...draft, placements });
+  const changed = ordered.some((photoId) => {
+    const before = draft.placements[photoId];
+    const after = placements[photoId];
+    return before.x !== after.x || before.y !== after.y;
+  });
+  return ok(changed ? { ...draft, placements } : draft);
 }
 
 function bringToFront(
@@ -409,10 +418,7 @@ function copyDraft(draft: WorktableDraft): WorktableDraft {
   };
 }
 
-function sameDraft(left: WorktableDraft, right: WorktableDraft): boolean {
-  return JSON.stringify(left) === JSON.stringify(right);
-}
-
-function shortPhotoId(photoId: PhotoId): string {
-  return `${photoId.replace(/-/g, "").slice(0, 8).toUpperCase()}.jpg`;
+function placeholderFilename(photoId: PhotoId): string {
+  const token = photoId.replace(/-/g, "").slice(0, 8).toUpperCase();
+  return `Photo ${token || "UNKNOWN"} (filename unavailable)`;
 }

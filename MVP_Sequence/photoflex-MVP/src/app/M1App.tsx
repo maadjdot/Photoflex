@@ -34,7 +34,11 @@ import { PhotoThumb } from "./PhotoThumb";
 import { TablePage } from "./TablePage";
 import { routeToHash, useAppRoute, type AppRoute } from "./router";
 import type { AppDependencies } from "./dependencies";
-import { useProjectWorkspace, type WorkspaceUpdate } from "./useProjectWorkspace";
+import {
+  useProjectWorkspace,
+  workspaceSaveErrorMessage,
+  type WorkspaceUpdate,
+} from "./useProjectWorkspace";
 
 interface AppProps {
   readonly dependencies: AppDependencies;
@@ -583,9 +587,9 @@ function ProjectPage({
     workspace?.sources.filter((source) => !source.removedAt) ?? [],
   );
   const persist = useCallback(async (update: WorkspaceUpdate) => {
-    const saved = await save(update);
-    if (!saved) setNotice("保存失败，当前状态仍保留在页面中。");
-    return saved;
+    const result = await save(update);
+    if (!result.ok) setNotice(workspaceSaveErrorMessage(result.error));
+    return result.ok;
   }, [save]);
   const openedProjectRef = useRef<ProjectId | undefined>(undefined);
 
@@ -842,13 +846,13 @@ function ContactSheetPage({
       return false;
     }
     const added = placed.value.entryOrder.length - beforeCount;
-    const saved = await save((latest) => ({ ...latest, worktableDraft: placed.value, updatedAt: now() }));
-    if (saved) {
+    const saveResult = await save((latest) => ({ ...latest, worktableDraft: placed.value, updatedAt: now() }));
+    if (saveResult.ok) {
       setSelected(new Set());
       setNotice(`${added} photos placed on Table${requested.length - added ? ` · ${requested.length - added} already there` : ""}`);
       return true;
     }
-    setNotice("放入 Table 失败，当前选择仍然保留。");
+    setNotice(workspaceSaveErrorMessage(saveResult.error));
     return false;
   };
   const toggleTable = async (photoId: PhotoId) => {
@@ -862,9 +866,12 @@ function ContactSheetPage({
       : photo
         ? editor.execute({ type: "place", items: [{ photoId, ...worktableDisplaySize(photo.width, photo.height), filename: photo.relativePath.split("/").at(-1) ?? shortId(photo.id) }] })
         : undefined;
-    if (!result?.ok || !(await save((latest) => ({ ...latest, worktableDraft: result.value, updatedAt: now() })))) {
+    if (!result?.ok) {
       setNotice("Table 状态保存失败。");
+      return;
     }
+    const saveResult = await save((latest) => ({ ...latest, worktableDraft: result.value, updatedAt: now() }));
+    if (!saveResult.ok) setNotice(workspaceSaveErrorMessage(saveResult.error));
   };
 
   return (
@@ -1433,12 +1440,6 @@ function createErrorMessage(kind: string) {
   if (kind === "project-id-exists") return "项目已存在，请重试。";
   if (kind === "quota-exceeded") return "浏览器存储空间不足。";
   return "项目创建失败，已保留当前输入。";
-}
-
-function saveErrorMessage(kind: string) {
-  if (kind === "conflict") return "项目已在其他标签页更新，请刷新后重试。";
-  if (kind === "quota-exceeded") return "浏览器存储空间不足，当前状态未覆盖。";
-  return "保存失败，当前状态仍保留在页面中。";
 }
 
 function StatusDot({ status }: { readonly status: SourceRuntimeState["status"] }) { return <span className="status-dot" aria-hidden="true" data-status={status} />; }
