@@ -5,11 +5,12 @@ import {
   type Result,
   type StorageAccessError,
 } from "../../contracts";
-import { migrateWorkspaceV2ToV3, migrateWorkspaceV3ToV4 } from "../projectStoreData";
+import { createInitialVersion, legacySequenceFromWorkspace, migrateWorkspaceV2ToV3, migrateWorkspaceV3ToV4, migrateWorkspaceV4ToV5, upgradeSequenceDocument } from "../projectStoreData";
 
 export const STORE_NAMES = {
   projects: "projects",
   versions: "versions",
+  sequences: "sequences",
   photoIndex: "photo-index",
   sourceGrants: "source-grants",
   photoThumbnails: "photo-thumbnails",
@@ -78,6 +79,82 @@ export function migrateToV5(transaction: IDBTransaction): void {
   };
 }
 
+export function migrateToV6(database: IDBDatabase, transaction: IDBTransaction): void {
+  const sequences = database.objectStoreNames.contains(STORE_NAMES.sequences)
+    ? transaction.objectStore(STORE_NAMES.sequences)
+    : database.createObjectStore(STORE_NAMES.sequences, { keyPath: "id" });
+  if (!sequences.indexNames.contains("by-project-id")) sequences.createIndex("by-project-id", "projectId");
+  const projects = transaction.objectStore(STORE_NAMES.projects);
+  const versions = transaction.objectStore(STORE_NAMES.versions);
+  const cursorRequest = projects.openCursor();
+  cursorRequest.onsuccess = () => {
+    const cursor = cursorRequest.result;
+    if (!cursor) return;
+    const value = cursor.value as Record<string, unknown>;
+    const normalizedV3 = Number(value.schemaVersion) >= 3 ? value : migrateWorkspaceV2ToV3(value);
+    const normalizedV4 = Number(normalizedV3.schemaVersion) >= 4 ? normalizedV3 : migrateWorkspaceV3ToV4(normalizedV3);
+    const legacy = legacySequenceFromWorkspace(normalizedV4);
+    const workspace = migrateWorkspaceV4ToV5(normalizedV4);
+    if (legacy) {
+      const initial = createInitialVersion(legacy);
+      sequences.put(legacy);
+      versions.put(initial);
+      workspace.versionIds = [...(Array.isArray(workspace.versionIds) ? workspace.versionIds : []), initial.id];
+    }
+    cursor.update(workspace);
+    cursor.continue();
+  };
+}
+
+export function migrateToV7(transaction: IDBTransaction): void {
+  const sequences = transaction.objectStore(STORE_NAMES.sequences);
+  const versions = transaction.objectStore(STORE_NAMES.versions);
+  const projects = transaction.objectStore(STORE_NAMES.projects);
+  const workspaceCursor = projects.openCursor();
+  workspaceCursor.onsuccess = () => {
+    const cursor = workspaceCursor.result;
+    if (!cursor) return;
+    cursor.update({ ...(cursor.value as Record<string, unknown>), schemaVersion: 6 });
+    cursor.continue();
+  };
+  const versionCursor = versions.openCursor();
+  versionCursor.onsuccess = () => {
+    const cursor = versionCursor.result;
+    if (!cursor) return;
+    const value = cursor.value as Record<string, unknown>;
+    if (typeof value.sequenceId !== "string" && typeof value.projectId === "string") {
+      const items = Array.isArray(value.items) ? value.items.map((raw) => {
+        const item = raw as Record<string, unknown>;
+        return item.kind === "blank" ? { id: item.id, kind: "blank" } : { id: item.id, kind: "photo", photoId: item.photoId };
+      }) : [];
+      cursor.update({
+        ...value,
+        sequenceId: `sequence-${value.projectId}-legacy`,
+        items,
+        segments: [],
+        readingUnits: items.map((item) => ({ id: `unit-${item.id}`, kind: item.kind === "blank" ? "blank" : "single", itemId: item.id })),
+      });
+    }
+    cursor.continue();
+  };
+  const sequenceCursor = sequences.openCursor();
+  sequenceCursor.onsuccess = () => {
+    const cursor = sequenceCursor.result;
+    if (!cursor) return;
+    const upgraded = upgradeSequenceDocument(cursor.value as Record<string, unknown>);
+    if (!upgraded) { cursor.continue(); return; }
+    cursor.update(upgraded);
+    const initial = createInitialVersion(upgraded);
+    versions.put(initial);
+    const projectRequest = projects.get(upgraded.projectId);
+    projectRequest.onsuccess = () => {
+      const workspace = projectRequest.result as Record<string, unknown> | undefined;
+      if (workspace) projects.put({ ...workspace, schemaVersion: 6, versionIds: [...new Set([...(Array.isArray(workspace.versionIds) ? workspace.versionIds : []), initial.id])] });
+      cursor.continue();
+    };
+  };
+}
+
 export function openPhotoFlexDatabase(
   options: OpenDatabaseOptions = {},
 ): Promise<Result<IDBDatabase, StorageAccessError>> {
@@ -125,7 +202,9 @@ export function openPhotoFlexDatabase(
           if (migrationFrom === 0) migrateToV1(request.result);
           if (migrationFrom < 2) migrateToV2(request.result, request.transaction!);
           if (migrationFrom < 3) migrateToV3(request.transaction!);
-          if (migrationFrom < 5) migrateToV5(request.transaction!);
+          // v6 performs the complete row normalization in one cursor pass.
+          if (migrationFrom < 6) migrateToV6(request.result, request.transaction!);
+          else if (migrationFrom < 7) migrateToV7(request.transaction!);
         } catch {
           migrationFailed = true;
           request.transaction?.abort();

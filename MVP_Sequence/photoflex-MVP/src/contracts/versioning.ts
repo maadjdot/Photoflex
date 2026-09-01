@@ -1,10 +1,11 @@
 import { MVP_SEQUENCE_ITEM_LIMIT } from "./ids";
-import type { ProjectId, Result, SequenceItemId, VersionId } from "./ids";
-import type { SequenceDraft, SequenceItem } from "./sequence";
+import type { ProjectId, Result, SequenceId, SequenceItemId, VersionId } from "./ids";
+import type { ReadingUnit, SequenceDraft, SequenceItem, SequenceSegment } from "./sequence";
 
 export interface VersionSummary {
   readonly id: VersionId;
   readonly projectId: ProjectId;
+  readonly sequenceId: SequenceId;
   readonly parentVersionId?: VersionId;
   readonly name: string;
   readonly itemCount: number;
@@ -14,15 +15,20 @@ export interface VersionSummary {
 export interface SequenceVersion extends VersionSummary {
   readonly memo?: string;
   readonly items: readonly SequenceItem[];
+  readonly segments: readonly SequenceSegment[];
+  readonly readingUnits: readonly ReadingUnit[];
 }
 
 export interface CreateVersionInput {
   readonly id: VersionId;
   readonly projectId: ProjectId;
+  readonly sequenceId: SequenceId;
   readonly parentVersionId?: VersionId;
   readonly name: string;
   readonly memo?: string;
   readonly items: readonly SequenceItem[];
+  readonly segments: readonly SequenceSegment[];
+  readonly readingUnits: readonly ReadingUnit[];
   readonly createdAt: string;
 }
 

@@ -1,4 +1,4 @@
-import type { PhotoId, ProjectId, Result } from "./ids";
+import type { PhotoId, ProjectId, Result, SequenceId } from "./ids";
 
 export interface WorktablePoint {
   readonly x: number;
@@ -33,12 +33,21 @@ export interface WorktableLink {
   readonly photoIds: readonly PhotoId[];
 }
 
+export interface WorktableSequencePilePlacement extends WorktablePoint {
+  readonly sequenceId: SequenceId;
+  readonly z: number;
+  readonly width: number;
+  readonly height: number;
+}
+
 export interface WorktableDraft {
   readonly projectId: ProjectId;
   readonly entryOrder: readonly PhotoId[];
   readonly placements: Readonly<Record<PhotoId, WorktablePlacement>>;
   readonly groups: readonly WorktableGroup[];
   readonly links: readonly WorktableLink[];
+  readonly pileOrder: readonly SequenceId[];
+  readonly pilePlacements: Readonly<Record<SequenceId, WorktableSequencePilePlacement>>;
 }
 
 export interface WorktablePlacementSeed {
@@ -76,11 +85,17 @@ export type WorktableEditCommand =
   | { readonly type: "remove-group"; readonly groupId: string }
   | { readonly type: "create-link"; readonly photoIds: readonly PhotoId[] }
   | { readonly type: "remove-link"; readonly linkId: string }
+  | { readonly type: "place-sequence-pile"; readonly placement: WorktableSequencePilePlacement }
+  | { readonly type: "move-sequence-piles"; readonly sequenceIds: readonly SequenceId[]; readonly by: WorktablePoint }
+  | { readonly type: "bring-sequence-piles-to-front"; readonly sequenceIds: readonly SequenceId[] }
+  | { readonly type: "remove-sequence-piles"; readonly sequenceIds: readonly SequenceId[] }
   | { readonly type: "bring-to-front"; readonly photoIds: readonly PhotoId[] }
   | { readonly type: "remove"; readonly photoIds: readonly PhotoId[] };
 
 export type WorktableCommandError =
   | { readonly kind: "unknown-placement"; readonly photoId: PhotoId }
+  | { readonly kind: "unknown-sequence-pile"; readonly sequenceId: SequenceId }
+  | { readonly kind: "duplicate-sequence-pile"; readonly sequenceId: SequenceId }
   | { readonly kind: "duplicate-photo-id"; readonly photoId: PhotoId }
   | { readonly kind: "invalid-coordinate" }
   | { readonly kind: "invalid-layout" }

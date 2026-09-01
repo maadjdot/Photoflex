@@ -7,19 +7,22 @@ export function PhotoThumb({
   alt,
   onError,
   eager = false,
+  resolution = "thumbnail",
 }: {
   readonly photoSource: PhotoSource;
   readonly photoId: PhotoId;
   readonly alt: string;
   readonly onError?: (photoId: PhotoId, error: SourceError) => void;
   readonly eager?: boolean;
+  readonly resolution?: "thumbnail" | "full";
 }) {
   const [url, setUrl] = useState<string>();
   useEffect(() => {
     let active = true;
     let lease: { url: string; release(): void } | undefined;
     setUrl(undefined);
-    void photoSource.thumbnail(photoId).then((result) => {
+    const load = resolution === "full" ? photoSource.preview(photoId) : photoSource.thumbnail(photoId);
+    void load.then((result) => {
       if (!result.ok) {
         if (active) onError?.(photoId, result.error);
         return;
@@ -35,14 +38,15 @@ export function PhotoThumb({
       active = false;
       lease?.release();
     };
-  }, [onError, photoId, photoSource]);
+  }, [onError, photoId, photoSource, resolution]);
 
   return url ? (
     <img
       src={url}
       alt={alt}
       loading={eager ? "eager" : "lazy"}
-      decoding="async"
+      decoding={resolution === "full" ? "sync" : "async"}
+      fetchPriority={resolution === "full" ? "high" : "auto"}
       draggable={false}
     />
   ) : (

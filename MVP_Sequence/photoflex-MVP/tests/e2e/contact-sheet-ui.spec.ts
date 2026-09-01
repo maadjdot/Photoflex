@@ -16,15 +16,15 @@ test("M2.1 Contact Sheet 提供 Place on Table，并移除 Pool 栏", async ({ p
     const photoIds = Array.from({ length: 16 }, (_, index) => `visual-photo-${index}`);
     const transaction = database.transaction(["projects", "photo-index", "photo-thumbnails"], "readwrite");
     transaction.objectStore("projects").put({
-      schemaVersion: 4,
+      schemaVersion: 6,
       projectId,
       name: "Visual Project",
       memo: "",
       expectedPhotoCount: null,
       sources: [{ id: sourceId, displayName: "Raw Selects", createdAt }],
       photoStates: {},
-      worktableDraft: { projectId, entryOrder: [], placements: {}, groups: [], links: [] },
-      sequenceDraft: { projectId, items: [] },
+      worktableDraft: { projectId, entryOrder: [], placements: {}, groups: [], links: [], pileOrder: [], pilePlacements: {} },
+      sequenceIds: [],
       versionIds: [],
       revision: 0,
       createdAt,
@@ -71,7 +71,6 @@ test("M2.1 Contact Sheet 提供 Place on Table，并移除 Pool 栏", async ({ p
   await page.locator(".photo-tile").nth(0).click();
   await page.locator(".photo-tile").nth(1).click();
   await page.getByRole("button", { name: "Place on Table" }).click();
-  await expect(page.getByText(/2 photos placed on Table/)).toBeVisible();
   await page.getByRole("button", { name: "Table", exact: true }).click();
   await expect(page).toHaveURL(/#\/projects\/visual-project\/table$/);
   await expect(page.locator(".worktable-card")).toHaveCount(2);

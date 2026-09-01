@@ -14,6 +14,12 @@ import {
   type Result,
   type SaveError,
   type SequenceVersion,
+  type SequenceDocument,
+  type SequenceId,
+  type SequenceRevision,
+  type SequenceSummary,
+  type SequenceWriteError,
+  type WorktableDraft,
   type StorageAccessError,
   type VersionId,
   type VersionSummary,
@@ -28,7 +34,9 @@ import {
   toProjectSummary,
   toVersionSummary,
   validateVersionForProject,
+  validateSequenceForProject,
 } from "../projectStoreData";
+import { toSequenceSummary } from "../../modules/sequence";
 import { openPhotoFlexDatabase, STORE_NAMES } from "./indexedDbSchema";
 
 interface IndexedDbProjectStoreOptions {
@@ -171,6 +179,103 @@ export class IndexedDbProjectStore implements ProjectStore {
     });
   }
 
+  async createSequence(
+    projectId: ProjectId,
+    expectedRevision: WorkspaceRevision,
+    sequence: SequenceDocument,
+    initialVersion: SequenceVersion,
+    worktableDraft: WorktableDraft,
+  ): Promise<Result<{ readonly summary: SequenceSummary; readonly revision: WorkspaceRevision }, SequenceWriteError>> {
+    const opened = await this.database;
+    if (!opened.ok) return opened;
+    const validation = validateSequenceForProject(projectId, sequence);
+    if (!validation.ok) return validation;
+    const versionValidation = validateVersionForProject(projectId, initialVersion);
+    if (!versionValidation.ok || initialVersion.sequenceId !== sequence.id || initialVersion.id !== sequence.currentVersionId) return err({ kind: "invalid-sequence", reason: "Initial version does not match Sequence." });
+    return new Promise((resolve) => {
+      const transaction = opened.value.transaction([STORE_NAMES.projects, STORE_NAMES.sequences, STORE_NAMES.versions], "readwrite");
+      const projects = transaction.objectStore(STORE_NAMES.projects);
+      const sequences = transaction.objectStore(STORE_NAMES.sequences);
+      const versions = transaction.objectStore(STORE_NAMES.versions);
+      let result: Result<{ readonly summary: SequenceSummary; readonly revision: WorkspaceRevision }, SequenceWriteError> = err({ kind: "unavailable", retryable: true });
+      transaction.oncomplete = () => resolve(result);
+      transaction.onabort = () => resolve(isQuotaError(transaction.error) ? err({ kind: "quota-exceeded" }) : err({ kind: "unavailable", retryable: true }));
+      const projectRequest = projects.get(projectId);
+      projectRequest.onsuccess = () => {
+        const workspace = projectRequest.result as ProjectWorkspace | undefined;
+        if (!workspace) { result = err({ kind: "not-found", entity: "project", id: projectId }); return; }
+        if (workspace.revision !== expectedRevision) { result = err({ kind: "conflict", expectedRevision, actualRevision: workspace.revision }); return; }
+        const existingRequest = sequences.index("by-project-id").getAll(projectId);
+        existingRequest.onsuccess = () => {
+          const existing = existingRequest.result as SequenceDocument[];
+          if (existing.some((item) => item.id === sequence.id)) { result = err({ kind: "sequence-id-exists", sequenceId: sequence.id }); return; }
+          if (existing.some((item) => item.name.toLocaleLowerCase() === sequence.name.toLocaleLowerCase())) { result = err({ kind: "sequence-name-exists", name: sequence.name }); return; }
+          const revision = (expectedRevision + 1) as WorkspaceRevision;
+          sequences.add(clone(sequence));
+          versions.add(clone(initialVersion));
+          projects.put(clone({ ...workspace, worktableDraft, sequenceIds: [...workspace.sequenceIds, sequence.id], versionIds: [...workspace.versionIds, initialVersion.id], revision, updatedAt: sequence.updatedAt }));
+          result = ok({ summary: toSequenceSummary(sequence), revision });
+        };
+      };
+    });
+  }
+
+  async listSequences(projectId: ProjectId): Promise<Result<readonly SequenceSummary[], LoadError>> {
+    const workspace = await this.loadWorkspace(projectId);
+    if (!workspace.ok) return workspace;
+    const opened = await this.database;
+    if (!opened.ok) return opened;
+    try {
+      const records = await requestValue<SequenceDocument[]>(opened.value.transaction(STORE_NAMES.sequences, "readonly").objectStore(STORE_NAMES.sequences).index("by-project-id").getAll(projectId));
+      const byId = new Map(records.map((sequence) => [sequence.id, sequence]));
+      const summaries: SequenceSummary[] = [];
+      for (const sequenceId of workspace.value.sequenceIds) {
+        const sequence = byId.get(sequenceId);
+        if (!sequence) return err({ kind: "corrupt-data", entityId: sequenceId });
+        summaries.push(toSequenceSummary(sequence));
+      }
+      return ok(summaries);
+    } catch { return err({ kind: "unavailable", retryable: true }); }
+  }
+
+  async loadSequence(sequenceId: SequenceId): Promise<Result<SequenceDocument, LoadError>> {
+    const opened = await this.database;
+    if (!opened.ok) return opened;
+    try {
+      const sequence = await requestValue<SequenceDocument | undefined>(opened.value.transaction(STORE_NAMES.sequences, "readonly").objectStore(STORE_NAMES.sequences).get(sequenceId));
+      return sequence ? ok(clone(sequence)) : err({ kind: "not-found", entity: "sequence", id: sequenceId });
+    } catch { return err({ kind: "unavailable", retryable: true }); }
+  }
+
+  async saveSequence(
+    sequence: SequenceDocument,
+    expectedRevision: SequenceRevision,
+  ): Promise<Result<{ readonly summary: SequenceSummary; readonly revision: SequenceRevision }, SequenceWriteError>> {
+    const opened = await this.database;
+    if (!opened.ok) return opened;
+    const validation = validateSequenceForProject(sequence.projectId, sequence);
+    if (!validation.ok) return validation;
+    return new Promise((resolve) => {
+      const transaction = opened.value.transaction(STORE_NAMES.sequences, "readwrite");
+      const store = transaction.objectStore(STORE_NAMES.sequences);
+      let result: Result<{ readonly summary: SequenceSummary; readonly revision: SequenceRevision }, SequenceWriteError> = err({ kind: "unavailable", retryable: true });
+      transaction.oncomplete = () => resolve(result);
+      transaction.onabort = () => resolve(isQuotaError(transaction.error) ? err({ kind: "quota-exceeded" }) : err({ kind: "unavailable", retryable: true }));
+      const allRequest = store.index("by-project-id").getAll(sequence.projectId);
+      allRequest.onsuccess = () => {
+        const records = allRequest.result as SequenceDocument[];
+        const current = records.find((item) => item.id === sequence.id);
+        if (!current) { result = err({ kind: "not-found", entity: "sequence", id: sequence.id }); return; }
+        if (current.revision !== expectedRevision) { result = err({ kind: "sequence-conflict", expectedRevision, actualRevision: current.revision }); return; }
+        if (records.some((item) => item.id !== sequence.id && item.name.toLocaleLowerCase() === sequence.name.toLocaleLowerCase())) { result = err({ kind: "sequence-name-exists", name: sequence.name }); return; }
+        const revision = (expectedRevision + 1) as SequenceRevision;
+        const saved = { ...sequence, revision };
+        store.put(clone(saved));
+        result = ok({ summary: toSequenceSummary(saved), revision });
+      };
+    });
+  }
+
   async createVersion(
     projectId: ProjectId,
     expectedRevision: WorkspaceRevision,
@@ -289,7 +394,7 @@ export class IndexedDbProjectStore implements ProjectStore {
 
     return new Promise((resolve) => {
       const transaction = opened.value.transaction(
-        [STORE_NAMES.projects, STORE_NAMES.versions],
+        [STORE_NAMES.projects, STORE_NAMES.versions, STORE_NAMES.sequences],
         "readwrite",
       );
       transaction.oncomplete = () => resolve(ok(undefined));
@@ -297,6 +402,8 @@ export class IndexedDbProjectStore implements ProjectStore {
       transaction.objectStore(STORE_NAMES.projects).delete(projectId);
       const versions = transaction.objectStore(STORE_NAMES.versions);
       for (const versionId of loaded.value.versionIds) versions.delete(versionId);
+      const sequences = transaction.objectStore(STORE_NAMES.sequences);
+      for (const sequenceId of loaded.value.sequenceIds) sequences.delete(sequenceId);
     });
   }
 
@@ -304,12 +411,18 @@ export class IndexedDbProjectStore implements ProjectStore {
     const workspace = await this.loadWorkspace(projectId);
     if (!workspace.ok) return workspace;
     const versions: SequenceVersion[] = [];
+    const sequences: SequenceDocument[] = [];
     for (const versionId of workspace.value.versionIds) {
       const loaded = await this.loadVersion(versionId);
       if (!loaded.ok) return loaded;
       versions.push(loaded.value);
     }
-    return ok(new TextEncoder().encode(JSON.stringify(createBackup(workspace.value, versions))));
+    for (const sequenceId of workspace.value.sequenceIds) {
+      const loaded = await this.loadSequence(sequenceId);
+      if (!loaded.ok) return loaded;
+      sequences.push(loaded.value);
+    }
+    return ok(new TextEncoder().encode(JSON.stringify(createBackup(workspace.value, versions, sequences))));
   }
 
   async importBackup(_bytes: Uint8Array): Promise<Result<ProjectId, BackupError>> {

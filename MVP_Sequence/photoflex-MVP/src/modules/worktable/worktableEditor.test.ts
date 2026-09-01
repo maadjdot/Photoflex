@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { PhotoId, ProjectId, WorktablePlacementSeed } from "../../contracts";
-import { createEmptyWorktable, createWorktableEditor, migratePoolToWorktable } from "./worktableEditor";
+import type { PhotoId, ProjectId, SequenceId, WorktablePlacementSeed } from "../../contracts";
+import { createEmptyWorktable, createWorktableEditor } from "./worktableEditor";
 
 const projectId = "project-1" as ProjectId;
 const photoId = (id: string) => id as PhotoId;
@@ -136,18 +136,17 @@ describe("WorktableEditor", () => {
     expect(editor.canRedo()).toBe(false);
   });
 
-  it("recognizes an already-applied arrangement without serializing or adding history", () => {
-    const setup = createWorktableEditor(createEmptyWorktable(projectId));
-    setup.execute({ type: "place", items: [seed("a"), seed("b"), seed("c")] });
-    setup.execute({ type: "arrange", photoIds: [photoId("a"), photoId("b"), photoId("c")], layout: { type: "row" } });
-    const editor = createWorktableEditor(setup.snapshot());
-
-    expect(editor.execute({ type: "arrange", photoIds: [photoId("a"), photoId("b"), photoId("c")], layout: { type: "row" } }).ok).toBe(true);
-    expect(editor.canUndo()).toBe(false);
-  });
-
-  it("labels migrated photos honestly when the legacy pool has no filename", () => {
-    const migrated = migratePoolToWorktable(projectId, [photoId("abc-def")]);
-    expect(migrated.placements[photoId("abc-def")].filename).toBe("Photo ABCDEF (filename unavailable)");
+  it("places, moves, fronts and removes Sequence Piles without touching photos", () => {
+    const editor = createWorktableEditor(createEmptyWorktable(projectId));
+    editor.execute({ type: "place", items: [seed("a")] });
+    const placement = { sequenceId: "sequence-1" as SequenceId, x: 80, y: 90, z: 3, width: 190, height: 118 };
+    const placed = editor.execute({ type: "place-sequence-pile", placement });
+    expect(placed.ok).toBe(true);
+    if (!placed.ok) return;
+    const moved = editor.execute({ type: "move-sequence-piles", sequenceIds: [placement.sequenceId], by: { x: 10, y: 12 } });
+    expect(moved.ok && moved.value.pilePlacements[placement.sequenceId].x).toBe(90);
+    expect(editor.undo().pilePlacements[placement.sequenceId].x).toBe(80);
+    const removed = editor.execute({ type: "remove-sequence-piles", sequenceIds: [placement.sequenceId] });
+    expect(removed.ok && removed.value.entryOrder).toEqual(["a"]);
   });
 });

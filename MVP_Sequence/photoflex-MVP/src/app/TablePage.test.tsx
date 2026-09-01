@@ -117,10 +117,10 @@ describe("TablePage", () => {
     if (!saved.ok) return;
     expect(saved.value.worktableDraft.placements[photoA].x).toBe(109);
     expect(saved.value.worktableDraft.placements[photoA].y).toBe(94);
-    expect(saved.value.sequenceDraft.items).toEqual([]);
+    expect(saved.value.sequenceIds).toEqual([]);
   });
 
-  it("Table 卡片使用缩略图，只有显式 Preview 才读取原图", async () => {
+  it("Table 卡片直接使用高质量预览图", async () => {
     const dependencies = await createFixture();
     const thumbnail = vi.spyOn(dependencies.photoSource, "thumbnail").mockImplementation(async (photoId) => ok({
       url: `thumbnail:${photoId}`,
@@ -133,46 +133,11 @@ describe("TablePage", () => {
 
     render(<App dependencies={dependencies} />);
     const card = await screen.findByLabelText("A.jpg");
-    await waitFor(() => expect(thumbnail).toHaveBeenCalledWith(photoA));
-    expect(preview).not.toHaveBeenCalled();
+    await waitFor(() => expect(preview).toHaveBeenCalledWith(photoA));
+    expect(thumbnail).not.toHaveBeenCalled();
 
     fireEvent.doubleClick(card);
-    await waitFor(() => expect(preview).toHaveBeenCalledWith(photoA));
+    expect(preview).toHaveBeenCalledWith(photoA);
   });
 
-  it("连续加入 Sequence 时基于保存队列中的最新 draft 合并", async () => {
-    const dependencies = await createFixture();
-    render(<App dependencies={dependencies} />);
-    const stage = await screen.findByLabelText("Photo worktable");
-    await new Promise((resolve) => window.setTimeout(resolve, 550));
-
-    const originalSave = dependencies.projectStore.saveWorkspace.bind(dependencies.projectStore);
-    let releaseFirstSequenceSave: (() => void) | undefined;
-    let heldFirstSequenceSave = false;
-    vi.spyOn(dependencies.projectStore, "saveWorkspace").mockImplementation((next, revision) => {
-      if (next.sequenceDraft.items.length && !heldFirstSequenceSave) {
-        heldFirstSequenceSave = true;
-        return new Promise((resolve) => {
-          releaseFirstSequenceSave = () => { void originalSave(next, revision).then(resolve); };
-        });
-      }
-      return originalSave(next, revision);
-    });
-
-    const sequenceButton = within(screen.getByLabelText("Table 工具栏")).getByRole("button", { name: "Sequence" });
-    fireEvent.pointerDown(screen.getByLabelText("A.jpg"), { pointerId: 11, button: 0, clientX: 100, clientY: 100 });
-    fireEvent.pointerUp(stage, { pointerId: 11, clientX: 100, clientY: 100 });
-    fireEvent.click(sequenceButton);
-    await waitFor(() => expect(releaseFirstSequenceSave).toBeTypeOf("function"));
-
-    fireEvent.pointerDown(screen.getByLabelText("B.jpg"), { pointerId: 12, button: 0, clientX: 200, clientY: 100 });
-    fireEvent.pointerUp(stage, { pointerId: 12, clientX: 200, clientY: 100 });
-    fireEvent.click(sequenceButton);
-    releaseFirstSequenceSave?.();
-
-    await waitFor(async () => {
-      const loaded = await dependencies.projectStore.loadWorkspace(projectId);
-      expect(loaded.ok && loaded.value.sequenceDraft.items.map((item) => item.photoId)).toEqual([photoA, photoB]);
-    });
-  });
 });

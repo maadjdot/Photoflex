@@ -3,9 +3,13 @@ export type Brand<T, Name extends string> = T & { readonly __brand: Name };
 export type ProjectId = Brand<string, "ProjectId">;
 export type SourceId = Brand<string, "SourceId">;
 export type PhotoId = Brand<string, "PhotoId">;
+export type SequenceId = Brand<string, "SequenceId">;
 export type SequenceItemId = Brand<string, "SequenceItemId">;
+export type ReadingUnitId = Brand<string, "ReadingUnitId">;
+export type SequenceSegmentId = Brand<string, "SequenceSegmentId">;
 export type VersionId = Brand<string, "VersionId">;
 export type WorkspaceRevision = Brand<number, "WorkspaceRevision">;
+export type SequenceRevision = Brand<number, "SequenceRevision">;
 
 export const MVP_SEQUENCE_ITEM_LIMIT = 500 as const;
 

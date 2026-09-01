@@ -10,7 +10,9 @@ import {
   type WorktableLayout,
   type WorktableLink,
   type WorktablePlacement,
+  type WorktableSequencePilePlacement,
   type WorktableGroup,
+  type SequenceId,
 } from "../../contracts";
 
 // A deliberately generous working size keeps every card legible before the
@@ -25,7 +27,7 @@ const DEFAULT_CELL_WIDTH = DEFAULT_WORKTABLE_CARD_WIDTH + 48;
 const DEFAULT_CELL_HEIGHT = DEFAULT_WORKTABLE_CARD_HEIGHT + 88;
 
 export function createEmptyWorktable(projectId: WorktableDraft["projectId"]): WorktableDraft {
-  return { projectId, entryOrder: [], placements: {}, groups: [], links: [] };
+  return { projectId, entryOrder: [], placements: {}, groups: [], links: [], pileOrder: [], pilePlacements: {} };
 }
 
 export function migratePoolToWorktable(
@@ -107,6 +109,10 @@ function applyCommand(
   if (command.type === "remove-link") return removeLink(draft, command.linkId);
   if (command.type === "add-to-group") return addToGroup(draft, command.groupId, command.photoId);
   if (command.type === "remove-from-group") return removeFromGroup(draft, command.photoId);
+  if (command.type === "place-sequence-pile") return placeSequencePile(draft, command.placement);
+  if (command.type === "move-sequence-piles") return moveSequencePiles(draft, command.sequenceIds, command.by.x, command.by.y);
+  if (command.type === "bring-sequence-piles-to-front") return bringSequencePilesToFront(draft, command.sequenceIds);
+  if (command.type === "remove-sequence-piles") return removeSequencePiles(draft, command.sequenceIds);
   const validation = validateKnown(draft, command.photoIds);
   if (!validation.ok) return validation;
   if (command.type === "move") return move(draft, command.photoIds, command.by.x, command.by.y);
@@ -256,7 +262,7 @@ function place(
   if (!additions.length) return ok(draft);
   const placements = { ...draft.placements } as Record<PhotoId, WorktablePlacement>;
   const entryOrder = [...draft.entryOrder];
-  const maxZ = Math.max(-1, ...Object.values(draft.placements).map((item) => item.z));
+  const maxZ = maximumZ(draft);
   const origin = command.at ?? DEFAULT_ORIGIN;
 
   additions.forEach((item, offset) => {
@@ -351,7 +357,7 @@ function bringToFront(
 ): Result<WorktableDraft, WorktableCommandError> {
   const selected = new Set(photoIds);
   const ordered = draft.entryOrder.filter((photoId) => selected.has(photoId));
-  const maxZ = Math.max(-1, ...Object.values(draft.placements).map((item) => item.z));
+  const maxZ = maximumZ(draft);
   const alreadyTop = ordered.every((photoId, index) => draft.placements[photoId].z === maxZ - ordered.length + index + 1);
   if (alreadyTop) return ok(draft);
   const placements = { ...draft.placements } as Record<PhotoId, WorktablePlacement>;
@@ -397,6 +403,78 @@ function validateKnown(
   return ok(true);
 }
 
+function placeSequencePile(
+  draft: WorktableDraft,
+  placement: WorktableSequencePilePlacement,
+): Result<WorktableDraft, WorktableCommandError> {
+  if (draft.pilePlacements[placement.sequenceId]) return err({ kind: "duplicate-sequence-pile", sequenceId: placement.sequenceId });
+  if (![placement.x, placement.y, placement.z, placement.width, placement.height].every(Number.isFinite)
+    || placement.width <= 0 || placement.height <= 0) return err({ kind: "invalid-coordinate" });
+  return ok({
+    ...draft,
+    pileOrder: [...draft.pileOrder, placement.sequenceId],
+    pilePlacements: { ...draft.pilePlacements, [placement.sequenceId]: { ...placement } },
+  });
+}
+
+function moveSequencePiles(
+  draft: WorktableDraft,
+  sequenceIds: readonly SequenceId[],
+  dx: number,
+  dy: number,
+): Result<WorktableDraft, WorktableCommandError> {
+  const validation = validateKnownPiles(draft, sequenceIds);
+  if (!validation.ok) return validation;
+  if (![dx, dy].every(Number.isFinite)) return err({ kind: "invalid-coordinate" });
+  if (!dx && !dy) return ok(draft);
+  const pilePlacements = { ...draft.pilePlacements } as Record<SequenceId, WorktableSequencePilePlacement>;
+  sequenceIds.forEach((sequenceId) => {
+    const current = pilePlacements[sequenceId];
+    pilePlacements[sequenceId] = { ...current, x: current.x + dx, y: current.y + dy };
+  });
+  return ok({ ...draft, pilePlacements });
+}
+
+function bringSequencePilesToFront(
+  draft: WorktableDraft,
+  sequenceIds: readonly SequenceId[],
+): Result<WorktableDraft, WorktableCommandError> {
+  const validation = validateKnownPiles(draft, sequenceIds);
+  if (!validation.ok) return validation;
+  const maxZ = maximumZ(draft);
+  const pilePlacements = { ...draft.pilePlacements } as Record<SequenceId, WorktableSequencePilePlacement>;
+  draft.pileOrder.filter((sequenceId) => sequenceIds.includes(sequenceId)).forEach((sequenceId, index) => {
+    pilePlacements[sequenceId] = { ...pilePlacements[sequenceId], z: maxZ + index + 1 };
+  });
+  return ok({ ...draft, pilePlacements });
+}
+
+function removeSequencePiles(
+  draft: WorktableDraft,
+  sequenceIds: readonly SequenceId[],
+): Result<WorktableDraft, WorktableCommandError> {
+  const validation = validateKnownPiles(draft, sequenceIds);
+  if (!validation.ok) return validation;
+  const removed = new Set(sequenceIds);
+  const pilePlacements = { ...draft.pilePlacements } as Record<SequenceId, WorktableSequencePilePlacement>;
+  sequenceIds.forEach((sequenceId) => delete pilePlacements[sequenceId]);
+  return ok({ ...draft, pileOrder: draft.pileOrder.filter((sequenceId) => !removed.has(sequenceId)), pilePlacements });
+}
+
+function validateKnownPiles(draft: WorktableDraft, sequenceIds: readonly SequenceId[]): Result<true, WorktableCommandError> {
+  const seen = new Set<SequenceId>();
+  for (const sequenceId of sequenceIds) {
+    if (seen.has(sequenceId)) return err({ kind: "duplicate-sequence-pile", sequenceId });
+    seen.add(sequenceId);
+    if (!draft.pilePlacements[sequenceId]) return err({ kind: "unknown-sequence-pile", sequenceId });
+  }
+  return ok(true);
+}
+
+function maximumZ(draft: WorktableDraft): number {
+  return Math.max(-1, ...Object.values(draft.placements).map((item) => item.z), ...Object.values(draft.pilePlacements).map((item) => item.z));
+}
+
 function isPositiveFinite(value: number): boolean {
   return Number.isFinite(value) && value > 0;
 }
@@ -409,12 +487,17 @@ function copyDraft(draft: WorktableDraft): WorktableDraft {
   const placements = Object.fromEntries(
     Object.entries(draft.placements).map(([photoId, placement]) => [photoId, { ...placement }]),
   ) as Record<PhotoId, WorktablePlacement>;
+  const pilePlacements = Object.fromEntries(
+    Object.entries(draft.pilePlacements).map(([sequenceId, placement]) => [sequenceId, { ...placement }]),
+  ) as Record<SequenceId, WorktableSequencePilePlacement>;
   return {
     ...draft,
     entryOrder: [...draft.entryOrder],
     placements,
     groups: draft.groups.map((group) => ({ ...group, photoIds: [...group.photoIds] })),
     links: draft.links.map((link) => ({ ...link, photoIds: [...link.photoIds] })),
+    pileOrder: [...draft.pileOrder],
+    pilePlacements,
   };
 }
 

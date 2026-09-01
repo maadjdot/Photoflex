@@ -3,15 +3,17 @@ import type {
   ProjectId,
   Result,
   SourceId,
+  SequenceId,
+  SequenceRevision,
   VersionId,
   WorkspaceRevision,
 } from "./ids";
-import type { SequenceDraft } from "./sequence";
+import type { SequenceDocument, SequenceSummary } from "./sequence";
 import type { SequenceVersion, VersionSummary } from "./versioning";
 import type { PhotoState, WorktableDraft, WorktableViewport } from "./worktable";
 
-export const INDEXED_DB_SCHEMA_VERSION = 5 as const;
-export const WORKSPACE_SCHEMA_VERSION = 4 as const;
+export const INDEXED_DB_SCHEMA_VERSION = 7 as const;
+export const WORKSPACE_SCHEMA_VERSION = 6 as const;
 
 export type SourceStatus =
   | "loading"
@@ -104,11 +106,13 @@ export interface PhotoSource {
 }
 
 export interface ResumeContext {
-  readonly page: "project" | "contact-sheet" | "table";
+  readonly page: "project" | "contact-sheet" | "table" | "sequence" | "sequence-compare";
   readonly sourceId?: SourceId;
   readonly filter: "all";
   readonly anchorPhotoId?: PhotoId;
   readonly tableViewport?: WorktableViewport;
+  readonly sequenceId?: SequenceId;
+  readonly compareSequenceIds?: readonly [SequenceId, SequenceId];
 }
 
 export interface ProjectWorkspace {
@@ -120,7 +124,7 @@ export interface ProjectWorkspace {
   readonly sources: readonly SourceRecord[];
   readonly photoStates: Readonly<Partial<Record<PhotoId, PhotoState>>>;
   readonly worktableDraft: WorktableDraft;
-  readonly sequenceDraft: SequenceDraft;
+  readonly sequenceIds: readonly SequenceId[];
   readonly versionIds: readonly VersionId[];
   readonly revision: WorkspaceRevision;
   readonly createdAt: string;
@@ -151,7 +155,7 @@ export interface CreateProjectInput {
 
 export type NotFoundError = {
   readonly kind: "not-found";
-  readonly entity: "project" | "version";
+  readonly entity: "project" | "version" | "sequence";
   readonly id: string;
 };
 
@@ -183,6 +187,12 @@ export type VersionWriteError =
   | SaveError
   | { readonly kind: "version-id-exists"; readonly versionId: VersionId }
   | { readonly kind: "invalid-version"; readonly reason: string };
+export type SequenceWriteError =
+  | SaveError
+  | { readonly kind: "sequence-id-exists"; readonly sequenceId: SequenceId }
+  | { readonly kind: "sequence-name-exists"; readonly name: string }
+  | { readonly kind: "sequence-conflict"; readonly expectedRevision: SequenceRevision; readonly actualRevision: SequenceRevision }
+  | { readonly kind: "invalid-sequence"; readonly reason: string };
 export type DeleteError = NotFoundError | CorruptDataError | StorageAccessError;
 export type BackupError =
   | { readonly kind: "unsupported-schema"; readonly found: number; readonly supported: readonly number[] }
@@ -198,6 +208,19 @@ export interface ProjectStore {
     workspace: ProjectWorkspace,
     expectedRevision: WorkspaceRevision,
   ): Promise<Result<{ readonly revision: WorkspaceRevision }, SaveError>>;
+  createSequence(
+    projectId: ProjectId,
+    expectedRevision: WorkspaceRevision,
+    sequence: SequenceDocument,
+    initialVersion: SequenceVersion,
+    worktableDraft: WorktableDraft,
+  ): Promise<Result<{ readonly summary: SequenceSummary; readonly revision: WorkspaceRevision }, SequenceWriteError>>;
+  listSequences(projectId: ProjectId): Promise<Result<readonly SequenceSummary[], LoadError>>;
+  loadSequence(sequenceId: SequenceId): Promise<Result<SequenceDocument, LoadError>>;
+  saveSequence(
+    sequence: SequenceDocument,
+    expectedRevision: SequenceRevision,
+  ): Promise<Result<{ readonly summary: SequenceSummary; readonly revision: SequenceRevision }, SequenceWriteError>>;
   createVersion(
     projectId: ProjectId,
     expectedRevision: WorkspaceRevision,

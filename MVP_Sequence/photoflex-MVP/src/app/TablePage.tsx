@@ -1,512 +1,328 @@
-import {
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
-  type KeyboardEvent,
-} from "react";
-import type {
-  PhotoId,
-  ProjectId,
-  SequenceDraft,
-  SequenceItem,
-  SequenceItemId,
-  SourceError,
-  WorktableAlignment,
-  WorktableDraft,
-  WorktableEditCommand,
-  WorktableEditor,
-  WorktableViewport,
-} from "../contracts";
-import {
-  clampWorktableZoom,
-  createWorktableEditor,
-  visibleWorktablePhotoIds,
-  zoomAroundScreenPoint,
-} from "../modules/worktable";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent as ReactPointerEvent, type WheelEvent as ReactWheelEvent } from "react";
+import type { PhotoId, ProjectId, ReadingUnitId, SequenceDocument, SequenceId, SequenceItemId, SequenceRevision, SequenceSummary, SequenceVersion, SourceError, VersionId, WorktableAlignment, WorktableDraft, WorktableEditCommand, WorktableEditor, WorktablePoint, WorktableViewport } from "../contracts";
+import { isPhotoSequenceItem } from "../contracts";
 import { createSequenceEditor } from "../modules/sequence";
-import { CompareOverlay } from "./CompareOverlay";
+import { clampWorktableZoom, createWorktableEditor, screenToWorld, zoomAroundScreenPoint } from "../modules/worktable";
 import type { AppDependencies } from "./dependencies";
 import { PhotoThumb } from "./PhotoThumb";
 import type { AppRoute } from "./router";
-import { SequenceStrip } from "./SequenceStrip";
-import { TablePreviewOverlay } from "./TablePreviewOverlay";
-import { useProjectWorkspace, workspaceSaveErrorMessage } from "./useProjectWorkspace";
-import { useWorktableGestures } from "./useWorktableGestures";
+import { useProjectWorkspace } from "./useProjectWorkspace";
 
 const DEFAULT_VIEWPORT: WorktableViewport = { originX: 48, originY: 38, zoom: 1 };
+const PILE_WIDTH = 190;
+const PILE_HEIGHT = 118;
+type Gesture =
+  | { kind: "photo"; pointerId: number; start: WorktablePoint; ids: readonly PhotoId[] }
+  | { kind: "pile"; pointerId: number; start: WorktablePoint; ids: readonly SequenceId[] }
+  | { kind: "pan"; pointerId: number; start: WorktablePoint; viewport: WorktableViewport }
+  | { kind: "marquee"; pointerId: number; start: WorktablePoint; additive: boolean }
+  | { kind: "resize"; pointerId: number; start: WorktablePoint; photoId: PhotoId; width: number };
+interface Marquee { left: number; top: number; width: number; height: number }
+interface SequenceConfirmation { name: string; photoIds: readonly PhotoId[] }
 
-export function TablePage({
-  dependencies,
-  projectId,
-  navigate,
-}: {
-  readonly dependencies: AppDependencies;
-  readonly projectId: ProjectId;
-  readonly navigate: (route: AppRoute) => void;
-}) {
-  const { workspace, save, loading, error } = useProjectWorkspace(dependencies, projectId);
+export function TablePage({ dependencies, projectId, navigate }: { dependencies: AppDependencies; projectId: ProjectId; navigate: (route: AppRoute) => void }) {
+  const { workspace, workspaceRef, setWorkspace, save, loading, error } = useProjectWorkspace(dependencies, projectId);
   const [draft, setDraft] = useState<WorktableDraft>();
-  const [sequenceDraft, setSequenceDraft] = useState<SequenceDraft>();
+  const [summaries, setSummaries] = useState<readonly SequenceSummary[]>([]);
+  const [activeSequence, setActiveSequence] = useState<SequenceDocument>();
   const [selected, setSelected] = useState<Set<PhotoId>>(new Set());
-  const [viewport, setViewportState] = useState<WorktableViewport>(DEFAULT_VIEWPORT);
+  const [selectedPiles, setSelectedPiles] = useState<Set<SequenceId>>(new Set());
+  const [viewport, setViewportState] = useState(DEFAULT_VIEWPORT);
+  const [dragDelta, setDragDelta] = useState<WorktablePoint>({ x: 0, y: 0 });
+  const [resizeScale, setResizeScale] = useState(1);
+  const [marquee, setMarquee] = useState<Marquee>();
   const [missing, setMissing] = useState<Set<PhotoId>>(new Set());
   const [notice, setNotice] = useState<string>();
   const [previewPhotoId, setPreviewPhotoId] = useState<PhotoId>();
   const [comparePhotoIds, setComparePhotoIds] = useState<readonly [PhotoId, PhotoId]>();
-  const [sequenceConfirmation, setSequenceConfirmation] = useState<readonly PhotoId[]>();
+  const [confirmation, setConfirmation] = useState<SequenceConfirmation>();
+  const [addToSequenceOpen, setAddToSequenceOpen] = useState(false);
+  const [addToSequenceId, setAddToSequenceId] = useState<SequenceId>();
+  const [confirmationDragId, setConfirmationDragId] = useState<PhotoId>();
+  const [sequenceCollapsed, setSequenceCollapsed] = useState(false);
+  const [sequenceDragId, setSequenceDragId] = useState<SequenceItemId>();
   const [alignment, setAlignment] = useState<WorktableAlignment | "">("");
-  const [stageSize, setStageSize] = useState({ width: 0, height: 0 });
   const stageRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<WorktableEditor | undefined>(undefined);
-  const initializedProjectRef = useRef<ProjectId | undefined>(undefined);
+  const gestureRef = useRef<Gesture | undefined>(undefined);
+  const deltaRef = useRef<WorktablePoint>({ x: 0, y: 0 });
+  const scaleRef = useRef(1);
   const viewportRef = useRef(viewport);
+  const initializedRef = useRef<ProjectId | undefined>(undefined);
+  const stripRefs = useRef(new Map<SequenceItemId, HTMLButtonElement>());
+  const stripPositions = useRef(new Map<SequenceItemId, { left: number; top: number }>());
   viewportRef.current = viewport;
 
-  const setViewport = useCallback((next: WorktableViewport) => {
-    viewportRef.current = next;
-    setViewportState(next);
-  }, []);
-
   useLayoutEffect(() => {
-    const stage = stageRef.current;
-    if (!stage || !draft) return;
-    const measure = () => {
-      const rect = stage.getBoundingClientRect();
-      setStageSize((current) => current.width === rect.width && current.height === rect.height
-        ? current
-        : { width: rect.width, height: rect.height });
-    };
-    measure();
-    if (typeof ResizeObserver === "undefined") {
-      window.addEventListener("resize", measure);
-      return () => window.removeEventListener("resize", measure);
-    }
-    const observer = new ResizeObserver(measure);
-    observer.observe(stage);
-    return () => observer.disconnect();
-  }, [draft?.projectId]);
+    const next = new Map<SequenceItemId, { left: number; top: number }>();
+    stripRefs.current.forEach((element, id) => {
+      const rect = element.getBoundingClientRect();
+      const old = stripPositions.current.get(id);
+      if (old && typeof element.animate === "function") element.animate([{ transform: `translate3d(${old.left - rect.left}px,${old.top - rect.top}px,0)` }, { transform: "translate3d(0,0,0)" }], { duration: 220, easing: "cubic-bezier(.2,.75,.25,1)" });
+      next.set(id, { left: rect.left, top: rect.top });
+    });
+    stripPositions.current = next;
+  }, [activeSequence?.items]);
 
+  const setViewport = useCallback((next: WorktableViewport) => { viewportRef.current = next; setViewportState(next); }, []);
   useEffect(() => {
-    if (!workspace || initializedProjectRef.current === projectId) return;
-    initializedProjectRef.current = projectId;
+    if (!workspace || initializedRef.current === projectId) return;
+    initializedRef.current = projectId;
     const editor = createWorktableEditor(workspace.worktableDraft);
     editorRef.current = editor;
     setDraft(editor.snapshot());
-    setSequenceDraft(workspace.sequenceDraft);
-    const restored = workspace.resumeContext?.page === "table"
-      ? workspace.resumeContext.tableViewport
-      : undefined;
+    const restored = workspace.resumeContext?.page === "table" ? workspace.resumeContext.tableViewport : undefined;
     setViewport(restored ?? DEFAULT_VIEWPORT);
-    void save((current) => ({
-      ...current,
-      lastOpenedAt: new Date().toISOString(),
-      resumeContext: {
-        page: "table",
-        filter: "all",
-        tableViewport: restored ?? DEFAULT_VIEWPORT,
-      },
-    }));
-  }, [projectId, save, setViewport, workspace]);
-
+    void dependencies.projectStore.listSequences(projectId).then((result) => result.ok ? setSummaries(result.value) : setNotice("Sequences could not be loaded."));
+    void save((current) => ({ ...current, lastOpenedAt: new Date().toISOString(), resumeContext: { page: "table", filter: "all", tableViewport: restored ?? DEFAULT_VIEWPORT, sequenceId: current.resumeContext?.sequenceId } }));
+  }, [dependencies.projectStore, projectId, save, setViewport, workspace]);
   useEffect(() => {
     if (!draft) return;
-    const timer = window.setTimeout(() => {
-      void save((current) => ({
-        ...current,
-        resumeContext: { page: "table", filter: "all", tableViewport: viewportRef.current },
-      }));
-    }, 500);
+    const timer = window.setTimeout(() => void save((current) => ({ ...current, resumeContext: { page: "table", filter: "all", tableViewport: viewportRef.current, sequenceId: current.resumeContext?.sequenceId } })), 500);
     return () => window.clearTimeout(timer);
   }, [draft?.projectId, save, viewport]);
+  useEffect(() => {
+    if (!notice) return;
+    const timer = window.setTimeout(() => setNotice(undefined), 3200);
+    return () => window.clearTimeout(timer);
+  }, [notice]);
+  useEffect(() => {
+    const id = selectedPiles.size === 1 ? [...selectedPiles][0] : undefined;
+    if (!id) { setActiveSequence(undefined); return; }
+    let live = true;
+    void dependencies.projectStore.loadSequence(id).then((result) => live && setActiveSequence(result.ok ? result.value : undefined));
+    return () => { live = false; };
+  }, [dependencies.projectStore, selectedPiles]);
 
-  const persistDraft = useCallback(async (next: WorktableDraft) => {
-    const result = await save((current) => ({
-      ...current,
-      worktableDraft: next,
-      updatedAt: new Date().toISOString(),
-    }));
-    setNotice(result.ok ? undefined : workspaceSaveErrorMessage(result.error));
+  const persist = useCallback(async (next: WorktableDraft) => {
+    if (!await save((current) => ({ ...current, worktableDraft: next, updatedAt: new Date().toISOString() }))) setNotice("Table changes could not be saved.");
   }, [save]);
-
   const execute = useCallback((command: WorktableEditCommand) => {
     const result = editorRef.current?.execute(command);
-    if (!result) return;
-    if (!result.ok) {
-      setNotice("该桌面操作无法完成，照片状态可能已经变化。");
-      return;
-    }
-    setDraft(result.value);
-    void persistDraft(result.value);
-  }, [persistDraft]);
-
+    if (!result?.ok) { if (result) setNotice("This Table operation could not be completed."); return; }
+    setDraft(result.value); void persist(result.value);
+  }, [persist]);
   const history = useCallback((direction: "undo" | "redo") => {
     const editor = editorRef.current;
-    if (!editor) return;
-    if (direction === "undo" && !editor.canUndo()) return;
-    if (direction === "redo" && !editor.canRedo()) return;
+    if (!editor || (direction === "undo" ? !editor.canUndo() : !editor.canRedo())) return;
     const next = direction === "undo" ? editor.undo() : editor.redo();
     setDraft(next);
-    setSelected((current) => new Set([...current].filter((photoId) => next.placements[photoId])));
-    void persistDraft(next);
-  }, [persistDraft]);
+    setSelected((current) => new Set([...current].filter((id) => next.placements[id])));
+    setSelectedPiles((current) => new Set([...current].filter((id) => next.pilePlacements[id])));
+    void persist(next);
+  }, [persist]);
 
-  const commitToSequence = useCallback(async (photoIds: readonly PhotoId[]) => {
-    if (!photoIds.length) return;
-    const requestedPhotoIds = [...new Set(photoIds)];
-    const candidates: SequenceItem[] = requestedPhotoIds
-      .map((photoId) => ({ id: sequenceItemId() as SequenceItemId, photoId }));
-    const saved = await save((current) => {
-      const existingPhotoIds = new Set(current.sequenceDraft.items.map((item) => item.photoId));
-      const additions = candidates.filter((item) => !existingPhotoIds.has(item.photoId));
-      if (!additions.length) return current;
-      const editor = createSequenceEditor(current.sequenceDraft);
-      const edited = editor.execute({ type: "add", items: additions });
-      return edited.ok
-        ? { ...current, sequenceDraft: edited.value, updatedAt: new Date().toISOString() }
-        : current;
-    });
-    if (!saved.ok) {
-      setNotice(workspaceSaveErrorMessage(saved.error));
-      return;
-    }
-    const nextDraft = saved.value.sequenceDraft;
-    const nextPhotoIds = new Set(nextDraft.items.map((item) => item.photoId));
-    if (!requestedPhotoIds.every((photoId) => nextPhotoIds.has(photoId))) {
-      setNotice("无法加入 Sequence，请检查数量限制后重试。");
-      return;
-    }
-    const added = new Set(nextDraft.items.map((item) => item.id));
-    setSequenceDraft(nextDraft);
-    setSequenceConfirmation(undefined);
-    setNotice(candidates.some((item) => added.has(item.id)) ? "照片已加入 Sequence。" : "所选照片已经在 Sequence 中。");
-  }, [save]);
-
-  const requestSequence = (photoIds: readonly PhotoId[]) => {
-    const ordered = draft?.entryOrder.filter((photoId) => photoIds.includes(photoId)) ?? [];
-    if (ordered.length === 1) {
-      void commitToSequence(ordered);
-      return;
-    }
-    if (ordered.length > 1) setSequenceConfirmation(ordered);
-  };
-
-  const reorderSequence = async (itemId: SequenceItemId, to: number) => {
-    const saved = await save((current) => {
-      const editor = createSequenceEditor(current.sequenceDraft);
-      const edited = editor.execute({ type: "move", itemIds: [itemId], to });
-      if (!edited.ok || edited.value.items.every((item, index) => item.id === current.sequenceDraft.items[index]?.id)) {
-        return current;
-      }
-      return { ...current, sequenceDraft: edited.value, updatedAt: new Date().toISOString() };
-    });
-    if (saved.ok) setSequenceDraft(saved.value.sequenceDraft);
-    else setNotice(workspaceSaveErrorMessage(saved.error));
-  };
-
-  const selectedIds = useMemo(
-    () => draft?.entryOrder.filter((photoId) => selected.has(photoId)) ?? [],
-    [draft, selected],
-  );
-  const visiblePhotoIds = useMemo(
-    () => draft
-      ? visibleWorktablePhotoIds(draft, viewport, stageSize)
-      : new Set<PhotoId>(),
-    [draft, stageSize, viewport],
-  );
-  const sequenceIndexByPhotoId = useMemo(() => new Map(
-    (sequenceDraft?.items ?? workspace?.sequenceDraft.items ?? []).map((item, index) => [item.photoId, index] as const),
-  ), [sequenceDraft?.items, workspace?.sequenceDraft.items]);
-
-  const onPhotoError = useCallback((photoId: PhotoId, photoError: SourceError) => {
-    if (photoError.kind === "photo-not-found" || photoError.kind === "preview-unavailable") {
-      setMissing((current) => current.has(photoId) ? current : new Set([...current, photoId]));
-    }
+  const photoIds = useMemo(() => draft?.entryOrder.filter((id) => selected.has(id)) ?? [], [draft, selected]);
+  const pileIds = useMemo(() => draft?.pileOrder.filter((id) => selectedPiles.has(id)) ?? [], [draft, selectedPiles]);
+  const onPhotoError = useCallback((id: PhotoId, sourceError: SourceError) => {
+    if (sourceError.kind === "photo-not-found" || sourceError.kind === "preview-unavailable") setMissing((current) => new Set([...current, id]));
   }, []);
 
-  const {
-    gestureRef,
-    dragDelta,
-    resizeScale,
-    marquee,
-    onCardPointerDown,
-    onResizePointerDown,
-    onStagePointerDown,
-    onStagePointerMove,
-    finishPointer,
-  } = useWorktableGestures({
-    draft,
-    selected,
-    setSelected,
-    execute,
-    stageRef,
-    viewportRef,
-    setViewportState,
-  });
-
-  const zoomAtCenter = (nextZoom: number) => {
-    const stage = stageRef.current;
-    if (!stage) return;
-    const rect = stage.getBoundingClientRect();
-    setViewport(zoomAroundScreenPoint(
-      viewportRef.current,
-      { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 },
-      rect,
-      nextZoom,
-    ));
+  const requestSequence = (ids: readonly PhotoId[]) => {
+    const ordered = draft?.entryOrder.filter((id) => ids.includes(id)) ?? [];
+    if (!ordered.length) return;
+    const used = new Set(summaries.map((item) => item.name.toLocaleLowerCase()));
+    let n = summaries.length + 1;
+    while (used.has(`sequence ${String(n).padStart(2, "0")}`)) n++;
+    setConfirmation({ name: `Sequence ${String(n).padStart(2, "0")}`, photoIds: ordered });
   };
-
-  const fitTable = () => {
-    const stage = stageRef.current;
-    if (!stage || !draft?.entryOrder.length) {
-      setViewport(DEFAULT_VIEWPORT);
+  const createPile = async () => {
+    if (!confirmation || !draft || !workspaceRef.current) return;
+    const name = confirmation.name.trim();
+    if (!name) { setNotice("Give the Sequence a name."); return; }
+    const id = newId("sequence") as SequenceId;
+    const now = new Date().toISOString();
+    const items = confirmation.photoIds.map((photoId) => ({ id: newId("item") as SequenceItemId, kind: "photo" as const, photoId }));
+    const currentVersionId = newId("version") as VersionId;
+    const sequence: SequenceDocument = { id, projectId, name, items, segments: [], readingUnits: items.map((item) => ({ id: newId("unit") as ReadingUnitId, kind: "single", itemId: item.id })), currentVersionId, revision: 0 as SequenceRevision, createdAt: now, updatedAt: now };
+    const initialVersion: SequenceVersion = { id: currentVersionId, projectId, sequenceId: id, name: `Initial · ${name}`, itemCount: items.length, items, segments: [], readingUnits: sequence.readingUnits, createdAt: now };
+    const rect = stageRef.current?.getBoundingClientRect();
+    const center = rect ? screenToWorld({ x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 }, rect, viewportRef.current) : { x: 200, y: 160 };
+    const editor = createWorktableEditor(draft);
+    const placed = editor.execute({ type: "place-sequence-pile", placement: { sequenceId: id, x: center.x - PILE_WIDTH / 2, y: center.y - PILE_HEIGHT / 2, z: maximumZ(draft) + 1, width: PILE_WIDTH, height: PILE_HEIGHT } });
+    if (!placed.ok) return;
+    // Drain queued viewport/worktable CAS writes before the atomic sequence
+    // creation so the project revision used below is current.
+    if (!await save((current) => current)) {
+      setNotice("Table is still saving. Please try again.");
       return;
     }
-    const cards = draft.entryOrder.map((photoId) => draft.placements[photoId]);
-    const minX = Math.min(...cards.map((item) => item.x));
-    const minY = Math.min(...cards.map((item) => item.y));
-    const maxX = Math.max(...cards.map((item) => item.x + item.width));
-    const maxY = Math.max(...cards.map((item) => item.y + item.height));
-    const padding = 64;
-    const zoom = clampWorktableZoom(Math.min(
-      (stage.clientWidth - padding * 2) / Math.max(1, maxX - minX),
-      (stage.clientHeight - padding * 2) / Math.max(1, maxY - minY),
-    ));
-    setViewport({
-      zoom,
-      originX: (stage.clientWidth - (maxX - minX) * zoom) / 2 - minX * zoom,
-      originY: (stage.clientHeight - (maxY - minY) * zoom) / 2 - minY * zoom,
-    });
+    const current = workspaceRef.current;
+    if (!current) return;
+    const result = await dependencies.projectStore.createSequence(projectId, current.revision, sequence, initialVersion, placed.value);
+    if (!result.ok) { setNotice(result.error.kind === "sequence-name-exists" ? "That Sequence name already exists." : "Sequence could not be created."); return; }
+    const next = { ...current, worktableDraft: placed.value, sequenceIds: [...current.sequenceIds, id], versionIds: [...current.versionIds, currentVersionId], revision: result.value.revision, updatedAt: now };
+    workspaceRef.current = next; setWorkspace(next); editorRef.current = editor; setDraft(placed.value);
+    setSummaries((items) => [...items, result.value.summary]); setSelected(new Set()); setSelectedPiles(new Set([id])); setActiveSequence(sequence); setConfirmation(undefined); setNotice(`Created ${name}.`);
+  };
+  const reorderSequence = async (itemId: SequenceItemId, to: number) => {
+    if (!activeSequence) return;
+    const editor = createSequenceEditor({ projectId, baseVersionId: activeSequence.currentVersionId, items: activeSequence.items, segments: activeSequence.segments, readingUnits: activeSequence.readingUnits });
+    const moved = editor.execute({ type: "move", itemIds: [itemId], to });
+    if (!moved.ok) return;
+    const next = { ...activeSequence, items: moved.value.items, segments: moved.value.segments, readingUnits: moved.value.readingUnits, updatedAt: new Date().toISOString() };
+    const result = await dependencies.projectStore.saveSequence(next, activeSequence.revision);
+    if (!result.ok) { setNotice("Sequence order could not be saved."); return; }
+    setActiveSequence({ ...next, revision: result.value.revision });
+    setSummaries((items) => items.map((item) => item.id === next.id ? result.value.summary : item));
+  };
+  const addPhotosToSequence = async () => {
+    if (!addToSequenceId || !photoIds.length) return;
+    const loaded = await dependencies.projectStore.loadSequence(addToSequenceId);
+    if (!loaded.ok) { setNotice("Sequence could not be loaded."); return; }
+    const additions = photoIds.map((photoId) => ({ id: newId("item") as SequenceItemId, kind: "photo" as const, photoId }));
+    const editor = createSequenceEditor({ projectId, baseVersionId: loaded.value.currentVersionId, items: loaded.value.items, segments: loaded.value.segments, readingUnits: loaded.value.readingUnits });
+    const added = editor.execute({ type: "add", items: additions });
+    if (!added.ok) { setNotice("Photos could not be added to Sequence."); return; }
+    const next = { ...loaded.value, items: added.value.items, segments: added.value.segments, readingUnits: added.value.readingUnits, updatedAt: new Date().toISOString() };
+    const result = await dependencies.projectStore.saveSequence(next, loaded.value.revision);
+    if (!result.ok) { setNotice("Photos could not be added to Sequence."); return; }
+    setSummaries((items) => items.map((item) => item.id === next.id ? result.value.summary : item));
+    setAddToSequenceOpen(false); setNotice(`Added ${additions.length} photo${additions.length === 1 ? "" : "s"} to ${next.name}.`);
   };
 
+  const startPan = (event: ReactPointerEvent<HTMLElement>) => {
+    const stage = stageRef.current; if (!stage) return;
+    stage.focus(); stage.setPointerCapture(event.pointerId);
+    gestureRef.current = { kind: "pan", pointerId: event.pointerId, start: { x: event.clientX, y: event.clientY }, viewport: viewportRef.current };
+  };
+  const beginDrag = (event: ReactPointerEvent<HTMLElement>, gesture: Gesture) => {
+    const stage = stageRef.current; if (!stage) return;
+    stage.focus(); stage.setPointerCapture(event.pointerId); gestureRef.current = gesture; deltaRef.current = { x: 0, y: 0 }; setDragDelta({ x: 0, y: 0 });
+  };
+  const onPhotoDown = (event: ReactPointerEvent<HTMLElement>, id: PhotoId) => {
+    event.preventDefault(); event.stopPropagation(); if (event.button === 2) return startPan(event); if (event.button !== 0 || !stageRef.current) return;
+    const toggle = event.shiftKey || event.ctrlKey || event.metaKey; let ids: readonly PhotoId[];
+    if (toggle) { const next = new Set(selected); next.has(id) ? next.delete(id) : next.add(id); setSelected(next); setSelectedPiles(new Set()); if (!next.has(id)) return; ids = [...next]; }
+    else if (selected.has(id)) ids = [...selected]; else { setSelected(new Set([id])); setSelectedPiles(new Set()); ids = [id]; }
+    beginDrag(event, { kind: "photo", pointerId: event.pointerId, start: screenToWorld({ x: event.clientX, y: event.clientY }, stageRef.current.getBoundingClientRect(), viewportRef.current), ids });
+  };
+  const onPileDown = (event: ReactPointerEvent<HTMLElement>, id: SequenceId) => {
+    event.preventDefault(); event.stopPropagation(); if (event.button === 2) return startPan(event); if (event.button !== 0 || !stageRef.current) return;
+    const toggle = event.shiftKey || event.ctrlKey || event.metaKey; let ids: readonly SequenceId[];
+    if (toggle) { const next = new Set(selectedPiles); next.has(id) ? next.delete(id) : next.add(id); setSelectedPiles(next); setSelected(new Set()); if (!next.has(id)) return; ids = [...next]; }
+    else if (selectedPiles.has(id)) ids = [...selectedPiles]; else { setSelectedPiles(new Set([id])); setSelected(new Set()); ids = [id]; }
+    beginDrag(event, { kind: "pile", pointerId: event.pointerId, start: screenToWorld({ x: event.clientX, y: event.clientY }, stageRef.current.getBoundingClientRect(), viewportRef.current), ids });
+  };
+  const onResizeDown = (event: ReactPointerEvent<HTMLButtonElement>, id: PhotoId) => {
+    const stage = stageRef.current, item = draft?.placements[id]; if (event.button !== 0 || !stage || !item) return;
+    event.preventDefault(); event.stopPropagation(); stage.setPointerCapture(event.pointerId);
+    gestureRef.current = { kind: "resize", pointerId: event.pointerId, start: screenToWorld({ x: event.clientX, y: event.clientY }, stage.getBoundingClientRect(), viewportRef.current), photoId: id, width: item.width }; scaleRef.current = 1;
+  };
+  const onStageDown = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (event.target !== event.currentTarget || !stageRef.current) return; if (event.button === 2) return startPan(event); if (event.button !== 0) return;
+    stageRef.current.focus(); stageRef.current.setPointerCapture(event.pointerId); const rect = stageRef.current.getBoundingClientRect(); const additive = event.shiftKey || event.ctrlKey || event.metaKey;
+    gestureRef.current = { kind: "marquee", pointerId: event.pointerId, start: { x: event.clientX, y: event.clientY }, additive }; setMarquee({ left: event.clientX - rect.left, top: event.clientY - rect.top, width: 0, height: 0 });
+    if (!additive) { setSelected(new Set()); setSelectedPiles(new Set()); }
+  };
+  const onStageMove = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const gesture = gestureRef.current, stage = stageRef.current; if (!gesture || gesture.pointerId !== event.pointerId || !stage) return; const rect = stage.getBoundingClientRect();
+    if (gesture.kind === "pan") { setViewport({ ...gesture.viewport, originX: gesture.viewport.originX + event.clientX - gesture.start.x, originY: gesture.viewport.originY + event.clientY - gesture.start.y }); return; }
+    if (gesture.kind === "marquee") { setMarquee({ left: Math.min(gesture.start.x, event.clientX) - rect.left, top: Math.min(gesture.start.y, event.clientY) - rect.top, width: Math.abs(event.clientX - gesture.start.x), height: Math.abs(event.clientY - gesture.start.y) }); return; }
+    if (gesture.kind === "resize") { const item = draft?.placements[gesture.photoId]; if (!item) return; const world = screenToWorld({ x: event.clientX, y: event.clientY }, rect, viewportRef.current); scaleRef.current = Math.max(.25, Math.min(4, (world.x - item.x) / gesture.width)); setResizeScale(scaleRef.current); return; }
+    const world = screenToWorld({ x: event.clientX, y: event.clientY }, rect, viewportRef.current); const delta = { x: world.x - gesture.start.x, y: world.y - gesture.start.y }; deltaRef.current = delta; setDragDelta(delta);
+  };
+  const finish = (event: ReactPointerEvent<HTMLDivElement>, cancelled = false) => {
+    const gesture = gestureRef.current, stage = stageRef.current; if (!gesture || gesture.pointerId !== event.pointerId || !stage) return; if (stage.hasPointerCapture(event.pointerId)) stage.releasePointerCapture(event.pointerId); gestureRef.current = undefined;
+    const delta = deltaRef.current, moved = Math.abs(delta.x) > .25 || Math.abs(delta.y) > .25;
+    if (!cancelled && moved && gesture.kind === "photo") execute({ type: "move", photoIds: gesture.ids, by: delta });
+    if (!cancelled && moved && gesture.kind === "pile") execute({ type: "move-sequence-piles", sequenceIds: gesture.ids, by: delta });
+    if (!cancelled && gesture.kind === "resize" && Math.abs(scaleRef.current - 1) > .01) execute({ type: "resize", photoIds: [gesture.photoId], scale: scaleRef.current });
+    if (!cancelled && gesture.kind === "marquee" && draft) {
+      const rect = stage.getBoundingClientRect(), a = screenToWorld(gesture.start, rect, viewportRef.current), b = screenToWorld({ x: event.clientX, y: event.clientY }, rect, viewportRef.current); const box = { left: Math.min(a.x, b.x), top: Math.min(a.y, b.y), right: Math.max(a.x, b.x), bottom: Math.max(a.y, b.y) };
+      const hits = draft.entryOrder.filter((id) => { const item = draft.placements[id]; const w = Math.max(0, Math.min(box.right, item.x + item.width) - Math.max(box.left, item.x)); const h = Math.max(0, Math.min(box.bottom, item.y + item.height) - Math.max(box.top, item.y)); return w * h / (item.width * item.height) >= .3; });
+      setSelected((current) => gesture.additive ? new Set([...current, ...hits]) : new Set(hits));
+    }
+    deltaRef.current = { x: 0, y: 0 }; scaleRef.current = 1; setDragDelta({ x: 0, y: 0 }); setResizeScale(1); setMarquee(undefined);
+  };
+
+  const fit = () => {
+    const stage = stageRef.current; if (!stage || !draft) return; const cards = [...draft.entryOrder.map((id) => draft.placements[id]), ...draft.pileOrder.map((id) => draft.pilePlacements[id])]; if (!cards.length) return setViewport(DEFAULT_VIEWPORT);
+    const minX = Math.min(...cards.map((x) => x.x)), minY = Math.min(...cards.map((x) => x.y)), maxX = Math.max(...cards.map((x) => x.x + x.width)), maxY = Math.max(...cards.map((x) => x.y + x.height)); const zoom = clampWorktableZoom(Math.min((stage.clientWidth - 128) / (maxX - minX), (stage.clientHeight - 128) / (maxY - minY)));
+    setViewport({ zoom, originX: (stage.clientWidth - (maxX - minX) * zoom) / 2 - minX * zoom, originY: (stage.clientHeight - (maxY - minY) * zoom) / 2 - minY * zoom });
+  };
+  const zoom = (value: number) => { const stage = stageRef.current; if (!stage) return; const rect = stage.getBoundingClientRect(); setViewport(zoomAroundScreenPoint(viewportRef.current, { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 }, rect, value)); };
+  const onWheel = (event: ReactWheelEvent<HTMLDivElement>) => { event.preventDefault(); const stage = stageRef.current; if (!stage) return; if (event.ctrlKey || event.metaKey) setViewport(zoomAroundScreenPoint(viewportRef.current, { x: event.clientX, y: event.clientY }, stage.getBoundingClientRect(), viewportRef.current.zoom * Math.exp(-event.deltaY * .002))); else setViewport({ ...viewportRef.current, originX: viewportRef.current.originX - event.deltaX, originY: viewportRef.current.originY - event.deltaY }); };
   useEffect(() => {
     const stage = stageRef.current;
     if (!stage) return;
-    const onWheel = (event: WheelEvent) => {
+    const onNativeWheel = (event: WheelEvent) => {
+      if (!event.ctrlKey && !event.metaKey) return;
+      // React's delegated wheel handler can be passive in some browsers. This
+      // listener is explicitly non-passive so browser page zoom is impossible
+      // while the pointer is over Table.
       event.preventDefault();
-      if (event.ctrlKey || event.metaKey) {
-        setViewport(zoomAroundScreenPoint(
-          viewportRef.current,
-          { x: event.clientX, y: event.clientY },
-          stage.getBoundingClientRect(),
-          viewportRef.current.zoom * Math.exp(-event.deltaY * .002),
-        ));
-        return;
-      }
-      setViewport({
-        ...viewportRef.current,
-        originX: viewportRef.current.originX - event.deltaX,
-        originY: viewportRef.current.originY - event.deltaY,
-      });
+      event.stopPropagation();
+      setViewport(zoomAroundScreenPoint(viewportRef.current, { x: event.clientX, y: event.clientY }, stage.getBoundingClientRect(), viewportRef.current.zoom * Math.exp(-event.deltaY * .002)));
     };
-    // Native non-passive handling owns both zoom and pan, so browser zoom can
-    // be cancelled without a second React wheel path.
-    stage.addEventListener("wheel", onWheel, { passive: false });
-    return () => stage.removeEventListener("wheel", onWheel);
+    stage.addEventListener("wheel", onNativeWheel, { passive: false });
+    return () => stage.removeEventListener("wheel", onNativeWheel);
   }, [draft?.projectId, setViewport]);
-
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
-    if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "a") {
-      event.preventDefault();
-      setSelected(new Set(draft?.entryOrder ?? []));
-    }
-    if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "z") {
-      event.preventDefault();
-      history(event.shiftKey ? "redo" : "undo");
-    }
-    if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "y") {
-      event.preventDefault();
-      history("redo");
-    }
-    if (event.key === "Escape") setSelected(new Set());
-    if (event.key.toLowerCase() === "g" && selectedIds.length > 1) execute({ type: "create-group", photoIds: selectedIds });
-    if (event.key.toLowerCase() === "l" && selectedIds.length >= 2 && selectedIds.length <= 6) execute({ type: "create-link", photoIds: selectedIds });
-    if (event.key.toLowerCase() === "j" && selectedIds.length === 2) setComparePhotoIds([selectedIds[0], selectedIds[1]]);
-    if (event.key.toLowerCase() === "s" && selectedIds.length) requestSequence(selectedIds);
-    if ((event.key === "Delete" || event.key === "Backspace") && selectedIds.length) {
-      event.preventDefault();
-      execute({ type: "remove", photoIds: selectedIds });
-      setSelected(new Set());
-    }
+    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "a") { event.preventDefault(); setSelected(new Set(draft?.entryOrder ?? [])); setSelectedPiles(new Set()); }
+    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "z") { event.preventDefault(); history(event.shiftKey ? "redo" : "undo"); }
+    if (event.key === "Escape") { setSelected(new Set()); setSelectedPiles(new Set()); }
+    if (event.key.toLowerCase() === "s" && photoIds.length) requestSequence(photoIds);
+    if (event.key === "Delete" || event.key === "Backspace") { if (pileIds.length) { execute({ type: "remove-sequence-piles", sequenceIds: pileIds }); setSelectedPiles(new Set()); } else if (photoIds.length) { execute({ type: "remove", photoIds }); setSelected(new Set()); } }
   };
 
-  if (loading || !draft) return <main className="page centered-state"><div className="loading-mark" /><p>Loading table…</p></main>;
-  if (!workspace) return <main className="page centered-state"><h1>{error ?? "Table 无法读取。"}</h1></main>;
-
-  const arrange = (command: WorktableEditCommand) => selectedIds.length > 1 && execute(command);
+  if (loading || !draft) return <main className="page centered-state"><div className="loading-mark" /><p>Loading Table…</p></main>;
+  if (!workspace) return <main className="page centered-state"><h1>{error ?? "Table could not be loaded."}</h1></main>;
+  const group = draft.groups.find((g) => g.photoIds.length === photoIds.length && g.photoIds.every((id) => selected.has(id)));
+  const memberGroup = photoIds.length === 1 ? draft.groups.find((g) => g.photoIds.includes(photoIds[0])) : undefined;
+  const canGroup = photoIds.length > 1 && photoIds.every((id) => !draft.groups.some((g) => g.photoIds.includes(id)));
+  const canJoin = photoIds.length === 1 && !memberGroup && draft.groups.length > 0;
   const firstSource = workspace.sources.find((source) => !source.removedAt);
-  const selectedGroup = draft.groups.find((group) => group.photoIds.length === selectedIds.length && group.photoIds.every((photoId) => selected.has(photoId)));
-  const singleSelectedGroup = selectedIds.length === 1 ? draft.groups.find((group) => group.photoIds.includes(selectedIds[0])) : undefined;
-  const canCreateGroup = selectedIds.length > 1 && selectedIds.every((photoId) => !draft.groups.some((group) => group.photoIds.includes(photoId)));
-  const canJoinGroup = selectedIds.length === 1 && !singleSelectedGroup && draft.groups.length > 0;
-  const activeSequence = sequenceDraft ?? workspace.sequenceDraft;
+  const arrange = (layout: WorktableEditCommand) => photoIds.length > 1 && execute(layout);
 
-  return (
-    <main className="table-page page">
-      <div className="table-toolbar" aria-label="Table 工具栏">
-        <strong>TABLE</strong>
-        <span className="table-toolbar-divider" />
-        <span className="table-project-name" title={workspace.name}>{workspace.name}</span>
-        <span className="table-toolbar-divider" />
-        <button disabled={!editorRef.current?.canUndo()} onClick={() => history("undo")}>Undo</button>
-        <button disabled={!editorRef.current?.canRedo()} onClick={() => history("redo")}>Redo</button>
-        <button disabled={!selectedIds.length} onClick={() => requestSequence(selectedIds)}>Sequence</button>
-        <button disabled={!selectedGroup && !canCreateGroup} onClick={() => selectedGroup ? execute({ type: "remove-group", groupId: selectedGroup.id }) : execute({ type: "create-group", photoIds: selectedIds })}>{selectedGroup ? "Ungroup" : "Group"}</button>
-        <button aria-label="Remove selected photo" title="Leave Group" disabled={!singleSelectedGroup} onClick={() => singleSelectedGroup && execute({ type: "remove-from-group", photoId: selectedIds[0] })}>Leave</button>
-        <label className="table-align-control">
-          <span className="sr-only">Add selected photo to group</span>
-          <select value="" disabled={!canJoinGroup} onChange={(event) => {
-            if (event.target.value && selectedIds[0]) execute({ type: "add-to-group", groupId: event.target.value, photoId: selectedIds[0] });
-          }}>
-            <option value="" disabled>Add to Group</option>
-            {draft.groups.map((group) => <option key={group.id} value={group.id}>{group.name}</option>)}
-          </select>
-        </label>
-        <button disabled={selectedIds.length < 2 || selectedIds.length > 6} onClick={() => execute({ type: "create-link", photoIds: selectedIds })}>Link</button>
-        <button disabled={selectedIds.length !== 2} onClick={() => setComparePhotoIds([selectedIds[0], selectedIds[1]])}>Compare</button>
-        <button disabled={selectedIds.length !== 1} onClick={() => selectedIds[0] && setPreviewPhotoId(selectedIds[0])}>Preview</button>
-        <button disabled={selectedIds.length < 2} onClick={() => arrange({ type: "arrange", photoIds: selectedIds, layout: { type: "grid" } })}>Grid</button>
-        <button disabled={selectedIds.length < 2} onClick={() => arrange({ type: "arrange", photoIds: selectedIds, layout: { type: "row" } })}>Row</button>
-        <label className="table-align-control">
-          <span className="sr-only">Align selection</span>
-          <select value={alignment} disabled={selectedIds.length < 2} onChange={(event) => {
-            const edge = event.target.value as WorktableAlignment;
-            arrange({ type: "arrange", photoIds: selectedIds, layout: { type: "align", edge } });
-            setAlignment("");
-          }}>
-            <option value="" disabled>Align</option>
-            <option value="left">Align left</option>
-            <option value="center-x">Align center</option>
-            <option value="right">Align right</option>
-            <option value="top">Align top</option>
-            <option value="center-y">Align middle</option>
-            <option value="bottom">Align bottom</option>
-          </select>
-        </label>
-        <button disabled={!selectedIds.length} onClick={() => execute({ type: "bring-to-front", photoIds: selectedIds })}>Front</button>
-        <button disabled={!selectedIds.length} onClick={() => { execute({ type: "remove", photoIds: selectedIds }); setSelected(new Set()); }}>Remove</button>
-        <span className="table-toolbar-spacer" />
-        <span>{selectedIds.length ? `${selectedIds.length} selected` : `${draft.entryOrder.length} photos`}</span>
-        <button onClick={fitTable}>Fit</button>
-        <button onClick={() => zoomAtCenter(viewport.zoom - .25)} disabled={viewport.zoom <= .25} aria-label="缩小桌面">−</button>
-        <span className="table-zoom-label">{Math.round(viewport.zoom * 100)}%</span>
-        <button onClick={() => zoomAtCenter(viewport.zoom + .25)} disabled={viewport.zoom >= 3} aria-label="放大桌面">＋</button>
+  return <main className="table-page page">
+    <div className="table-toolbar" aria-label="Table 工具栏"><strong>TABLE</strong><span className="table-toolbar-divider" /><span className="table-project-name">{workspace.name}</span><span className="table-toolbar-divider" />
+      <button disabled={!editorRef.current?.canUndo()} onClick={() => history("undo")}>Undo</button><button disabled={!editorRef.current?.canRedo()} onClick={() => history("redo")}>Redo</button>
+      <button disabled={!photoIds.length} onClick={() => requestSequence(photoIds)}>Sequence</button>
+      <button disabled={!photoIds.length || !summaries.length} onClick={() => { setAddToSequenceId(summaries[0]?.id); setAddToSequenceOpen(true); }}>Add to Sequence</button>
+      <button disabled={!group && !canGroup} onClick={() => group ? execute({ type: "remove-group", groupId: group.id }) : execute({ type: "create-group", photoIds })}>{group ? "Ungroup" : "Group"}</button>
+      <button disabled={!memberGroup} onClick={() => memberGroup && execute({ type: "remove-from-group", photoId: photoIds[0] })}>Leave</button>
+      <label className="table-align-control"><select aria-label="Add to Group" value="" disabled={!canJoin} onChange={(event) => event.target.value && execute({ type: "add-to-group", groupId: event.target.value, photoId: photoIds[0] })}><option value="">Add to Group</option>{draft.groups.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}</select></label>
+      <button disabled={photoIds.length < 2 || photoIds.length > 6} onClick={() => execute({ type: "create-link", photoIds })}>Link</button>
+      <button disabled={photoIds.length !== 2 && pileIds.length !== 2} onClick={() => pileIds.length === 2 ? navigate({ name: "sequence-compare", projectId, leftSequenceId: pileIds[0], rightSequenceId: pileIds[1] }) : setComparePhotoIds([photoIds[0], photoIds[1]])}>Compare</button>
+      <button disabled={photoIds.length !== 1} onClick={() => setPreviewPhotoId(photoIds[0])}>Preview</button>
+      <button disabled={photoIds.length < 2} onClick={() => arrange({ type: "arrange", photoIds, layout: { type: "grid" } })}>Grid</button><button disabled={photoIds.length < 2} onClick={() => arrange({ type: "arrange", photoIds, layout: { type: "row" } })}>Row</button>
+      <label className="table-align-control"><select aria-label="Align selection" value={alignment} disabled={photoIds.length < 2} onChange={(event) => { const edge = event.target.value as WorktableAlignment; arrange({ type: "arrange", photoIds, layout: { type: "align", edge } }); setAlignment(""); }}><option value="">Align</option><option value="left">Left</option><option value="center-x">Center</option><option value="right">Right</option><option value="top">Top</option><option value="center-y">Middle</option><option value="bottom">Bottom</option></select></label>
+      <button disabled={!photoIds.length && !pileIds.length} onClick={() => pileIds.length ? execute({ type: "bring-sequence-piles-to-front", sequenceIds: pileIds }) : execute({ type: "bring-to-front", photoIds })}>Front</button>
+      <button disabled={!photoIds.length && !pileIds.length} onClick={() => { if (pileIds.length) { execute({ type: "remove-sequence-piles", sequenceIds: pileIds }); setSelectedPiles(new Set()); } else { execute({ type: "remove", photoIds }); setSelected(new Set()); } }}>Remove</button>
+      <span className="table-toolbar-spacer" /><span>{pileIds.length ? `${pileIds.length} piles selected` : photoIds.length ? `${photoIds.length} selected` : `${draft.entryOrder.length} photos · ${draft.pileOrder.length} piles`}</span><button onClick={fit}>Fit</button><button aria-label="Zoom out" onClick={() => zoom(viewport.zoom - .25)}>−</button><span>{Math.round(viewport.zoom * 100)}%</span><button aria-label="Zoom in" onClick={() => zoom(viewport.zoom + .25)}>+</button>
+    </div>
+    {notice && <p className="table-notice" role="status">{notice}</p>}
+    <div ref={stageRef} className="worktable-stage" tabIndex={0} aria-label="Photo worktable" onPointerDown={onStageDown} onPointerMove={onStageMove} onPointerUp={(event) => finish(event)} onPointerCancel={(event) => finish(event, true)} onWheel={onWheel} onContextMenu={(event) => event.preventDefault()} onKeyDown={onKeyDown}>
+      <div className="worktable-world" style={{ transform: `translate3d(${viewport.originX}px,${viewport.originY}px,0) scale(${viewport.zoom})` }}>
+        <svg className="worktable-links">{draft.links.flatMap((link) => link.photoIds.slice(1).map((id, i) => { const a = draft.placements[link.photoIds[i]], b = draft.placements[id]; return <line key={`${link.id}-${id}`} x1={a.x + a.width / 2} y1={a.y + a.height / 2} x2={b.x + b.width / 2} y2={b.y + b.height / 2} />; }))}</svg>
+        {draft.groups.map((g) => { const box = groupBounds(draft, g.photoIds); return <div key={g.id} className="worktable-group-frame" style={{ left: box.left, top: box.top, width: box.width, height: box.height }}><span>{g.name} · {g.photoIds.length}</span></div>; })}
+        {draft.entryOrder.map((id) => { const item = draft.placements[id], chosen = selected.has(id), delta = chosen && gestureRef.current?.kind === "photo" ? dragDelta : { x: 0, y: 0 }, scale = gestureRef.current?.kind === "resize" && gestureRef.current.photoId === id ? resizeScale : 1; return <article key={id} aria-label={item.filename} className={`worktable-card${chosen ? " is-selected" : ""}${missing.has(id) ? " is-missing" : ""}`} style={{ width: item.width * scale, height: item.height * scale, zIndex: item.z, transform: `translate3d(${item.x + delta.x}px,${item.y + delta.y}px,0)` }} onPointerDown={(event) => onPhotoDown(event, id)} onDoubleClick={() => setPreviewPhotoId(id)}><div className="worktable-photo" style={{ height: item.height * scale }}><PhotoThumb photoSource={dependencies.photoSource} photoId={id} alt={item.filename} onError={onPhotoError} eager resolution="full" />{missing.has(id) && <span className="worktable-missing">MISSING</span>}</div>{chosen && photoIds.length === 1 && <button aria-label="Resize photo" className="worktable-resize-handle" onPointerDown={(event) => onResizeDown(event, id)} />}</article>; })}
+        {draft.pileOrder.map((id) => { const pile = draft.pilePlacements[id], summary = summaries.find((x) => x.id === id), chosen = selectedPiles.has(id), delta = chosen && gestureRef.current?.kind === "pile" ? dragDelta : { x: 0, y: 0 }; return <article key={id} aria-label={`Sequence pile ${summary?.name ?? "Missing Sequence"}`} className={`sequence-pile${chosen ? " is-selected" : ""}`} style={{ width: pile.width, height: pile.height, zIndex: pile.z, transform: `translate3d(${pile.x + delta.x}px,${pile.y + delta.y}px,0)` }} onPointerDown={(event) => onPileDown(event, id)} onDoubleClick={(event) => { event.stopPropagation(); navigate({ name: "sequence", projectId, sequenceId: id }); }}><header><strong>{summary?.name ?? "Missing Sequence"}</strong><span>{summary?.itemCount ?? 0}</span></header><div className="sequence-pile-thumbs">{summary?.previewPhotoIds.map((photoId, i) => <span key={photoId} style={{ left: i * 14, zIndex: i }}><PhotoThumb photoSource={dependencies.photoSource} photoId={photoId} alt="" onError={onPhotoError} /></span>)}</div><small>DOUBLE-CLICK TO OPEN</small></article>; })}
       </div>
-      {notice && <p className="table-notice" role="status">{notice}</p>}
-      <div
-        ref={stageRef}
-        className="worktable-stage"
-        tabIndex={0}
-        onPointerDown={onStagePointerDown}
-        onPointerMove={onStagePointerMove}
-        onPointerUp={(event) => finishPointer(event)}
-        onPointerCancel={(event) => finishPointer(event, true)}
-        onContextMenu={(event) => event.preventDefault()}
-        onKeyDown={onKeyDown}
-        aria-label="Photo worktable"
-      >
-        <div
-          className="worktable-world"
-          style={{ transform: `translate3d(${viewport.originX}px, ${viewport.originY}px, 0) scale(${viewport.zoom})` }}
-        >
-          <svg className="worktable-links" aria-hidden="true">
-            {draft.links.flatMap((link) => link.photoIds.slice(1).map((photoId, index) => {
-              const from = draft.placements[link.photoIds[index]];
-              const to = draft.placements[photoId];
-              return <line key={`${link.id}-${photoId}`} x1={from.x + from.width / 2} y1={from.y + from.height / 2} x2={to.x + to.width / 2} y2={to.y + to.height / 2} />;
-            }))}
-          </svg>
-          {draft.groups.map((group) => {
-            const bounds = groupBounds(draft, group.photoIds);
-            return <div key={group.id} className="worktable-group-frame" style={{ left: bounds.left, top: bounds.top, width: bounds.width, height: bounds.height }}><span>{group.name} · {group.photoIds.length}</span></div>;
-          })}
-          {draft.entryOrder.map((photoId) => {
-            const item = draft.placements[photoId];
-            const isSelected = selected.has(photoId);
-            const preview = isSelected && gestureRef.current?.kind === "drag" ? dragDelta : { x: 0, y: 0 };
-            const visualScale = gestureRef.current?.kind === "resize" && gestureRef.current.photoId === photoId ? resizeScale : 1;
-            const sequenceIndex = sequenceIndexByPhotoId.get(photoId);
-            return (
-              <article
-                key={photoId}
-                className={`worktable-card${isSelected ? " is-selected" : ""}${missing.has(photoId) ? " is-missing" : ""}`}
-                style={{
-                  width: item.width * visualScale,
-                  height: item.height * visualScale,
-                  zIndex: item.z,
-                  transform: `translate3d(${item.x + preview.x}px, ${item.y + preview.y}px, 0)`,
-                }}
-                onPointerDown={(event) => onCardPointerDown(event, photoId)}
-                onDoubleClick={(event) => { event.stopPropagation(); setPreviewPhotoId(photoId); }}
-                aria-label={`${item.filename}${isSelected ? "，已选择" : ""}`}
-              >
-                <div className="worktable-photo" style={{ height: item.height * visualScale }}>
-                  {visiblePhotoIds.has(photoId)
-                    ? <PhotoThumb photoSource={dependencies.photoSource} photoId={photoId} alt={item.filename} onError={onPhotoError} eager />
-                    : <div className="thumb-placeholder" aria-hidden="true" />}
-                  {missing.has(photoId) && <span className="worktable-missing">MISSING</span>}
-                  {sequenceIndex !== undefined && <span className="worktable-sequence-number">S{String(sequenceIndex + 1).padStart(2, "0")}</span>}
-                </div>
-                {isSelected && selectedIds.length === 1 && (
-                  <button className="worktable-resize-handle" onPointerDown={(event) => onResizePointerDown(event, photoId)} aria-label="Resize photo" />
-                )}
-              </article>
-            );
-          })}
-        </div>
-        {marquee && <div className="worktable-marquee" style={marquee} />}
-        {!draft.entryOrder.length && (
-          <section className="worktable-empty">
-            <span>EMPTY TABLE</span>
-            <h1>Bring photographs here to think with them.</h1>
-            <p>Select photographs in Contact Sheet, then choose Place on Table.</p>
-            <button className="button button-primary" onClick={() => firstSource
-              ? navigate({ name: "contact-sheet", projectId, sourceId: firstSource.id })
-              : navigate({ name: "project", projectId })}
-            >{firstSource ? "Open Contact Sheet" : "Add a photo folder"}</button>
-          </section>
-        )}
-      </div>
-      {sequenceConfirmation && (
-        <section className="sequence-confirmation" role="dialog" aria-label="Confirm Sequence order">
-          <span>Add {sequenceConfirmation.length} photos in Table entry order?</span>
-          <div><button onClick={() => setSequenceConfirmation(undefined)}>Cancel</button><button className="button button-primary" onClick={() => void commitToSequence(sequenceConfirmation)}>Add to Sequence</button></div>
-        </section>
-      )}
-      <SequenceStrip
-        sequence={activeSequence}
-        worktable={draft}
-        photoSource={dependencies.photoSource}
-        onPhotoError={onPhotoError}
-        onReorder={(itemId, to) => { void reorderSequence(itemId, to); }}
-        onSelect={(photoId) => setSelected(new Set([photoId]))}
-      />
-      {previewPhotoId && draft.placements[previewPhotoId] && (
-        <TablePreviewOverlay
-          photoId={previewPhotoId}
-          filename={draft.placements[previewPhotoId].filename}
-          photoSource={dependencies.photoSource}
-          onClose={() => setPreviewPhotoId(undefined)}
-          onPhotoSourceError={onPhotoError}
-        />
-      )}
-      {comparePhotoIds && <CompareOverlay photoIds={comparePhotoIds} draft={draft} photoSource={dependencies.photoSource} onClose={() => setComparePhotoIds(undefined)} />}
-    </main>
-  );
+      {marquee && <div className="worktable-marquee" style={marquee} />}
+      {!draft.entryOrder.length && !draft.pileOrder.length && <section className="worktable-empty"><span>EMPTY TABLE</span><h1>Bring photographs here to think with them.</h1><p>Select photographs in Contact Sheet, then choose Place on Table.</p><button className="button button-primary" onClick={() => firstSource ? navigate({ name: "contact-sheet", projectId, sourceId: firstSource.id }) : navigate({ name: "project", projectId })}>{firstSource ? "Open Contact Sheet" : "Add a photo folder"}</button></section>}
+    </div>
+    {confirmation && <section className="sequence-confirmation sequence-pile-confirmation" role="dialog" aria-label="Create Sequence pile"><label><span>SEQUENCE NAME</span><input autoFocus value={confirmation.name} onChange={(event) => setConfirmation({ ...confirmation, name: event.target.value })} onKeyDown={(event) => event.key === "Enter" && void createPile()} /></label><div className="sequence-confirmation-order">{confirmation.photoIds.map((id, index) => <button key={id} draggable onDragStart={() => setConfirmationDragId(id)} onDragOver={(event) => event.preventDefault()} onDrop={() => { if (confirmationDragId) setConfirmation({ ...confirmation, photoIds: movePhoto(confirmation.photoIds, confirmationDragId, index) }); setConfirmationDragId(undefined); }}><PhotoThumb photoSource={dependencies.photoSource} photoId={id} alt={`Order ${index + 1}`} onError={onPhotoError} /><span>{index + 1}</span></button>)}</div><div><button onClick={() => setConfirmation(undefined)}>Cancel</button><button className="button button-primary" onClick={() => void createPile()}>Create Pile</button></div></section>}
+    {addToSequenceOpen && <section className="sequence-add-dialog" role="dialog" aria-label="Add photos to Sequence"><header><strong>ADD TO SEQUENCE</strong><button onClick={() => setAddToSequenceOpen(false)} aria-label="Close">×</button></header><p>{photoIds.length} selected photo{photoIds.length === 1 ? "" : "s"}</p><label><span>DESTINATION SEQUENCE</span><select autoFocus value={addToSequenceId ?? ""} onChange={(event) => setAddToSequenceId(event.target.value as SequenceId)}>{summaries.map((item) => <option key={item.id} value={item.id}>{item.name} · {item.itemCount} photos</option>)}</select></label><footer><button onClick={() => setAddToSequenceOpen(false)}>Cancel</button><button className="button button-primary" disabled={!addToSequenceId} onClick={() => void addPhotosToSequence()}>Add photos</button></footer></section>}
+    <section className={`sequence-strip${sequenceCollapsed ? " is-collapsed" : ""}${activeSequence ? "" : " is-empty"}`} aria-label="Sequence Order"><header><button onClick={() => setSequenceCollapsed((x) => !x)}>{sequenceCollapsed ? "↑" : "↓"}</button><strong>SEQUENCE ORDER</strong><span>{activeSequence ? `${activeSequence.name} · ${activeSequence.items.filter(isPhotoSequenceItem).length} photos` : "Select one Sequence Pile"}</span>{activeSequence && <><small>drag to reorder</small><button className="sequence-strip-open" onClick={() => navigate({ name: "sequence", projectId, sequenceId: activeSequence.id })}>Open Sequence</button></>}</header>{!sequenceCollapsed && activeSequence && <div className="sequence-strip-items">{activeSequence.items.map((item, index) => <button key={item.id} ref={(element) => { if (element) stripRefs.current.set(item.id, element); else stripRefs.current.delete(item.id); }} className={`sequence-strip-item${sequenceDragId === item.id ? " is-dragging" : ""}`} draggable onDragStart={() => setSequenceDragId(item.id)} onDragOver={(event) => event.preventDefault()} onDrop={() => { if (sequenceDragId) void reorderSequence(sequenceDragId, index); setSequenceDragId(undefined); }} onDragEnd={() => setSequenceDragId(undefined)}>{item.kind === "photo" ? <PhotoThumb photoSource={dependencies.photoSource} photoId={item.photoId} alt={`Sequence ${index + 1}`} onError={onPhotoError} /> : <span className="sequence-blank-thumb">BLANK</span>}<span>{String(index + 1).padStart(2, "0")}</span></button>)}</div>}</section>
+    {previewPhotoId && draft.placements[previewPhotoId] && <Preview photoId={previewPhotoId} filename={draft.placements[previewPhotoId].filename} photoSource={dependencies.photoSource} onClose={() => setPreviewPhotoId(undefined)} onError={onPhotoError} />}
+    {comparePhotoIds && <PhotoCompare ids={comparePhotoIds} draft={draft} photoSource={dependencies.photoSource} onClose={() => setComparePhotoIds(undefined)} />}
+  </main>;
 }
 
-function groupBounds(draft: WorktableDraft, photoIds: readonly PhotoId[]) {
-  const placements = photoIds.map((photoId) => draft.placements[photoId]);
-  const padding = 24;
-  const left = Math.min(...placements.map((item) => item.x)) - padding;
-  const top = Math.min(...placements.map((item) => item.y)) - padding;
-  const right = Math.max(...placements.map((item) => item.x + item.width)) + padding;
-  const bottom = Math.max(...placements.map((item) => item.y + item.height)) + padding;
-  return { left, top, width: right - left, height: bottom - top };
+function Preview({ photoId, filename, photoSource, onClose, onError }: { photoId: PhotoId; filename: string; photoSource: AppDependencies["photoSource"]; onClose: () => void; onError: (id: PhotoId, error: SourceError) => void }) {
+  const [url, setUrl] = useState<string>();
+  useEffect(() => { let live = true, lease: { url: string; release(): void } | undefined; void photoSource.preview(photoId).then((result) => { if (!result.ok) { if (live) onError(photoId, result.error); return; } if (!live) return result.value.release(); lease = result.value; setUrl(lease.url); }); return () => { live = false; lease?.release(); }; }, [onError, photoId, photoSource]);
+  useEffect(() => { const key = (event: globalThis.KeyboardEvent) => event.key === "Escape" && onClose(); window.addEventListener("keydown", key); return () => window.removeEventListener("keydown", key); }, [onClose]);
+  return <div className="table-preview-backdrop" role="dialog" aria-modal="true" aria-label={`Preview ${filename}`} onPointerDown={onClose}><section className="table-preview-dialog" onPointerDown={(event) => event.stopPropagation()}><header><span>{filename}</span><button autoFocus onClick={onClose} aria-label="Close preview">×</button></header><div className="table-preview-image-wrap">{url ? <img src={url} alt={filename} /> : <div className="preview-placeholder">Preview unavailable</div>}</div></section></div>;
 }
-
-function sequenceItemId(): string {
-  return globalThis.crypto?.randomUUID?.() ?? `sequence-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+function PhotoCompare({ ids, draft, photoSource, onClose }: { ids: readonly [PhotoId, PhotoId]; draft: WorktableDraft; photoSource: AppDependencies["photoSource"]; onClose: () => void }) {
+  const [order, setOrder] = useState(ids), [urls, setUrls] = useState<readonly string[]>([]);
+  useEffect(() => { let live = true; const leases: Array<{ release(): void }> = []; void Promise.all(order.map((id) => photoSource.preview(id))).then((results) => { if (!live) return results.forEach((x) => x.ok && x.value.release()); leases.push(...results.flatMap((x) => x.ok ? [x.value] : [])); setUrls(results.map((x) => x.ok ? x.value.url : "")); }); return () => { live = false; leases.forEach((x) => x.release()); }; }, [order, photoSource]);
+  return <div className="compare-backdrop" role="dialog" aria-modal="true" aria-label="Compare two photos"><header><span>COMPARE</span><button onClick={() => setOrder([order[1], order[0]])}>Swap</button><button onClick={onClose}>×</button></header><div className="compare-images">{order.map((id, index) => <figure key={id}><span>{index ? "B" : "A"}</span>{urls[index] ? <img src={urls[index]} alt={draft.placements[id].filename} /> : <div className="preview-placeholder">Preview unavailable</div>}</figure>)}</div></div>;
 }
+function groupBounds(draft: WorktableDraft, ids: readonly PhotoId[]) { const x = ids.map((id) => draft.placements[id]), p = 24, left = Math.min(...x.map((v) => v.x)) - p, top = Math.min(...x.map((v) => v.y)) - p, right = Math.max(...x.map((v) => v.x + v.width)) + p, bottom = Math.max(...x.map((v) => v.y + v.height)) + p; return { left, top, width: right - left, height: bottom - top }; }
+function maximumZ(draft: WorktableDraft) { return Math.max(-1, ...Object.values(draft.placements).map((x) => x.z), ...Object.values(draft.pilePlacements).map((x) => x.z)); }
+function movePhoto(items: readonly PhotoId[], id: PhotoId, to: number) { const rest = items.filter((x) => x !== id), target = items.slice(0, to).filter((x) => x !== id).length; return [...rest.slice(0, target), id, ...rest.slice(target)]; }
+function newId(prefix: string) { return globalThis.crypto?.randomUUID?.() ?? `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2)}`; }

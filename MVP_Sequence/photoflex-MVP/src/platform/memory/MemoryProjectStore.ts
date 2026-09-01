@@ -14,6 +14,12 @@ import {
   type Result,
   type SaveError,
   type SequenceVersion,
+  type SequenceDocument,
+  type SequenceId,
+  type SequenceRevision,
+  type SequenceSummary,
+  type SequenceWriteError,
+  type WorktableDraft,
   type VersionId,
   type VersionSummary,
   type VersionWriteError,
@@ -27,17 +33,21 @@ import {
   toProjectSummary,
   toVersionSummary,
   validateVersionForProject,
+  validateSequenceForProject,
 } from "../projectStoreData";
+import { toSequenceSummary } from "../../modules/sequence";
 
 export interface MemoryProjectDatabase {
   readonly projects: Map<ProjectId, ProjectWorkspace>;
   readonly versions: Map<VersionId, SequenceVersion>;
+  readonly sequences: Map<SequenceId, SequenceDocument>;
   readonly corruptProjectIds: Set<ProjectId>;
 }
 
 export const createMemoryProjectDatabase = (): MemoryProjectDatabase => ({
   projects: new Map(),
   versions: new Map(),
+  sequences: new Map(),
   corruptProjectIds: new Set(),
 });
 
@@ -143,6 +153,72 @@ export class MemoryProjectStore implements ProjectStore {
     return ok({ summary: toVersionSummary(version), revision });
   }
 
+  async createSequence(
+    projectId: ProjectId,
+    expectedRevision: WorkspaceRevision,
+    sequence: SequenceDocument,
+    initialVersion: SequenceVersion,
+    worktableDraft: WorktableDraft,
+  ): Promise<Result<{ readonly summary: SequenceSummary; readonly revision: WorkspaceRevision }, SequenceWriteError>> {
+    if (this.options.unavailable) return err({ kind: "unavailable", retryable: true });
+    if (this.options.quotaExceeded) return err({ kind: "quota-exceeded" });
+    const workspace = this.database.projects.get(projectId);
+    if (!workspace) return err({ kind: "not-found", entity: "project", id: projectId });
+    if (workspace.revision !== expectedRevision) return err({ kind: "conflict", expectedRevision, actualRevision: workspace.revision });
+    const validation = validateSequenceForProject(projectId, sequence);
+    if (!validation.ok) return validation;
+    const versionValidation = validateVersionForProject(projectId, initialVersion);
+    if (!versionValidation.ok || initialVersion.sequenceId !== sequence.id || initialVersion.id !== sequence.currentVersionId) return err({ kind: "invalid-sequence", reason: "Initial version does not match Sequence." });
+    if (this.database.sequences.has(sequence.id)) return err({ kind: "sequence-id-exists", sequenceId: sequence.id });
+    if (this.database.versions.has(initialVersion.id)) return err({ kind: "invalid-sequence", reason: "Initial version already exists." });
+    if ([...this.database.sequences.values()].some((item) => item.projectId === projectId && item.name.toLocaleLowerCase() === sequence.name.toLocaleLowerCase())) {
+      return err({ kind: "sequence-name-exists", name: sequence.name });
+    }
+    const revision = (expectedRevision + 1) as WorkspaceRevision;
+    this.database.sequences.set(sequence.id, clone(sequence));
+    this.database.versions.set(initialVersion.id, clone(initialVersion));
+    this.database.projects.set(projectId, clone({ ...workspace, worktableDraft, sequenceIds: [...workspace.sequenceIds, sequence.id], versionIds: [...workspace.versionIds, initialVersion.id], revision, updatedAt: sequence.updatedAt }));
+    return ok({ summary: toSequenceSummary(sequence), revision });
+  }
+
+  async listSequences(projectId: ProjectId): Promise<Result<readonly SequenceSummary[], LoadError>> {
+    const loaded = await this.loadWorkspace(projectId);
+    if (!loaded.ok) return loaded;
+    const summaries: SequenceSummary[] = [];
+    for (const sequenceId of loaded.value.sequenceIds) {
+      const sequence = this.database.sequences.get(sequenceId);
+      if (!sequence) return err({ kind: "corrupt-data", entityId: sequenceId });
+      summaries.push(toSequenceSummary(sequence));
+    }
+    return ok(summaries);
+  }
+
+  async loadSequence(sequenceId: SequenceId): Promise<Result<SequenceDocument, LoadError>> {
+    if (this.options.unavailable) return err({ kind: "unavailable", retryable: true });
+    const sequence = this.database.sequences.get(sequenceId);
+    return sequence ? ok(clone(sequence)) : err({ kind: "not-found", entity: "sequence", id: sequenceId });
+  }
+
+  async saveSequence(
+    sequence: SequenceDocument,
+    expectedRevision: SequenceRevision,
+  ): Promise<Result<{ readonly summary: SequenceSummary; readonly revision: SequenceRevision }, SequenceWriteError>> {
+    if (this.options.unavailable) return err({ kind: "unavailable", retryable: true });
+    if (this.options.quotaExceeded) return err({ kind: "quota-exceeded" });
+    const current = this.database.sequences.get(sequence.id);
+    if (!current) return err({ kind: "not-found", entity: "sequence", id: sequence.id });
+    if (current.revision !== expectedRevision) return err({ kind: "sequence-conflict", expectedRevision, actualRevision: current.revision });
+    const validation = validateSequenceForProject(sequence.projectId, sequence);
+    if (!validation.ok) return validation;
+    if ([...this.database.sequences.values()].some((item) => item.id !== sequence.id && item.projectId === sequence.projectId && item.name.toLocaleLowerCase() === sequence.name.toLocaleLowerCase())) {
+      return err({ kind: "sequence-name-exists", name: sequence.name });
+    }
+    const revision = (expectedRevision + 1) as SequenceRevision;
+    const saved = { ...sequence, revision };
+    this.database.sequences.set(sequence.id, clone(saved));
+    return ok({ summary: toSequenceSummary(saved), revision });
+  }
+
   async listVersions(projectId: ProjectId): Promise<Result<readonly VersionSummary[], LoadError>> {
     const loaded = await this.loadWorkspace(projectId);
     if (!loaded.ok) return loaded;
@@ -170,6 +246,7 @@ export class MemoryProjectStore implements ProjectStore {
     const workspace = this.database.projects.get(projectId);
     if (!workspace) return err({ kind: "not-found", entity: "project", id: projectId });
     for (const versionId of workspace.versionIds) this.database.versions.delete(versionId);
+    for (const sequenceId of workspace.sequenceIds) this.database.sequences.delete(sequenceId);
     this.database.projects.delete(projectId);
     this.database.corruptProjectIds.delete(projectId);
     return ok(undefined);
@@ -179,12 +256,18 @@ export class MemoryProjectStore implements ProjectStore {
     const workspace = await this.loadWorkspace(projectId);
     if (!workspace.ok) return workspace;
     const versions: SequenceVersion[] = [];
+    const sequences: SequenceDocument[] = [];
     for (const versionId of workspace.value.versionIds) {
       const loaded = await this.loadVersion(versionId);
       if (!loaded.ok) return loaded;
       versions.push(loaded.value);
     }
-    return ok(new TextEncoder().encode(JSON.stringify(createBackup(workspace.value, versions))));
+    for (const sequenceId of workspace.value.sequenceIds) {
+      const loaded = await this.loadSequence(sequenceId);
+      if (!loaded.ok) return loaded;
+      sequences.push(loaded.value);
+    }
+    return ok(new TextEncoder().encode(JSON.stringify(createBackup(workspace.value, versions, sequences))));
   }
 
   async importBackup(_bytes: Uint8Array): Promise<Result<ProjectId, BackupError>> {
