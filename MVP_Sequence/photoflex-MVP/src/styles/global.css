@@ -408,8 +408,9 @@ h1, h2, p { margin-top: 0; }
 .sequence-order > header button { padding: 2px 5px; border: 0; background: transparent; }
 .sequence-order > header button.is-active { background: #171513; color: #fff; }
 .sequence-order-collapse { margin-left: auto; }
-.sequence-order-track { position: relative; display: flex; gap: 13px; height: 116px; overflow-x: auto; padding: 4px 72px 12px; touch-action: pan-y; }
-.sequence-order-item { position: relative; display: grid; flex: 0 0 140px; grid-template-rows: 76px auto auto; gap: 2px; min-width: 0; padding: 0; border: 2px solid transparent; background: transparent; text-align: left; touch-action: none; }
+.sequence-order-track { position: relative; display: block; height: 116px; overflow-x: auto; padding: 4px 72px 12px; touch-action: pan-y; }
+.sequence-order-virtual-inner { position: relative; height: 100%; }
+.sequence-order-item { position: absolute; top: 0; display: grid; width: 140px; height: 100px; grid-template-rows: 76px auto auto; gap: 2px; min-width: 0; padding: 0; border: 2px solid transparent; background: transparent; text-align: left; touch-action: none; }
 .sequence-order-item.is-selected { border-color: #171513; }
 .sequence-order-image { position: relative; display: grid; place-items: center; width: 100%; height: 76px; overflow: hidden; background: transparent; }
 .sequence-order-image img, .sequence-order-image .thumb-placeholder { width: 100%; height: 100%; object-fit: contain; }

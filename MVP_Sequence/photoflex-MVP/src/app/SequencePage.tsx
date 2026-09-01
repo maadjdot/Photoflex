@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode, type WheelEvent as ReactWheelEvent } from "react";
-import type { PhotoId, ProjectId, ReadingUnit, ReadingUnitId, SequenceDocument, SequenceEditCommand, SequenceEditor, SequenceId, SequenceItem, SequenceItemId, SequenceSegment, SequenceSegmentId } from "../contracts";
-import { compareSequences, createSequenceEditor } from "../modules/sequence";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type ReactNode, type WheelEvent as ReactWheelEvent } from "react";
+import type { PhotoId, PhotoState, ProjectId, ReadingUnit, ReadingUnitId, SequenceDocument, SequenceEditCommand, SequenceEditor, SequenceId, SequenceItem, SequenceItemId, SequenceSegment, SequenceSegmentId } from "../contracts";
+import { calculateSequenceStripVirtualRange, compareSequences, createSequenceEditor, sequenceStripInsertionIndex, SEQUENCE_STRIP_ITEM_GAP, SEQUENCE_STRIP_ITEM_WIDTH } from "../modules/sequence";
 import type { AppDependencies } from "./dependencies";
 import { PhotoThumb } from "./PhotoThumb";
 import type { AppRoute } from "./router";
@@ -25,6 +25,7 @@ export function SequencePage({ dependencies, projectId, sequenceId, navigate }: 
   const [notice, setNotice] = useState<string>();
   const [saveState, setSaveState] = useState<"idle" | "saving" | "failed">("idle");
   const [missing, setMissing] = useState<Set<PhotoId>>(new Set());
+  const [stripLayout, setStripLayout] = useState({ width: 0, scrollLeft: 0 });
   const editorRef = useRef<SequenceEditor | undefined>(undefined);
   const sequenceRef = useRef<SequenceDocument | undefined>(undefined);
   const revisionRef = useRef(0);
@@ -32,12 +33,33 @@ export function SequencePage({ dependencies, projectId, sequenceId, navigate }: 
   const saveGenerationRef = useRef(0);
   const dragRef = useRef<DragState | undefined>(undefined);
   const dragFrameRef = useRef<number | undefined>(undefined);
-  const pendingDropTargetRef = useRef<number | undefined>(undefined);
+  const pendingDragPointRef = useRef<{ x: number; y: number; pointerId: number } | undefined>(undefined);
+  const stageLayoutRef = useRef(new Map<number, { left: number; top: number; width: number; height: number }>());
+  const overviewLayoutRef = useRef(new Map<number, { left: number; top: number; width: number; height: number }>());
   const workspaceRef = useRef<HTMLElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
   const stripRef = useRef<HTMLDivElement>(null);
   const overviewRef = useRef<HTMLElement>(null);
+  const photoNameCacheRef = useRef(new Map<PhotoId, string>());
   const { workspace, save: saveWorkspace } = useProjectWorkspace(dependencies, projectId);
+
+  useEffect(() => {
+    const element = stripRef.current;
+    if (!element) return;
+    const measure = () => { const rect = element.getBoundingClientRect(); setStripLayout({ width: element.clientWidth || rect.width, scrollLeft: element.scrollLeft }); };
+    measure();
+    if (typeof ResizeObserver === "function") { const observer = new ResizeObserver(measure); observer.observe(element); return () => observer.disconnect(); }
+    window.addEventListener("resize", measure); return () => window.removeEventListener("resize", measure);
+  }, [sequence?.id, stripCollapsed]);
+  useLayoutEffect(() => {
+    const container = overview ? overviewRef.current : stageRef.current;
+    const cache = overview ? overviewLayoutRef.current : stageLayoutRef.current;
+    if (!container) return;
+    const refresh = () => cacheSequenceItemRects(container, cache);
+    refresh();
+    if (typeof ResizeObserver === "function") { const observer = new ResizeObserver(refresh); observer.observe(container); return () => observer.disconnect(); }
+    window.addEventListener("resize", refresh); return () => window.removeEventListener("resize", refresh);
+  }, [overview, sequence, zoom, collapsedSegments]);
 
   const load = useCallback(async () => {
     const result = await dependencies.projectStore.loadSequence(sequenceId);
@@ -52,6 +74,7 @@ export function SequencePage({ dependencies, projectId, sequenceId, navigate }: 
   }, [dependencies.projectStore, sequenceId]);
 
   useEffect(() => { let live = true; void load().then(() => { if (!live) return; }); return () => { live = false; saveGenerationRef.current += 1; if (dragFrameRef.current !== undefined) cancelAnimationFrame(dragFrameRef.current); }; }, [load]);
+  const stripRange = useMemo(() => calculateSequenceStripVirtualRange({ itemCount: sequence?.items.length ?? 0, viewportWidth: stripLayout.width, scrollLeft: stripLayout.scrollLeft }), [sequence?.items.length, stripLayout]);
   useEffect(() => {
     if (!workspace || !sequence) return;
     if (workspace.resumeContext?.page === "sequence" && workspace.resumeContext.sequenceId === sequenceId) return;
@@ -124,44 +147,72 @@ export function SequencePage({ dependencies, projectId, sequenceId, navigate }: 
   const moveDrag = useCallback((event: ReactPointerEvent<HTMLElement>) => {
     const drag = dragRef.current; if (!drag || drag.pointerId !== event.pointerId || !sequence) return;
     if (Math.abs(event.clientX - drag.startX) > 4) drag.moved = true;
-    const container = drag.source === "stage" ? stageRef.current : drag.source === "strip" ? stripRef.current : overviewRef.current;
-    if (!container) return;
-    const bounds = container.getBoundingClientRect();
-    if (event.clientX < bounds.left + 48) container.scrollLeft -= 24;
-    else if (event.clientX > bounds.right - 48) container.scrollLeft += 24;
-    const elements = [...container.querySelectorAll<HTMLElement>("[data-sequence-index]")];
-    let target = sequence.items.length;
-    if (drag.source === "overview") {
-      let nearest: { index: number; distance: number; rect: DOMRect } | undefined;
-      for (const element of elements) {
-        const rect = element.getBoundingClientRect();
-        const distance = Math.hypot(event.clientX - (rect.left + rect.width / 2), event.clientY - (rect.top + rect.height / 2));
-        if (!nearest || distance < nearest.distance) nearest = { index: Number(element.dataset.sequenceIndex), distance, rect };
+    pendingDragPointRef.current = { x: event.clientX, y: event.clientY, pointerId: event.pointerId };
+    if (dragFrameRef.current !== undefined) return;
+    dragFrameRef.current = requestAnimationFrame(() => {
+      dragFrameRef.current = undefined;
+      const point = pendingDragPointRef.current;
+      const currentDrag = dragRef.current;
+      if (!point || !currentDrag || currentDrag.pointerId !== point.pointerId || !sequence) return;
+      const container = currentDrag.source === "stage" ? stageRef.current : currentDrag.source === "strip" ? stripRef.current : overviewRef.current;
+      if (!container) return;
+      const bounds = container.getBoundingClientRect();
+      if (point.x < bounds.left + 48) container.scrollLeft -= 24;
+      else if (point.x > bounds.right - 48) container.scrollLeft += 24;
+      if (currentDrag.source === "strip") setStripLayout({ width: container.clientWidth || bounds.width, scrollLeft: container.scrollLeft });
+      let target = sequence.items.length;
+      if (currentDrag.source === "strip") {
+        target = sequenceStripInsertionIndex(point.x, bounds.left, container.scrollLeft, sequence.items.length, 72);
+      } else {
+        const cache = currentDrag.source === "overview" ? overviewLayoutRef.current : stageLayoutRef.current;
+        const localX = point.x - bounds.left + container.scrollLeft;
+        const localY = point.y - bounds.top + container.scrollTop;
+        if (currentDrag.source === "overview") {
+          let nearest: { index: number; distance: number; rect: { left: number; top: number; width: number; height: number } } | undefined;
+          for (const [index, rect] of cache) {
+            const distance = Math.hypot(localX - (rect.left + rect.width / 2), localY - (rect.top + rect.height / 2));
+            if (!nearest || distance < nearest.distance) nearest = { index, distance, rect };
+          }
+          if (nearest) target = nearest.index + (localX > nearest.rect.left + nearest.rect.width / 2 ? 1 : 0);
+        } else {
+          for (let index = 0; index < sequence.items.length; index += 1) { const rect = cache.get(index); if (rect && localX < rect.left + rect.width / 2) { target = index; break; } }
+        }
       }
-      if (nearest) target = nearest.index + (event.clientX > nearest.rect.left + nearest.rect.width / 2 ? 1 : 0);
-    } else {
-      for (const element of elements) { const rect = element.getBoundingClientRect(); if (event.clientX < rect.left + rect.width / 2) { target = Number(element.dataset.sequenceIndex); break; } }
-    }
-    drag.target = target;
-    pendingDropTargetRef.current = target;
-    if (dragFrameRef.current === undefined) dragFrameRef.current = requestAnimationFrame(() => { dragFrameRef.current = undefined; const next = pendingDropTargetRef.current; if (next !== undefined) setDropTarget(next); });
+      currentDrag.target = target;
+      setDropTarget(target);
+    });
   }, [sequence]);
 
   const endDrag = useCallback((event: ReactPointerEvent<HTMLElement>) => {
     const drag = dragRef.current; if (!drag || drag.pointerId !== event.pointerId) return;
+    const point = pendingDragPointRef.current;
+    if (point && drag.source === "strip" && stripRef.current && sequence) {
+      const bounds = stripRef.current.getBoundingClientRect();
+      drag.target = sequenceStripInsertionIndex(point.x, bounds.left, stripRef.current.scrollLeft, sequence.items.length, 72);
+    }
     dragRef.current = undefined;
     if (dragFrameRef.current !== undefined) { cancelAnimationFrame(dragFrameRef.current); dragFrameRef.current = undefined; }
+    pendingDragPointRef.current = undefined;
     setDropTarget(undefined);
     if (drag.moved) commit({ type: "move", itemIds: drag.itemIds, to: drag.target });
     else if (drag.collapseOnClick) { setSelected(new Set([drag.clickedId])); setAnchor(drag.clickedId); }
-  }, [commit]);
+  }, [commit, sequence]);
 
-  const cancelDrag = useCallback(() => { dragRef.current = undefined; if (dragFrameRef.current !== undefined) { cancelAnimationFrame(dragFrameRef.current); dragFrameRef.current = undefined; } setDropTarget(undefined); }, []);
+  const cancelDrag = useCallback(() => { dragRef.current = undefined; pendingDragPointRef.current = undefined; if (dragFrameRef.current !== undefined) { cancelAnimationFrame(dragFrameRef.current); dragFrameRef.current = undefined; } setDropTarget(undefined); }, []);
   const readUnitForItem = useCallback((itemId: SequenceItemId) => sequence?.readingUnits.findIndex((unit) => unitItemIds(unit).includes(itemId)) ?? -1, [sequence]);
   const openReadAtItem = useCallback((itemId: SequenceItemId) => { const index = readUnitForItem(itemId); if (index >= 0) setReadIndex(index); }, [readUnitForItem]);
   const centerItem = useCallback((itemId: SequenceItemId) => {
     const centerIn = (container: HTMLElement | null) => {
       if (!container) return;
+      if (container === stripRef.current && sequence) {
+        const index = sequence.items.findIndex((item) => item.id === itemId);
+        if (index >= 0) {
+          const target = Math.max(0, index * (SEQUENCE_STRIP_ITEM_WIDTH + SEQUENCE_STRIP_ITEM_GAP) - (container.clientWidth - SEQUENCE_STRIP_ITEM_WIDTH) / 2);
+          if (typeof container.scrollTo === "function") container.scrollTo({ left: target, behavior: "smooth" });
+          else container.scrollLeft = target;
+        }
+        return;
+      }
       const element = [...container.querySelectorAll<HTMLElement>("[data-item-id]")].find((candidate) => candidate.dataset.itemId === itemId);
       if (!element) return;
       const itemRect = element.getBoundingClientRect();
@@ -174,7 +225,7 @@ export function SequencePage({ dependencies, projectId, sequenceId, navigate }: 
     };
     centerIn(stageRef.current);
     centerIn(stripRef.current);
-  }, []);
+  }, [sequence]);
 
   const openSegmentDialog = useCallback(() => {
     if (!sequence || !orderedSelection.length) return;
@@ -222,9 +273,21 @@ export function SequencePage({ dependencies, projectId, sequenceId, navigate }: 
   const fitSequence = () => { const width = stageRef.current?.clientWidth ?? 1000; const natural = Math.max(1, (sequence?.items.length ?? 1) * 244); setZoom(clampZoom(width / natural)); };
   const togglePin = useCallback((photoId: PhotoId) => { void saveWorkspace((current) => { const previous = current.photoStates[photoId] ?? { decision: "unreviewed" as const, pinned: false }; return { ...current, photoStates: { ...current.photoStates, [photoId]: { ...previous, pinned: !previous.pinned } }, updatedAt: new Date().toISOString() }; }); }, [saveWorkspace]);
   const onPhotoError = useCallback((photoId: PhotoId) => setMissing((current) => new Set(current).add(photoId)), []);
+  const getPhotoName = useCallback(async (photoId: PhotoId) => {
+    const cached = photoNameCacheRef.current.get(photoId);
+    if (cached) return cached;
+    const result = await dependencies.photoSource.getPhoto(photoId);
+    if (!result.ok) return undefined;
+    const name = result.value.relativePath.split(/[\\/]/).at(-1) ?? result.value.relativePath;
+    photoNameCacheRef.current.set(photoId, name);
+    return name;
+  }, [dependencies.photoSource]);
 
   if (!sequence) return <main className="page centered-state">{notice ? <h1>{notice}</h1> : <><div className="loading-mark" /><p>Loading Sequence…</p></>}</main>;
   const context = contextActions(sequence, orderedSelection);
+  const draggedStripIndex = dragRef.current?.source === "strip" ? sequence.items.findIndex((item) => item.id === dragRef.current?.clickedId) : -1;
+  const stripStart = draggedStripIndex >= 0 ? Math.min(stripRange.startIndex, draggedStripIndex) : stripRange.startIndex;
+  const stripEnd = draggedStripIndex >= 0 ? Math.max(stripRange.endIndex, draggedStripIndex + 1) : stripRange.endIndex;
   return <main ref={workspaceRef} className="sequence-workspace page" style={{ "--sequence-order-height": stripCollapsed ? "35px" : "151px", gridTemplateRows: `48px minmax(0, 1fr) ${stripCollapsed ? "35px" : "151px"}` } as React.CSSProperties} tabIndex={-1} onKeyDown={onKeyDown}>
     <header className="sequence-toolbar">
       <strong title={sequence.name}>{sequence.name}</strong>
@@ -254,7 +317,10 @@ export function SequencePage({ dependencies, projectId, sequenceId, navigate }: 
     }} />}
     <section className={`sequence-order${stripCollapsed ? " is-collapsed" : ""}`} aria-label="Sequence Order">
       <header><strong>Sequence Order</strong><button aria-label="Overview Grid" className={overview ? "is-active" : ""} onClick={() => setOverview((value) => !value)}>▦</button><span>{sequence.items.length} items</span><button className="sequence-order-collapse" onClick={() => setStripCollapsed((value) => !value)}>{stripCollapsed ? "↑" : "↓"}</button></header>
-      {!stripCollapsed && <div ref={stripRef} className="sequence-order-track">{sequence.items.map((item, index) => <SequenceStripItem key={item.id} item={item} index={index} selected={selected.has(item.id)} dropBefore={dropTarget === index} segment={sequence.segments.find((value) => value.itemIds.includes(item.id))} unit={sequence.readingUnits.find((value) => unitItemIds(value).includes(item.id))} dependencies={dependencies} onPointerDown={(event) => beginDrag(event, item.id, "strip")} onPointerMove={moveDrag} onPointerUp={endDrag} onPointerCancel={cancelDrag} onPhotoError={onPhotoError} />)}{dropTarget === sequence.items.length && <span className="sequence-insert-line is-at-end" />}</div>}
+      {!stripCollapsed && <div ref={stripRef} className="sequence-order-track" onScroll={(event) => setStripLayout({ width: event.currentTarget.clientWidth || event.currentTarget.getBoundingClientRect().width, scrollLeft: event.currentTarget.scrollLeft })}><div className="sequence-order-virtual-inner" style={{ width: stripRange.totalWidth }}>
+        {sequence.items.slice(stripStart, stripEnd).map((item, offset) => { const index = stripStart + offset; return <SequenceStripItem key={item.id} item={item} index={index} style={{ left: index * stripRange.itemStride }} selected={selected.has(item.id)} dropBefore={dropTarget === index} segment={sequence.segments.find((value) => value.itemIds.includes(item.id))} unit={sequence.readingUnits.find((value) => unitItemIds(value).includes(item.id))} dependencies={dependencies} getPhotoName={getPhotoName} onPointerDown={(event) => beginDrag(event, item.id, "strip")} onPointerMove={moveDrag} onPointerUp={endDrag} onPointerCancel={cancelDrag} onPhotoError={onPhotoError} />; })}
+        {dropTarget === sequence.items.length && <span className="sequence-insert-line is-at-end" />}
+      </div></div>}
     </section>
     {segmentDialog && <Dialog title={segmentDialog.mode === "create" ? "Create Segment" : "Rename Segment"} onClose={() => setSegmentDialog(undefined)}><label><span>Segment name</span><input autoFocus value={segmentDialog.value} onChange={(event) => setSegmentDialog({ ...segmentDialog, value: event.target.value })} onKeyDown={(event) => { if (event.key === "Enter") submitSegment(); if (event.key === "Escape") setSegmentDialog(undefined); }} /></label><footer><button onClick={() => setSegmentDialog(undefined)}>Cancel</button><button className="is-primary" disabled={!segmentDialog.value.trim()} onClick={submitSegment}>{segmentDialog.mode === "create" ? "Create" : "Save"}</button></footer></Dialog>}
     {readIndex !== undefined && <ReadOverlay sequence={sequence} initialIndex={readIndex} dependencies={dependencies} pinned={workspace?.photoStates ?? {}} onTogglePin={togglePin} onClose={() => setReadIndex(undefined)} onPhotoError={onPhotoError} />}
@@ -290,20 +356,11 @@ function SequenceCard({ item, index, selected, dropBefore, segment, dependencies
   </article>;
 }
 
-function SequenceStripItem({ item, index, selected, dropBefore, segment, unit, dependencies, onPointerDown, onPointerMove, onPointerUp, onPointerCancel, onPhotoError }: { item: SequenceItem; index: number; selected: boolean; dropBefore: boolean; segment?: SequenceSegment; unit?: ReadingUnit; dependencies: AppDependencies; onPointerDown: (event: ReactPointerEvent<HTMLElement>) => void; onPointerMove: (event: ReactPointerEvent<HTMLElement>) => void; onPointerUp: (event: ReactPointerEvent<HTMLElement>) => void; onPointerCancel: () => void; onPhotoError: (id: PhotoId) => void }) {
+function SequenceStripItem({ item, index, style, selected, dropBefore, segment, unit, dependencies, getPhotoName, onPointerDown, onPointerMove, onPointerUp, onPointerCancel, onPhotoError }: { item: SequenceItem; index: number; style?: CSSProperties; selected: boolean; dropBefore: boolean; segment?: SequenceSegment; unit?: ReadingUnit; dependencies: AppDependencies; getPhotoName: (photoId: PhotoId) => Promise<string | undefined>; onPointerDown: (event: ReactPointerEvent<HTMLElement>) => void; onPointerMove: (event: ReactPointerEvent<HTMLElement>) => void; onPointerUp: (event: ReactPointerEvent<HTMLElement>) => void; onPointerCancel: () => void; onPhotoError: (id: PhotoId) => void }) {
   const [filename, setFilename] = useState(item.kind === "blank" ? "Blank" : "Photo");
-  const [visible, setVisible] = useState(false);
-  const itemRef = useRef<HTMLButtonElement>(null);
-  useEffect(() => {
-    const element = itemRef.current;
-    if (!element || typeof IntersectionObserver !== "function") { setVisible(true); return; }
-    const observer = new IntersectionObserver((entries) => setVisible(entries.some((entry) => entry.isIntersecting)), { root: null, rootMargin: "320px" });
-    observer.observe(element);
-    return () => observer.disconnect();
-  }, []);
-  useEffect(() => { if (item.kind !== "photo") return; let live = true; void dependencies.photoSource.getPhoto(item.photoId).then((result) => { if (live && result.ok) setFilename(result.value.relativePath.split(/[\\/]/).at(-1) ?? result.value.relativePath); }); return () => { live = false; }; }, [dependencies.photoSource, item]);
-  return <button ref={itemRef} data-sequence-index={index} data-item-id={item.id} aria-selected={selected} className={`sequence-order-item${selected ? " is-selected" : ""}${dropBefore ? " is-drop-target" : ""}`} onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={onPointerCancel}>
-    <span className="sequence-order-image">{item.kind === "photo" ? visible ? <PhotoThumb photoSource={dependencies.photoSource} photoId={item.photoId} alt="" onError={onPhotoError} /> : <div className="thumb-placeholder" aria-hidden="true" /> : <span className="sequence-blank-page">BLANK</span>}<b>{String(index + 1).padStart(2, "0")}</b></span>
+  useEffect(() => { if (item.kind !== "photo") return; let live = true; void getPhotoName(item.photoId).then((name) => { if (live && name) setFilename(name); }); return () => { live = false; }; }, [getPhotoName, item]);
+  return <button style={style} data-sequence-index={index} data-item-id={item.id} aria-selected={selected} className={`sequence-order-item${selected ? " is-selected" : ""}${dropBefore ? " is-drop-target" : ""}`} onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={onPointerCancel}>
+    <span className="sequence-order-image">{item.kind === "photo" ? <PhotoThumb photoSource={dependencies.photoSource} photoId={item.photoId} alt="" onError={onPhotoError} /> : <span className="sequence-blank-page">BLANK</span>}<b>{String(index + 1).padStart(2, "0")}</b></span>
     <small>{filename}</small><em>{unit?.kind.toUpperCase()}{segment ? ` · ${segment.name}` : ""}</em>
   </button>;
 }
@@ -335,7 +392,7 @@ function ContextBar({ context, onAction }: { context: Context; onAction: (action
 
 function Dialog({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) { return <div className="sequence-dialog-backdrop" onPointerDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><section className="sequence-dialog" role="dialog" aria-modal="true" aria-label={title}><header><strong>{title}</strong><button onClick={onClose}>×</button></header>{children}</section></div>; }
 
-function ReadOverlay({ sequence, initialIndex, dependencies, pinned, onTogglePin, onClose, onPhotoError }: { sequence: SequenceDocument; initialIndex: number; dependencies: AppDependencies; pinned: Readonly<Partial<Record<PhotoId, { decision: string; pinned: boolean }>>>; onTogglePin: (id: PhotoId) => void; onClose: () => void; onPhotoError: (id: PhotoId) => void }) {
+function ReadOverlay({ sequence, initialIndex, dependencies, pinned, onTogglePin, onClose, onPhotoError }: { sequence: SequenceDocument; initialIndex: number; dependencies: AppDependencies; pinned: Readonly<Partial<Record<PhotoId, PhotoState>>>; onTogglePin: (id: PhotoId) => void; onClose: () => void; onPhotoError: (id: PhotoId) => void }) {
   const [index, setIndex] = useState(Math.max(0, Math.min(sequence.readingUnits.length - 1, initialIndex)));
   const [background, setBackground] = useState<"dark" | "light">("dark");
   const [controls, setControls] = useState(true);
@@ -379,3 +436,13 @@ function clampZoom(value: number): number { return Math.max(0.25, Math.min(2, va
 function isTypingTarget(target: EventTarget | null): boolean { return target instanceof HTMLElement && (target.matches("input, textarea, [contenteditable=true]") || Boolean(target.closest("input, textarea, [contenteditable=true]"))); }
 function commandErrorMessage(kind: string): string { if (kind === "invalid-segment") return "Select a continuous range of complete Reading Units."; if (kind === "invalid-reading-unit") return "That Reading Unit cannot be created from the current selection."; if (kind === "sequence-limit-exceeded") return "This Sequence has reached the MVP item limit."; return "This Sequence operation could not be completed."; }
 function newId(prefix: string): string { return `${prefix}-${globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`}`; }
+function cacheSequenceItemRects(container: HTMLElement, cache: Map<number, { left: number; top: number; width: number; height: number }>) {
+  const bounds = container.getBoundingClientRect();
+  cache.clear();
+  container.querySelectorAll<HTMLElement>("[data-sequence-index]").forEach((element) => {
+    const index = Number(element.dataset.sequenceIndex);
+    if (!Number.isFinite(index)) return;
+    const rect = element.getBoundingClientRect();
+    cache.set(index, { left: rect.left - bounds.left + container.scrollLeft, top: rect.top - bounds.top + container.scrollTop, width: rect.width, height: rect.height });
+  });
+}
