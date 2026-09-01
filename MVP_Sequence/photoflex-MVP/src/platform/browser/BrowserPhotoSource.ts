@@ -56,6 +56,11 @@ const THUMBNAIL_GENERATION_CONCURRENCY = 4;
 // A 512 px edge remains compact while rendering the default 235 px Table card
 // crisply on common high-density displays.
 const THUMBNAIL_MAX_EDGE = 512;
+// Sequence cards are larger than Table cards, but still use a derived image so
+// the canvas never needs to decode the original file for every mounted card.
+// 1536px keeps high-DPI canvas cards crisp while remaining much cheaper than
+// retaining original-file blobs for every visible item.
+const SEQUENCE_PREVIEW_MAX_EDGE = 1536;
 
 const requestValue = <T>(request: IDBRequest<T>): Promise<T> =>
   new Promise((resolve, reject) => {
@@ -88,6 +93,7 @@ export class BrowserPhotoSource implements PhotoSource {
   private readonly states = new Map<SourceId, SourceRuntimeState>();
   private readonly urlCache = new Map<string, CachedUrl>();
   private readonly thumbnailJobs = new Map<PhotoId, Promise<Result<Blob, SourceError>>>();
+  private readonly sequencePreviewJobs = new Map<PhotoId, Promise<Result<Blob, SourceError>>>();
   private readonly thumbnailWaiters: Array<() => void> = [];
   private activeThumbnailJobs = 0;
   private urlClock = 0;
@@ -410,6 +416,23 @@ export class BrowserPhotoSource implements PhotoSource {
     return file.ok ? ok(this.createLease(`preview:${photoId}`, file.value)) : err(file.error);
   }
 
+  async sequencePreview(photoId: PhotoId): Promise<Result<PreviewLease, SourceError>> {
+    const opened = await this.database;
+    if (!opened.ok) return err(toSourceError());
+    let job = this.sequencePreviewJobs.get(photoId);
+    if (!job) {
+      job = this.generateDerivedPreview(opened.value, photoId, SEQUENCE_PREVIEW_MAX_EDGE);
+      this.sequencePreviewJobs.set(photoId, job);
+      void job.finally(() => {
+        if (this.sequencePreviewJobs.get(photoId) === job) this.sequencePreviewJobs.delete(photoId);
+      });
+    }
+    const generated = await job;
+    return generated.ok
+      ? ok(this.createLease(`sequence:${photoId}`, generated.value))
+      : generated;
+  }
+
   private async generateThumbnail(database: IDBDatabase, photoId: PhotoId): Promise<Result<Blob, SourceError>> {
     await this.acquireThumbnailSlot();
     try {
@@ -420,6 +443,19 @@ export class BrowserPhotoSource implements PhotoSource {
       transaction.objectStore(STORE_NAMES.photoThumbnails).put({ photoId, blob, maxEdge: THUMBNAIL_MAX_EDGE } satisfies StoredThumbnail);
       await transactionResult(transaction);
       return ok(blob);
+    } catch {
+      return err({ kind: "preview-unavailable", photoId });
+    } finally {
+      this.releaseThumbnailSlot();
+    }
+  }
+
+  private async generateDerivedPreview(database: IDBDatabase, photoId: PhotoId, maxEdge: number): Promise<Result<Blob, SourceError>> {
+    await this.acquireThumbnailSlot();
+    try {
+      const file = await this.readPhotoFile(database, photoId);
+      if (!file.ok) return file;
+      return ok(await createResizedPreview(file.value, maxEdge));
     } catch {
       return err({ kind: "preview-unavailable", photoId });
     } finally {
@@ -620,9 +656,13 @@ async function readDimensions(file: File): Promise<{ width: number; height: numb
 }
 
 async function createThumbnail(file: Blob): Promise<Blob> {
+  return createResizedPreview(file, THUMBNAIL_MAX_EDGE);
+}
+
+async function createResizedPreview(file: Blob, maxEdge: number): Promise<Blob> {
   if (typeof createImageBitmap !== "function" || typeof document === "undefined") return file;
   const bitmap = await createImageBitmap(file);
-  const scale = Math.min(1, THUMBNAIL_MAX_EDGE / Math.max(bitmap.width, bitmap.height));
+  const scale = Math.min(1, maxEdge / Math.max(bitmap.width, bitmap.height));
   const canvas = document.createElement("canvas");
   canvas.width = Math.max(1, Math.round(bitmap.width * scale));
   canvas.height = Math.max(1, Math.round(bitmap.height * scale));

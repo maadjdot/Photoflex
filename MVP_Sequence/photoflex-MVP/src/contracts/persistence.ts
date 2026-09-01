@@ -102,6 +102,8 @@ export interface PhotoSource {
   ): Promise<Result<PhotoPage, SourceError>>;
   getPhoto(photoId: PhotoId): Promise<Result<PhotoRef, SourceError>>;
   thumbnail(photoId: PhotoId): Promise<Result<PreviewLease, SourceError>>;
+  /** A higher-resolution derived image for canvas cards; never the original file. */
+  sequencePreview(photoId: PhotoId): Promise<Result<PreviewLease, SourceError>>;
   preview(photoId: PhotoId): Promise<Result<PreviewLease, SourceError>>;
 }
 

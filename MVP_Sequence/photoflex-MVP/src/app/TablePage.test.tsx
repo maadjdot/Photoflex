@@ -120,7 +120,7 @@ describe("TablePage", () => {
     expect(saved.value.sequenceIds).toEqual([]);
   });
 
-  it("Table 卡片直接使用高质量预览图", async () => {
+  it("Table 卡片使用清晰缩略图，双击才读取原图", async () => {
     const dependencies = await createFixture();
     const thumbnail = vi.spyOn(dependencies.photoSource, "thumbnail").mockImplementation(async (photoId) => ok({
       url: `thumbnail:${photoId}`,
@@ -133,8 +133,8 @@ describe("TablePage", () => {
 
     render(<App dependencies={dependencies} />);
     const card = await screen.findByLabelText("A.jpg");
-    await waitFor(() => expect(preview).toHaveBeenCalledWith(photoA));
-    expect(thumbnail).not.toHaveBeenCalled();
+    await waitFor(() => expect(thumbnail).toHaveBeenCalledWith(photoA));
+    expect(preview).not.toHaveBeenCalled();
 
     fireEvent.doubleClick(card);
     expect(preview).toHaveBeenCalledWith(photoA);

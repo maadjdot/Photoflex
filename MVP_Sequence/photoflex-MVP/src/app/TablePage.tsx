@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent as ReactPointerEvent, type WheelEvent as ReactWheelEvent } from "react";
 import type { PhotoId, ProjectId, ReadingUnitId, SequenceDocument, SequenceId, SequenceItemId, SequenceRevision, SequenceSummary, SequenceVersion, SourceError, VersionId, WorktableAlignment, WorktableDraft, WorktableEditCommand, WorktableEditor, WorktablePoint, WorktableViewport } from "../contracts";
 import { isPhotoSequenceItem } from "../contracts";
-import { createSequenceEditor } from "../modules/sequence";
-import { clampWorktableZoom, createWorktableEditor, screenToWorld, zoomAroundScreenPoint } from "../modules/worktable";
+import { calculateSequenceStripVirtualRange, createSequenceEditor } from "../modules/sequence";
+import { clampWorktableZoom, createWorktableEditor, screenToWorld, visibleWorktablePhotoIds, zoomAroundScreenPoint } from "../modules/worktable";
 import type { AppDependencies } from "./dependencies";
 import { PhotoThumb } from "./PhotoThumb";
 import type { AppRoute } from "./router";
-import { useProjectWorkspace } from "./useProjectWorkspace";
+import { useProjectWorkspace, workspaceSaveErrorMessage } from "./useProjectWorkspace";
 
 const DEFAULT_VIEWPORT: WorktableViewport = { originX: 48, originY: 38, zoom: 1 };
 const PILE_WIDTH = 190;
@@ -42,6 +42,8 @@ export function TablePage({ dependencies, projectId, navigate }: { dependencies:
   const [sequenceCollapsed, setSequenceCollapsed] = useState(false);
   const [sequenceDragId, setSequenceDragId] = useState<SequenceItemId>();
   const [alignment, setAlignment] = useState<WorktableAlignment | "">("");
+  const [stageSize, setStageSize] = useState({ width: 0, height: 0 });
+  const [stripSize, setStripSize] = useState({ width: 0, scrollLeft: 0 });
   const stageRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<WorktableEditor | undefined>(undefined);
   const gestureRef = useRef<Gesture | undefined>(undefined);
@@ -51,7 +53,27 @@ export function TablePage({ dependencies, projectId, navigate }: { dependencies:
   const initializedRef = useRef<ProjectId | undefined>(undefined);
   const stripRefs = useRef(new Map<SequenceItemId, HTMLButtonElement>());
   const stripPositions = useRef(new Map<SequenceItemId, { left: number; top: number }>());
+  const stripViewportRef = useRef<HTMLDivElement>(null);
+  const dragFrameRef = useRef<number | undefined>(undefined);
+  const pendingDragDeltaRef = useRef<WorktablePoint>({ x: 0, y: 0 });
+  const sequenceQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const activeSequenceRef = useRef<SequenceDocument | undefined>(undefined);
   viewportRef.current = viewport;
+  activeSequenceRef.current = activeSequence;
+
+  const visiblePhotoIds = useMemo(() => draft ? visibleWorktablePhotoIds(draft, viewport, stageSize) : new Set<PhotoId>(), [draft, stageSize, viewport]);
+  const stripRange = useMemo(() => calculateSequenceStripVirtualRange({ itemCount: activeSequence?.items.length ?? 0, viewportWidth: stripSize.width, scrollLeft: stripSize.scrollLeft }), [activeSequence?.items.length, stripSize]);
+
+  useLayoutEffect(() => {
+    const stage = stageRef.current;
+    if (!stage) return;
+    const measure = () => { const rect = stage.getBoundingClientRect(); setStageSize({ width: stage.clientWidth || rect.width, height: stage.clientHeight || rect.height }); };
+    measure();
+    if (typeof ResizeObserver === "function") { const observer = new ResizeObserver(measure); observer.observe(stage); return () => observer.disconnect(); }
+    window.addEventListener("resize", measure); return () => window.removeEventListener("resize", measure);
+  }, [draft?.projectId]);
+
+  useEffect(() => () => { if (dragFrameRef.current !== undefined) cancelAnimationFrame(dragFrameRef.current); }, []);
 
   useLayoutEffect(() => {
     const next = new Map<SequenceItemId, { left: number; top: number }>();
@@ -64,6 +86,15 @@ export function TablePage({ dependencies, projectId, navigate }: { dependencies:
     stripPositions.current = next;
   }, [activeSequence?.items]);
 
+  useLayoutEffect(() => {
+    const element = stripViewportRef.current;
+    if (!element) return;
+    const measure = () => setStripSize({ width: element.clientWidth || element.getBoundingClientRect().width, scrollLeft: element.scrollLeft });
+    measure();
+    if (typeof ResizeObserver === "function") { const observer = new ResizeObserver(measure); observer.observe(element); return () => observer.disconnect(); }
+    window.addEventListener("resize", measure); return () => window.removeEventListener("resize", measure);
+  }, [activeSequence?.id, sequenceCollapsed]);
+
   const setViewport = useCallback((next: WorktableViewport) => { viewportRef.current = next; setViewportState(next); }, []);
   useEffect(() => {
     if (!workspace || initializedRef.current === projectId) return;
@@ -74,7 +105,7 @@ export function TablePage({ dependencies, projectId, navigate }: { dependencies:
     const restored = workspace.resumeContext?.page === "table" ? workspace.resumeContext.tableViewport : undefined;
     setViewport(restored ?? DEFAULT_VIEWPORT);
     void dependencies.projectStore.listSequences(projectId).then((result) => result.ok ? setSummaries(result.value) : setNotice("Sequences could not be loaded."));
-    void save((current) => ({ ...current, lastOpenedAt: new Date().toISOString(), resumeContext: { page: "table", filter: "all", tableViewport: restored ?? DEFAULT_VIEWPORT, sequenceId: current.resumeContext?.sequenceId } }));
+    void save((current) => ({ ...current, lastOpenedAt: new Date().toISOString(), resumeContext: { page: "table", filter: "all", tableViewport: restored ?? DEFAULT_VIEWPORT, sequenceId: current.resumeContext?.sequenceId } })).then((result) => { if (!result.ok) setNotice(workspaceSaveErrorMessage(result.error)); });
   }, [dependencies.projectStore, projectId, save, setViewport, workspace]);
   useEffect(() => {
     if (!draft) return;
@@ -95,7 +126,8 @@ export function TablePage({ dependencies, projectId, navigate }: { dependencies:
   }, [dependencies.projectStore, selectedPiles]);
 
   const persist = useCallback(async (next: WorktableDraft) => {
-    if (!await save((current) => ({ ...current, worktableDraft: next, updatedAt: new Date().toISOString() }))) setNotice("Table changes could not be saved.");
+    const result = await save((current) => ({ ...current, worktableDraft: next, updatedAt: new Date().toISOString() }));
+    if (!result.ok) setNotice(workspaceSaveErrorMessage(result.error));
   }, [save]);
   const execute = useCallback((command: WorktableEditCommand) => {
     const result = editorRef.current?.execute(command);
@@ -143,8 +175,9 @@ export function TablePage({ dependencies, projectId, navigate }: { dependencies:
     if (!placed.ok) return;
     // Drain queued viewport/worktable CAS writes before the atomic sequence
     // creation so the project revision used below is current.
-    if (!await save((current) => current)) {
-      setNotice("Table is still saving. Please try again.");
+    const drained = await save((current) => current);
+    if (!drained.ok) {
+      setNotice(workspaceSaveErrorMessage(drained.error));
       return;
     }
     const current = workspaceRef.current;
@@ -156,29 +189,47 @@ export function TablePage({ dependencies, projectId, navigate }: { dependencies:
     setSummaries((items) => [...items, result.value.summary]); setSelected(new Set()); setSelectedPiles(new Set([id])); setActiveSequence(sequence); setConfirmation(undefined); setNotice(`Created ${name}.`);
   };
   const reorderSequence = async (itemId: SequenceItemId, to: number) => {
-    if (!activeSequence) return;
-    const editor = createSequenceEditor({ projectId, baseVersionId: activeSequence.currentVersionId, items: activeSequence.items, segments: activeSequence.segments, readingUnits: activeSequence.readingUnits });
-    const moved = editor.execute({ type: "move", itemIds: [itemId], to });
-    if (!moved.ok) return;
-    const next = { ...activeSequence, items: moved.value.items, segments: moved.value.segments, readingUnits: moved.value.readingUnits, updatedAt: new Date().toISOString() };
-    const result = await dependencies.projectStore.saveSequence(next, activeSequence.revision);
-    if (!result.ok) { setNotice("Sequence order could not be saved."); return; }
-    setActiveSequence({ ...next, revision: result.value.revision });
-    setSummaries((items) => items.map((item) => item.id === next.id ? result.value.summary : item));
+    const targetId = activeSequenceRef.current?.id;
+    if (!targetId) return;
+    const run = async () => {
+      const loaded = await dependencies.projectStore.loadSequence(targetId);
+      if (!loaded.ok) { setNotice("Sequence could not be loaded."); return; }
+      const current = loaded.value;
+      const editor = createSequenceEditor({ projectId, baseVersionId: current.currentVersionId, items: current.items, segments: current.segments, readingUnits: current.readingUnits });
+      const moved = editor.execute({ type: "move", itemIds: [itemId], to });
+      if (!moved.ok) return;
+      const next = { ...current, items: moved.value.items, segments: moved.value.segments, readingUnits: moved.value.readingUnits, updatedAt: new Date().toISOString() };
+      const result = await dependencies.projectStore.saveSequence(next, current.revision);
+      if (!result.ok) { setNotice(sequenceSaveErrorMessage(result.error.kind)); return; }
+      const saved = { ...next, revision: result.value.revision };
+      if (activeSequenceRef.current?.id === targetId) { activeSequenceRef.current = saved; setActiveSequence(saved); }
+      setSummaries((items) => items.map((item) => item.id === saved.id ? result.value.summary : item));
+    };
+    sequenceQueueRef.current = sequenceQueueRef.current.then(run, run).catch(() => { setNotice("Sequence 当前无法保存，请稍后重试。"); });
+    await sequenceQueueRef.current;
   };
   const addPhotosToSequence = async () => {
     if (!addToSequenceId || !photoIds.length) return;
-    const loaded = await dependencies.projectStore.loadSequence(addToSequenceId);
-    if (!loaded.ok) { setNotice("Sequence could not be loaded."); return; }
-    const additions = photoIds.map((photoId) => ({ id: newId("item") as SequenceItemId, kind: "photo" as const, photoId }));
-    const editor = createSequenceEditor({ projectId, baseVersionId: loaded.value.currentVersionId, items: loaded.value.items, segments: loaded.value.segments, readingUnits: loaded.value.readingUnits });
-    const added = editor.execute({ type: "add", items: additions });
-    if (!added.ok) { setNotice("Photos could not be added to Sequence."); return; }
-    const next = { ...loaded.value, items: added.value.items, segments: added.value.segments, readingUnits: added.value.readingUnits, updatedAt: new Date().toISOString() };
-    const result = await dependencies.projectStore.saveSequence(next, loaded.value.revision);
-    if (!result.ok) { setNotice("Photos could not be added to Sequence."); return; }
-    setSummaries((items) => items.map((item) => item.id === next.id ? result.value.summary : item));
-    setAddToSequenceOpen(false); setNotice(`Added ${additions.length} photo${additions.length === 1 ? "" : "s"} to ${next.name}.`);
+    const targetId = addToSequenceId;
+    const photoIdsToAdd = [...photoIds];
+    const run = async () => {
+      const loaded = await dependencies.projectStore.loadSequence(targetId);
+      if (!loaded.ok) { setNotice("Sequence could not be loaded."); return; }
+      const additions = photoIdsToAdd.map((photoId) => ({ id: newId("item") as SequenceItemId, kind: "photo" as const, photoId }));
+      const editor = createSequenceEditor({ projectId, baseVersionId: loaded.value.currentVersionId, items: loaded.value.items, segments: loaded.value.segments, readingUnits: loaded.value.readingUnits });
+      const added = editor.execute({ type: "add", items: additions });
+      if (!added.ok) { setNotice("Photos could not be added to Sequence."); return; }
+      const next = { ...loaded.value, items: added.value.items, segments: added.value.segments, readingUnits: added.value.readingUnits, updatedAt: new Date().toISOString() };
+      const result = await dependencies.projectStore.saveSequence(next, loaded.value.revision);
+      if (!result.ok) { setNotice(sequenceSaveErrorMessage(result.error.kind)); return; }
+      const saved = { ...next, revision: result.value.revision };
+      activeSequenceRef.current = activeSequenceRef.current?.id === saved.id ? saved : activeSequenceRef.current;
+      if (activeSequenceRef.current?.id === saved.id) setActiveSequence(saved);
+      setSummaries((items) => items.map((item) => item.id === saved.id ? result.value.summary : item));
+      setAddToSequenceOpen(false); setNotice(`Added ${additions.length} photo${additions.length === 1 ? "" : "s"} to ${saved.name}.`);
+    };
+    sequenceQueueRef.current = sequenceQueueRef.current.then(run, run).catch(() => { setNotice("Sequence 当前无法保存，请稍后重试。"); });
+    await sequenceQueueRef.current;
   };
 
   const startPan = (event: ReactPointerEvent<HTMLElement>) => {
@@ -220,7 +271,8 @@ export function TablePage({ dependencies, projectId, navigate }: { dependencies:
     if (gesture.kind === "pan") { setViewport({ ...gesture.viewport, originX: gesture.viewport.originX + event.clientX - gesture.start.x, originY: gesture.viewport.originY + event.clientY - gesture.start.y }); return; }
     if (gesture.kind === "marquee") { setMarquee({ left: Math.min(gesture.start.x, event.clientX) - rect.left, top: Math.min(gesture.start.y, event.clientY) - rect.top, width: Math.abs(event.clientX - gesture.start.x), height: Math.abs(event.clientY - gesture.start.y) }); return; }
     if (gesture.kind === "resize") { const item = draft?.placements[gesture.photoId]; if (!item) return; const world = screenToWorld({ x: event.clientX, y: event.clientY }, rect, viewportRef.current); scaleRef.current = Math.max(.25, Math.min(4, (world.x - item.x) / gesture.width)); setResizeScale(scaleRef.current); return; }
-    const world = screenToWorld({ x: event.clientX, y: event.clientY }, rect, viewportRef.current); const delta = { x: world.x - gesture.start.x, y: world.y - gesture.start.y }; deltaRef.current = delta; setDragDelta(delta);
+    const world = screenToWorld({ x: event.clientX, y: event.clientY }, rect, viewportRef.current); const delta = { x: world.x - gesture.start.x, y: world.y - gesture.start.y }; deltaRef.current = delta; pendingDragDeltaRef.current = delta;
+    if (dragFrameRef.current === undefined) dragFrameRef.current = requestAnimationFrame(() => { dragFrameRef.current = undefined; setDragDelta(pendingDragDeltaRef.current); });
   };
   const finish = (event: ReactPointerEvent<HTMLDivElement>, cancelled = false) => {
     const gesture = gestureRef.current, stage = stageRef.current; if (!gesture || gesture.pointerId !== event.pointerId || !stage) return; if (stage.hasPointerCapture(event.pointerId)) stage.releasePointerCapture(event.pointerId); gestureRef.current = undefined;
@@ -233,7 +285,8 @@ export function TablePage({ dependencies, projectId, navigate }: { dependencies:
       const hits = draft.entryOrder.filter((id) => { const item = draft.placements[id]; const w = Math.max(0, Math.min(box.right, item.x + item.width) - Math.max(box.left, item.x)); const h = Math.max(0, Math.min(box.bottom, item.y + item.height) - Math.max(box.top, item.y)); return w * h / (item.width * item.height) >= .3; });
       setSelected((current) => gesture.additive ? new Set([...current, ...hits]) : new Set(hits));
     }
-    deltaRef.current = { x: 0, y: 0 }; scaleRef.current = 1; setDragDelta({ x: 0, y: 0 }); setResizeScale(1); setMarquee(undefined);
+    if (dragFrameRef.current !== undefined) { cancelAnimationFrame(dragFrameRef.current); dragFrameRef.current = undefined; }
+    deltaRef.current = { x: 0, y: 0 }; pendingDragDeltaRef.current = { x: 0, y: 0 }; scaleRef.current = 1; setDragDelta({ x: 0, y: 0 }); setResizeScale(1); setMarquee(undefined);
   };
 
   const fit = () => {
@@ -297,7 +350,7 @@ export function TablePage({ dependencies, projectId, navigate }: { dependencies:
       <div className="worktable-world" style={{ transform: `translate3d(${viewport.originX}px,${viewport.originY}px,0) scale(${viewport.zoom})` }}>
         <svg className="worktable-links">{draft.links.flatMap((link) => link.photoIds.slice(1).map((id, i) => { const a = draft.placements[link.photoIds[i]], b = draft.placements[id]; return <line key={`${link.id}-${id}`} x1={a.x + a.width / 2} y1={a.y + a.height / 2} x2={b.x + b.width / 2} y2={b.y + b.height / 2} />; }))}</svg>
         {draft.groups.map((g) => { const box = groupBounds(draft, g.photoIds); return <div key={g.id} className="worktable-group-frame" style={{ left: box.left, top: box.top, width: box.width, height: box.height }}><span>{g.name} · {g.photoIds.length}</span></div>; })}
-        {draft.entryOrder.map((id) => { const item = draft.placements[id], chosen = selected.has(id), delta = chosen && gestureRef.current?.kind === "photo" ? dragDelta : { x: 0, y: 0 }, scale = gestureRef.current?.kind === "resize" && gestureRef.current.photoId === id ? resizeScale : 1; return <article key={id} aria-label={item.filename} className={`worktable-card${chosen ? " is-selected" : ""}${missing.has(id) ? " is-missing" : ""}`} style={{ width: item.width * scale, height: item.height * scale, zIndex: item.z, transform: `translate3d(${item.x + delta.x}px,${item.y + delta.y}px,0)` }} onPointerDown={(event) => onPhotoDown(event, id)} onDoubleClick={() => setPreviewPhotoId(id)}><div className="worktable-photo" style={{ height: item.height * scale }}><PhotoThumb photoSource={dependencies.photoSource} photoId={id} alt={item.filename} onError={onPhotoError} eager resolution="full" />{missing.has(id) && <span className="worktable-missing">MISSING</span>}</div>{chosen && photoIds.length === 1 && <button aria-label="Resize photo" className="worktable-resize-handle" onPointerDown={(event) => onResizeDown(event, id)} />}</article>; })}
+        {draft.entryOrder.map((id) => { const item = draft.placements[id], chosen = selected.has(id), delta = chosen && gestureRef.current?.kind === "photo" ? dragDelta : { x: 0, y: 0 }, scale = gestureRef.current?.kind === "resize" && gestureRef.current.photoId === id ? resizeScale : 1; return <article key={id} aria-label={item.filename} className={`worktable-card${chosen ? " is-selected" : ""}${missing.has(id) ? " is-missing" : ""}`} style={{ width: item.width * scale, height: item.height * scale, zIndex: item.z, transform: `translate3d(${item.x + delta.x}px,${item.y + delta.y}px,0)` }} onPointerDown={(event) => onPhotoDown(event, id)} onDoubleClick={() => setPreviewPhotoId(id)}><div className="worktable-photo" style={{ height: item.height * scale }}>{visiblePhotoIds.has(id) ? <PhotoThumb photoSource={dependencies.photoSource} photoId={id} alt={item.filename} onError={onPhotoError} resolution="thumbnail" /> : <div className="thumb-placeholder" aria-hidden="true" />}{missing.has(id) && <span className="worktable-missing">MISSING</span>}</div>{chosen && photoIds.length === 1 && <button aria-label="Resize photo" className="worktable-resize-handle" onPointerDown={(event) => onResizeDown(event, id)} />}</article>; })}
         {draft.pileOrder.map((id) => { const pile = draft.pilePlacements[id], summary = summaries.find((x) => x.id === id), chosen = selectedPiles.has(id), delta = chosen && gestureRef.current?.kind === "pile" ? dragDelta : { x: 0, y: 0 }; return <article key={id} aria-label={`Sequence pile ${summary?.name ?? "Missing Sequence"}`} className={`sequence-pile${chosen ? " is-selected" : ""}`} style={{ width: pile.width, height: pile.height, zIndex: pile.z, transform: `translate3d(${pile.x + delta.x}px,${pile.y + delta.y}px,0)` }} onPointerDown={(event) => onPileDown(event, id)} onDoubleClick={(event) => { event.stopPropagation(); navigate({ name: "sequence", projectId, sequenceId: id }); }}><header><strong>{summary?.name ?? "Missing Sequence"}</strong><span>{summary?.itemCount ?? 0}</span></header><div className="sequence-pile-thumbs">{summary?.previewPhotoIds.map((photoId, i) => <span key={photoId} style={{ left: i * 14, zIndex: i }}><PhotoThumb photoSource={dependencies.photoSource} photoId={photoId} alt="" onError={onPhotoError} /></span>)}</div><small>DOUBLE-CLICK TO OPEN</small></article>; })}
       </div>
       {marquee && <div className="worktable-marquee" style={marquee} />}
@@ -305,7 +358,7 @@ export function TablePage({ dependencies, projectId, navigate }: { dependencies:
     </div>
     {confirmation && <section className="sequence-confirmation sequence-pile-confirmation" role="dialog" aria-label="Create Sequence pile"><label><span>SEQUENCE NAME</span><input autoFocus value={confirmation.name} onChange={(event) => setConfirmation({ ...confirmation, name: event.target.value })} onKeyDown={(event) => event.key === "Enter" && void createPile()} /></label><div className="sequence-confirmation-order">{confirmation.photoIds.map((id, index) => <button key={id} draggable onDragStart={() => setConfirmationDragId(id)} onDragOver={(event) => event.preventDefault()} onDrop={() => { if (confirmationDragId) setConfirmation({ ...confirmation, photoIds: movePhoto(confirmation.photoIds, confirmationDragId, index) }); setConfirmationDragId(undefined); }}><PhotoThumb photoSource={dependencies.photoSource} photoId={id} alt={`Order ${index + 1}`} onError={onPhotoError} /><span>{index + 1}</span></button>)}</div><div><button onClick={() => setConfirmation(undefined)}>Cancel</button><button className="button button-primary" onClick={() => void createPile()}>Create Pile</button></div></section>}
     {addToSequenceOpen && <section className="sequence-add-dialog" role="dialog" aria-label="Add photos to Sequence"><header><strong>ADD TO SEQUENCE</strong><button onClick={() => setAddToSequenceOpen(false)} aria-label="Close">×</button></header><p>{photoIds.length} selected photo{photoIds.length === 1 ? "" : "s"}</p><label><span>DESTINATION SEQUENCE</span><select autoFocus value={addToSequenceId ?? ""} onChange={(event) => setAddToSequenceId(event.target.value as SequenceId)}>{summaries.map((item) => <option key={item.id} value={item.id}>{item.name} · {item.itemCount} photos</option>)}</select></label><footer><button onClick={() => setAddToSequenceOpen(false)}>Cancel</button><button className="button button-primary" disabled={!addToSequenceId} onClick={() => void addPhotosToSequence()}>Add photos</button></footer></section>}
-    <section className={`sequence-strip${sequenceCollapsed ? " is-collapsed" : ""}${activeSequence ? "" : " is-empty"}`} aria-label="Sequence Order"><header><button onClick={() => setSequenceCollapsed((x) => !x)}>{sequenceCollapsed ? "↑" : "↓"}</button><strong>SEQUENCE ORDER</strong><span>{activeSequence ? `${activeSequence.name} · ${activeSequence.items.filter(isPhotoSequenceItem).length} photos` : "Select one Sequence Pile"}</span>{activeSequence && <><small>drag to reorder</small><button className="sequence-strip-open" onClick={() => navigate({ name: "sequence", projectId, sequenceId: activeSequence.id })}>Open Sequence</button></>}</header>{!sequenceCollapsed && activeSequence && <div className="sequence-strip-items">{activeSequence.items.map((item, index) => <button key={item.id} ref={(element) => { if (element) stripRefs.current.set(item.id, element); else stripRefs.current.delete(item.id); }} className={`sequence-strip-item${sequenceDragId === item.id ? " is-dragging" : ""}`} draggable onDragStart={() => setSequenceDragId(item.id)} onDragOver={(event) => event.preventDefault()} onDrop={() => { if (sequenceDragId) void reorderSequence(sequenceDragId, index); setSequenceDragId(undefined); }} onDragEnd={() => setSequenceDragId(undefined)}>{item.kind === "photo" ? <PhotoThumb photoSource={dependencies.photoSource} photoId={item.photoId} alt={`Sequence ${index + 1}`} onError={onPhotoError} /> : <span className="sequence-blank-thumb">BLANK</span>}<span>{String(index + 1).padStart(2, "0")}</span></button>)}</div>}</section>
+    <section className={`sequence-strip${sequenceCollapsed ? " is-collapsed" : ""}${activeSequence ? "" : " is-empty"}`} aria-label="Sequence Order"><header><button onClick={() => setSequenceCollapsed((x) => !x)}>{sequenceCollapsed ? "↑" : "↓"}</button><strong>SEQUENCE ORDER</strong><span>{activeSequence ? `${activeSequence.name} · ${activeSequence.items.filter(isPhotoSequenceItem).length} photos` : "Select one Sequence Pile"}</span>{activeSequence && <><small>drag to reorder</small><button className="sequence-strip-open" onClick={() => navigate({ name: "sequence", projectId, sequenceId: activeSequence.id })}>Open Sequence</button></>}</header>{!sequenceCollapsed && activeSequence && <div ref={stripViewportRef} className="sequence-strip-items" onScroll={(event) => setStripSize({ width: event.currentTarget.clientWidth, scrollLeft: event.currentTarget.scrollLeft })}><div className="sequence-strip-track" style={{ width: stripRange.totalWidth }}>{activeSequence.items.slice(stripRange.startIndex, stripRange.endIndex).map((item, offset) => { const index = stripRange.startIndex + offset; return <button key={item.id} ref={(element) => { if (element) stripRefs.current.set(item.id, element); else stripRefs.current.delete(item.id); }} style={{ left: index * stripRange.itemStride }} className={`sequence-strip-item${sequenceDragId === item.id ? " is-dragging" : ""}`} draggable onDragStart={() => setSequenceDragId(item.id)} onDragOver={(event) => event.preventDefault()} onDrop={() => { if (sequenceDragId) void reorderSequence(sequenceDragId, index); setSequenceDragId(undefined); }} onDragEnd={() => setSequenceDragId(undefined)}>{item.kind === "photo" ? <PhotoThumb photoSource={dependencies.photoSource} photoId={item.photoId} alt={`Sequence ${index + 1}`} onError={onPhotoError} /> : <span className="sequence-blank-thumb">BLANK</span>}<span>{String(index + 1).padStart(2, "0")}</span></button>; })}</div></div>}</section>
     {previewPhotoId && draft.placements[previewPhotoId] && <Preview photoId={previewPhotoId} filename={draft.placements[previewPhotoId].filename} photoSource={dependencies.photoSource} onClose={() => setPreviewPhotoId(undefined)} onError={onPhotoError} />}
     {comparePhotoIds && <PhotoCompare ids={comparePhotoIds} draft={draft} photoSource={dependencies.photoSource} onClose={() => setComparePhotoIds(undefined)} />}
   </main>;
@@ -318,11 +371,18 @@ function Preview({ photoId, filename, photoSource, onClose, onError }: { photoId
   return <div className="table-preview-backdrop" role="dialog" aria-modal="true" aria-label={`Preview ${filename}`} onPointerDown={onClose}><section className="table-preview-dialog" onPointerDown={(event) => event.stopPropagation()}><header><span>{filename}</span><button autoFocus onClick={onClose} aria-label="Close preview">×</button></header><div className="table-preview-image-wrap">{url ? <img src={url} alt={filename} /> : <div className="preview-placeholder">Preview unavailable</div>}</div></section></div>;
 }
 function PhotoCompare({ ids, draft, photoSource, onClose }: { ids: readonly [PhotoId, PhotoId]; draft: WorktableDraft; photoSource: AppDependencies["photoSource"]; onClose: () => void }) {
-  const [order, setOrder] = useState(ids), [urls, setUrls] = useState<readonly string[]>([]);
-  useEffect(() => { let live = true; const leases: Array<{ release(): void }> = []; void Promise.all(order.map((id) => photoSource.preview(id))).then((results) => { if (!live) return results.forEach((x) => x.ok && x.value.release()); leases.push(...results.flatMap((x) => x.ok ? [x.value] : [])); setUrls(results.map((x) => x.ok ? x.value.url : "")); }); return () => { live = false; leases.forEach((x) => x.release()); }; }, [order, photoSource]);
-  return <div className="compare-backdrop" role="dialog" aria-modal="true" aria-label="Compare two photos"><header><span>COMPARE</span><button onClick={() => setOrder([order[1], order[0]])}>Swap</button><button onClick={onClose}>×</button></header><div className="compare-images">{order.map((id, index) => <figure key={id}><span>{index ? "B" : "A"}</span>{urls[index] ? <img src={urls[index]} alt={draft.placements[id].filename} /> : <div className="preview-placeholder">Preview unavailable</div>}</figure>)}</div></div>;
+  const [order, setOrder] = useState(ids);
+  const [urls, setUrls] = useState<ReadonlyMap<PhotoId, string>>(new Map());
+  useEffect(() => { let live = true; const leases: Array<{ release(): void }> = []; void Promise.all(ids.map((id) => photoSource.preview(id))).then((results) => { if (!live) return results.forEach((x) => x.ok && x.value.release()); const next = new Map<PhotoId, string>(); results.forEach((result, index) => { if (result.ok) { leases.push(result.value); next.set(ids[index], result.value.url); } }); setUrls(next); }); return () => { live = false; leases.forEach((x) => x.release()); }; }, [ids, photoSource]);
+  return <div className="compare-backdrop" role="dialog" aria-modal="true" aria-label="Compare two photos"><header><span>COMPARE</span><button onClick={() => setOrder([order[1], order[0]])}>Swap</button><button onClick={onClose}>×</button></header><div className="compare-images">{order.map((id, index) => <figure key={id}><span>{index ? "B" : "A"}</span>{urls.get(id) ? <img src={urls.get(id)} alt={draft.placements[id].filename} /> : <div className="preview-placeholder">Preview unavailable</div>}</figure>)}</div></div>;
 }
 function groupBounds(draft: WorktableDraft, ids: readonly PhotoId[]) { const x = ids.map((id) => draft.placements[id]), p = 24, left = Math.min(...x.map((v) => v.x)) - p, top = Math.min(...x.map((v) => v.y)) - p, right = Math.max(...x.map((v) => v.x + v.width)) + p, bottom = Math.max(...x.map((v) => v.y + v.height)) + p; return { left, top, width: right - left, height: bottom - top }; }
 function maximumZ(draft: WorktableDraft) { return Math.max(-1, ...Object.values(draft.placements).map((x) => x.z), ...Object.values(draft.pilePlacements).map((x) => x.z)); }
 function movePhoto(items: readonly PhotoId[], id: PhotoId, to: number) { const rest = items.filter((x) => x !== id), target = items.slice(0, to).filter((x) => x !== id).length; return [...rest.slice(0, target), id, ...rest.slice(target)]; }
 function newId(prefix: string) { return globalThis.crypto?.randomUUID?.() ?? `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2)}`; }
+function sequenceSaveErrorMessage(kind: string): string {
+  if (kind === "sequence-conflict") return "Sequence 已在其他标签页更新，请重新载入。";
+  if (kind === "not-found") return "Sequence 已不存在。";
+  if (kind === "quota-exceeded") return "浏览器存储空间不足，Sequence 未保存。";
+  return "Sequence 当前无法保存，请稍后重试。";
+}

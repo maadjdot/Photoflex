@@ -135,6 +135,10 @@ export class MemoryPhotoSource implements PhotoSource {
     return this.preview(photoId);
   }
 
+  async sequencePreview(photoId: PhotoId): Promise<Result<PreviewLease, SourceError>> {
+    return this.preview(photoId);
+  }
+
   async preview(photoId: PhotoId): Promise<Result<PreviewLease, SourceError>> {
     const fixture = this.fixtures.find(({ previewUrls }) => previewUrls?.[photoId]);
     const url = fixture?.previewUrls?.[photoId];

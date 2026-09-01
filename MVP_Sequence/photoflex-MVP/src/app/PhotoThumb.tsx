@@ -14,14 +14,18 @@ export function PhotoThumb({
   readonly alt: string;
   readonly onError?: (photoId: PhotoId, error: SourceError) => void;
   readonly eager?: boolean;
-  readonly resolution?: "thumbnail" | "full";
+  readonly resolution?: "thumbnail" | "sequence" | "full";
 }) {
   const [url, setUrl] = useState<string>();
   useEffect(() => {
     let active = true;
     let lease: { url: string; release(): void } | undefined;
     setUrl(undefined);
-    const load = resolution === "full" ? photoSource.preview(photoId) : photoSource.thumbnail(photoId);
+    const load = resolution === "full"
+      ? photoSource.preview(photoId)
+      : resolution === "sequence"
+        ? photoSource.sequencePreview(photoId)
+        : photoSource.thumbnail(photoId);
     void load.then((result) => {
       if (!result.ok) {
         if (active) onError?.(photoId, result.error);

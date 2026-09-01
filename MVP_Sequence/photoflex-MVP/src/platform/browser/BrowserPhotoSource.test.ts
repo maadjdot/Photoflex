@@ -236,4 +236,29 @@ describe("BrowserPhotoSource", () => {
     expect(directory.getFileReadCount() - readsBefore).toBe(2);
     results.forEach((result) => { if (result.ok) result.value.release(); });
   });
+
+  it("deduplicates concurrent Sequence 派生预览并复用 lease", async () => {
+    const directory = createDirectory("sequence-preview", "Sequence preview", ["same.jpg"]);
+    const source = new BrowserPhotoSource({
+      databaseName: `photoflex-source-${crypto.randomUUID()}`,
+      picker: async () => directory.handle,
+    });
+    databases.push(source);
+    const grant = await source.chooseFolder([]);
+    expect(grant.ok).toBe(true);
+    if (!grant.ok) return;
+    await scanToEnd(source, grant.value.sourceId);
+    const page = await source.listPhotos(grant.value.sourceId);
+    expect(page.ok).toBe(true);
+    if (!page.ok) return;
+    const readsBefore = directory.getFileReadCount();
+    const results = await Promise.all([
+      source.sequencePreview(page.value.items[0].id),
+      source.sequencePreview(page.value.items[0].id),
+    ]);
+    expect(results.every((result) => result.ok)).toBe(true);
+    expect(directory.getFileReadCount() - readsBefore).toBe(2);
+    if (results[0].ok && results[1].ok) expect(results[0].value.url).toBe(results[1].value.url);
+    results.forEach((result) => { if (result.ok) result.value.release(); });
+  });
 });

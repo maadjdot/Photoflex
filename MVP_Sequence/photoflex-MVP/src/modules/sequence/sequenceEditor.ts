@@ -43,7 +43,7 @@ class Editor implements SequenceEditor {
   }
   execute(command: SequenceEditCommand): Result<SequenceDraft, SequenceCommandError> {
     const result = apply(this.current, command);
-    if (!result.ok || same(this.current, result.value)) return result.ok ? ok(this.snapshot()) : result;
+    if (!result.ok || result.value === this.current) return result.ok ? ok(this.snapshot()) : result;
     this.undoStack.push(this.current);
     this.current = result.value;
     this.redoStack.length = 0;
@@ -66,6 +66,7 @@ function apply(draft: SequenceDraft, command: SequenceEditCommand): Result<Seque
     if (!segment) return err({ kind: "unknown-segment", segmentId: command.segmentId });
     const name = command.name.trim();
     if (!name) return err({ kind: "empty-name" });
+    if (segment.name === name) return ok(draft);
     return ok({ ...draft, segments: draft.segments.map((value) => value.id === segment.id ? { ...value, name } : value) });
   }
   if (command.type === "ungroupSegment") {
@@ -102,6 +103,7 @@ function addItems(draft: SequenceDraft, items: readonly SequenceItem[], at: numb
 
 function removeItems(draft: SequenceDraft, itemIds: readonly SequenceItemId[]): Result<SequenceDraft, SequenceCommandError> {
   const removed = new Set(itemIds);
+  if (!removed.size) return ok(draft);
   return ok(normalize({ ...draft, items: draft.items.filter((item) => !removed.has(item.id)) }));
 }
 
@@ -109,9 +111,12 @@ function moveItems(draft: SequenceDraft, itemIds: readonly SequenceItemId[], to:
   if (!Number.isInteger(to) || to < 0 || to > draft.items.length) return err({ kind: "invalid-target", target: to });
   const selected = new Set(itemIds);
   const moving = draft.items.filter((item) => selected.has(item.id));
+  if (!moving.length) return ok(draft);
   const remaining = draft.items.filter((item) => !selected.has(item.id));
   const beforeTarget = draft.items.slice(0, to).filter((item) => !selected.has(item.id)).length;
-  return ok(normalize({ ...draft, items: [...remaining.slice(0, beforeTarget), ...moving, ...remaining.slice(beforeTarget)] }, selected));
+  const nextItems = [...remaining.slice(0, beforeTarget), ...moving, ...remaining.slice(beforeTarget)];
+  if (nextItems.every((item, index) => item.id === draft.items[index]?.id)) return ok(draft);
+  return ok(normalize({ ...draft, items: nextItems }, selected));
 }
 
 function createSpread(draft: SequenceDraft, unitId: ReadingUnitId, itemIds: readonly [SequenceItemId, SequenceItemId]): Result<SequenceDraft, SequenceCommandError> {
@@ -205,4 +210,3 @@ function firstIndex(unit: ReadingUnit, indices: ReadonlyMap<SequenceItemId, numb
 function unitInsertionIndex(items: readonly SequenceItem[], units: readonly ReadingUnit[], itemIndex: number): number { const indices = new Map(items.map((item, index) => [item.id, index])); const found = units.findIndex((unit) => firstIndex(unit, indices) > itemIndex); return found < 0 ? units.length : found; }
 function replaceUnitId(units: readonly ReadingUnit[], itemId: SequenceItemId, unitId: ReadingUnitId): readonly ReadingUnit[] { return units.map((unit) => unitContains(unit, itemId) ? { ...unit, id: unitId } : unit); }
 function copy(draft: SequenceDraft): SequenceDraft { return { ...draft, items: draft.items.map((item) => ({ ...item })), segments: draft.segments.map((segment) => ({ ...segment, itemIds: [...segment.itemIds] })), readingUnits: draft.readingUnits.map((unit) => ({ ...unit })) }; }
-function same(left: SequenceDraft, right: SequenceDraft): boolean { return JSON.stringify(left) === JSON.stringify(right); }

@@ -31,6 +31,8 @@ export function SequencePage({ dependencies, projectId, sequenceId, navigate }: 
   const saveQueueRef = useRef<Promise<void>>(Promise.resolve());
   const saveGenerationRef = useRef(0);
   const dragRef = useRef<DragState | undefined>(undefined);
+  const dragFrameRef = useRef<number | undefined>(undefined);
+  const pendingDropTargetRef = useRef<number | undefined>(undefined);
   const workspaceRef = useRef<HTMLElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
   const stripRef = useRef<HTMLDivElement>(null);
@@ -49,7 +51,7 @@ export function SequencePage({ dependencies, projectId, sequenceId, navigate }: 
     setSaveState("idle");
   }, [dependencies.projectStore, sequenceId]);
 
-  useEffect(() => { let live = true; void load().then(() => { if (!live) return; }); return () => { live = false; saveGenerationRef.current += 1; }; }, [load]);
+  useEffect(() => { let live = true; void load().then(() => { if (!live) return; }); return () => { live = false; saveGenerationRef.current += 1; if (dragFrameRef.current !== undefined) cancelAnimationFrame(dragFrameRef.current); }; }, [load]);
   useEffect(() => {
     if (!workspace || !sequence) return;
     if (workspace.resumeContext?.page === "sequence" && workspace.resumeContext.sequenceId === sequenceId) return;
@@ -140,17 +142,21 @@ export function SequencePage({ dependencies, projectId, sequenceId, navigate }: 
     } else {
       for (const element of elements) { const rect = element.getBoundingClientRect(); if (event.clientX < rect.left + rect.width / 2) { target = Number(element.dataset.sequenceIndex); break; } }
     }
-    drag.target = target; setDropTarget(target);
+    drag.target = target;
+    pendingDropTargetRef.current = target;
+    if (dragFrameRef.current === undefined) dragFrameRef.current = requestAnimationFrame(() => { dragFrameRef.current = undefined; const next = pendingDropTargetRef.current; if (next !== undefined) setDropTarget(next); });
   }, [sequence]);
 
   const endDrag = useCallback((event: ReactPointerEvent<HTMLElement>) => {
     const drag = dragRef.current; if (!drag || drag.pointerId !== event.pointerId) return;
-    dragRef.current = undefined; setDropTarget(undefined);
+    dragRef.current = undefined;
+    if (dragFrameRef.current !== undefined) { cancelAnimationFrame(dragFrameRef.current); dragFrameRef.current = undefined; }
+    setDropTarget(undefined);
     if (drag.moved) commit({ type: "move", itemIds: drag.itemIds, to: drag.target });
     else if (drag.collapseOnClick) { setSelected(new Set([drag.clickedId])); setAnchor(drag.clickedId); }
   }, [commit]);
 
-  const cancelDrag = useCallback(() => { dragRef.current = undefined; setDropTarget(undefined); }, []);
+  const cancelDrag = useCallback(() => { dragRef.current = undefined; if (dragFrameRef.current !== undefined) { cancelAnimationFrame(dragFrameRef.current); dragFrameRef.current = undefined; } setDropTarget(undefined); }, []);
   const readUnitForItem = useCallback((itemId: SequenceItemId) => sequence?.readingUnits.findIndex((unit) => unitItemIds(unit).includes(itemId)) ?? -1, [sequence]);
   const openReadAtItem = useCallback((itemId: SequenceItemId) => { const index = readUnitForItem(itemId); if (index >= 0) setReadIndex(index); }, [readUnitForItem]);
   const centerItem = useCallback((itemId: SequenceItemId) => {
@@ -269,17 +275,35 @@ function SequenceLane({ label, sequence, only, moved, dependencies }: { label: s
 }
 
 function SequenceCard({ item, index, selected, dropBefore, segment, dependencies, missing, onPointerDown, onPointerMove, onPointerUp, onPointerCancel, onDoubleClick, onPhotoError }: { item: SequenceItem; index: number; selected: boolean; dropBefore: boolean; segment?: SequenceSegment; dependencies: AppDependencies; missing: boolean; onPointerDown: (event: ReactPointerEvent<HTMLElement>) => void; onPointerMove: (event: ReactPointerEvent<HTMLElement>) => void; onPointerUp: (event: ReactPointerEvent<HTMLElement>) => void; onPointerCancel: () => void; onDoubleClick: () => void; onPhotoError: (id: PhotoId) => void }) {
-  return <article data-sequence-index={index} data-item-id={item.id} aria-selected={selected} className={`sequence-card${selected ? " is-selected" : ""}${dropBefore ? " is-drop-target" : ""}${segment ? " is-in-segment" : ""}`} onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={onPointerCancel} onDoubleClick={onDoubleClick}>
+  const [visible, setVisible] = useState(false);
+  const cardRef = useRef<HTMLElement>(null);
+  useEffect(() => {
+    const element = cardRef.current;
+    if (!element || typeof IntersectionObserver !== "function") { setVisible(true); return; }
+    const observer = new IntersectionObserver((entries) => setVisible(entries.some((entry) => entry.isIntersecting)), { root: null, rootMargin: "600px 600px" });
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
+  return <article ref={cardRef} data-sequence-index={index} data-item-id={item.id} aria-selected={selected} className={`sequence-card${selected ? " is-selected" : ""}${dropBefore ? " is-drop-target" : ""}${segment ? " is-in-segment" : ""}`} onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={onPointerCancel} onDoubleClick={onDoubleClick}>
     <span className="sequence-card-number">{String(index + 1).padStart(2, "0")}</span>
-    {item.kind === "photo" && !missing ? <PhotoThumb resolution="full" eager photoSource={dependencies.photoSource} photoId={item.photoId} alt={`Sequence item ${index + 1}`} onError={onPhotoError} /> : <div className="sequence-missing-card"><b>{item.kind === "blank" ? "BLANK" : "MISSING"}</b></div>}
+    {item.kind === "photo" && !missing ? visible ? <PhotoThumb resolution="sequence" photoSource={dependencies.photoSource} photoId={item.photoId} alt={`Sequence item ${index + 1}`} onError={onPhotoError} /> : <div className="thumb-placeholder" aria-hidden="true" /> : <div className="sequence-missing-card"><b>{item.kind === "blank" ? "BLANK" : "MISSING"}</b></div>}
   </article>;
 }
 
 function SequenceStripItem({ item, index, selected, dropBefore, segment, unit, dependencies, onPointerDown, onPointerMove, onPointerUp, onPointerCancel, onPhotoError }: { item: SequenceItem; index: number; selected: boolean; dropBefore: boolean; segment?: SequenceSegment; unit?: ReadingUnit; dependencies: AppDependencies; onPointerDown: (event: ReactPointerEvent<HTMLElement>) => void; onPointerMove: (event: ReactPointerEvent<HTMLElement>) => void; onPointerUp: (event: ReactPointerEvent<HTMLElement>) => void; onPointerCancel: () => void; onPhotoError: (id: PhotoId) => void }) {
   const [filename, setFilename] = useState(item.kind === "blank" ? "Blank" : "Photo");
+  const [visible, setVisible] = useState(false);
+  const itemRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    const element = itemRef.current;
+    if (!element || typeof IntersectionObserver !== "function") { setVisible(true); return; }
+    const observer = new IntersectionObserver((entries) => setVisible(entries.some((entry) => entry.isIntersecting)), { root: null, rootMargin: "320px" });
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
   useEffect(() => { if (item.kind !== "photo") return; let live = true; void dependencies.photoSource.getPhoto(item.photoId).then((result) => { if (live && result.ok) setFilename(result.value.relativePath.split(/[\\/]/).at(-1) ?? result.value.relativePath); }); return () => { live = false; }; }, [dependencies.photoSource, item]);
-  return <button data-sequence-index={index} data-item-id={item.id} aria-selected={selected} className={`sequence-order-item${selected ? " is-selected" : ""}${dropBefore ? " is-drop-target" : ""}`} onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={onPointerCancel}>
-    <span className="sequence-order-image">{item.kind === "photo" ? <PhotoThumb photoSource={dependencies.photoSource} photoId={item.photoId} alt="" onError={onPhotoError} /> : <span className="sequence-blank-page">BLANK</span>}<b>{String(index + 1).padStart(2, "0")}</b></span>
+  return <button ref={itemRef} data-sequence-index={index} data-item-id={item.id} aria-selected={selected} className={`sequence-order-item${selected ? " is-selected" : ""}${dropBefore ? " is-drop-target" : ""}`} onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={onPointerCancel}>
+    <span className="sequence-order-image">{item.kind === "photo" ? visible ? <PhotoThumb photoSource={dependencies.photoSource} photoId={item.photoId} alt="" onError={onPhotoError} /> : <div className="thumb-placeholder" aria-hidden="true" /> : <span className="sequence-blank-page">BLANK</span>}<b>{String(index + 1).padStart(2, "0")}</b></span>
     <small>{filename}</small><em>{unit?.kind.toUpperCase()}{segment ? ` · ${segment.name}` : ""}</em>
   </button>;
 }
@@ -289,7 +313,20 @@ function SegmentHeader({ segment, collapsed, onToggle, onRename, onUngroup, onPo
 }
 
 function OverviewGrid({ overviewElementRef, sequence, selected, dependencies, onOpen, onPhotoError, onPointerDown, onPointerMove, onPointerUp, onPointerCancel }: { overviewElementRef: React.RefObject<HTMLElement | null>; sequence: SequenceDocument; selected: ReadonlySet<SequenceItemId>; dependencies: AppDependencies; onOpen: (id: SequenceItemId) => void; onPhotoError: (id: PhotoId) => void; onPointerDown: (event: ReactPointerEvent<HTMLElement>, id: SequenceItemId) => void; onPointerMove: (event: ReactPointerEvent<HTMLElement>) => void; onPointerUp: (event: ReactPointerEvent<HTMLElement>) => void; onPointerCancel: () => void }) {
-  return <section ref={overviewElementRef} className="sequence-overview" role="grid" aria-label="Sequence Overview" onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={onPointerCancel}><header><strong>Overview Grid</strong><span>Select, drag to reorder, or double-click to read.</span></header><div>{sequence.items.map((item, index) => <button data-sequence-index={index} data-item-id={item.id} role="gridcell" aria-selected={selected.has(item.id)} key={item.id} className={selected.has(item.id) ? "is-selected" : ""} onPointerDown={(event) => onPointerDown(event, item.id)} onDoubleClick={() => onOpen(item.id)}>{item.kind === "photo" ? <PhotoThumb photoSource={dependencies.photoSource} photoId={item.photoId} alt={`Item ${index + 1}`} onError={onPhotoError} /> : <span className="sequence-blank-page">BLANK</span>}<b>{String(index + 1).padStart(2, "0")}</b></button>)}</div></section>;
+  return <section ref={overviewElementRef} className="sequence-overview" role="grid" aria-label="Sequence Overview" onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={onPointerCancel}><header><strong>Overview Grid</strong><span>Select, drag to reorder, or double-click to read.</span></header><div>{sequence.items.map((item, index) => <OverviewItem key={item.id} item={item} index={index} selected={selected.has(item.id)} dependencies={dependencies} onOpen={onOpen} onPhotoError={onPhotoError} onPointerDown={onPointerDown} />)}</div></section>;
+}
+
+function OverviewItem({ item, index, selected, dependencies, onOpen, onPhotoError, onPointerDown }: { item: SequenceItem; index: number; selected: boolean; dependencies: AppDependencies; onOpen: (id: SequenceItemId) => void; onPhotoError: (id: PhotoId) => void; onPointerDown: (event: ReactPointerEvent<HTMLElement>, id: SequenceItemId) => void }) {
+  const [visible, setVisible] = useState(false);
+  const itemRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    const element = itemRef.current;
+    if (!element || typeof IntersectionObserver !== "function") { setVisible(true); return; }
+    const observer = new IntersectionObserver((entries) => setVisible(entries.some((entry) => entry.isIntersecting)), { root: null, rootMargin: "320px" });
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
+  return <button ref={itemRef} data-sequence-index={index} data-item-id={item.id} role="gridcell" aria-selected={selected} className={selected ? "is-selected" : ""} onPointerDown={(event) => onPointerDown(event, item.id)} onDoubleClick={() => onOpen(item.id)}>{item.kind === "photo" ? visible ? <PhotoThumb photoSource={dependencies.photoSource} photoId={item.photoId} alt={`Item ${index + 1}`} onError={onPhotoError} /> : <div className="thumb-placeholder" aria-hidden="true" /> : <span className="sequence-blank-page">BLANK</span>}<b>{String(index + 1).padStart(2, "0")}</b></button>;
 }
 
 function ContextBar({ context, onAction }: { context: Context; onAction: (action: ContextAction) => void }) {
