@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import type { ProjectStore } from "../../src/contracts";
+import type { ProjectStore, ReadingUnitId, SequenceDocument, SequenceId, SequenceItemId, SequenceRevision, SequenceVersion, VersionId } from "../../src/contracts";
+import { createEmptyWorktable } from "../../src/modules/worktable";
 import { IndexedDbProjectStore } from "../../src/platform/browser/IndexedDbProjectStore";
 import {
   createMemoryProjectDatabase,
@@ -71,7 +72,7 @@ for (const implementation of implementations) {
       expect(created.ok).toBe(true);
       if (!created.ok) return;
       expect(created.value.revision).toBe(0);
-      expect(created.value.sequenceDraft.items).toEqual([]);
+      expect(created.value.sequenceIds).toEqual([]);
 
       const loaded = await stores.first.loadWorkspace(PROJECT_ID);
       expect(loaded).toEqual(created);
@@ -116,6 +117,25 @@ for (const implementation of implementations) {
       const versions = await stores.first.listVersions(PROJECT_ID);
       expect(workspace.ok && workspace.value.versionIds).toEqual([VERSION.id]);
       expect(versions.ok && versions.value.map(({ id }) => id)).toEqual([VERSION.id]);
+    });
+
+    it("原子创建 Sequence、Initial Version 与 Table membership", async () => {
+      const project = await stores.first.createProject(PROJECT_INPUT);
+      if (!project.ok) throw new Error("测试项目未创建");
+      const now = "2026-09-01T08:00:00.000Z";
+      const sequenceId = "sequence-1" as SequenceId;
+      const versionId = "version-initial" as VersionId;
+      const itemId = "item-1" as SequenceItemId;
+      const unitId = "unit-1" as ReadingUnitId;
+      const sequence: SequenceDocument = { id: sequenceId, projectId: PROJECT_ID, name: "Edit", items: [{ id: itemId, kind: "photo", photoId: "photo-1" as never }], segments: [], readingUnits: [{ id: unitId, kind: "single", itemId }], currentVersionId: versionId, revision: 0 as SequenceRevision, createdAt: now, updatedAt: now };
+      const version: SequenceVersion = { id: versionId, projectId: PROJECT_ID, sequenceId, name: "Initial · Edit", itemCount: 1, items: sequence.items, segments: [], readingUnits: sequence.readingUnits, createdAt: now };
+      const table = createEmptyWorktable(PROJECT_ID);
+      const created = await stores.first.createSequence(PROJECT_ID, project.value.revision, sequence, version, table);
+      expect(created.ok).toBe(true);
+      const workspace = await stores.first.loadWorkspace(PROJECT_ID);
+      expect(workspace.ok && workspace.value.sequenceIds).toEqual([sequenceId]);
+      expect(workspace.ok && workspace.value.versionIds).toEqual([versionId]);
+      expect((await stores.first.loadVersion(versionId)).ok).toBe(true);
     });
   });
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { ProjectId, SourceId } from "../contracts";
+import type { ProjectId, SequenceId, SourceId } from "../contracts";
 import { readRoute, routeToHash } from "./router";
 
 describe("readRoute", () => {
@@ -20,5 +20,14 @@ describe("readRoute", () => {
     expect(routeToHash({ name: "contact-sheet", projectId, sourceId })).toBe(
       "#/projects/project-1/sources/source-1",
     );
+  });
+
+  it("reads Sequence and Sequence Compare routes", () => {
+    const projectId = "project-1" as ProjectId;
+    const left = "sequence-a" as SequenceId;
+    const right = "sequence-b" as SequenceId;
+    expect(routeToHash({ name: "sequence", projectId, sequenceId: left })).toBe("#/projects/project-1/sequences/sequence-a");
+    expect(readRoute("#/projects/project-1/sequences/sequence-a")).toEqual({ name: "sequence", projectId, sequenceId: left });
+    expect(readRoute("#/projects/project-1/sequences/compare/sequence-a/sequence-b")).toEqual({ name: "sequence-compare", projectId, leftSequenceId: left, rightSequenceId: right });
   });
 });

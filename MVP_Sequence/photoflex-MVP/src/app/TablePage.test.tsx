@@ -111,6 +111,6 @@ describe("TablePage", () => {
     if (!saved.ok) return;
     expect(saved.value.worktableDraft.placements[photoA].x).toBe(109);
     expect(saved.value.worktableDraft.placements[photoA].y).toBe(94);
-    expect(saved.value.sequenceDraft.items).toEqual([]);
+    expect(saved.value.sequenceIds).toEqual([]);
   });
 });

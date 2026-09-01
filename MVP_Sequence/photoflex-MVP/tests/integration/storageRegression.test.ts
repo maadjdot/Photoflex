@@ -60,7 +60,7 @@ describe("存储回归行为", () => {
     expect(
       isWorkspace({
         ...workspace,
-        sequenceDraft: { ...workspace.sequenceDraft, items: [{ id: "item" }] },
+        sequenceIds: ["sequence", "sequence"],
       }),
     ).toBe(false);
   });
@@ -68,7 +68,7 @@ describe("存储回归行为", () => {
   it("打开已有高版本数据库时报告实际版本号", async () => {
     const databaseName = `photoflex-version-${crypto.randomUUID()}`;
     const created = await new Promise<IDBDatabase>((resolve, reject) => {
-      const request = indexedDB.open(databaseName, 6);
+      const request = indexedDB.open(databaseName, INDEXED_DB_SCHEMA_VERSION + 1);
       request.onupgradeneeded = () => request.result.createObjectStore("legacy");
       request.onsuccess = () => resolve(request.result);
       request.onerror = () => reject(request.error);
@@ -78,7 +78,7 @@ describe("存储回归行为", () => {
     const opened = await openPhotoFlexDatabase({ databaseName });
     expect(opened).toEqual({
       ok: false,
-      error: { kind: "unsupported-storage-schema", found: 6, supported: [INDEXED_DB_SCHEMA_VERSION] },
+      error: { kind: "unsupported-storage-schema", found: INDEXED_DB_SCHEMA_VERSION + 1, supported: [INDEXED_DB_SCHEMA_VERSION] },
     });
     await deleteDatabase(databaseName);
   });

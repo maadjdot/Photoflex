@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   migrateToV1,
+  migrateToV2,
+  migrateToV3,
+  migrateToV6,
   openPhotoFlexDatabase,
   STORE_NAMES,
 } from "../../src/platform/browser/indexedDbSchema";
@@ -71,7 +74,7 @@ describe("IndexedDB schema 0 → 1", () => {
     const migrated = await requestValue<Record<string, unknown>>(
       opened.value.transaction(STORE_NAMES.projects, "readonly").objectStore(STORE_NAMES.projects).get("legacy-project"),
     );
-    expect(migrated.schemaVersion).toBe(4);
+    expect(migrated.schemaVersion).toBe(6);
     expect(migrated.memo).toBe("");
     expect(migrated.expectedPhotoCount).toBeNull();
     expect(migrated.lastOpenedAt).toBe("2026-08-26T08:10:00.000Z");
@@ -89,7 +92,10 @@ describe("IndexedDB schema 0 → 1", () => {
       },
       groups: [],
       links: [],
+      pileOrder: [],
+      pilePlacements: {},
     });
+    expect(migrated.sequenceIds).toEqual([]);
     opened.value.close();
     await deleteDatabase(databaseName);
   });
@@ -130,9 +136,41 @@ describe("IndexedDB schema 0 → 1", () => {
       opened.value.transaction(STORE_NAMES.projects, "readonly").objectStore(STORE_NAMES.projects).get("v3-project"),
     );
     expect(migrated.worktableDraft).toMatchObject({
-      placements: { "photo-a": { x: 321, y: 654 } }, groups: [], links: [],
+      placements: { "photo-a": { x: 321, y: 654 } }, groups: [], links: [], pileOrder: [], pilePlacements: {},
     });
     opened.value.close();
     await deleteDatabase(databaseName);
+  });
+
+  it("把 v6 Sequence 升级为 photo items、Singles 与唯一 Initial Version", async () => {
+    const databaseName = `photoflex-sequence-v6-${crypto.randomUUID()}`;
+    const legacy = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open(databaseName, 6);
+      request.onupgradeneeded = () => {
+        migrateToV1(request.result);
+        migrateToV2(request.result, request.transaction!);
+        migrateToV3(request.transaction!);
+        migrateToV6(request.result, request.transaction!);
+      };
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    const transaction = legacy.transaction([STORE_NAMES.projects, STORE_NAMES.sequences], "readwrite");
+    transaction.objectStore(STORE_NAMES.projects).put({ schemaVersion: 5, projectId: "sequence-project", name: "Project", memo: "", expectedPhotoCount: null, sources: [], photoStates: {}, worktableDraft: { projectId: "sequence-project", entryOrder: [], placements: {}, groups: [], links: [], pileOrder: ["sequence-a"], pilePlacements: { "sequence-a": { sequenceId: "sequence-a", x: 0, y: 0, z: 1, width: 190, height: 118 } } }, sequenceIds: ["sequence-a"], versionIds: [], revision: 0, createdAt: "2026-09-01T00:00:00.000Z", updatedAt: "2026-09-01T00:00:00.000Z", lastOpenedAt: "2026-09-01T00:00:00.000Z" });
+    transaction.objectStore(STORE_NAMES.sequences).put({ id: "sequence-a", projectId: "sequence-project", name: "Street Edit", items: [{ id: "item-a", photoId: "photo-a" }, { id: "item-b", photoId: "photo-a" }], revision: 2, createdAt: "2026-09-01T00:00:00.000Z", updatedAt: "2026-09-01T00:10:00.000Z" });
+    await transactionResult(transaction); legacy.close();
+
+    const opened = await openPhotoFlexDatabase({ databaseName });
+    expect(opened.ok).toBe(true);
+    if (!opened.ok) return;
+    const upgraded = await requestValue<Record<string, unknown>>(opened.value.transaction(STORE_NAMES.sequences, "readonly").objectStore(STORE_NAMES.sequences).get("sequence-a"));
+    expect(upgraded.items).toMatchObject([{ kind: "photo", photoId: "photo-a" }, { kind: "photo", photoId: "photo-a" }]);
+    expect(upgraded.readingUnits).toMatchObject([{ kind: "single", itemId: "item-a" }, { kind: "single", itemId: "item-b" }]);
+    const currentVersionId = String(upgraded.currentVersionId);
+    const version = await requestValue<Record<string, unknown>>(opened.value.transaction(STORE_NAMES.versions, "readonly").objectStore(STORE_NAMES.versions).get(currentVersionId));
+    expect(version).toMatchObject({ name: "Initial · Street Edit", sequenceId: "sequence-a" });
+    const workspace = await requestValue<Record<string, unknown>>(opened.value.transaction(STORE_NAMES.projects, "readonly").objectStore(STORE_NAMES.projects).get("sequence-project"));
+    expect(workspace).toMatchObject({ schemaVersion: 6, versionIds: [currentVersionId] });
+    opened.value.close(); await deleteDatabase(databaseName);
   });
 });
