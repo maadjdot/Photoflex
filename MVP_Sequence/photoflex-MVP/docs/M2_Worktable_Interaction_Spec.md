@@ -1,5 +1,7 @@
 # PhotoFlex M2 — Worktable 页面交互说明
 
+> 实现状态（2026-09-02）：当前 Table 已支持自由摆放、多选/框选、Grid、Row、Align、Group、Link、Sequence Pile、Preview、Photo Compare、Sequence Order 和 IndexedDB 恢复。Pool 和 Whiteboard 用户界面已取消；本轮不提供 Pin，Pin 保留为后续项目级状态能力。
+
 > 状态：交互设计稿 / 开发前确认版  
 > 适用页面：`Table`  
 > 基准尺寸：1440 × 1024，需同时适配 1280 × 800、1920 × 1080 与 2560 × 1440  
@@ -14,7 +16,7 @@ Worktable 是摄影师把候选照片像实体照片一样铺在桌面上，进�
 - 自由摆放项目照片；
 - 将照片组成 Group；
 - 为照片建立 Link；
-- 将两张照片 Juxtapose 并置比较；
+- 将两张照片 Preview / Photo Compare 并置比较；
 - 将照片加入底部 Sequence Order；
 - 在底部微调 Sequence 顺序。
 
@@ -27,9 +29,9 @@ Worktable 不负责全量照片浏览。全量浏览、过滤和 Pick / Reject �
 | Table position | 照片在桌面上的 `x / y` 位置 | 否 |
 | Group | 共同外框包围、可以整体移动的强关系 | 否 |
 | Link | 照片之间有意义的弱关系 | 否 |
-| Juxtapose | 临时将两张照片放大并排比较 | 否 |
+| Photo Compare | 临时将两张照片放大并排比较 | 否 |
 | Sequence Order | 底部缩略图代表的阅读顺序 | 是 |
-| Pin | 标记需要持续关注的照片 | 否 |
+| Pin | 后续项目级研究标记；当前 Table 工具栏不提供 | 否 |
 
 必须遵守以下不变量：
 
@@ -57,7 +59,7 @@ Photoflex / Home / Project / Contact Sheet / Table / Sequence / Login
 工具栏包含：
 
 ```text
-TABLE                         Sequence  Group  Link  Juxtapose   − 75% +
+TABLE  <project name>         Sequence  Add to Sequence  Group  Leave  Link  Compare  Preview  Grid  Row  Align  Front  Remove  − zoom +
 ```
 
 | 工具 | 启用条件 | 行为 |
@@ -65,12 +67,14 @@ TABLE                         Sequence  Group  Link  Juxtapose   − 75% +
 | Sequence | 至少选择 1 张照片 | 将未进入 Sequence 的照片追加到底部 |
 | Group | 选择至少 2 张未成组照片，或选中完整 Group | 创建 Group；选中完整 Group 时切换为解除 Group |
 | Link | 选择 2～6 张照片 | 创建 Link，并把成员移动到相邻位置 |
-| Juxtapose | 恰好选择 2 张照片 | 打开并置比较层 |
+| Preview | 恰好选择 1 张照片 | 打开单张高质量大图预览 |
+| Compare | 恰好选择 2 张照片，或选择两个 Sequence Pile | 打开只读比较层 |
 | `− / +` | Table 获得焦点 | 缩小或放大桌面 |
 
 - 不满足条件的工具显示禁用状态，点击无反应。
 - 当前操作模式使用下划线和粗体表示，不只依赖颜色。
 - 执行一次性动作后回到默认选择模式；Group、Link 不是持续绘制工具。
+- `Open Sequence` 位于底部 `Sequence Order` 栏；双击 Sequence Pile 进入对应 Sequence 页面。
 
 ### 3.3 桌面
 
@@ -99,11 +103,10 @@ TABLE                         Sequence  Group  Link  Juxtapose   − 75% +
 | Hover | 细灰边框或轻微提高层级 | 表示可以选择或拖动 |
 | Selected | 2px 黑色外框 | 当前操作对象 |
 | Multi-selected | 多张照片均显示黑框 | 可以一起移动或执行工具操作 |
-| Pinned | 右上角小圆点保持可见 | 与 Selected、Group、Link 独立 |
 | In Sequence | 可显示小型 `S01` 编号 | 编号来自底部顺序；移动桌面不改变编号 |
 | Missing | 保留原尺寸占位框和文件名 | 不能因文件缺失改变桌面或 Sequence 位置 |
 
-Group 框和 Link 线不能代替 Selected 状态：用户仍需知道当前将被操作的是照片、Group 还是 Link。
+Group 框和 Link 线不能代替 Selected 状态：用户仍需知道当前将被操作的是照片、Group 还是 Link。Table 照片始终使用高质量预览，不因选中状态改变清晰度。
 
 ## 5. 基础选择与桌面操作
 
@@ -113,7 +116,7 @@ Group 框和 Link 线不能代替 Selected 状态：用户仍需知道当前将�
 - `Shift + Click`：在当前选择中增加或移除照片。
 - 在桌面空白处拖动：框选照片。
 - 单击空白区域：清除选择。
-- `Esc`：取消当前选择或退出 Juxtapose。
+- `Esc`：取消当前选择或退出 Preview / Photo Compare。
 - `Ctrl/Cmd + A`：选择当前 Table 上的全部照片。
 
 框选只选择与框选区域相交超过约 30% 的照片，避免轻微擦边导致误选。
@@ -244,18 +247,18 @@ Link 只负责建立关系，不将照片加入 Sequence。
 | 一张照片可加入多个 | 否 | 是 |
 | 主要用途 | 工作集合、章节、批次 | 视觉回声、对比、记忆关系 |
 
-## 9. Juxtapose 交互
+## 9. Preview / Photo Compare 交互
 
 前置条件：恰好选择 2 张照片。
 
-1. 点击 `Juxtapose`。
+1. 单张选择时点击 `Preview`；双张选择时点击 `Compare`。
 2. 打开覆盖 Table 的并置比较层。
 3. 两张照片以 A / B 并排显示，默认完整适应可用区域。
-4. 支持交换左右、同步缩放、单独缩放、Pin、加入 Sequence。
+4. Photo Compare 支持交换左右、同步缩放和单独缩放；不在本轮修改版本或建立持久化集合。
 5. `Esc` 或 Close 返回 Table。
 6. 返回后恢复原来的 Table 位置、缩放、选择和 Sequence Order。
 
-Juxtapose 是临时观看状态，不建立 Link。用户若希望保存两张照片的关系，需要返回 Table 后执行 Link。
+Preview / Photo Compare 是临时观看状态，不建立 Link，不改变 Table 坐标或 Sequence 顺序。用户若希望保存两张照片的关系，需要返回 Table 后执行 Link。
 
 ## 10. Sequence 交互
 
@@ -275,7 +278,7 @@ Juxtapose 是临时观看状态，不建立 Link。用户若希望保存两张�
 - 拖动过程中显示明确插入线。
 - 一次 drop 生成一个 Sequence move command 和一个 undo step。
 - 拖动取消时不改变顺序，不写入持久化。
-- 桌面照片移动、Group、Link、Juxtapose 都不能改变底部顺序。
+- 桌面照片移动、Group、Link、Preview / Photo Compare 都不能改变底部顺序。
 
 ### 10.3 收起和进入 Sequence
 
@@ -302,7 +305,7 @@ Juxtapose 是临时观看状态，不建立 Link。用户若希望保存两张�
 - 工具栏启用状态；
 - 桌面缩放和平移；
 - Sequence Order 收起或展开；
-- 打开或关闭 Juxtapose。
+- 打开或关闭 Preview / Photo Compare。
 
 快捷键：
 
@@ -312,7 +315,7 @@ Ctrl/Cmd + Shift + Z Redo
 Esc                  清除选择 / 退出临时模式
 G                    Group
 L                    Link
-J                    Juxtapose
+P                    Preview
 S                    Add to Sequence
 Delete / Backspace   根据当前选择删除关系或从 Table 移除
 ```
@@ -327,7 +330,7 @@ Delete / Backspace   根据当前选择删除关系或从 Table 移除
 - 每张照片的 `x / y / zIndex / displaySize`；
 - Group ID、名称、成员和成员相对位置；
 - Link ID、标签、成员及连接顺序；
-- Pin 状态；
+- Pin 状态由后续项目级能力决定，本轮不在 Table 工具栏暴露；
 - Sequence Order；
 - 最后的 Table zoom / pan（可选，但建议保存）。
 
@@ -337,7 +340,7 @@ Delete / Backspace   根据当前选择删除关系或从 Table 移除
 - 当前选择；
 - 框选区域；
 - 当前工具栏模式；
-- Juxtapose 是否打开。
+- Preview / Photo Compare 是否打开。
 
 位置命令在 pointer up 后提交；持久化可以短暂 debounce，但 UI 状态必须立即更新。
 
@@ -365,9 +368,9 @@ Delete / Backspace   根据当前选择删除关系或从 Table 移除
 - 照片、Group 框、Link 线和 Sequence 缩略图都必须可以获得键盘焦点。
 - `aria-selected` 表示照片选择状态。
 - Group / Link 工具使用 `aria-pressed` 或清楚的当前模式说明。
-- 选择、Group、Link、Pin 不能只依赖颜色区分。
+- 选择、Group、Link 不能只依赖颜色区分；Pin 不属于本轮 Table 操作。
 - 键盘移动照片时使用方向键；`Shift + 方向键` 使用较大步长。
-- 屏幕阅读器需要读出照片文件名、是否在 Group、Link 数量、Pin 和 Sequence 编号。
+- 屏幕阅读器需要读出照片文件名、是否在 Group、Link 数量和 Sequence 编号。
 
 ## 16. MVP 验收场景
 
@@ -408,5 +411,4 @@ Delete / Backspace   根据当前选择删除关系或从 Table 移除
 - 多人实时协作；
 - 根据 Table 的空间位置自动持续同步 Sequence；
 - Group 或 Link 自动跨项目共享；
-- 3 张以上的 Juxtapose。
-
+- 3 张以上的 Photo Compare。

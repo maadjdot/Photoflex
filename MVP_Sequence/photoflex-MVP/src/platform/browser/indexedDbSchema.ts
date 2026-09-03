@@ -122,6 +122,7 @@ export function migrateToV7(transaction: IDBTransaction): void {
     const cursor = versionCursor.result;
     if (!cursor) return;
     const value = cursor.value as Record<string, unknown>;
+    const normalizedUpdatedAt = typeof value.updatedAt === "string" ? value.updatedAt : (typeof value.createdAt === "string" ? value.createdAt : new Date(0).toISOString());
     if (typeof value.sequenceId !== "string" && typeof value.projectId === "string") {
       const items = Array.isArray(value.items) ? value.items.map((raw) => {
         const item = raw as Record<string, unknown>;
@@ -129,12 +130,14 @@ export function migrateToV7(transaction: IDBTransaction): void {
       }) : [];
       cursor.update({
         ...value,
+        updatedAt: normalizedUpdatedAt,
         sequenceId: `sequence-${value.projectId}-legacy`,
         items,
         segments: [],
         readingUnits: items.map((item) => ({ id: `unit-${item.id}`, kind: item.kind === "blank" ? "blank" : "single", itemId: item.id })),
       });
     }
+    else if (value.updatedAt !== normalizedUpdatedAt) cursor.update({ ...value, updatedAt: normalizedUpdatedAt });
     cursor.continue();
   };
   const sequenceCursor = sequences.openCursor();

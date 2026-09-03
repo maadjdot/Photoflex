@@ -33,7 +33,7 @@ import { createWorktableEditor } from "../modules/worktable";
 import trashBinIcon from "../assets/icons/trash-bin.png";
 import { PhotoThumb } from "./PhotoThumb";
 import { TablePage } from "./TablePage";
-import { SequenceComparePage, SequencePage } from "./SequencePage";
+import { SequenceComparePage, SequencePage, VersionComparePage } from "./SequencePage";
 import { routeToHash, useAppRoute, type AppRoute } from "./router";
 import type { AppDependencies } from "./dependencies";
 import { useProjectWorkspace, type WorkspaceUpdate } from "./useProjectWorkspace";
@@ -140,10 +140,13 @@ export function M1App({ dependencies }: AppProps) {
         <TablePage dependencies={dependencies} projectId={route.projectId} navigate={navigate} />
       )}
       {route.name === "sequence" && (
-        <SequencePage dependencies={dependencies} projectId={route.projectId} sequenceId={route.sequenceId} navigate={navigate} />
+        <SequencePage dependencies={dependencies} projectId={route.projectId} sequenceId={route.sequenceId} openVersionId={route.openVersionId} navigate={navigate} />
       )}
       {route.name === "sequence-compare" && (
         <SequenceComparePage dependencies={dependencies} projectId={route.projectId} leftSequenceId={route.leftSequenceId} rightSequenceId={route.rightSequenceId} navigate={navigate} />
+      )}
+      {route.name === "version-compare" && (
+        <VersionComparePage dependencies={dependencies} projectId={route.projectId} leftVersionId={route.leftVersionId} rightVersionId={route.rightVersionId} navigate={navigate} />
       )}
     </div>
   );
@@ -197,7 +200,7 @@ function AppHeader({
           Table
         </NavButton>
         <NavButton
-          active={route.name === "sequence" || route.name === "sequence-compare"}
+          active={route.name === "sequence" || route.name === "sequence-compare" || route.name === "version-compare"}
           disabled={!projectId}
           title="Open the last Sequence"
           onClick={() => {

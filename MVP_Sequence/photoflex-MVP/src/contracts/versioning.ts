@@ -10,6 +10,8 @@ export interface VersionSummary {
   readonly name: string;
   readonly itemCount: number;
   readonly createdAt: string;
+  /** Last time the immutable snapshot content was written. Legacy records may omit it. */
+  readonly updatedAt?: string;
 }
 
 export interface SequenceVersion extends VersionSummary {
@@ -30,6 +32,7 @@ export interface CreateVersionInput {
   readonly segments: readonly SequenceSegment[];
   readonly readingUnits: readonly ReadingUnit[];
   readonly createdAt: string;
+  readonly updatedAt?: string;
 }
 
 export type VersionValidationError =
@@ -52,6 +55,10 @@ export interface VersionDiff {
     readonly from: number;
     readonly to: number;
   }>;
+  readonly readingUnitChanged: readonly SequenceItemId[];
+  readonly segmentChanged: readonly SequenceItemId[];
+  readonly readingUnitChanges: readonly SequenceItemId[];
+  readonly segmentChanges: readonly SequenceItemId[];
 }
 
 export interface Versioning {

@@ -4,12 +4,14 @@ tags:
   - MVP
   - 开发流程
 created: 2026-08-26
-updated: 2026-08-26
+updated: 2026-09-02
 status: draft
 version: 0.5
 ---
 
 # PhotoFlex MVP 开发流程方案
+
+> 状态标记：M0–M2.2 的工程、Contact Sheet、Table 与 Sequence 核心已在当前项目交付；M3（Named Version / Save / Compare / Shuffle）与 M4（Alpha 稳定化和性能测量）仍为后续阶段。
 
 ## 1. 开发目标
 
@@ -23,14 +25,14 @@ version: 0.5
 
 ```mermaid
 flowchart LR
-    M0[M0 工程骨架] --> M1[M1 Project、照片入口与 Pool]
-    M1 --> M2[M2 Pool → Sequence]
-    M2 --> M3[M3 命名版本与 Compare]
-    M3 --> M4[M4 简单白板排序]
-    M4 --> M5[M5 Alpha 稳定化与测量]
+    M0[M0 工程骨架] --> M1[M1 Project、照片入口与 Contact Sheet]
+    M1 --> M21[M2.1 Table 基础]
+    M21 --> M22[M2.2 Table Group/Link/Pile 与 Sequence 核心]
+    M22 --> M3[M3 Named Version、Save、Compare 与 Shuffle]
+    M3 --> M4[M4 Alpha 稳定化与测量]
 ```
 
-M3 是第一阶段的核心证明。M3 未通过真实任务测试前，不开始排版、PDF、AI、协作或通用白板功能。
+M3 是第一阶段的核心证明。M3 未通过真实任务测试前，不开始排版、PDF、AI、协作或通用 Whiteboard 功能。
 
 进入 M3 用户测试前必须出现三个相互独立、可以单独审查的证据提交：
 
@@ -46,10 +48,10 @@ M3 是第一阶段的核心证明。M3 未通过真实任务测试前，不开�
 
 - Vite + React + TypeScript 应用可运行；
 - 在 `src/contracts/` 定义 ProjectId、PhotoId、SequenceItemId、VersionId、WorkspaceRevision、500 项上限和统一 `Result<T, E>`，由 `index.ts` 作为唯一公共导出入口；
-- 建立 `Sequence`、`Whiteboard`、`Versioning`、`PhotoSource`、`ProjectStore` 和备份格式的完整接口与错误联合；业务模块、适配器和测试不得重定义同名契约；
+- 建立 `Worktable`、`Sequence`、`Versioning`、`PhotoSource`、`ProjectStore` 和备份格式的完整接口与错误联合；业务模块、适配器和测试不得重定义同名契约；
 - Browser 和 Memory 两种适配器可被应用启动时注入；
-- 建立 `projects`、`versions`、`photo-index`、`source-grants`、`photo-thumbnails` 五个 IndexedDB object store；
-- 建立 IndexedDB migration runner、数据库/工作区/备份三套独立 schema 版本，并完成 `0 → 1 → 2` 与 workspace `1 → 2` migration；
+- 建立 `projects`、`sequences`、`versions`、`photo-index`、`source-grants`、`photo-thumbnails` 六个 IndexedDB object store；
+- 维护 IndexedDB v7、Workspace schema v6 与 backup schema 1 的独立 migration runner；
 - 建立 Vitest、界面测试、Playwright 和 CI；
 - 准备 30 张合法测试照片 fixture。
 
@@ -60,11 +62,11 @@ M3 是第一阶段的核心证明。M3 未通过真实任务测试前，不开�
 - IndexedDB 和 Memory 适配器通过同一套 ProjectStore/PhotoSource 契约测试；
 - ProjectStore 把 revision 定义为工作区级单调整数：新项目为 0，写入在同一事务内 CAS，成功后只加 1；
 - 两个 Store 实例同时从 revision 7 保存时，一个返回 revision 8，另一个返回 `conflict { expected: 7, actual: 8 }`，最终记录等于胜者且没有覆盖；
-- migration `0 → 1 → 2`、workspace `1 → 2`、未知更高版本、迁移 abort、`versionchange` 关闭连接和 `blocked` 提示均有测试；迁移失败不得删除数据库；
+- 当前 v7/v6 migration、未知更高版本、迁移 abort、`versionchange` 关闭连接和 `blocked` 提示均有测试；迁移失败不得删除数据库；
 - 核心模块中没有 `window`、DOM、Tauri 或 Rust 依赖。
-- 编译级契约检查能证明 Whiteboard、Sequence 和 Versioning 使用同一个 SequenceItemId；不存在 `PhotoId[]` 形式的序列排序接口。
+- 编译级契约检查能证明 Worktable、Sequence 和 Versioning 使用同一个 SequenceItemId；不存在 `PhotoId[]` 形式的序列排序接口。
 
-### M1：Project、照片入口与 Pool
+### M1：Project、照片入口与 Contact Sheet
 
 交付：
 
@@ -75,8 +77,8 @@ M3 是第一阶段的核心证明。M3 未通过真实任务测试前，不开�
 - 用户取消、权限拒绝、权限丢失、不支持文件和 I/O 失败具有可区分结果；
 - 重复选择同一个底层目录时复用已有 SourceId；不同 Source 中同名 relativePath 可并存；移动/重命名后的文件显示 `missing-file` 且不静默改绑；
 - Contact Sheet 分页/虚拟浏览和大图预览；
-- 从 Contact Sheet 将照片加入或移出 Project Pool；Pool 在 Project 与 Contact Sheet 间保持同步；
-- `Add selected to sequence` 保留为禁用入口，并提示 Sequence 将在 M2 开放；
+- 从 Contact Sheet 使用 `Place on Table` 将照片加入 Table；Table membership 在 Project 与 Contact Sheet 间保持同步；
+- `Add selected to sequence` 不作为 Contact Sheet 的独立入口，Sequence 从 Table 的显式选择创建；
 - PreviewLease 由缓存统一引用计数；虚拟列表与“当前图 ±1”预取窗口释放 lease 后不会提前 revoke 或长期泄漏 Object URL；
 - 刷新后恢复 Project，并在需要时重新请求目录权限。
 
@@ -84,21 +86,21 @@ M3 是第一阶段的核心证明。M3 未通过真实任务测试前，不开�
 
 > 建立一个项目，添加两个包含同名 JPEG 的不同文件夹，从两个 Source 各找到一张照片；再次选择第一个目录不会新增 Source；移动其中一个文件后显示 missing-file，刷新后记录仍保留。
 
-### M2：Pool → Sequence
+### M2.1 / M2.2：Table 与 Sequence 核心
 
 交付：
 
-- Pool 加入/移出 Sequence；
-- Sequence 单张和批量拖动、删除、undo/redo；
-- 横向、网格、全景和单张预览；
-- 工作草稿自动保存。
+- Table 自由移动、多选、框选、Grid、Row、Align、Group、Link、Pile、Preview 和 Photo Compare；
+- 从 Table 显式选择创建 Sequence Pile，并进入 Sequence 页面；
+- Sequence 单张和批量拖动、删除、undo/redo、Reading Unit、Segment、Overview 和 Read；
+- Working Draft 自动保存，Sequence Order 与中央编辑器共享同一排序命令。
 - Undo/Redo 只在当前页面会话保留历史栈；撤销或重做后的草稿结果必须像普通命令一样进入串行保存队列。
 - Undo/Redo 控件常驻提示会话限制，首次进入 Sequence 显示一次非阻塞说明；最后成功保存草稿作为崩溃恢复 checkpoint。
-- Sequence 最多 500 项；超限添加整体失败并显示限制，不影响 Library/Pool 继续容纳大图库。
+- Sequence 最多 500 项；超限添加整体失败并显示限制，不影响 Library/Table 继续容纳大图库。
 
 验收任务：
 
-> 从 30 张照片建立至少 10 张的 Pool，再形成并修改一个 8 张序列；执行 moveA → moveB → Undo，等待“已保存”后刷新，恢复的是已撤销 moveB 的顺序且 Undo/Redo 历史为空。
+> 从 Contact Sheet 将至少 10 张照片放到 Table，创建一个 8 张 Sequence Pile 并修改顺序；执行 moveA → moveB → Undo，等待“已保存”后刷新，恢复的是已撤销 moveB 的顺序且 Undo/Redo 历史为空。
 
 边界验收：向已有 499 项的 Sequence 一次添加 2 项时，返回 `sequence-limit-exceeded`，序列仍保持 499 项；用户改为添加 1 项后成功。
 
@@ -107,16 +109,19 @@ M3 是第一阶段的核心证明。M3 未通过真实任务测试前，不开�
 交付：
 
 - 保存命名版本；
-- VersionId 唯一，名称允许重复并显示时间和短 ID；
+- Save 覆盖当前版本，Save As 创建新版本并保证名称唯一；
+- VersionId 唯一，Save As 名称在项目内唯一并显示更新时间；
 - 版本快照不可变；
 - SequenceVersion 独立存储，普通工作草稿保存不得重写历史快照；
-- 创建版本前在事务外完成快照构造/校验；随后在覆盖 `projects + versions` 的单个 readwrite 事务中执行 CAS、写快照、更新 versionIds/revision；事务内禁止文件读取、解码、计时器、网络和无关 Promise；
+- 创建版本前在事务外完成快照构造/校验；随后在覆盖 `projects + sequences + versions` 的单个 readwrite 事务中执行双 revision CAS、写快照、更新 currentVersionId/versionIds；事务内禁止文件读取、解码、计时器、网络和无关 Promise；
 - 继续修改草稿并保存第二版本；
 - 任意选择两个版本比较；
 - 显示 Added、Removed、Moved；
 - Diff 使用 SequenceItemId，复杂度不得差于 O(n log n)；
 - 打开历史版本时创建工作副本；
-- 可选的简短版本 Memo。
+- 历史版本和 Compare 右侧均通过 Open as Draft → 修改 → Save As；
+- Version Compare 独立路由，支持 Swap、Read、Open Right as Draft 和 Keep Current，不支持逐项合并；
+- Shuffle 作为后置临时 Alternative，不直接修改 Current。
 
 验收任务：
 
@@ -126,28 +131,7 @@ M3 是第一阶段的核心证明。M3 未通过真实任务测试前，不开�
 
 产品验证门：至少 5 位目标用户完成真实 A/B 任务，其中至少 3 位能明确解释版本差异和修改理由。未达到时先修复工作流或重新判断需求，不用增加新功能掩盖问题。
 
-### M4：简单白板排序
-
-交付：
-
-- 从当前 Sequence 打开临时白板；
-- 单选、框选、移动、批量移动和删除；
-- 平移/缩放视口；
-- 使用固定卡片尺寸、中心 Y 分行和完整 tie-break 推导确定顺序；
-- 第一次保存只显示卡片编号和只读线性预览，用户二次确认后才回写 Sequence；布局变化使旧预览失效；
-- 放弃后 Sequence 完全不变。
-
-验收任务：
-
-> 在白板中把 12 张照片排成两行，保存后获得稳定线性顺序；再次进入、修改后放弃，原顺序不变。
-
-身份验收：构造两个 `SequenceItemId` 不同但 `PhotoId` 相同的项目，两项在白板中可独立选择、移动和回写，保存后两项都存在且顺序正确。
-
-启发式验收：覆盖完全重叠、接近同行阈值、卡片跨两行和故意斜排；同一布局重复推导结果完全一致，用户能在确认前看到最终编号并取消。
-
-明确不验收便签、图形、连线、文字、旋转、协作、无限嵌套或出版布局。
-
-### M5：Alpha 稳定化与测量
+### M4：Alpha 稳定化与测量
 
 交付：
 
@@ -164,9 +148,9 @@ M3 是第一阶段的核心证明。M3 未通过真实任务测试前，不开�
 - 核心 E2E 连续通过；
 - 无确认的数据丢失或原片改动；
 - 备份不含原片、缩略图、绝对路径或文件句柄；损坏备份不会写入部分项目；
-- 完整备份能以新的项目内 ID 原子导入，不覆盖已有项目，并在重新授权 Source 后恢复 Pool、草稿和全部版本；
+- 完整备份能以新的项目内 ID 原子导入，不覆盖已有项目，并在重新授权 Source 后恢复 Table、草稿和全部版本；
 - 缺少或非法 `schemaVersion` 返回 `invalid-backup`，未知数值版本返回 `unsupported-schema`；两者都不产生任何项目记录；
-- 使用固定随机种子的 property-based/fuzz 测试输入随机字节、截断/深层 JSON、错误字段类型、重复 ID、悬空引用、超长数组和 501 项序列；所有失败均返回 typed error、无未处理异常，且五个 object store 前后完全一致；
+- 使用固定随机种子的 property-based/fuzz 测试输入随机字节、截断/深层 JSON、错误字段类型、重复 ID、悬空引用、超长数组和 501 项序列；所有失败均返回 typed error、无未处理异常，且六个 object store 前后完全一致；
 - 10,000 张项目达到 PRD 3.5 的首屏与滚动目标，或明确缩小支持规模；
 - 形成继续、调整或停止第一阶段的产品结论。
 
@@ -221,14 +205,14 @@ M3 是第一阶段的核心证明。M3 未通过真实任务测试前，不开�
 
 | 测试 | 什么时候写 | 主要发现什么 |
 |---|---|---|
-| 核心模块测试 | 实现排序、撤销/checkpoint、500 项上限、版本、O(n log n) diff、白板推导/预览规则前 | 业务规则错误和回归 |
+| 核心模块测试 | 实现排序、撤销/checkpoint、500 项上限、版本、O(n log n) diff、Table 布局规则前 | 业务规则错误和回归 |
 | 适配器契约测试 | 实现 IndexedDB/文件夹读取时 | CAS、真实事务原子性、migration、Source 身份、PreviewLease、网页与未来桌面行为不一致 |
 | 界面模块测试 | 控件和状态完成时 | 选择、禁用、错误提示、键盘问题 |
 | 核心 E2E | 每个纵向切片完成时 | 模块连接、重开、备份/恢复后流程无法完成 |
 | 视觉检查 | 关键页面布局变化时 | 溢出、遮挡、照片比例错误 |
 | 性能测试 | M3 起在 production build 的真实 Chromium 中运行 | 大量照片下掉帧、内存、解码、500 项 Diff 超时及 200×500 快照增长 |
-| 备份 fuzz | M5 导入实现前 | 畸形输入崩溃、校验绕过和事务部分写入 |
-| 用户任务测试 | M1、M3、M4 结束时 | 产品心智模型和真实价值问题 |
+| 备份 fuzz | M4 导入实现前 | 畸形输入崩溃、校验绕过和事务部分写入 |
+| 用户任务测试 | M1、M2、M3、M4 结束时 | 产品心智模型和真实价值问题 |
 
 不要只测试 React 内部状态。排序和版本测试必须通过它们的公开接口断言最终顺序、版本内容和可观察错误。
 
@@ -255,8 +239,7 @@ M3 是第一阶段的核心证明。M3 未通过真实任务测试前，不开�
 - 刷新或重开后的结果符合验收；
 - Undo/Redo 的会话限制在界面可见；只丢弃历史栈，最后成功 checkpoint 和撤销/重做结果不会在刷新后复活；
 - Sequence/Version 的 500 项硬上限由共享常量和错误联合执行，不在多个模块写魔法数字；
-- 白板所有位置身份均使用 SequenceItemId，重复 PhotoId 不会被去重；
-- 白板空间顺序有确定 tie-break，用户看到预览并二次确认后才回写；
+- Table 坐标与 SequenceItemId 顺序完全分离，重复 PhotoId 不会被去重；
 - PhotoRef 使用 sourceId + normalizedRelativePath；重复 Source 去重，missing-file 不静默删除或改绑；
 - PreviewLease 的创建、共享、释放和 revoke 责任明确并通过生命周期测试；
 - revision 仅由 ProjectStore 以工作区级 CAS 增长；双标签页冲突不覆盖且不盲重试；
@@ -302,7 +285,7 @@ ADR 是“架构决策记录”，用于留下长期影响选择的原因。只�
 
 ## 12. 开发入口
 
-开始实施前，只需要把 M0 拆成可在一天内完成和验证的小任务。M0 完成后按 M1 → M2 → M3 顺序推进，不并行开发作品排版和 PDF 导出；项目 JSON 备份/恢复属于 M5 数据安全工作。
+开始实施前，只需要把 M0 拆成可在一天内完成和验证的小任务。M0 完成后按 M1 → M2 → M3 顺序推进，不并行开发作品排版和 PDF 导出；项目 JSON 备份/恢复属于 M4 数据安全工作。
 
 相关文档：
 
@@ -312,4 +295,4 @@ ADR 是“架构决策记录”，用于留下长期影响选择的原因。只�
 - [ADR-001：桌面端选择 Tauri 2](./ADR-001-Tauri-2-桌面端.md)
 - [ADR-002：本地持久化并发、事务与迁移](./ADR-002-本地持久化并发事务与迁移.md)
 
-网页 Alpha 完成后再建立 Tauri 桌面切片：先接入 TauriPhotoSource，再接入 TauriSqliteProjectStore，最后执行打包、文件安全、恢复、性能和 macOS Gate。桌面工作不与当前 M0–M5 并行。
+网页 Alpha 完成后再建立 Tauri 桌面切片：先接入 TauriPhotoSource，再接入 TauriSqliteProjectStore，最后执行打包、文件安全、恢复、性能和 macOS Gate。桌面工作不与当前 M0–M4 并行。

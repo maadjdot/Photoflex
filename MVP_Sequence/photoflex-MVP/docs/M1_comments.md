@@ -1,5 +1,7 @@
 # M1阶段改动意见03
 
+> Legacy：这是 M1 期间的历史改动记录。文中 `Pool` 相关表述仅代表当时的 UI/迁移输入；当前产品以 Contact Sheet / Table / Sequence 为准。
+
 ## UI部分
 - 严格按照 https://www.figma.com/design/L2BmAx9Nq31ecvATvwFZaO/M1_v2?node-id=1-490 的设计稿修改Contact Sheet的前端设计（D:\project\Photoflex\UIUX\M1_v2 中有PNG图片可供参考）；
 - 左上角Photoflex字体使用Ancizar Serif，其他字体不变；

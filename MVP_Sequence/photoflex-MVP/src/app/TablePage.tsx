@@ -1,4 +1,23 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent as ReactPointerEvent, type WheelEvent as ReactWheelEvent } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ButtonHTMLAttributes, type KeyboardEvent, type PointerEvent as ReactPointerEvent, type WheelEvent as ReactWheelEvent } from "react";
+import addToGroupIcon from "../assets/icons/table-add-to-group.svg";
+import addToSequenceIcon from "../assets/icons/table-add-to-sequence.svg";
+import alignIcon from "../assets/icons/table-align.svg";
+import chevronDownIcon from "../assets/icons/table-chevron-down.svg";
+import compareIcon from "../assets/icons/table-compare.svg";
+import fitIcon from "../assets/icons/table-fit.svg";
+import frontIcon from "../assets/icons/table-front.svg";
+import gridIcon from "../assets/icons/table-grid.svg";
+import groupIcon from "../assets/icons/table-group.svg";
+import leaveGroupIcon from "../assets/icons/table-leave-group.svg";
+import linkIcon from "../assets/icons/table-link.svg";
+import minusIcon from "../assets/icons/table-minus.svg";
+import plusIcon from "../assets/icons/table-plus.svg";
+import previewIcon from "../assets/icons/table-preview.svg";
+import redoIcon from "../assets/icons/table-redo.svg";
+import removeIcon from "../assets/icons/table-remove.svg";
+import rowIcon from "../assets/icons/table-row.svg";
+import sequenceIcon from "../assets/icons/table-sequence.svg";
+import undoIcon from "../assets/icons/table-undo.svg";
 import type { PhotoId, ProjectId, ReadingUnitId, SequenceDocument, SequenceId, SequenceItemId, SequenceRevision, SequenceSummary, SequenceVersion, SourceError, VersionId, WorktableAlignment, WorktableDraft, WorktableEditCommand, WorktableEditor, WorktablePoint, WorktableViewport } from "../contracts";
 import { isPhotoSequenceItem } from "../contracts";
 import { createSequenceEditor } from "../modules/sequence";
@@ -9,14 +28,15 @@ import type { AppRoute } from "./router";
 import { useProjectWorkspace } from "./useProjectWorkspace";
 
 const DEFAULT_VIEWPORT: WorktableViewport = { originX: 48, originY: 38, zoom: 1 };
-const PILE_WIDTH = 190;
-const PILE_HEIGHT = 118;
+const PILE_WIDTH = 211;
+const PILE_HEIGHT = 142;
 type Gesture =
   | { kind: "photo"; pointerId: number; start: WorktablePoint; ids: readonly PhotoId[] }
   | { kind: "pile"; pointerId: number; start: WorktablePoint; ids: readonly SequenceId[] }
   | { kind: "pan"; pointerId: number; start: WorktablePoint; viewport: WorktableViewport }
   | { kind: "marquee"; pointerId: number; start: WorktablePoint; additive: boolean }
-  | { kind: "resize"; pointerId: number; start: WorktablePoint; photoId: PhotoId; width: number };
+  | { kind: "resize"; pointerId: number; start: WorktablePoint; photoId: PhotoId; width: number }
+  | { kind: "resize-pile"; pointerId: number; start: WorktablePoint; sequenceId: SequenceId; width: number };
 interface Marquee { left: number; top: number; width: number; height: number }
 interface SequenceConfirmation { name: string; photoIds: readonly PhotoId[] }
 
@@ -30,6 +50,7 @@ export function TablePage({ dependencies, projectId, navigate }: { dependencies:
   const [viewport, setViewportState] = useState(DEFAULT_VIEWPORT);
   const [dragDelta, setDragDelta] = useState<WorktablePoint>({ x: 0, y: 0 });
   const [resizeScale, setResizeScale] = useState(1);
+  const [pileResizeScale, setPileResizeScale] = useState(1);
   const [marquee, setMarquee] = useState<Marquee>();
   const [missing, setMissing] = useState<Set<PhotoId>>(new Set());
   const [notice, setNotice] = useState<string>();
@@ -209,6 +230,11 @@ export function TablePage({ dependencies, projectId, navigate }: { dependencies:
     event.preventDefault(); event.stopPropagation(); stage.setPointerCapture(event.pointerId);
     gestureRef.current = { kind: "resize", pointerId: event.pointerId, start: screenToWorld({ x: event.clientX, y: event.clientY }, stage.getBoundingClientRect(), viewportRef.current), photoId: id, width: item.width }; scaleRef.current = 1;
   };
+  const onPileResizeDown = (event: ReactPointerEvent<HTMLButtonElement>, id: SequenceId) => {
+    const stage = stageRef.current, pile = draft?.pilePlacements[id]; if (event.button !== 0 || !stage || !pile) return;
+    event.preventDefault(); event.stopPropagation(); stage.setPointerCapture(event.pointerId);
+    gestureRef.current = { kind: "resize-pile", pointerId: event.pointerId, start: screenToWorld({ x: event.clientX, y: event.clientY }, stage.getBoundingClientRect(), viewportRef.current), sequenceId: id, width: pile.width }; scaleRef.current = 1; setPileResizeScale(1);
+  };
   const onStageDown = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (event.target !== event.currentTarget || !stageRef.current) return; if (event.button === 2) return startPan(event); if (event.button !== 0) return;
     stageRef.current.focus(); stageRef.current.setPointerCapture(event.pointerId); const rect = stageRef.current.getBoundingClientRect(); const additive = event.shiftKey || event.ctrlKey || event.metaKey;
@@ -220,6 +246,7 @@ export function TablePage({ dependencies, projectId, navigate }: { dependencies:
     if (gesture.kind === "pan") { setViewport({ ...gesture.viewport, originX: gesture.viewport.originX + event.clientX - gesture.start.x, originY: gesture.viewport.originY + event.clientY - gesture.start.y }); return; }
     if (gesture.kind === "marquee") { setMarquee({ left: Math.min(gesture.start.x, event.clientX) - rect.left, top: Math.min(gesture.start.y, event.clientY) - rect.top, width: Math.abs(event.clientX - gesture.start.x), height: Math.abs(event.clientY - gesture.start.y) }); return; }
     if (gesture.kind === "resize") { const item = draft?.placements[gesture.photoId]; if (!item) return; const world = screenToWorld({ x: event.clientX, y: event.clientY }, rect, viewportRef.current); scaleRef.current = Math.max(.25, Math.min(4, (world.x - item.x) / gesture.width)); setResizeScale(scaleRef.current); return; }
+    if (gesture.kind === "resize-pile") { const pile = draft?.pilePlacements[gesture.sequenceId]; if (!pile) return; const world = screenToWorld({ x: event.clientX, y: event.clientY }, rect, viewportRef.current); scaleRef.current = Math.max(.5, Math.min(2.5, (world.x - pile.x) / gesture.width)); setPileResizeScale(scaleRef.current); return; }
     const world = screenToWorld({ x: event.clientX, y: event.clientY }, rect, viewportRef.current); const delta = { x: world.x - gesture.start.x, y: world.y - gesture.start.y }; deltaRef.current = delta; setDragDelta(delta);
   };
   const finish = (event: ReactPointerEvent<HTMLDivElement>, cancelled = false) => {
@@ -228,6 +255,7 @@ export function TablePage({ dependencies, projectId, navigate }: { dependencies:
     if (!cancelled && moved && gesture.kind === "photo") execute({ type: "move", photoIds: gesture.ids, by: delta });
     if (!cancelled && moved && gesture.kind === "pile") execute({ type: "move-sequence-piles", sequenceIds: gesture.ids, by: delta });
     if (!cancelled && gesture.kind === "resize" && Math.abs(scaleRef.current - 1) > .01) execute({ type: "resize", photoIds: [gesture.photoId], scale: scaleRef.current });
+    if (!cancelled && gesture.kind === "resize-pile" && Math.abs(scaleRef.current - 1) > .01) execute({ type: "resize-sequence-pile", sequenceId: gesture.sequenceId, scale: scaleRef.current });
     if (!cancelled && gesture.kind === "marquee" && draft) {
       const rect = stage.getBoundingClientRect(), a = screenToWorld(gesture.start, rect, viewportRef.current), b = screenToWorld({ x: event.clientX, y: event.clientY }, rect, viewportRef.current); const box = { left: Math.min(a.x, b.x), top: Math.min(a.y, b.y), right: Math.max(a.x, b.x), bottom: Math.max(a.y, b.y) };
       const hits = draft.entryOrder.filter((id) => { const item = draft.placements[id]; const w = Math.max(0, Math.min(box.right, item.x + item.width) - Math.max(box.left, item.x)); const h = Math.max(0, Math.min(box.bottom, item.y + item.height) - Math.max(box.top, item.y)); return w * h / (item.width * item.height) >= .3; });
@@ -272,25 +300,55 @@ export function TablePage({ dependencies, projectId, navigate }: { dependencies:
   const memberGroup = photoIds.length === 1 ? draft.groups.find((g) => g.photoIds.includes(photoIds[0])) : undefined;
   const canGroup = photoIds.length > 1 && photoIds.every((id) => !draft.groups.some((g) => g.photoIds.includes(id)));
   const canJoin = photoIds.length === 1 && !memberGroup && draft.groups.length > 0;
+  const selectedLink = photoIds.length > 1 ? draft.links.find((link) => link.photoIds.length === photoIds.length && photoIds.every((id) => link.photoIds.includes(id))) : undefined;
   const firstSource = workspace.sources.find((source) => !source.removedAt);
   const arrange = (layout: WorktableEditCommand) => photoIds.length > 1 && execute(layout);
 
   return <main className="table-page page">
-    <div className="table-toolbar" aria-label="Table 工具栏"><strong>TABLE</strong><span className="table-toolbar-divider" /><span className="table-project-name">{workspace.name}</span><span className="table-toolbar-divider" />
-      <button disabled={!editorRef.current?.canUndo()} onClick={() => history("undo")}>Undo</button><button disabled={!editorRef.current?.canRedo()} onClick={() => history("redo")}>Redo</button>
-      <button disabled={!photoIds.length} onClick={() => requestSequence(photoIds)}>Sequence</button>
-      <button disabled={!photoIds.length || !summaries.length} onClick={() => { setAddToSequenceId(summaries[0]?.id); setAddToSequenceOpen(true); }}>Add to Sequence</button>
-      <button disabled={!group && !canGroup} onClick={() => group ? execute({ type: "remove-group", groupId: group.id }) : execute({ type: "create-group", photoIds })}>{group ? "Ungroup" : "Group"}</button>
-      <button disabled={!memberGroup} onClick={() => memberGroup && execute({ type: "remove-from-group", photoId: photoIds[0] })}>Leave</button>
-      <label className="table-align-control"><select aria-label="Add to Group" value="" disabled={!canJoin} onChange={(event) => event.target.value && execute({ type: "add-to-group", groupId: event.target.value, photoId: photoIds[0] })}><option value="">Add to Group</option>{draft.groups.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}</select></label>
-      <button disabled={photoIds.length < 2 || photoIds.length > 6} onClick={() => execute({ type: "create-link", photoIds })}>Link</button>
-      <button disabled={photoIds.length !== 2 && pileIds.length !== 2} onClick={() => pileIds.length === 2 ? navigate({ name: "sequence-compare", projectId, leftSequenceId: pileIds[0], rightSequenceId: pileIds[1] }) : setComparePhotoIds([photoIds[0], photoIds[1]])}>Compare</button>
-      <button disabled={photoIds.length !== 1} onClick={() => setPreviewPhotoId(photoIds[0])}>Preview</button>
-      <button disabled={photoIds.length < 2} onClick={() => arrange({ type: "arrange", photoIds, layout: { type: "grid" } })}>Grid</button><button disabled={photoIds.length < 2} onClick={() => arrange({ type: "arrange", photoIds, layout: { type: "row" } })}>Row</button>
-      <label className="table-align-control"><select aria-label="Align selection" value={alignment} disabled={photoIds.length < 2} onChange={(event) => { const edge = event.target.value as WorktableAlignment; arrange({ type: "arrange", photoIds, layout: { type: "align", edge } }); setAlignment(""); }}><option value="">Align</option><option value="left">Left</option><option value="center-x">Center</option><option value="right">Right</option><option value="top">Top</option><option value="center-y">Middle</option><option value="bottom">Bottom</option></select></label>
-      <button disabled={!photoIds.length && !pileIds.length} onClick={() => pileIds.length ? execute({ type: "bring-sequence-piles-to-front", sequenceIds: pileIds }) : execute({ type: "bring-to-front", photoIds })}>Front</button>
-      <button disabled={!photoIds.length && !pileIds.length} onClick={() => { if (pileIds.length) { execute({ type: "remove-sequence-piles", sequenceIds: pileIds }); setSelectedPiles(new Set()); } else { execute({ type: "remove", photoIds }); setSelected(new Set()); } }}>Remove</button>
-      <span className="table-toolbar-spacer" /><span>{pileIds.length ? `${pileIds.length} piles selected` : photoIds.length ? `${photoIds.length} selected` : `${draft.entryOrder.length} photos · ${draft.pileOrder.length} piles`}</span><button onClick={fit}>Fit</button><button aria-label="Zoom out" onClick={() => zoom(viewport.zoom - .25)}>−</button><span>{Math.round(viewport.zoom * 100)}%</span><button aria-label="Zoom in" onClick={() => zoom(viewport.zoom + .25)}>+</button>
+    <div className="table-toolbar" aria-label="Table 工具栏">
+      <span className="table-project-name" title={workspace.name}>{workspace.name}</span>
+      <span className="table-toolbar-divider" />
+      <div className="table-toolbar-group">
+        <TableToolButton icon={undoIcon} label="Undo" disabled={!editorRef.current?.canUndo()} onClick={() => history("undo")} />
+        <TableToolButton icon={redoIcon} label="Redo" disabled={!editorRef.current?.canRedo()} onClick={() => history("redo")} />
+      </div>
+      <span className="table-toolbar-divider" />
+      <div className="table-toolbar-group">
+        <TableToolButton icon={sequenceIcon} label="Sequence" disabled={!photoIds.length} onClick={() => requestSequence(photoIds)} />
+        <TableToolButton icon={addToSequenceIcon} label="Add to Sequence" disabled={!photoIds.length || !summaries.length} onClick={() => { setAddToSequenceId(summaries[0]?.id); setAddToSequenceOpen(true); }} />
+      </div>
+      <span className="table-toolbar-divider" />
+      <div className="table-toolbar-group">
+        <TableToolButton icon={groupIcon} label={group ? "Ungroup" : "Group"} disabled={!group && !canGroup} onClick={() => group ? execute({ type: "remove-group", groupId: group.id }) : execute({ type: "create-group", photoIds })} />
+        <TableToolButton icon={leaveGroupIcon} label="Leave" disabled={!memberGroup} onClick={() => memberGroup && execute({ type: "remove-from-group", photoId: photoIds[0] })} />
+        <label className="table-tool-select"><img src={addToGroupIcon} alt="" /><select aria-label="Add to Group" value="" disabled={!canJoin} onChange={(event) => event.target.value && execute({ type: "add-to-group", groupId: event.target.value, photoId: photoIds[0] })}><option value="">Add to Group</option>{draft.groups.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}</select><img className="table-tool-chevron" src={chevronDownIcon} alt="" /></label>
+      </div>
+      <span className="table-toolbar-divider" />
+      <div className="table-toolbar-group">
+        <TableToolButton icon={linkIcon} label={selectedLink ? "Unlink" : "Link"} disabled={selectedLink ? false : photoIds.length < 2 || photoIds.length > 6} onClick={() => selectedLink ? execute({ type: "remove-link", linkId: selectedLink.id }) : execute({ type: "create-link", photoIds })} />
+        <TableToolButton icon={compareIcon} label="Compare" disabled={photoIds.length !== 2 && pileIds.length !== 2} onClick={() => pileIds.length === 2 ? navigate({ name: "sequence-compare", projectId, leftSequenceId: pileIds[0], rightSequenceId: pileIds[1] }) : setComparePhotoIds([photoIds[0], photoIds[1]])} />
+      </div>
+      <span className="table-toolbar-divider" />
+      <div className="table-toolbar-group">
+        <TableToolButton icon={previewIcon} label="Preview" disabled={photoIds.length !== 1} onClick={() => setPreviewPhotoId(photoIds[0])} />
+        <TableToolButton icon={gridIcon} label="Grid" disabled={photoIds.length < 2} onClick={() => arrange({ type: "arrange", photoIds, layout: { type: "grid" } })} />
+        <TableToolButton icon={rowIcon} label="Row" disabled={photoIds.length < 2} onClick={() => arrange({ type: "arrange", photoIds, layout: { type: "row" } })} />
+        <label className="table-tool-select"><img src={alignIcon} alt="" /><select aria-label="Align selection" value={alignment} disabled={photoIds.length < 2} onChange={(event) => { const edge = event.target.value as WorktableAlignment; arrange({ type: "arrange", photoIds, layout: { type: "align", edge } }); setAlignment(""); }}><option value="">Align</option><option value="left">Left</option><option value="center-x">Center</option><option value="right">Right</option><option value="top">Top</option><option value="center-y">Middle</option><option value="bottom">Bottom</option></select><img className="table-tool-chevron" src={chevronDownIcon} alt="" /></label>
+      </div>
+      <span className="table-toolbar-divider" />
+      <div className="table-toolbar-group">
+        <TableToolButton icon={frontIcon} label="Front" disabled={!photoIds.length && !pileIds.length} onClick={() => pileIds.length ? execute({ type: "bring-sequence-piles-to-front", sequenceIds: pileIds }) : execute({ type: "bring-to-front", photoIds })} />
+        <TableToolButton className="is-danger" icon={removeIcon} label="Remove" disabled={!photoIds.length && !pileIds.length} onClick={() => { if (pileIds.length) { execute({ type: "remove-sequence-piles", sequenceIds: pileIds }); setSelectedPiles(new Set()); } else { execute({ type: "remove", photoIds }); setSelected(new Set()); } }} />
+      </div>
+      <span className="table-toolbar-spacer" />
+      <div className="table-toolbar-status">
+        <span>{pileIds.length ? `${pileIds.length} piles selected` : photoIds.length ? `${photoIds.length} selected` : `${draft.entryOrder.length} photos · ${draft.pileOrder.length} piles`}</span>
+        <span className="table-toolbar-divider" />
+        <TableToolButton icon={fitIcon} label="Fit" onClick={fit} />
+        <button className="table-tool-icon-button" aria-label="Zoom out" onClick={() => zoom(viewport.zoom - .25)}><img src={minusIcon} alt="" /></button>
+        <span className="table-zoom-label">{Math.round(viewport.zoom * 100)}%</span>
+        <button className="table-tool-icon-button" aria-label="Zoom in" onClick={() => zoom(viewport.zoom + .25)}><img src={plusIcon} alt="" /></button>
+      </div>
     </div>
     {notice && <p className="table-notice" role="status">{notice}</p>}
     <div ref={stageRef} className="worktable-stage" tabIndex={0} aria-label="Photo worktable" onPointerDown={onStageDown} onPointerMove={onStageMove} onPointerUp={(event) => finish(event)} onPointerCancel={(event) => finish(event, true)} onWheel={onWheel} onContextMenu={(event) => event.preventDefault()} onKeyDown={onKeyDown}>
@@ -298,7 +356,7 @@ export function TablePage({ dependencies, projectId, navigate }: { dependencies:
         <svg className="worktable-links">{draft.links.flatMap((link) => link.photoIds.slice(1).map((id, i) => { const a = draft.placements[link.photoIds[i]], b = draft.placements[id]; return <line key={`${link.id}-${id}`} x1={a.x + a.width / 2} y1={a.y + a.height / 2} x2={b.x + b.width / 2} y2={b.y + b.height / 2} />; }))}</svg>
         {draft.groups.map((g) => { const box = groupBounds(draft, g.photoIds); return <div key={g.id} className="worktable-group-frame" style={{ left: box.left, top: box.top, width: box.width, height: box.height }}><span>{g.name} · {g.photoIds.length}</span></div>; })}
         {draft.entryOrder.map((id) => { const item = draft.placements[id], chosen = selected.has(id), delta = chosen && gestureRef.current?.kind === "photo" ? dragDelta : { x: 0, y: 0 }, scale = gestureRef.current?.kind === "resize" && gestureRef.current.photoId === id ? resizeScale : 1; return <article key={id} aria-label={item.filename} className={`worktable-card${chosen ? " is-selected" : ""}${missing.has(id) ? " is-missing" : ""}`} style={{ width: item.width * scale, height: item.height * scale, zIndex: item.z, transform: `translate3d(${item.x + delta.x}px,${item.y + delta.y}px,0)` }} onPointerDown={(event) => onPhotoDown(event, id)} onDoubleClick={() => setPreviewPhotoId(id)}><div className="worktable-photo" style={{ height: item.height * scale }}><PhotoThumb photoSource={dependencies.photoSource} photoId={id} alt={item.filename} onError={onPhotoError} eager resolution="full" />{missing.has(id) && <span className="worktable-missing">MISSING</span>}</div>{chosen && photoIds.length === 1 && <button aria-label="Resize photo" className="worktable-resize-handle" onPointerDown={(event) => onResizeDown(event, id)} />}</article>; })}
-        {draft.pileOrder.map((id) => { const pile = draft.pilePlacements[id], summary = summaries.find((x) => x.id === id), chosen = selectedPiles.has(id), delta = chosen && gestureRef.current?.kind === "pile" ? dragDelta : { x: 0, y: 0 }; return <article key={id} aria-label={`Sequence pile ${summary?.name ?? "Missing Sequence"}`} className={`sequence-pile${chosen ? " is-selected" : ""}`} style={{ width: pile.width, height: pile.height, zIndex: pile.z, transform: `translate3d(${pile.x + delta.x}px,${pile.y + delta.y}px,0)` }} onPointerDown={(event) => onPileDown(event, id)} onDoubleClick={(event) => { event.stopPropagation(); navigate({ name: "sequence", projectId, sequenceId: id }); }}><header><strong>{summary?.name ?? "Missing Sequence"}</strong><span>{summary?.itemCount ?? 0}</span></header><div className="sequence-pile-thumbs">{summary?.previewPhotoIds.map((photoId, i) => <span key={photoId} style={{ left: i * 14, zIndex: i }}><PhotoThumb photoSource={dependencies.photoSource} photoId={photoId} alt="" onError={onPhotoError} /></span>)}</div><small>DOUBLE-CLICK TO OPEN</small></article>; })}
+        {draft.pileOrder.map((id) => { const pile = draft.pilePlacements[id], summary = summaries.find((x) => x.id === id), chosen = selectedPiles.has(id), delta = chosen && gestureRef.current?.kind === "pile" ? dragDelta : { x: 0, y: 0 }, scale = gestureRef.current?.kind === "resize-pile" && gestureRef.current.sequenceId === id ? pileResizeScale : 1; return <article key={id} aria-label={`Sequence pile ${summary?.name ?? "Missing Sequence"}`} className={`sequence-pile${chosen ? " is-selected" : ""}`} style={{ width: pile.width * scale, height: pile.height * scale, zIndex: pile.z, transform: `translate3d(${pile.x + delta.x - (pile.width * (scale - 1)) / 2}px,${pile.y + delta.y - (pile.height * (scale - 1)) / 2}px,0)` }} onPointerDown={(event) => onPileDown(event, id)} onDoubleClick={(event) => { event.stopPropagation(); navigate({ name: "sequence", projectId, sequenceId: id }); }}><header><strong>{summary?.name ?? "Missing Sequence"}</strong><span>{summary?.itemCount ?? 0}</span></header><div className="sequence-pile-thumbs">{summary?.previewPhotoIds.map((photoId, index) => <span key={`${photoId}-${index}`}><PhotoThumb photoSource={dependencies.photoSource} photoId={photoId} alt="" onError={onPhotoError} /></span>)}</div><small>Double-click to open</small>{chosen && <button aria-label="Resize sequence pile" className="worktable-resize-handle sequence-pile-resize-handle" onPointerDown={(event) => onPileResizeDown(event, id)} />}</article>; })}
       </div>
       {marquee && <div className="worktable-marquee" style={marquee} />}
       {!draft.entryOrder.length && !draft.pileOrder.length && <section className="worktable-empty"><span>EMPTY TABLE</span><h1>Bring photographs here to think with them.</h1><p>Select photographs in Contact Sheet, then choose Place on Table.</p><button className="button button-primary" onClick={() => firstSource ? navigate({ name: "contact-sheet", projectId, sourceId: firstSource.id }) : navigate({ name: "project", projectId })}>{firstSource ? "Open Contact Sheet" : "Add a photo folder"}</button></section>}
@@ -309,6 +367,10 @@ export function TablePage({ dependencies, projectId, navigate }: { dependencies:
     {previewPhotoId && draft.placements[previewPhotoId] && <Preview photoId={previewPhotoId} filename={draft.placements[previewPhotoId].filename} photoSource={dependencies.photoSource} onClose={() => setPreviewPhotoId(undefined)} onError={onPhotoError} />}
     {comparePhotoIds && <PhotoCompare ids={comparePhotoIds} draft={draft} photoSource={dependencies.photoSource} onClose={() => setComparePhotoIds(undefined)} />}
   </main>;
+}
+
+function TableToolButton({ icon, label, className = "", ...props }: { icon: string; label: string } & Omit<ButtonHTMLAttributes<HTMLButtonElement>, "children">) {
+  return <button className={`table-tool-button${className ? ` ${className}` : ""}`} {...props}><img src={icon} alt="" /><span>{label}</span></button>;
 }
 
 function Preview({ photoId, filename, photoSource, onClose, onError }: { photoId: PhotoId; filename: string; photoSource: AppDependencies["photoSource"]; onClose: () => void; onError: (id: PhotoId, error: SourceError) => void }) {

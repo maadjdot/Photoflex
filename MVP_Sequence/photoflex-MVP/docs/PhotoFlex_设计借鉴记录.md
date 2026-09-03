@@ -1,9 +1,11 @@
 # PhotoFlex 设计借鉴记录
 
-> 调研记录日期：2026-08-31  
+> 调研记录日期：2026-09-02
 > 文档状态：working note  
 > 适用范围：Contact Sheet / Table / Preview / Compare / Sequence / Read  
-> 相关基线：[`PRD_Sequence.md`](./PRD_Sequence.md)、[`Worktable_Architecture_Interaction_Proposal.md`](./Worktable_Architecture_Interaction_Proposal.md)、[`Contact_Sheet_Sequence_React_TS_Resources.md`](./Contact_Sheet_Sequence_React_TS_Resources.md)
+> 相关基线：[`PRD_Sequence.md`](./PRD_Sequence.md)、[`M3_Version_Compare_Implementation_Plan.md`](./M3_Version_Compare_Implementation_Plan.md)、[`Worktable_Architecture_Interaction_Proposal.md`](./Worktable_Architecture_Interaction_Proposal.md)、[`Contact_Sheet_Sequence_React_TS_Resources.md`](./Contact_Sheet_Sequence_React_TS_Resources.md)
+
+> 当前实现状态：用户界面为 `Home / Project / Contact Sheet / Table / Sequence`；Pool 与 Whiteboard 仅作为历史决策或迁移名词保留。Table 的 Pile Compare 与 M3 Named Version Compare 是两种不同来源的比较。
 
 ## 1. 文档目的
 
@@ -338,7 +340,6 @@ type ReadPresentation = {
 | Table | Excalidraw 的交互边界 | 自有 Worktable domain；不做通用白板 |
 | Preview | Neiki Gallery | 单图检查；继续使用 PhotoSource lease |
 | Compare | digiKam Light Table | 两图临时工具；不创建持久集合 |
-| Sequence | dnd-kit 的排序能力 | 只保存明确一维顺序 |
+| Sequence | dnd-kit 的排序能力（可选参考） | 当前使用 React DOM + Pointer Events，只保存明确一维顺序 |
 | Read | Book Builder SpreadView | Sequence 的无编辑 Single / Spread 投影 |
 | 性能 | Immich、TanStack Virtual、exifr、pica | 先 profile，再引入窄依赖 |
-

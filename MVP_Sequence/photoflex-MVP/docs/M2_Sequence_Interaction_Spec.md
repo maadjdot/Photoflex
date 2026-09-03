@@ -1,5 +1,7 @@
 # PhotoFlex M2 — Sequence 页面交互说明
 
+> 实现状态（2026-09-02）：本文件描述的多选、范围选择、拖拽排序、Single / Spread / Blank、Segment、Overview Grid、Read、Working Draft 自动保存、Sequence Order 收起/展开、横向滚轮和方向键居中已在当前项目实现。`Shuffle`、Named Version、`Save`、`Save As` 和 Named Version Compare 尚未开放，属于 M3 计划，详见 [M3 Version 与 Compare 实施方案](./M3_Version_Compare_Implementation_Plan.md)。
+
 > 状态：交互设计稿 / 开发前确认版  
 > 适用页面：`Sequence`、`Compare Sequence`、`Read`  
 > 基准尺寸：1440 × 1024，需同时适配 1280 × 800、1920 × 1080 与 2560 × 1440  
@@ -70,11 +72,19 @@ Photoflex / Home / Project / Contact Sheet / Table / Sequence / Login
 
 ### 4.2 Sequence 工具栏
 
-统一工具栏：
+计划中的完整工具栏：
 
 ```text
 Sequence     Shuffle  Undo  Redo  Segment  Compare  Read  Save  Save As     − 75% +
 ```
+
+当前实现工具栏为：
+
+```text
+Sequence name  Undo  Redo  Segment  Read  Fit Sequence  − zoom +
+```
+
+M3 才加入 `Shuffle`、`Compare`、`Save` 和 `Save As`；当前页面不应把这些未实现按钮当作可用功能。
 
 | 操作 | 启用条件 | 行为 |
 |---|---|---|
@@ -290,7 +300,7 @@ Segment Shuffle 时不影响其他 Segment。全序列 Shuffle 时照片可以�
 - 新 Alternative 替换旧 Alternative；MVP 不保留临时 Alternative 历史。
 - 关闭 Compare 且不 Apply 时，Current Working Draft 完全不变。
 
-## 10. Compare Sequence
+## 10. Compare Sequence（M3 计划；当前仅保留 Table Pile Compare）
 
 ### 10.1 入口
 
@@ -305,7 +315,7 @@ Segment Shuffle 时不影响其他 Segment。全序列 Shuffle 时照片可以�
 - 两个命名版本；
 - Current baseline 与当前 Alternative。
 
-普通未保存 Working Draft 不作为任意版本 Compare Source；Shuffle 会为它创建专用 Current baseline。
+普通未保存 Working Draft 不作为 Named Version Compare Source；Shuffle 会为它创建专用 Current baseline。Table 上两个 Sequence Pile 的比较仍使用独立的 Pile Compare 路由和 Sequence 来源，不与 Named Version Compare 共用数据模型。
 
 ### 10.3 界面
 
@@ -515,7 +525,7 @@ interface SequenceAlternative {
 }
 ```
 
-`SequenceDraft` 与 `SequenceVersion` 后续需要同时包含：
+`SequenceDocument`（Working Draft）与 `SequenceVersion` 后续需要同时包含：
 
 - ordered items；
 - segments；
@@ -527,7 +537,7 @@ Versioning 后续需要支持：
 
 - 覆盖当前命名版本；
 - Save As 新命名版本；
-- Version diff 的 `layoutChanged`；
+- Version diff 的 Added / Removed / Moved、Reading Unit 和 Segment 变化；
 - 把完整右侧版本或 Alternative 打开为 Working Draft。
 
 建议新增的 command 类型：
@@ -632,7 +642,7 @@ Versioning 后续需要支持：
 4. Overview 内无法拖拽改变顺序。
 5. 打开和关闭 Overview 不生成 command，也不改变 Draft。
 
-## 21. 本轮不做
+## 21. 本轮不做 / M3 计划
 
 - memo / text page；
 - 页面内自由拖动或任意缩放；
@@ -643,5 +653,6 @@ Versioning 后续需要支持：
 - 多人实时协作；
 - 生产级摄影书排版和 PDF 输出；
 - 根据 Table x/y 自动持续同步 Sequence；
+- Named Version、Save、Save As 和 Version Compare（M3）；
+- Shuffle Alternative、Try Again 和 Apply Alternative（M3 后置阶段）；
 - 保存命名版本覆盖前的隐藏历史。
-

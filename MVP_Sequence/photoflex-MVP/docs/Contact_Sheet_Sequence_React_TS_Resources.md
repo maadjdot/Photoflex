@@ -1,7 +1,7 @@
 # PhotoFlex Contact Sheet、Worktable 与 Sequence：React + TypeScript 技术建议
 
 > 开源资源核对日期：2026-08-28  
-> 产品方向更新：2026-08-30  
+> 产品方向更新：2026-09-02
 > 当前工程：React 19.1 + TypeScript 5.9 + Vite 7.1，本地优先  
 > 产品与模块真相来源：[`PRD_Sequence.md`](./PRD_Sequence.md) 与 [`Worktable_Architecture_Interaction_Proposal.md`](./Worktable_Architecture_Interaction_Proposal.md)
 
@@ -12,10 +12,10 @@
 PhotoFlex 不需要用一个大型画布框架重写现有 Contact Sheet，也不应该把 Table 和 Sequence 放进同一套拖拽模型。
 
 1. **Table 使用原生 Pointer Events + React DOM + CSS transform。** 自由移动、框选、pan / zoom 和坐标转换由 PhotoFlex 自己控制；一次手势结束后生成一个 Worktable command。
-2. **Sequence 采用 dnd-kit。** 它只负责一维横向排序、明确插入线和可访问键盘拖拽，不负责 Table 自由画布。
+2. **Sequence 当前采用 React DOM + Pointer Events。** 它只负责一维横向排序、明确插入线和键盘操作，不负责 Table 自由画布；dnd-kit 仍是可选参考，不是当前依赖。
 3. **照片索引采用 exifr。** 必要 EXIF 在索引阶段解析，不在 React 渲染期间读取。
 4. **保留现有 Contact Sheet 虚拟网格。** 只有 profiling 证明动态布局或维护成本成为问题时，再评估 TanStack Virtual。
-5. **Preview 暂时保留现有实现。** 先把 Pick / Reject、Pin、ON TABLE 和 missing 行为接通，再决定是否用 Yet Another React Lightbox 替换底层。
+5. **Preview 暂时保留现有实现。** 先把 Pick / Reject、ON TABLE 和 missing 行为接通；Pin 属于 project-wide 状态但当前 Table 工具栏不开放，再决定是否用 Yet Another React Lightbox 替换底层。
 6. **MVP 不使用 React Flow。** Relationship View、AI 自动关系、真实物理碰撞和通用 Whiteboard 均不在当前范围。
 
 ## 1. 技术职责图
@@ -32,7 +32,7 @@ Contact Sheet
 
 WorktableEditor
   ├── membership / x / y / z
-  ├── arrange / group / stack
+  ├── arrange / group / link / pile
   └── command history
 
 TablePage
@@ -50,7 +50,7 @@ SequenceEditor
 
 | 资源 | 能解决什么 | PhotoFlex 中的合适位置 | 许可证 / 风险 | 建议 |
 |---|---|---|---|---|
-| [clauderic/dnd-kit](https://github.com/clauderic/dnd-kit) | 鼠标、触控、键盘拖拽；sortable 与 DragOverlay | Sequence 横向编辑条 | MIT；自由二维画布仍需自己设计 | **Sequence 实现时采用** |
+| [clauderic/dnd-kit](https://github.com/clauderic/dnd-kit) | 鼠标、触控、键盘拖拽；sortable 与 DragOverlay | Sequence 横向编辑条的可选参考 | MIT；自由二维画布仍需自己设计 | **当前未引入** |
 | [MikeKovarik/exifr](https://github.com/MikeKovarik/exifr) | 浏览器/Node 中读取 EXIF，支持按需解析标签 | 导入与索引 worker | MIT；HEIC / RAW 需真实样本测试 | **索引阶段采用** |
 | [BetterTyped/react-zoom-pan-pinch](https://github.com/BetterTyped/react-zoom-pan-pinch) | DOM 内容的 zoom / pan / pinch | 仅作为 Table viewport spike 备选 | MIT；CSS transform 与 hit test 需要验证 | **先不用，遇到证据再 spike** |
 | [igordanchenko/yet-another-react-lightbox](https://github.com/igordanchenko/yet-another-react-lightbox) | 键盘、触控、预加载、Zoom 插件 | Preview / Read 底层备选 | MIT；需重新接回本地 URL lease 与 PhotoFlex 状态 | **按需评估** |
@@ -108,7 +108,7 @@ type ContactPhotoPresentation = {
 - 原 `Add to Pool` 改为 `Place on Table`。
 - 原 `IN POOL` 标记改为 `ON TABLE`。
 - Project 与 Contact Sheet 右侧 Pool panel 删除，不改名成 Table tray。
-- Preview 接回 Pick / Reject、Pin 和 Place on Table。
+- Preview 接回 Pick / Reject 和 Place on Table；Pin 仍是独立 project-wide 状态。
 - Contact Sheet 保留全量目录身份，不显示可自由拖动的桌面坐标。
 
 ### 3.4 性能顺序
@@ -158,33 +158,33 @@ pointerup
 - M2.1 先用真实 200–500 张 Table 数据 profiling；没有证据前不做 canvas/WebGL 重写。
 - missing placeholder 与普通卡片共享相同 placement key。
 
-### 4.4 Group 与 Stack
+### 4.4 Group、Link 与 Pile
 
 - Group：成员一起移动，照片仍全部可见。
-- Stack：成员紧凑重叠，保存明确 bottom-to-top 顺序。
-- MVP 不允许 cluster 嵌套；一张照片最多属于一个 cluster。
-- Group / Stack order 都不是 Sequence order。
+- Link：保存两张或多张照片的 Table-only 关系，不改变 Sequence。
+- Pile：记录一组照片及其桌面位置，可打开对应 Sequence。
+- Group / Link / Pile 都不是 Sequence order，也不自动驱动 Sequence。
 
 ### 4.5 Compare 与 Pin
 
 - Table Compare 由当前显式选择的两张照片进入。
 - Compare A / B 是临时 session 状态，不持久化。
 - 退出 Compare 后保持 Table placements 和 selection。
-- Pin 是 project-wide 持久化 annotation，不限制只能 Pin 两张。
+- Pin 是 project-wide 持久化 annotation，不限制只能 Pin 两张；当前 Table 工具栏不提供 Pin。
 - Pin 与 Compare slot、Pick / Reject、Table membership 分离。
 
 ## 5. Sequence 建议
 
-### 5.1 dnd-kit 只负责一维编辑
+### 5.1 dnd-kit 只作为一维编辑的可选参考
 
 ```text
 pointer / keyboard drag
-  → dnd-kit 提供 active / over / DragOverlay
+  → 若未来引入 dnd-kit，则由它提供 active / over / DragOverlay
 drop
   → 计算明确插入位置
   → SequenceEditor.execute(add or move command)
   → 一个 undo step
-  → persist SequenceDraft
+  → persist SequenceDocument Working Draft
 ```
 
 Sequence strip 应优先使用单行横向布局和明确插入线。MVP 数量较小时可以不虚拟化，避免 sortable 与 virtualization 同时增加复杂度。
@@ -225,15 +225,15 @@ type SequenceItem =
 
 ## 6. 推荐实现顺序
 
-### M2.0：术语与数据地基
+### M2.0：术语与数据地基（已完成）
 
 - Worktable contracts / editor / interface tests；
 - workspace schema migration；
 - 旧 `poolPhotoIds` 自动转换为确定性 Grid 和 `tableEntryOrder`；
-- 删除 Pool 双写与 Whiteboard contract；
+- 删除旧 Pool 双写与 Whiteboard contract（历史迁移记录）；
 - 新 Table / Sequence route 和独立 page 文件。
 
-### M2.1：Table 基础
+### M2.1：Table 基础（已完成）
 
 - Contact Sheet Place on Table；
 - Pointer Events 拖动、selection、marquee；
@@ -241,15 +241,21 @@ type SequenceItem =
 - remove、undo / redo、save / reload；
 - missing placeholder。
 
-### M2.2：判断与成序
+### M2.2：Table 关系与 Sequence 核心（已完成）
 
-- Group / Stack；
+- Group / Link / Pile；
 - 两张照片 Compare；
-- 持久化 Pin；
-- Create Sequence 顺序确认；
-- Sequence dnd-kit 编辑条与 Read 基础。
+- Create/Open Sequence；
+- Sequence 排序、Reading Unit、Segment、Overview、Read 和 Working Draft 自动保存。
 
-### M2.3：延伸表达
+### M3：Named Version / Save / Compare（计划）
+
+- Versioning 深模块与完整快照；
+- Save、Save As、Open as Draft；
+- Version Compare 与冲突处理；
+- Shuffle 临时 Alternative。
+
+### M2.3：延伸表达（后续）
 
 - Table snapshot；
 - memo / paper note；
@@ -278,5 +284,4 @@ type SequenceItem =
 - Pin 跨重启持久化，并与 Compare slot 分离。
 - Create Sequence 始终经过顺序确认条，不读取 x/y。
 - Compare 不建立独立持久化集合。
-- dnd-kit 不进入 Table 自由画布。
-
+- dnd-kit 不进入 Table 自由画布；当前 Sequence 也未引入新拖拽依赖。
