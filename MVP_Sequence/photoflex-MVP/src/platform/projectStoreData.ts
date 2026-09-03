@@ -82,7 +82,7 @@ export function toProjectSummary(workspace: ProjectWorkspace): ProjectSummary {
 
 export function toVersionSummary(version: SequenceVersion): VersionSummary {
   const { id, projectId, sequenceId, parentVersionId, name, itemCount, createdAt } = version;
-  return { id, projectId, sequenceId, parentVersionId, name, itemCount, createdAt };
+  return { id, projectId, sequenceId, parentVersionId, name, itemCount, createdAt, updatedAt: version.updatedAt ?? createdAt };
 }
 
 export function isWorkspace(value: unknown): value is ProjectWorkspace {
@@ -342,6 +342,7 @@ export function createInitialVersion(sequence: SequenceDocument): SequenceVersio
     segments: sequence.segments.map((segment) => ({ ...segment, itemIds: [...segment.itemIds] })),
     readingUnits: sequence.readingUnits.map((unit) => ({ ...unit })),
     createdAt: sequence.createdAt,
+    updatedAt: sequence.createdAt,
   };
 }
 

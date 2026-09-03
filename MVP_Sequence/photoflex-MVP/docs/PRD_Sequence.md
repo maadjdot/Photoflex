@@ -5,12 +5,14 @@ tags:
   - 产品需求
   - MVP
 created: 2026-08-25
-updated: 2026-08-30
+updated: 2026-09-01
 status: approved-direction
 version: 0.2
 ---
 
 # PhotoFlex Sequence MVP 产品需求文档
+
+> 当前实现基线（2026-09-02）：导航为 `Home / Project / Contact Sheet / Table / Sequence`。Pool 已由 Table membership 替代，Whiteboard 用户界面取消。Table 的关系能力为 Group、Link 和 Sequence Pile；Named Version、Save、Save As、Version Compare、Shuffle 属于 M3 计划，尚未在当前 UI 开放。
 
 ## 一、版本说明
 
@@ -28,7 +30,7 @@ PhotoFlex 面向长期项目创作的摄影师、摄影爱好者与摄影专业�
 ### 2.2 产品目标
 
 1. 提供快速、可恢复的全量照片浏览与筛选。
-2. 提供摄影师专用的 Table，支持自由摆放、比较、分组和堆叠。
+2. 提供摄影师专用的 Table，支持自由摆放、比较、分组、连接和 Sequence Pile。
 3. 提供独立的 Sequence 编辑与 Read 模式，保存准确阅读顺序。
 4. 支持多个命名 Sequence 版本与显式比较。
 5. 始终保持原片零写入，本地离线也能完成核心闭环。
@@ -63,7 +65,7 @@ MVP 前三期不做：
 1. 用户创建项目并连接一个或多个本地照片文件夹。
 2. 在 Contact Sheet 中浏览全量照片，筛选、Pick / Reject、批量选择。
 3. 使用 `Place on Table` 把候选照片放到 Table。
-4. 在 Table 上自由移动、多选、框选、排列、分组、堆叠和比较照片。
+4. 在 Table 上自由移动、多选、框选、排列、分组、连接、创建 Pile 和比较照片。
 5. 用户显式选择照片并通过顺序确认条创建 Sequence。
 6. 在 Sequence 中精确调整一维顺序，保存命名版本，并使用 Read 模式观看。
 7. 用户可继续回到 Contact Sheet 或 Table 修改候选关系，但这些操作不能静默改变现有 Sequence。
@@ -78,7 +80,7 @@ flowchart LR
     Table[Table]
     Sequence[Sequence]
     Read[Read]
-    Version[Save Version]
+    Version[Save Version · M3]
 
     Home --> Project --> Contact --> Table --> Sequence --> Read
     Sequence --> Version
@@ -186,9 +188,10 @@ ProjectWorkspace
 ├── worktableDraft
 │   ├── entryOrder
 │   ├── placements[photoId]: x / y / z
-│   └── clusters（M2.2）
-└── sequenceDraft
-    └── SequenceItem[]
+│   ├── groups / links
+│   └── pileOrder / pilePlacements
+└── sequences[sequenceId]
+    └── SequenceDocument（items / segments / readingUnits）
 ```
 
 `inTable` 由 placement 是否存在推导，不保存重复 boolean。Table x/y 与 Sequence item order 必须独立持久化。
@@ -238,9 +241,9 @@ ProjectWorkspace
 #### M2.2
 
 1. Group：照片一起移动，但仍全部可见。
-2. Stack：照片紧凑重叠，有显式内部顺序和顶部照片。
-3. 选择恰好两张照片后打开 Compare；关闭后保留原位置和选择。
-4. Pin 为 project-wide 持久化状态，不限制只能 Pin 两张。
+2. Link：保存照片之间的 Table-only 关系，不改变 Sequence 顺序。
+3. Sequence Pile：保存照片集合，可放回 Table，双击进入对应 Sequence。
+4. 选择恰好两张照片后打开 Photo Compare；关闭后保留原位置和选择。
 5. 从显式选择创建 Sequence，必须先打开顺序确认条。
 6. 确认条默认使用 Table `entryOrder` 中的选中子序列，不读取 x/y。
 
@@ -300,11 +303,11 @@ stateDiagram-v2
 ## 七、关键不变量
 
 1. Contact Sheet 排序、过滤、选择和缩放不改变 Sequence。
-2. Table move、arrange、group、stack 和 viewport 不改变 Sequence。
+2. Table move、arrange、group、link、pile 和 viewport 不改变 Sequence。
 3. 一次完整拖拽只产生一个 command、一个 undo step 和一次 snapshot save。
 4. Remove from Table 不删除原始照片，也不清除 Pick、Pin 或现有 Sequence 引用。
 5. 缺失文件保留 Table placement 和 Sequence item 的位置。
-6. Pin、Pick / Reject、Table membership 和 selection 是不同状态。
+6. Pin、Pick / Reject、Table membership 和 selection 是不同状态；本轮 Table 工具栏不提供 Pin。
 7. `inTable` 只能由 Worktable membership 推导，不允许与另一个字段双写。
 8. Create Sequence 不按 Table x/y 自动排序，必须由用户确认顺序。
 9. Compare 不建立第四套持久化照片集合。
@@ -312,7 +315,7 @@ stateDiagram-v2
 
 ## 八、持久化与迁移要求
 
-1. Workspace 增加 `photoStates` 与 `worktableDraft`，继续保留独立 `sequenceDraft`。
+1. Workspace 增加 `photoStates` 与 `worktableDraft`；Sequence 文档独立存储在 `sequences`，不再使用工作区内的 `sequenceDraft`。
 2. 旧 `poolPhotoIds` 自动迁移为 Worktable：
    - 原数组顺序成为 `entryOrder`；
    - 使用固定、确定性的 Grid 生成 x / y / z；
@@ -334,14 +337,14 @@ stateDiagram-v2
 - Remove from Table 后照片仍能在 Contact Sheet 中打开。
 - 刷新页面后恢复 Table 位置；undo history 重新开始。
 - missing photo 在原位置显示 placeholder。
-- Contact Sheet 的排序/过滤测试证明 `sequenceDraft` 未变化。
+- Contact Sheet 的排序/过滤测试证明 `SequenceDocument` 未变化。
 
-### 9.2 M2.2
+### 9.2 M2.2（当前已实现）
 
-- Group 与 Stack 具有可区分的视觉和行为。
+- Group 与 Link 具有可区分的视觉和行为。
 - Compare 只在恰好两张照片选择时可用，关闭后坐标不变。
-- Pin 重启后仍存在，且与 Compare 槽位无关。
 - Create Sequence 显示顺序确认条，调整后生成新的稳定 SequenceItemId。
+- 创建的 Sequence Pile 可放回 Table，双击 Pile 可进入对应 Sequence。
 - Table 移动后已创建 Sequence 顺序保持不变。
 
 ## 十、实现阶段
@@ -361,13 +364,22 @@ stateDiagram-v2
 - Remove、undo / redo、IndexedDB 恢复；
 - missing placeholder 与基础 E2E。
 
-### M2.2：比较与成序
+### M2.2：Table 关系与 Sequence 核心（当前已实现）
 
-- Group、Stack、Photo Compare、Pin；
+- Group、Link、Photo Preview / Photo Compare；
 - Create Sequence 顺序确认；
-- Sequence Edit / Read 基础。
+- Sequence Edit、Reading Unit、Segment、Overview、Read 和 Working Draft 自动保存。
 
-### M2.3：延伸表达
+### M3：Named Version、Save、Compare 与 Shuffle（计划）
+
+- Save / Save As 与版本列表；
+- 同一 Sequence 的 Named Version Compare；
+- 历史版本复制为 Working Draft，必须 Save As；
+- Shuffle Alternative、Try Again、Apply Alternative。
+
+详细方案见 [M3 Version 与 Compare 实施方案](./M3_Version_Compare_Implementation_Plan.md)。
+
+### M2.3：延伸表达（后续）
 
 - snapshot、memo、关系标签、打印尺寸模拟。
 
@@ -386,3 +398,4 @@ stateDiagram-v2
 
 - [Worktable 产品与模块设计基线](./Worktable_Architecture_Interaction_Proposal.md)
 - [Contact Sheet / Worktable / Sequence React + TypeScript 资源建议](./Contact_Sheet_Sequence_React_TS_Resources.md)
+- [M3 Version 与 Compare 实施方案](./M3_Version_Compare_Implementation_Plan.md)

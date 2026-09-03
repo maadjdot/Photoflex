@@ -111,6 +111,7 @@ function applyCommand(
   if (command.type === "remove-from-group") return removeFromGroup(draft, command.photoId);
   if (command.type === "place-sequence-pile") return placeSequencePile(draft, command.placement);
   if (command.type === "move-sequence-piles") return moveSequencePiles(draft, command.sequenceIds, command.by.x, command.by.y);
+  if (command.type === "resize-sequence-pile") return resizeSequencePile(draft, command.sequenceId, command.scale);
   if (command.type === "bring-sequence-piles-to-front") return bringSequencePilesToFront(draft, command.sequenceIds);
   if (command.type === "remove-sequence-piles") return removeSequencePiles(draft, command.sequenceIds);
   const validation = validateKnown(draft, command.photoIds);
@@ -433,6 +434,15 @@ function moveSequencePiles(
     pilePlacements[sequenceId] = { ...current, x: current.x + dx, y: current.y + dy };
   });
   return ok({ ...draft, pilePlacements });
+}
+
+function resizeSequencePile(draft: WorktableDraft, sequenceId: SequenceId, scale: number): Result<WorktableDraft, WorktableCommandError> {
+  const pile = draft.pilePlacements[sequenceId];
+  if (!pile || !Number.isFinite(scale) || scale <= 0) return err({ kind: "unknown-sequence-pile", sequenceId });
+  const nextScale = Math.max(0.5, Math.min(2.5, scale));
+  if (Math.abs(nextScale - 1) < 0.001) return ok(draft);
+  const width = Math.max(120, pile.width * nextScale), height = Math.max(80, pile.height * nextScale);
+  return ok({ ...draft, pilePlacements: { ...draft.pilePlacements, [sequenceId]: { ...pile, width, height, x: pile.x + (pile.width - width) / 2, y: pile.y + (pile.height - height) / 2 } } });
 }
 
 function bringSequencePilesToFront(

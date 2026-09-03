@@ -4,7 +4,7 @@ tags:
   - ADR
   - Tauri
 created: 2026-08-26
-updated: 2026-08-26
+updated: 2026-09-02
 status: accepted
 version: 1.0
 ---
@@ -17,7 +17,7 @@ Accepted——产品负责人已决定未来桌面端使用 Tauri 2。当前阶�
 
 ## 背景
 
-PhotoFlex 当前需要尽快验证“序列版本 + A/B Compare”的产品价值，同时希望网页成果能复用于未来桌面端。桌面端需要更稳定的文件夹授权、SQLite/WAL、代理图缓存和原片只读控制。
+PhotoFlex 当前需要尽快验证“Table 工作桌面 + Sequence +（M3）版本 Compare”的产品价值，同时希望网页成果能复用于未来桌面端。桌面端需要更稳定的文件夹授权、SQLite/WAL、代理图缓存和原片只读控制。
 
 现有技术反转 Spike 已经实现 React/TypeScript 共享界面、窄宿主接口、Tauri 和 Electron 两套实验壳。Tauri 的 Windows 构建、打包和最小启动曾通过自动检查，但正式 renderer 性能、文件安全、数据库故障恢复和 macOS Gate 尚未全部完成。
 
@@ -45,7 +45,7 @@ PhotoFlex 当前需要尽快验证“序列版本 + A/B Compare”的产品价�
 ### 正面影响
 
 - 网页阶段可以围绕确定的平台接口设计，不再同时维护两套桌面假设；
-- React 界面、Sequence、Versioning、Compare 和 Whiteboard Sort 核心逻辑可以直接复用；
+- React 界面、Worktable、Sequence、Versioning 和 Compare 核心逻辑可以直接复用；
 - 桌面本地能力集中在少量 Tauri command，安全责任较清楚。
 
 ### 成本与风险
@@ -57,7 +57,7 @@ PhotoFlex 当前需要尽快验证“序列版本 + A/B Compare”的产品价�
 
 ## 约束
 
-1. 当前 M0–M5 网页阶段不引入 Tauri CLI、Rust crate 或桌面打包；
+1. 当前 M0–M4 网页阶段不引入 Tauri CLI、Rust crate 或桌面打包；
 2. 共享业务模块不得直接调用 Tauri；
 3. Tauri command 必须按能力命名，例如 `source_choose_folder`、`workspace_save`，禁止 `read(anyPath)` 和 `executeShell`；
 4. 原片目录只读，代理、SQLite 和临时文件只写应用数据目录；
@@ -68,13 +68,13 @@ PhotoFlex 当前需要尽快验证“序列版本 + A/B Compare”的产品价�
 
 只有出现以下情况之一才重新评估桌面框架：
 
-- Tauri 在目标硬件上持续无法满足核心 Sequence/Whiteboard 输入延迟；
+- Tauri 在目标硬件上持续无法满足核心 Table/Sequence 输入延迟；
 - WebView2 或 WebKit 导致核心照片显示、触控板操作无法可靠实现；
 - SQLite 恢复或文件权限模型无法通过安全硬门；
 - macOS 打包、签名或运行限制使目标用户无法使用；
 - 所需 Rust 维护成本超过当前团队可承担范围。
 
-出现问题时先缩小白板规模或非核心能力；只有核心序列版本闭环仍无法通过时，才重新比较其他桌面框架。
+出现问题时先缩小 Table 规模或非核心能力；只有核心 Sequence 版本闭环仍无法通过时，才重新比较其他桌面框架。
 
 ## 参考
 

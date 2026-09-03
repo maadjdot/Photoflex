@@ -105,6 +105,11 @@ describe("WorktableEditor", () => {
     expect(linked.ok).toBe(true);
     if (!linked.ok) return;
     expect(linked.value.links[0].photoIds).toEqual(["b", "c"]);
+    const unlinked = editor.execute({ type: "remove-link", linkId: linked.value.links[0].id });
+    expect(unlinked.ok).toBe(true);
+    if (!unlinked.ok) return;
+    expect(unlinked.value.links).toEqual([]);
+    expect(editor.undo().links).toHaveLength(1);
     expect(editor.undo().links).toEqual([]);
   });
 

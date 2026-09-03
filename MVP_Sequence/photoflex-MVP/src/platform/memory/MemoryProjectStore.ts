@@ -23,6 +23,9 @@ import {
   type VersionId,
   type VersionSummary,
   type VersionWriteError,
+  type SaveSequenceVersionInput,
+  type SaveSequenceVersionError,
+  type DeleteVersionError,
   type WorkspaceRevision,
 } from "../../contracts";
 import {
@@ -151,6 +154,58 @@ export class MemoryProjectStore implements ProjectStore {
     this.database.versions.set(version.id, clone(version));
     this.database.projects.set(projectId, clone(nextWorkspace));
     return ok({ summary: toVersionSummary(version), revision });
+  }
+
+  async saveSequenceVersion(
+    input: SaveSequenceVersionInput,
+  ): Promise<Result<{ readonly summary: VersionSummary; readonly workspaceRevision: WorkspaceRevision; readonly sequenceRevision: SequenceRevision }, SaveSequenceVersionError>> {
+    if (this.options.unavailable) return err({ kind: "unavailable", retryable: true });
+    if (this.options.quotaExceeded) return err({ kind: "quota-exceeded" });
+    const workspace = this.database.projects.get(input.projectId);
+    if (!workspace) return err({ kind: "not-found", entity: "project", id: input.projectId });
+    if (workspace.revision !== input.expectedWorkspaceRevision) return err({ kind: "conflict", expectedRevision: input.expectedWorkspaceRevision, actualRevision: workspace.revision });
+    const sequence = this.database.sequences.get(input.sequence.id);
+    if (!sequence) return err({ kind: "not-found", entity: "sequence", id: input.sequence.id });
+    if (sequence.projectId !== input.projectId || input.version.sequenceId !== sequence.id) return err({ kind: "version-sequence-mismatch" });
+    if (sequence.revision !== input.expectedSequenceRevision) return err({ kind: "sequence-conflict", expectedRevision: input.expectedSequenceRevision, actualRevision: sequence.revision });
+    const sequenceValidation = validateSequenceForProject(input.projectId, input.sequence);
+    if (!sequenceValidation.ok) return sequenceValidation;
+    const versionValidation = validateVersionForProject(input.projectId, input.version);
+    if (!versionValidation.ok) return versionValidation;
+    const existing = this.database.versions.get(input.version.id);
+    if (input.mode === "overwrite") {
+      if (!existing) return err({ kind: "version-not-found", versionId: input.version.id });
+      if (existing.sequenceId !== sequence.id) return err({ kind: "version-sequence-mismatch" });
+      if (existing.name !== input.version.name) return err({ kind: "version-name-immutable" });
+    } else {
+      if (existing) return err({ kind: "version-id-exists", versionId: input.version.id });
+      if ([...this.database.versions.values()].some((version) => version.projectId === input.projectId && version.name.toLocaleLowerCase() === input.version.name.toLocaleLowerCase())) return err({ kind: "version-name-exists", name: input.version.name });
+    }
+    const updatedAt = input.version.updatedAt ?? new Date().toISOString();
+    const savedVersion = clone({ ...input.version, updatedAt });
+    const nextSequenceRevision = (input.expectedSequenceRevision + 1) as SequenceRevision;
+    const savedSequence = clone({ ...input.sequence, currentVersionId: input.version.id, revision: nextSequenceRevision, updatedAt });
+    const nextWorkspaceRevision = (input.expectedWorkspaceRevision + 1) as WorkspaceRevision;
+    const nextWorkspace = clone({ ...workspace, revision: nextWorkspaceRevision, updatedAt, versionIds: input.mode === "save-as" ? [...workspace.versionIds, input.version.id] : workspace.versionIds });
+    this.database.versions.set(input.version.id, savedVersion);
+    this.database.sequences.set(sequence.id, savedSequence);
+    this.database.projects.set(input.projectId, nextWorkspace);
+    return ok({ summary: toVersionSummary(savedVersion), workspaceRevision: nextWorkspaceRevision, sequenceRevision: nextSequenceRevision });
+  }
+
+  async deleteVersion(projectId: ProjectId, versionId: VersionId, expectedWorkspaceRevision: WorkspaceRevision): Promise<Result<{ readonly revision: WorkspaceRevision }, DeleteVersionError>> {
+    if (this.options.unavailable) return err({ kind: "unavailable", retryable: true });
+    const workspace = this.database.projects.get(projectId);
+    if (!workspace) return err({ kind: "not-found", entity: "project", id: projectId });
+    if (workspace.revision !== expectedWorkspaceRevision) return err({ kind: "conflict", expectedRevision: expectedWorkspaceRevision, actualRevision: workspace.revision });
+    const version = this.database.versions.get(versionId);
+    if (!version || version.projectId !== projectId) return err({ kind: "version-not-found", versionId });
+    const sequence = this.database.sequences.get(version.sequenceId);
+    if (sequence?.currentVersionId === versionId) return err({ kind: "cannot-delete-current-version", versionId });
+    const revision = (expectedWorkspaceRevision + 1) as WorkspaceRevision;
+    this.database.versions.delete(versionId);
+    this.database.projects.set(projectId, clone({ ...workspace, versionIds: workspace.versionIds.filter((id) => id !== versionId), revision, updatedAt: new Date().toISOString() }));
+    return ok({ revision });
   }
 
   async createSequence(

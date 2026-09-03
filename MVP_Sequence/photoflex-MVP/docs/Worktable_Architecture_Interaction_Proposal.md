@@ -1,17 +1,19 @@
 # PhotoFlex Worktable：产品与模块设计基线
 
 > 状态：产品方向与三项关键决策已确认；前端设计稿确认后进入实现  
-> 日期：2026-08-30  
+> 日期：2026-08-30（历史方案，2026-09-02 校准）
 > 范围：用 Table 取代 Pool / Whiteboard 用户界面，保留独立 Sequence  
 > 关联 PRD：[`docs/PRD_Sequence.md`](./PRD_Sequence.md) v0.2
+
+> 当前状态：本文保留 Worktable 设计决策与迁移背景；生产实现以 [`M2_Worktable_Interaction_Spec.md`](./M2_Worktable_Interaction_Spec.md) 为准，M3 版本与比较以 [`M3_Version_Compare_Implementation_Plan.md`](./M3_Version_Compare_Implementation_Plan.md) 为准。文中 `Pool`、`Whiteboard`、`Stack`、`sequenceDraft` 等只表示历史方案或迁移输入，不是当前用户界面/数据模型。
 
 ## 1. 结论
 
 PhotoFlex 应只保留三个创作对象：
 
 1. **Contact Sheet**：全量照片目录，负责浏览、筛选、Pick / Reject、临时批量选择。
-2. **Table / Worktable**：候选照片的工作桌面，负责 membership、空间位置、分组、堆叠和比较。
-3. **Sequence**：最终阅读顺序，负责精确的一维 item order、版本与 Read 模式。
+2. **Table / Worktable**：候选照片的工作桌面，负责 membership、空间位置、Group、Link、Pile 和比较。
+3. **Sequence**：最终阅读顺序，负责精确的一维 item order、Reading Unit、Segment 与 Read 模式；Named Version 属于 M3。
 
 `Compare` 是 Table 或 Sequence 发起的临时工具状态，不是第四套照片集合。旧 `Pool` 和旧 `Whiteboard` 不保留为用户可见概念，也不建立长期兼容别名。
 

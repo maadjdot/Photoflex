@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { ProjectId, SequenceId, SourceId } from "../contracts";
+import type { ProjectId, SequenceId, SourceId, VersionId } from "../contracts";
 import { readRoute, routeToHash } from "./router";
 
 describe("readRoute", () => {
@@ -29,5 +29,15 @@ describe("readRoute", () => {
     expect(routeToHash({ name: "sequence", projectId, sequenceId: left })).toBe("#/projects/project-1/sequences/sequence-a");
     expect(readRoute("#/projects/project-1/sequences/sequence-a")).toEqual({ name: "sequence", projectId, sequenceId: left });
     expect(readRoute("#/projects/project-1/sequences/compare/sequence-a/sequence-b")).toEqual({ name: "sequence-compare", projectId, leftSequenceId: left, rightSequenceId: right });
+  });
+
+  it("reads Version Compare and open-as-draft routes", () => {
+    const projectId = "project-1" as ProjectId;
+    const sequenceId = "sequence-a" as SequenceId;
+    const left = "version-a" as VersionId;
+    const right = "version-b" as VersionId;
+    expect(routeToHash({ name: "version-compare", projectId, leftVersionId: left, rightVersionId: right })).toBe("#/projects/project-1/versions/compare/version-a/version-b");
+    expect(readRoute("#/projects/project-1/versions/compare/version-a/version-b")).toEqual({ name: "version-compare", projectId, leftVersionId: left, rightVersionId: right });
+    expect(readRoute("#/projects/project-1/sequences/sequence-a?openVersion=version-b")).toEqual({ name: "sequence", projectId, sequenceId, openVersionId: right });
   });
 });

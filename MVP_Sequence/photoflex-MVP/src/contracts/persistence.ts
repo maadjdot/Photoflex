@@ -189,6 +189,23 @@ export type VersionWriteError =
   | SaveError
   | { readonly kind: "version-id-exists"; readonly versionId: VersionId }
   | { readonly kind: "invalid-version"; readonly reason: string };
+export type VersionSaveMode = "overwrite" | "save-as";
+export interface SaveSequenceVersionInput {
+  readonly mode: VersionSaveMode;
+  readonly projectId: ProjectId;
+  readonly sequence: SequenceDocument;
+  readonly version: SequenceVersion;
+  readonly expectedWorkspaceRevision: WorkspaceRevision;
+  readonly expectedSequenceRevision: SequenceRevision;
+}
+export type SaveSequenceVersionError =
+  | VersionWriteError
+  | { readonly kind: "invalid-sequence"; readonly reason: string }
+  | { readonly kind: "version-not-found"; readonly versionId: VersionId }
+  | { readonly kind: "version-name-exists"; readonly name: string }
+  | { readonly kind: "version-sequence-mismatch" }
+  | { readonly kind: "version-name-immutable" }
+  | { readonly kind: "sequence-conflict"; readonly expectedRevision: SequenceRevision; readonly actualRevision: SequenceRevision };
 export type SequenceWriteError =
   | SaveError
   | { readonly kind: "sequence-id-exists"; readonly sequenceId: SequenceId }
@@ -196,6 +213,7 @@ export type SequenceWriteError =
   | { readonly kind: "sequence-conflict"; readonly expectedRevision: SequenceRevision; readonly actualRevision: SequenceRevision }
   | { readonly kind: "invalid-sequence"; readonly reason: string };
 export type DeleteError = NotFoundError | CorruptDataError | StorageAccessError;
+export type DeleteVersionError = SaveError | { readonly kind: "version-not-found"; readonly versionId: VersionId } | { readonly kind: "cannot-delete-current-version"; readonly versionId: VersionId };
 export type BackupError =
   | { readonly kind: "unsupported-schema"; readonly found: number; readonly supported: readonly number[] }
   | { readonly kind: "invalid-backup"; readonly reason: string }
@@ -230,6 +248,10 @@ export interface ProjectStore {
   ): Promise<
     Result<{ readonly summary: VersionSummary; readonly revision: WorkspaceRevision }, VersionWriteError>
   >;
+  saveSequenceVersion(
+    input: SaveSequenceVersionInput,
+  ): Promise<Result<{ readonly summary: VersionSummary; readonly workspaceRevision: WorkspaceRevision; readonly sequenceRevision: SequenceRevision }, SaveSequenceVersionError>>;
+  deleteVersion(projectId: ProjectId, versionId: VersionId, expectedWorkspaceRevision: WorkspaceRevision): Promise<Result<{ readonly revision: WorkspaceRevision }, DeleteVersionError>>;
   listVersions(projectId: ProjectId): Promise<Result<readonly VersionSummary[], LoadError>>;
   loadVersion(versionId: VersionId): Promise<Result<SequenceVersion, LoadError>>;
   deleteProject(projectId: ProjectId): Promise<Result<void, DeleteError>>;

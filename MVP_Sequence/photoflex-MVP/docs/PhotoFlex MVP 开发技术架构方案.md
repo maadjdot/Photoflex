@@ -4,20 +4,22 @@ tags:
   - MVP
   - 技术架构
 created: 2026-08-26
-updated: 2026-08-26
+updated: 2026-09-02
 status: draft
 version: 0.5
 ---
 
 # PhotoFlex MVP 开发技术架构方案
 
+> 当前代码基线：导航为 `Home / Project / Contact Sheet / Table / Sequence`；Pool 与 Whiteboard 不再是用户界面或独立集合。Table 负责坐标、Group、Link、Pile、Preview 和 Pile Compare；Sequence 负责 Working Draft、排序、Reading Unit、Segment、Overview 和 Read。Named Version、Save、Save As、Version Compare、Shuffle 属于 M3 计划，详见 [M3 Version / Compare 实施方案](./M3_Version_Compare_Implementation_Plan.md)。
+
 ## 1. 这份方案解决什么
 
 第一阶段只实现一条核心闭环：
 
-> 导入照片 → 筛选到 Pool → 编辑序列 → 保存命名版本 → 比较两个版本
+> 导入照片 → Contact Sheet 筛选 → Place on Table → 创建/编辑 Sequence →（M3）保存命名版本 → 比较两个版本
 
-白板只是另一种排序方式：用户自由摆放照片，确认后按“从上到下、同一行从左到右”回写线性序列。白板布局不是作品，也不是通用白板数据。
+Table 是独立的摄影师工作桌面，不会按坐标自动回写 Sequence 顺序；只有用户显式创建或编辑 Sequence 时才写入一维顺序。它不是通用 Whiteboard。
 
 当前只开发网页，目标浏览器为桌面版 Chrome 和 Edge。未来桌面端确定使用 **Tauri 2**：复用同一套 React 界面与核心逻辑，只增加 Tauri 壳，并替换文件读取和项目存储的适配器。Tauri 的 Rust 与原生构建链不进入当前网页阶段。
 
@@ -28,13 +30,12 @@ version: 0.5
 - 创建、打开和重命名 Project；
 - 选择一个或多个本地 JPEG 文件夹作为 Source；
 - Contact Sheet 浏览与预览；
-- 将照片加入或移出 Project Pool；
+- Contact Sheet 中将照片 Place on Table，或从 Table 移除 membership；
 - 建立、拖动和删除 Sequence 中的照片；
 - 横向、网格、全景和单张大图观看；
-- 保存不可变的命名版本；
-- 任意选择两个版本进行只读 A/B Compare；
-- 从历史版本创建新的工作副本；
-- 简单白板排序：单选/框选、移动、删除、保存排序或放弃；
+- Table 自由摆放、Group、Link、Pile、Preview 和 Pile Compare；
+- Sequence Working Draft 的精确排序、Reading Unit、Segment、Overview 和 Read；
+-（M3）保存不可变的命名版本、从历史版本创建工作副本和 Version Compare；
 - 将项目结构和全部版本导出为 JSON 备份，并能重新导入恢复；
 - 本地自动保存和基础匿名事件记录。
 
@@ -75,14 +76,14 @@ photoflex-mvp/
 │   ├── app/                    # 启动、路由、模块装配
 │   ├── modules/
 │   │   ├── project/            # Project 与 Source 管理
-│   │   ├── library/            # Contact Sheet、Pool、预览
+│   │   ├── library/            # Contact Sheet、预览、Pick / Reject
+│   │   ├── worktable/          # Table 坐标、Group、Link、Pile、viewport
 │   │   ├── sequence/           # 工作序列、排序、undo/redo
 │   │   ├── versioning/         # 命名版本、打开历史版本
-│   │   ├── compare/            # 两版本只读比较
-│   │   └── whiteboard-sort/    # 临时自由排序与顺序回写
+│   │   └── compare/            # Table Pile Compare 与 M3 Version Compare
 │   ├── contracts/              # 跨模块契约的唯一代码来源
 │   │   ├── ids.ts              # 品牌 ID 与共享常量
-│   │   ├── sequence.ts         # Sequence/Whiteboard 契约
+│   │   ├── sequence.ts         # Sequence 契约
 │   │   ├── versioning.ts       # 版本与 Diff 契约
 │   │   ├── persistence.ts      # ProjectStore/PhotoSource 契约
 │   │   ├── backup.ts           # 可移植备份格式
@@ -102,7 +103,7 @@ photoflex-mvp/
 
 ### 4.1 契约的唯一来源
 
-- M0 实现完成后，`src/contracts/index.ts` 及其直接导出的类型、常量是跨模块接口的唯一代码来源；Sequence、Whiteboard、Versioning、适配器和测试只能从这里导入，不得各自重定义同名类型；
+- M0 实现完成后，`src/contracts/index.ts` 及其直接导出的类型、常量是跨模块接口的唯一代码来源；Worktable、Sequence、Versioning、适配器和测试只能从这里导入，不得各自重定义同名类型；
 - 系统架构文档只描述模块责任、流程和行为承诺，不再维护一套并列的 TypeScript 接口；本文件中的代码块是 M0 前的契约草案，M0 落地时必须原样迁入 `src/contracts/`，之后以代码为准；
 - 修改 `SequenceItemId`、命令、错误联合、存储或备份格式时，先修改 canonical contract（唯一正式契约）及其契约测试，再同步文档中的行为说明；
 - `PhotoId` 只能标识照片，`SequenceItemId` 才能标识序列中的一次出现。任何排序模块都不得用 `PhotoId[]` 表达 Sequence 的位置顺序。
@@ -142,7 +143,7 @@ interface SequenceItem {
   photoId: PhotoId;
 }
 
-interface SequenceDraft {
+interface SequenceDocument {
   projectId: ProjectId;
   baseVersionId?: VersionId;
   items: readonly SequenceItem[];
@@ -165,26 +166,26 @@ type SequenceCommandError =
     };
 
 interface SequenceEditor {
-  snapshot(): SequenceDraft;
-  execute(command: SequenceEditCommand): Result<SequenceDraft, SequenceCommandError>;
-  undo(): SequenceDraft;
-  redo(): SequenceDraft;
+  snapshot(): SequenceDocument;
+  execute(command: SequenceEditCommand): Result<SequenceDocument, SequenceCommandError>;
+  undo(): SequenceDocument;
+  redo(): SequenceDocument;
   canUndo(): boolean;
   canRedo(): boolean;
 }
 
-createSequenceEditor(draft: SequenceDraft): SequenceEditor;
+createSequenceEditor(draft: SequenceDocument): SequenceEditor;
 ```
 
-排序、批量移动、重复项检查和 undo/redo 都藏在模块内部。React 界面不直接修改数组。`SequenceItemId` 标识序列中的具体实例，`PhotoId` 标识照片，因此未来即使允许同一照片重复出现，版本 Diff 也不会混淆。持久化 revision 属于整个 ProjectWorkspace，不属于 SequenceDraft，也不由 SequenceEditor 增长。
+排序、批量移动、重复项检查和 undo/redo 都藏在模块内部。React 界面不直接修改数组。`SequenceItemId` 标识序列中的具体实例，`PhotoId` 标识照片，因此同一照片重复出现时版本 Diff 也不会混淆。持久化 revision 属于 ProjectWorkspace/Sequence，不由 SequenceEditor 增长。
 
-Undo/Redo 栈只存在于当前页面会话，不写入 IndexedDB。最后一次成功自动保存的 SequenceDraft 是隐式 checkpoint：刷新、崩溃恢复或重新打开项目时恢复该 checkpoint，但不能继续撤销 checkpoint 之前的操作。
+Undo/Redo 栈只存在于当前页面会话，不写入 IndexedDB。最后一次成功自动保存的 SequenceDocument 是隐式 checkpoint：刷新、崩溃恢复或重新打开项目时恢复该 checkpoint，但不能继续撤销 checkpoint 之前的操作。
 
-这里“不持久化”的只是 Undo/Redo 历史栈，不是撤销或重做后的工作结果。每次 `undo()`/`redo()` 都产生新的 SequenceDraft，并像普通编辑命令一样进入同一个串行保存队列。若前一条命令仍在保存，撤销结果排在它之后；保存队列始终使用上一笔成功返回的持久化 revision 作为下一笔 `expectedRevision`，只有撤销结果保存成功后界面才能显示“已保存”。非冲突的瞬时保存失败会暂停队列并保留最新内存状态，用户重试后从最后成功的 revision 保存最新状态；revision conflict 则必须进入下文的冲突处理，不能盲重试。
+这里“不持久化”的只是 Undo/Redo 历史栈，不是撤销或重做后的工作结果。每次 `undo()`/`redo()` 都产生新的 SequenceDocument，并像普通编辑命令一样进入同一个串行保存队列。若前一条命令仍在保存，撤销结果排在它之后；保存队列始终使用上一笔成功返回的持久化 revision 作为下一笔 `expectedRevision`，只有撤销结果保存成功后界面才能显示“已保存”。非冲突的瞬时保存失败会暂停队列并保留最新内存状态，用户重试后从最后成功的 revision 保存最新状态；revision conflict 则必须进入下文的冲突处理，不能盲重试。
 
 这个限制必须出现在界面里：Undo/Redo 控件的常驻 tooltip 写明“撤销记录仅保留到本次关闭/刷新”，用户第一次进入 Sequence 时显示一次非阻塞提示；“已保存”旁说明崩溃后可恢复最后 checkpoint。不能只把限制藏在架构文档或验收条款中。
 
-第一阶段把 500 项定义为 SequenceDraft 和 SequenceVersion 的硬上限，而不是仅有性能测试覆盖的软建议。超限的 `add` 命令整体失败且不部分写入，UI 显示当前数量、上限和本次尝试数量；图库和 Pool 仍可包含最多 10,000 张已索引照片。该常量由 `src/contracts/ids.ts` 唯一定义，Sequence、Versioning、备份导入和界面共同引用。
+第一阶段把 500 项定义为 SequenceDocument 和 SequenceVersion 的硬上限，而不是仅有性能测试覆盖的软建议。超限的 `add` 命令整体失败且不部分写入，UI 显示当前数量、上限和本次尝试数量；Contact Sheet 与 Table 仍可包含最多 10,000 张已索引照片。该常量由 `src/contracts/ids.ts` 唯一定义，Sequence、Versioning、备份导入和界面共同引用。
 
 ### 5.3 Versioning 模块
 
@@ -230,7 +231,7 @@ interface VersionDiff {
 createVersionSnapshot(
   input: CreateVersionInput
 ): Result<SequenceVersion, VersionValidationError>;
-openVersionAsDraft(version: SequenceVersion): SequenceDraft;
+openVersionAsDraft(version: SequenceVersion): SequenceDocument;
 compareVersions(
   left: SequenceVersion,
   right: SequenceVersion
@@ -239,9 +240,9 @@ compareVersions(
 
 关键规则：
 
-- `VersionId` 是唯一身份，版本名称只是可重复的用户标签；
+- `VersionId` 是唯一身份，Save As 的版本名称在项目内唯一；
 - 已保存版本不可变，列表使用 `VersionSummary`，只在打开或比较时加载完整快照；
-- 版本名称不能为空，同名时同时显示时间和 VersionId 的短形式；
+- 版本名称不能为空；列表显示更新时间和 VersionId 的短形式；
 - 打开旧版本时创建工作副本，不覆盖历史；
 - Compare 只读，不在比较界面修改版本；
 - UI 只向 Versioning 模块传入两个 VersionId，不在路由或控件间传递完整快照；
@@ -249,64 +250,40 @@ compareVersions(
 - Added/Removed 使用 Map/Set，Moved 使用稳定实例 ID 与最长递增子序列，整体复杂度不得差于 O(n log n)；
 - 两个 500 项版本的 Diff 在目标硬件上 p95 ≤200ms；第一阶段不允许创建超过 500 项的序列或版本，因此不承诺也不接收 10,000 项序列 Diff。
 
-### 5.4 Whiteboard Sort 模块
+### 5.4 Worktable 模块
+
+Worktable 是当前 Table 的领域模块，不是通用白板。它独立保存照片 membership、世界坐标、z-index、Group、Link、Pile 与 viewport，并通过一次 command/undo step 处理完成的拖拽。其坐标和关系永远不自动推导或改写 Sequence 顺序。
 
 ```ts
-type WhiteboardAction =
-  | { type: "select"; itemIds: SequenceItemId[] }
-  | { type: "move"; itemIds: SequenceItemId[]; dx: number; dy: number }
-  | { type: "remove"; itemIds: SequenceItemId[] }
-  | { type: "set-viewport"; zoom: number; x: number; y: number };
-
-type WhiteboardError =
-  | { kind: "unknown-item"; itemId: SequenceItemId }
-  | { kind: "invalid-viewport" }
-  | { kind: "stale-order-preview" };
-
-interface WhiteboardItem {
-  sequenceItemId: SequenceItemId;
-  x: number;
-  y: number;
+interface WorktableDraft {
+  readonly entryOrder: readonly PhotoId[];
+  readonly placements: Readonly<Record<PhotoId, {
+    readonly photoId: PhotoId;
+    readonly x: number;
+    readonly y: number;
+    readonly z: number;
+  }>>;
+  readonly groups: readonly Group[];
+  readonly links: readonly Link[];
+  readonly piles: readonly Pile[];
+  readonly viewport: { readonly x: number; readonly y: number; readonly zoom: number };
 }
 
-interface WhiteboardDraft {
-  layoutRevision: number;
-  entryOrder: readonly SequenceItemId[];
-  items: Readonly<Record<SequenceItemId, WhiteboardItem>>;
-  selectedIds: readonly SequenceItemId[];
-  viewport: { zoom: number; x: number; y: number };
+interface WorktableEditor {
+  place(photoIds: readonly PhotoId[]): Result<WorktableDraft, WorktableError>;
+  move(photoIds: readonly PhotoId[], delta: { dx: number; dy: number }): Result<WorktableDraft, WorktableError>;
+  arrange(kind: "grid" | "row" | "align-left" | "align-center" | "align-top" | "align-middle"): Result<WorktableDraft, WorktableError>;
+  remove(photoIds: readonly PhotoId[]): Result<WorktableDraft, WorktableError>;
+  undo(): Result<WorktableDraft, WorktableError>;
+  redo(): Result<WorktableDraft, WorktableError>;
 }
-
-interface WhiteboardOrderPreview {
-  layoutRevision: number;
-  itemIds: readonly SequenceItemId[];
-}
-
-openWhiteboard(items: readonly SequenceItem[]): WhiteboardDraft;
-applyWhiteboardAction(
-  draft: WhiteboardDraft,
-  action: WhiteboardAction
-): Result<WhiteboardDraft, WhiteboardError>;
-deriveWhiteboardOrder(draft: WhiteboardDraft): WhiteboardOrderPreview;
-commitWhiteboard(
-  draft: WhiteboardDraft,
-  preview: WhiteboardOrderPreview
-): Result<readonly SequenceItemId[], WhiteboardError>;
-discardWhiteboard(draft: WhiteboardDraft): readonly SequenceItemId[];
 ```
 
-只实现移动、框选、批量移动、删除、视口平移/缩放和保存/放弃。白板卡片使用固定尺寸和不受 zoom 影响的世界坐标；线性顺序按以下确定性规则推导：
-
-1. 使用卡片中心点，先按中心 Y 从小到大扫描；
-2. 当前项与某行首项的中心 Y 距离不超过半个卡片高度时归入该行；若同时匹配多行，选择中心距离最近的行，再并列时选择更上方的行；
-3. 行按其首项中心 Y 排序，行内按中心 X、中心 Y、进入白板前的 `entryOrder`、最后按 `SequenceItemId` 字典序依次打破平局；完全重叠时因此保持原进入顺序；
-4. 被删除项不进入结果，同一 `PhotoId` 的不同 SequenceItemId 必须分别保留。
-
-第一次点击“保存排序”只调用 `deriveWhiteboardOrder`，在卡片上显示序号并展示只读线性预览条；用户再次确认后才调用 `commitWhiteboard`。任何移动或删除都会增加 `layoutRevision` 并使旧预览失效，避免用户确认后布局又变化。斜放或跨行仍可能不符合用户意图，但结果必须可预览、可取消且每次推导一致。坐标不写入命名版本，重新进入时按当前序列生成初始布局。
+Contact Sheet 只负责筛选和 `Place on Table`；Table 负责桌面交互和只读 Pile Compare；Sequence 负责显式创建后的 `SequenceItemId` 顺序、Reading Unit、Segment 和 Read。
 
 ### 5.5 Library 模块
 
-负责 Source 状态、照片元数据、分页/虚拟列表、Pool 和预览。React 状态只保存 `photoId` 和必要元数据，不保存图片二进制。
+负责 Source 状态、照片元数据、分页/虚拟列表、Contact Sheet 和预览。React 状态只保存 `photoId` 和必要元数据，不保存图片二进制。
 
 ## 6. 两个真实的平台接口
 
@@ -403,7 +380,7 @@ PhotoRef 的文件定位身份是 `(sourceId, normalizedRelativePath)`，PhotoId
 
 - `relativePath` 相对 Source 根目录、保留大小写、统一使用 `/`，不得包含绝对路径或 `..`；不同 Source 中的同名文件不会冲突；
 - `chooseFolder(existingSourceIds)` 必须由适配器比较本项目已有目录身份；浏览器适配器使用目录句柄的同一条目比较，Tauri 适配器在内部使用规范化目录身份。同一目录再次选择时返回已有 SourceId 并刷新授权，不创建第二个 Source；
-- Source 可访问但某个路径不存在时返回 `missing-file`，保留 PhotoRef、Pool、Sequence 和版本位置并显示“文件已移动或重命名”；路径变化视为旧引用失联，不按同名文件静默重连；
+- Source 可访问但某个路径不存在时返回 `missing-file`，保留 PhotoRef、Table、Sequence 和版本位置并显示“文件已移动或重命名”；路径变化视为旧引用失联，不按同名文件静默重连；
 - Source 整体无权限与单个文件缺失是两种状态：前者为 `permission-lost`，后者为 `missing-file`。
 
 `PreviewLease` 定义 Object URL 的所有权：BrowserPhotoSource/内部 PreviewCache 创建并持有 URL，React 调用方只持有 lease，不直接调用 `URL.revokeObjectURL`。同一照片可共享 URL 并使用引用计数；`release()` 必须幂等。最后一个 lease 释放后，URL 可以进入最多保留 16 项的 idle LRU；超出 16 项时从最旧项开始 revoke。Source 失效和页面卸载时不等待 LRU，全部 revoke。虚拟列表只为可见区和 overscan 持有 lease；大图预取只持有“当前项及前后各一项”，当前项变化后立即释放离开该窗口的 lease。已 revoke 的 URL 不得再次返回。
@@ -417,7 +394,7 @@ interface ProjectSummary {
   updatedAt: string;
   lastOpenedAt: string;
   sourceCount: number;
-  poolCount: number;
+  tableCount: number;
   coverPhotoId?: PhotoId;
 }
 
@@ -492,7 +469,7 @@ interface ProjectStore {
 - 测试：MemoryProjectStore；
 - 以后：TauriSqliteProjectStore，通过受限的 Tauri command 访问 SQLite/WAL。
 
-`ProjectWorkspace.revision` 是工作区级、由 ProjectStore 独占写入的非负单调整数，不是 hash，也不是 Sequence 的编辑次数。创建项目时为 0；成功的 `saveWorkspace` 或 `createVersion` 每次只增加 1。
+`ProjectWorkspace.revision` 是工作区级、由 ProjectStore 独占写入的非负单调整数，不是 hash，也不是 Sequence 的编辑次数。创建项目时为 0；成功的 `saveWorkspace` 或版本保存接口每次只增加 1，SequenceDocument 另有 sequence revision。
 
 写入采用 compare-and-swap（CAS）：适配器在同一写事务中读取当前 ProjectWorkspace，只有 `current.revision === expectedRevision` 时才写入，并由存储层把新记录 revision 设为 `expectedRevision + 1`；不匹配时不做任何写入，返回包含 expected/actual 的 `conflict`。调用方不得自行覆盖 revision，也不得对 conflict 自动做 last-write-wins 或拿旧 expectedRevision 盲目重试；自动保存队列暂停并保留本地未保存状态，界面提示项目已在另一标签页/窗口修改，由用户重新加载后再继续。
 
@@ -502,11 +479,11 @@ interface ProjectStore {
 
 IndexedDB 事务只在创建它的任务以及关联请求事件分发期间处于 active；当所有请求已完成、结果已处理且没有新请求时，浏览器会尝试自动提交。因此“放在同一个 async 函数里”不等于“位于同一个事务里”，`transaction.oncomplete` 也只是确认事务已经成功提交，不能阻止提前变为 inactive。
 
-`createVersion` 的网页适配器必须遵守：
+当前版本创建与 M3 `saveSequenceVersion` 的网页适配器必须遵守：
 
 1. 在打开事务前完成版本构造、校验、序列化准备；文件读取、图片解码、计时器、网络请求和其他非 IndexedDB 异步工作不得进入事务；
-2. 打开同时覆盖 `projects` 与 `versions` 的单个 `readwrite` 事务；
-3. 在事务创建任务或 IndexedDB request 的 success 回调中依次排入“读 Project → 检查 CAS → `versions.add` → `projects.put`”请求；不得在请求之间等待无关 Promise。若使用 Promise 包装器，必须以真实浏览器测试证明它保持事务活跃；
+2. 打开同时覆盖 `projects`、`sequences` 与 `versions` 的单个 `readwrite` 事务；
+3. 在事务创建任务或 IndexedDB request 的 success 回调中依次排入“读 Project/Sequence → 检查双 CAS → `versions.add`/`sequences.put` → `projects.put`”请求；不得在请求之间等待无关 Promise。若使用 Promise 包装器，必须以真实浏览器测试证明它保持事务活跃；
 4. VersionId 已存在、CAS 不匹配或任一 request 失败时不继续排写入，并 abort/让事务失败；
 5. 只在 `complete` 事件后返回成功；`abort`/`error` 转换为明确错误。`complete` 是成功证据，不是保持事务存活的手段。
 
@@ -515,15 +492,16 @@ IndexedDB 事务只在创建它的任务以及关联请求事件分发期间处�
 ## 7. 数据模型
 
 ```ts
-const INDEXED_DB_SCHEMA_VERSION = 2 as const;
-const WORKSPACE_SCHEMA_VERSION = 2 as const;
+const INDEXED_DB_SCHEMA_VERSION = 7 as const;
+const WORKSPACE_SCHEMA_VERSION = 6 as const;
 
 interface ResumeContext {
-  page: "project" | "contact-sheet";
+  page: "project" | "contact-sheet" | "table" | "sequence";
   sourceId?: SourceId;
   filter: "all";
   anchorPhotoId?: PhotoId;
-  poolCollapsed?: boolean;
+  tableCollapsed?: boolean;
+  lastTableViewport?: { x: number; y: number; zoom: number };
 }
 
 interface ProjectWorkspace {
@@ -533,8 +511,9 @@ interface ProjectWorkspace {
   memo: string;
   expectedPhotoCount: number | null;
   sources: SourceRecord[];
-  poolPhotoIds: PhotoId[];
-  sequenceDraft: SequenceDraft;
+  worktableDraft: WorktableDraft;
+  photoStates: Record<PhotoId, { pick?: "pick" | "reject" }>;
+  sequenceIds: SequenceId[];
   versionIds: VersionId[];
   revision: WorkspaceRevision;
   createdAt: string;
@@ -566,7 +545,8 @@ IndexedDB 使用独立 object store；未来 SQLite 使用对应的表：
 
 | 记录集合 | 内容 | 写入时机 |
 |---|---|---|
-| `projects` | 完整的可变 ProjectWorkspace：名称、Source、Pool、SequenceDraft、versionIds、revision | 当前工作状态变化 |
+  | `projects` | 完整的可变 ProjectWorkspace：名称、Source、Table membership、sequenceIds、versionIds、revision | 当前工作状态变化 |
+| `sequences` | SequenceDocument Working Draft，以 SequenceId 为 key | Sequence command 成功后更新 |
 | `versions` | 完整且不可变的 SequenceVersion，以 VersionId 为 key | 只在创建版本时追加 |
 | `photo-index` | PhotoRef，以 SourceId/PhotoId 建索引 | 扫描 Source 时分页写入 |
 | `source-grants` | 浏览器可恢复的文件夹授权信息 | 添加或重新授权 Source 时 |
@@ -577,13 +557,13 @@ IndexedDB 使用独立 object store；未来 SQLite 使用对应的表：
 - Project 包含多个 Source；
 - PhotoRef 通过 `sourceId + normalizedRelativePath` 引用原片，不复制或改写原片；
 - 大量 PhotoRef 由 BrowserPhotoSource 单独索引和分页查询，不随每次序列操作重复保存；
-- Pool 保存 PhotoId；SequenceDraft 和 SequenceVersion 保存由 SequenceItemId 与 PhotoId 组成的 SequenceItem；
-- SequenceDraft 是唯一可编辑工作区；
+- Worktable 保存 PhotoId membership、placement 和关系；SequenceDocument 和 SequenceVersion 保存由 SequenceItemId 与 PhotoId 组成的 SequenceItem；
+- 每个 Sequence 只有一个可编辑 Working Draft；
 - ProjectWorkspace 只保存 VersionId，不嵌入历史快照；
 - SequenceVersion 是独立、完整、不可变的追加记录；
-- 白板草稿是临时界面状态，确认后只回写 SequenceDraft 的 order。
+- Table 坐标和关系是持久化的 Table-only 状态，不回写 SequenceDocument 的 order。
 
-`INDEXED_DB_SCHEMA_VERSION` 表示 object store/index 结构；`ProjectWorkspace.schemaVersion` 表示本地工作区记录格式；`ProjectBackupV1.schemaVersion` 表示可移植备份格式。三者独立演进，不能因为当前都为 `1` 就共用迁移判断。当前 IndexedDB 和工作区为 schema 2，备份格式仍为 schema 1。`appVersion` 只用于诊断，不参与兼容性判断。
+`INDEXED_DB_SCHEMA_VERSION` 表示 object store/index 结构；`ProjectWorkspace.schemaVersion` 表示本地工作区记录格式；`ProjectBackupV1.schemaVersion` 表示可移植备份格式。三者独立演进，不能因为当前都为 `1` 就共用迁移判断。当前代码基线为 IndexedDB v7、Workspace schema v6，备份格式仍为 schema 1。`appVersion` 只用于诊断，不参与兼容性判断。
 
 第一阶段只读取备份 schema 1：缺少或类型错误的 `schemaVersion` 返回 `invalid-backup`；数值存在但不受支持时返回 `unsupported-schema`；两种情况都必须在任何写入前终止。未来增加格式时，先在内存中按版本逐级迁移到当前格式，再执行完整校验和原子导入，不允许静默猜测字段或部分导入。
 
@@ -600,7 +580,7 @@ IndexedDB 使用独立 object store；未来 SQLite 使用对应的表：
 
 第一阶段明确保存完整 SequenceVersion 快照，不保存相邻版本 diff。若一个项目有 `V` 个命名版本、每版 `S` 个 SequenceItem，版本存储量为 O(V × S)；自动保存只写 ProjectWorkspace，因此不会随着版本数重复重写这些快照。
 
-选择完整快照是为了让任意版本可独立加载、损坏范围局部、Compare 不依赖版本链，并保持备份/恢复简单。代价是命名版本数线性增长。M5 必须增加“200 个版本 × 每版 500 项”的数据库占用、打开 Compare 和 JSON 备份大小基线；若实测超出浏览器配额或可接受备份体积，再通过 ADR 评估分块、压缩或增量版本，不在第一阶段预先引入 diff 链。
+选择完整快照是为了让任意版本可独立加载、损坏范围局部、Compare 不依赖版本链，并保持备份/恢复简单。代价是命名版本数线性增长。M4 必须增加“200 个版本 × 每版 500 项”的数据库占用、打开 Compare 和 JSON 备份大小基线；若实测超出浏览器配额或可接受备份体积，再通过 ADR 评估分块、压缩或增量版本，不在第一阶段预先引入 diff 链。
 
 ## 8. 状态与保存策略
 
@@ -628,13 +608,13 @@ flowchart LR
 
 ### 8.1 项目备份与恢复
 
-- `exportBackup` 生成顶层带 `format: "photoflex-project-backup"` 和独立 `schemaVersion: 1` 的 `.photoflex.json`，包含 Project、Pool、工作草稿、全部版本，以及被引用照片的 `sourceId + relativePath` 最小清单；
+- `exportBackup` 生成顶层带 `format: "photoflex-project-backup"` 和独立 `schemaVersion: 1` 的 `.photoflex.json`，包含 Project、Table membership、Sequence 工作草稿、全部版本，以及被引用照片的 `sourceId + relativePath` 最小清单；
 - 备份不包含原片、缩略图、绝对路径或不可序列化的浏览器文件句柄；
 - `importBackup` 按“解析 envelope → 检查备份 schemaVersion → 必要时迁移 → 校验 ID/引用/500 项硬上限 → 重映射 ID → 单事务写入”的顺序执行；第一阶段没有迁移器，只接受 schema 1；
 - 导入后生成新的 ProjectId，并一致地重映射备份中的 VersionId、SourceId、PhotoId 和 SequenceItemId，防止与现有项目冲突；所有跨版本引用必须保持一致；
 - 导入完成后要求用户按相对路径重新授权 Source 文件夹；
 - 备份导出与导入必须成对交付。它们是数据安全能力，不是摄影书/PDF 作品导出。
-- import 校验必须接受确定种子的 property-based/fuzz 测试：随机字节、截断 JSON、错误类型、深层对象、重复 ID、悬空引用、超长数组、501 项序列和未知 schema 都必须返回 typed error，不得抛出未处理异常；每个失败用例前后比较五个 object store，证明没有部分写入。
+- import 校验必须接受确定种子的 property-based/fuzz 测试：随机字节、截断 JSON、错误类型、深层对象、重复 ID、悬空引用、超长数组、501 项序列和未知 schema 都必须返回 typed error，不得抛出未处理异常；每个失败用例前后比较六个 object store，证明没有部分写入。
 
 ## 9. 网页与未来桌面端的兼容规则
 
@@ -649,10 +629,10 @@ flowchart LR
 
 | 层级 | 验证内容 | 工具 |
 |---|---|---|
-| 核心模块测试 | 排序、会话级撤销及 checkpoint、500 项硬上限、版本身份/不可变、O(n log n) diff、白板确定性推导/预览、重复 PhotoId 回写 | Vitest |
+| 核心模块测试 | Table 坐标/布局、Sequence 排序、会话级撤销及 checkpoint、500 项硬上限、版本身份/不可变、O(n log n) diff、重复 PhotoId | Vitest |
 | 适配器契约测试 | CAS 双实例冲突、成功/取消/权限/缺失文件、PreviewLease 生命周期、空间不足、损坏、版本原子创建、schema migration、备份 schema/fuzz | Vitest + IndexedDB 测试环境 |
 | 界面模块测试 | 按钮、键盘、选择状态和错误提示 | React Testing Library |
-| 核心路径 E2E | 导入 → Pool → v1 → 修改 → v2 → Compare → 重开 → 备份/恢复 | Playwright |
+| 核心路径 E2E | 导入 → Contact Sheet → Table → Sequence → v1 → 修改 → v2 → Version Compare → 重开 → 备份/恢复 | Playwright |
 | 真实浏览器性能基线 | 500/2,000/10,000 照片浏览，50/500 项排序，500 项版本 Diff p95 ≤200ms，200×500 完整版本存储/备份 | Playwright + Chromium production build + Performance API + 固定 fixture |
 
 首阶段开发默认使用 30 张 fixture；功能闭环稳定后再运行 500、2,000 和 10,000 张基线。500 项 Diff 必须在 production build 的真实 Chrome/Chromium 页面中执行：记录浏览器版本、操作系统、CPU/内存、固定随机种子，预热 5 次后至少测量 30 次并报告 p50/p95；纯 Vitest/Node 引擎耗时只能用于回归，不能作为性能 Gate 证据。
@@ -671,13 +651,12 @@ flowchart LR
 | Undo/Redo 只在当前会话有效 | 本阶段采用 |
 | Undo/Redo 结果进入自动保存队列 | 本阶段采用；只清空历史栈，不回滚已保存结果 |
 | Undo/Redo 用户提示 | Sequence 界面常驻 tooltip + 首次非阻塞说明；最后保存草稿为 checkpoint |
-| Sequence/Version 最多 500 项 | 第一阶段硬上限；Library/Pool 的大图库基线不受此限制 |
+| Sequence/Version 最多 500 项 | 第一阶段硬上限；Contact Sheet/Table 的大图库基线不受此限制 |
 | 项目 JSON 备份与恢复 | 网页 Alpha 前完成 |
 | 备份格式独立 schemaVersion | 第一阶段只接受 schema 1；未知版本在写入前拒绝 |
 | 原片零写入 | 硬约束 |
-| 白板只输出线性顺序 | 本阶段采用 |
-| 白板线性推导 | 固定行判定与 tie-break；用户预览并二次确认后才回写 |
-| 命名版本存储 | 完整快照，O(V × S)；M5 测量 200×500 场景后再决定是否优化 |
+| Table 与 Sequence 边界 | Table 坐标/关系不自动修改 Sequence 顺序；显式动作才创建或编辑 Sequence |
+| 命名版本存储 | 完整快照，O(V × S)；M4 测量 200×500 场景后再决定是否优化 |
 | 桌面端使用 Tauri 2 | 已决定；当前网页阶段不创建桌面壳 |
 | Tauri 性能、安全与 macOS Gate | 桌面 Alpha 前必须完成，当前不能视为已通过 |
 
