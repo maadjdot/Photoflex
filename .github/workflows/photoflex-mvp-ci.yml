@@ -17,11 +17,11 @@ jobs:
       run:
         working-directory: MVP_Sequence/photoflex-MVP
     steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
+      - uses: actions/checkout@v7.0.1
+      - uses: pnpm/action-setup@v6.0.10
         with:
           version: 10.15.1
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6.5.0
         with:
           node-version: 24
           cache: pnpm

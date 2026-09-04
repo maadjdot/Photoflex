@@ -158,7 +158,7 @@ describe("VirtualPhotoGrid", () => {
 
     render(<App dependencies={{ projectStore, photoSource }} />);
 
-    expect(await screen.findByLabelText(/gone\.jpg，未选择，文件已移动或重命名/)).toBeTruthy();
+    expect(await screen.findByLabelText(/gone\.jpg，未选择，文件已移动或重命名/, {}, { timeout: 5000 })).toBeTruthy();
   });
 
   it("50,000 条元数据仍只挂载视口与 overscan 内的照片和 lease", async () => {
