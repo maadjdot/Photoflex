@@ -621,8 +621,11 @@ function ProjectPage({
   );
   const persist = useCallback(async (update: WorkspaceUpdate) => {
     const saved = await save(update);
-    if (!saved) setNotice("保存失败，当前状态仍保留在页面中。");
-    return saved;
+    if (!saved.ok) {
+      setNotice("保存失败，当前状态仍保留在页面中。");
+      return false;
+    }
+    return true;
   }, [save]);
   const openedProjectRef = useRef<ProjectId | undefined>(undefined);
 

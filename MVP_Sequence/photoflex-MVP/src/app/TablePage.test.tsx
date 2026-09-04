@@ -133,8 +133,8 @@ describe("TablePage", () => {
 
     render(<App dependencies={dependencies} />);
     const card = await screen.findByLabelText("A.jpg");
-    await waitFor(() => expect(thumbnail).toHaveBeenCalledWith(photoA));
-    expect(preview).not.toHaveBeenCalled();
+    await waitFor(() => expect(preview).toHaveBeenCalledWith(photoA));
+    expect(thumbnail).not.toHaveBeenCalled();
 
     fireEvent.doubleClick(card);
     expect(preview).toHaveBeenCalledWith(photoA);
