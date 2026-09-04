@@ -434,7 +434,7 @@ function SequenceStripItem({ item, index, selected, dropBefore, segment, unit, d
   const [filename, setFilename] = useState(item.kind === "blank" ? "Blank" : "Photo");
   useEffect(() => { if (item.kind !== "photo") return; let live = true; void dependencies.photoSource.getPhoto(item.photoId).then((result) => { if (live && result.ok) setFilename(result.value.relativePath.split(/[\\/]/).at(-1) ?? result.value.relativePath); }); return () => { live = false; }; }, [dependencies.photoSource, item]);
   return <button data-sequence-index={index} data-item-id={item.id} aria-selected={selected} className={`sequence-order-item${selected ? " is-selected" : ""}${dropBefore ? " is-drop-target" : ""}`} onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={onPointerCancel}>
-    <span className="sequence-order-image">{item.kind === "photo" ? <PhotoThumb photoSource={dependencies.photoSource} photoId={item.photoId} alt="" onError={onPhotoError} /> : <span className="sequence-blank-page">BLANK</span>}<b>{String(index + 1).padStart(2, "0")}</b></span>
+    <span className="sequence-order-image">{item.kind === "photo" ? <PhotoThumb resolution="sequence" eager photoSource={dependencies.photoSource} photoId={item.photoId} alt="" onError={onPhotoError} /> : <span className="sequence-blank-page">BLANK</span>}<b>{String(index + 1).padStart(2, "0")}</b></span>
     <small>{filename}</small><em>{unit?.kind.toUpperCase()}{segment ? ` · ${segment.name}` : ""}</em>
   </button>;
 }
