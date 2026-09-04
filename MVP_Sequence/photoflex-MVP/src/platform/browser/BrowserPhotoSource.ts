@@ -66,7 +66,8 @@ const THUMBNAIL_MAX_EDGE = 512;
 // the canvas never needs to decode the original file for every mounted card.
 // 1536px keeps high-DPI canvas cards crisp while remaining much cheaper than
 // retaining original-file blobs for every visible item.
-const DERIVED_PREVIEW_CACHE_LIMIT = 24;
+const DERIVED_PREVIEW_CACHE_LIMIT = 64;
+const URL_CACHE_LIMIT = 72;
 
 const requestValue = <T>(request: IDBRequest<T>): Promise<T> =>
   new Promise((resolve, reject) => {
@@ -644,7 +645,7 @@ export class BrowserPhotoSource implements PhotoSource {
     const idle = [...this.urlCache.values()]
       .filter((cached) => cached.references === 0)
       .sort((left, right) => left.lastUsed - right.lastUsed);
-    while (this.urlCache.size > 16 && idle.length) {
+    while (this.urlCache.size > URL_CACHE_LIMIT && idle.length) {
       const cached = idle.shift()!;
       this.urlCache.delete(cached.key);
       URL.revokeObjectURL(cached.url);

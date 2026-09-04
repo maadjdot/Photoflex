@@ -2,7 +2,7 @@
 
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { err, ok, type PhotoId, type ProjectId, type SourceId } from "../contracts";
+import { err, ok, type PhotoId, type ProjectId, type ReadingUnitId, type SequenceDocument, type SequenceId, type SequenceItemId, type SequenceVersion, type SourceId, type VersionId } from "../contracts";
 import { createWorktableEditor } from "../modules/worktable";
 import { MemoryPhotoSource } from "../platform/memory/MemoryPhotoSource";
 import { MemoryProjectStore } from "../platform/memory/MemoryProjectStore";
@@ -41,6 +41,26 @@ async function createFixture() {
     previewUrls: { [photoA]: "data:image/gif;base64,R0lGODlhAQABAAAAACw=", [photoB]: "data:image/gif;base64,R0lGODlhAQABAAAAACw=" },
   }]);
   return { projectStore, photoSource };
+}
+
+async function createPileFixture() {
+  const fixture = await createFixture();
+  const workspace = await fixture.projectStore.loadWorkspace(projectId);
+  if (!workspace.ok) throw new Error("fixture workspace not loaded");
+  const sequenceId = "sequence-deletable" as SequenceId;
+  const versionId = "version-deletable" as VersionId;
+  const itemId = "item-deletable" as SequenceItemId;
+  const now = "2026-08-31T08:00:00.000Z";
+  const items = [{ id: itemId, kind: "photo" as const, photoId: photoA }];
+  const readingUnits = [{ id: "unit-deletable" as ReadingUnitId, kind: "single" as const, itemId }];
+  const sequence: SequenceDocument = { id: sequenceId, projectId, name: "Sequence 01", items, segments: [], readingUnits, currentVersionId: versionId, revision: 0 as SequenceDocument["revision"], createdAt: now, updatedAt: now };
+  const version: SequenceVersion = { id: versionId, projectId, sequenceId, name: "Initial · Sequence 01", itemCount: 1, items, segments: [], readingUnits, createdAt: now };
+  const editor = createWorktableEditor(workspace.value.worktableDraft);
+  const placed = editor.execute({ type: "place-sequence-pile", placement: { sequenceId, x: 180, y: 120, z: 2, width: 211, height: 142 } });
+  if (!placed.ok) throw new Error("fixture pile not created");
+  const created = await fixture.projectStore.createSequence(projectId, workspace.value.revision, sequence, version, placed.value);
+  if (!created.ok) throw new Error("fixture sequence not created");
+  return { ...fixture, sequenceId, sequence };
 }
 
 describe("TablePage", () => {
@@ -120,7 +140,7 @@ describe("TablePage", () => {
     expect(saved.value.sequenceIds).toEqual([]);
   });
 
-  it("Table 可见卡片使用 768px 派生图，双击才读取原图", async () => {
+  it("Table 先使用 768px 派生图，选中后渐进替换为更高清版本，双击才读取原图", async () => {
     const dependencies = await createFixture();
     const derivedPreview = vi.spyOn(dependencies.photoSource, "derivedPreview").mockImplementation(async (photoId) => ok({
       url: `table:${photoId}`,
@@ -135,6 +155,9 @@ describe("TablePage", () => {
     const card = await screen.findByLabelText("A.jpg");
     await waitFor(() => expect(derivedPreview).toHaveBeenCalledWith(photoA, 768));
     expect(preview).not.toHaveBeenCalled();
+
+    fireEvent.pointerDown(card, { pointerId: 9, button: 0, clientX: 100, clientY: 100 });
+    await waitFor(() => expect(derivedPreview).toHaveBeenCalledWith(photoA, 1536));
 
     fireEvent.doubleClick(card);
     await waitFor(() => expect(preview).toHaveBeenCalledWith(photoA));
@@ -153,6 +176,29 @@ describe("TablePage", () => {
 
     expect(await screen.findByText("浏览器存储空间不足，当前状态未覆盖。")).toBeTruthy();
     expect(screen.getByLabelText("A.jpg")).toBeTruthy();
+  });
+
+  it("删除 Table Sequence pile 会删除 Sequence，名称可复用且不能继续写入旧 Sequence", async () => {
+    const { projectStore, photoSource, sequenceId, sequence } = await createPileFixture();
+    render(<App dependencies={{ projectStore, photoSource }} />);
+
+    const pile = await screen.findByLabelText("Sequence pile Sequence 01");
+    fireEvent.pointerDown(pile, { pointerId: 10, button: 0, clientX: 200, clientY: 150 });
+    fireEvent.click(within(screen.getByLabelText("Table 工具栏")).getByRole("button", { name: "Remove" }));
+
+    await waitFor(async () => {
+      const listed = await projectStore.listSequences(projectId);
+      expect(listed.ok).toBe(true);
+      if (listed.ok) expect(listed.value).toEqual([]);
+    });
+    expect((await projectStore.loadSequence(sequenceId)).ok).toBe(false);
+    expect((await projectStore.saveSequence({ ...sequence, revision: 0 as SequenceDocument["revision"] }, 0 as SequenceDocument["revision"])).ok).toBe(false);
+
+    const deletedWorkspace = await projectStore.loadWorkspace(projectId);
+    if (!deletedWorkspace.ok) throw new Error("workspace missing after delete");
+    const recreatedSequence = { ...sequence, currentVersionId: "version-recreated" as VersionId };
+    const recreated = await projectStore.createSequence(projectId, deletedWorkspace.value.revision, recreatedSequence, { id: "version-recreated" as VersionId, projectId, sequenceId: sequence.id, name: "Initial · Sequence 01", itemCount: 1, items: sequence.items, segments: [], readingUnits: sequence.readingUnits, createdAt: sequence.createdAt }, deletedWorkspace.value.worktableDraft);
+    expect(recreated.ok).toBe(true);
   });
 
 });

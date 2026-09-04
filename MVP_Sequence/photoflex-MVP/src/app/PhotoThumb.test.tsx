@@ -36,4 +36,14 @@ describe("PhotoThumb resolution policy", () => {
     ]);
     expect(preview).toHaveBeenCalledWith(photoId);
   });
+
+  it("progressively swaps a table image to the requested higher tier", async () => {
+    const photoSource: PhotoSource = new MemoryPhotoSource();
+    const derivedPreview = vi.spyOn(photoSource, "derivedPreview").mockImplementation(async (_id: PhotoId, maxEdge: DerivedPreviewMaxEdge) => ok(lease(`derived-${maxEdge}`)));
+
+    render(<PhotoThumb photoSource={photoSource} photoId={photoId} alt="table" resolution="table" progressiveTo={1536} />);
+
+    await waitFor(() => expect(derivedPreview).toHaveBeenCalledWith(photoId, 1536));
+    expect(derivedPreview.mock.calls.map(([, maxEdge]) => maxEdge)).toEqual([768, 1536]);
+  });
 });

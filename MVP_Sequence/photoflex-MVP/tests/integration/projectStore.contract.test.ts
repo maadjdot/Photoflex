@@ -147,5 +147,30 @@ for (const implementation of implementations) {
       expect(workspace.ok && workspace.value.versionIds).toEqual([versionId]);
       expect((await stores.first.loadVersion(versionId)).ok).toBe(true);
     });
+
+    it("删除 Sequence pile 会级联删除 Sequence 与其版本，并允许复用名称", async () => {
+      const project = await stores.first.createProject(PROJECT_INPUT);
+      if (!project.ok) throw new Error("测试项目未创建");
+      const now = "2026-09-01T08:00:00.000Z";
+      const sequenceId = "sequence-delete" as SequenceId;
+      const versionId = "version-delete" as VersionId;
+      const itemId = "item-delete" as SequenceItemId;
+      const unitId = "unit-delete" as ReadingUnitId;
+      const sequence: SequenceDocument = { id: sequenceId, projectId: PROJECT_ID, name: "Reusable", items: [{ id: itemId, kind: "photo", photoId: "photo-1" as never }], segments: [], readingUnits: [{ id: unitId, kind: "single", itemId }], currentVersionId: versionId, revision: 0 as SequenceRevision, createdAt: now, updatedAt: now };
+      const version: SequenceVersion = { id: versionId, projectId: PROJECT_ID, sequenceId, name: "Initial · Reusable", itemCount: 1, items: sequence.items, segments: [], readingUnits: sequence.readingUnits, createdAt: now };
+      const created = await stores.first.createSequence(PROJECT_ID, project.value.revision, sequence, version, createEmptyWorktable(PROJECT_ID));
+      if (!created.ok) throw new Error("测试 Sequence 未创建");
+      const workspace = await stores.first.loadWorkspace(PROJECT_ID);
+      if (!workspace.ok) throw new Error("测试工作区未读取");
+      const table = createEmptyWorktable(PROJECT_ID);
+      const deleted = await stores.first.deleteSequences(PROJECT_ID, [sequenceId], workspace.value.revision, table);
+      expect(deleted.ok && deleted.value.sequenceIds).toEqual([]);
+      expect((await stores.first.loadSequence(sequenceId)).ok).toBe(false);
+      expect((await stores.first.loadVersion(versionId)).ok).toBe(false);
+      const latest = await stores.first.loadWorkspace(PROJECT_ID);
+      if (!latest.ok) throw new Error("删除后工作区未读取");
+      const recreated = await stores.first.createSequence(PROJECT_ID, latest.value.revision, { ...sequence, currentVersionId: "version-delete-2" as VersionId }, { ...version, id: "version-delete-2" as VersionId }, table);
+      expect(recreated.ok).toBe(true);
+    });
   });
 }

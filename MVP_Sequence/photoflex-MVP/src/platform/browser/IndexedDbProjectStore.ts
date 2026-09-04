@@ -296,6 +296,51 @@ export class IndexedDbProjectStore implements ProjectStore {
     });
   }
 
+  async deleteSequences(
+    projectId: ProjectId,
+    sequenceIds: readonly SequenceId[],
+    expectedWorkspaceRevision: WorkspaceRevision,
+    worktableDraft: WorktableDraft,
+  ): Promise<Result<{ readonly revision: WorkspaceRevision; readonly sequenceIds: readonly SequenceId[]; readonly versionIds: readonly VersionId[] }, SaveError>> {
+    const opened = await this.database;
+    if (!opened.ok) return opened;
+    if (worktableDraft.projectId !== projectId) return err({ kind: "not-found", entity: "project", id: projectId });
+    return new Promise((resolve) => {
+      const transaction = opened.value.transaction([STORE_NAMES.projects, STORE_NAMES.sequences, STORE_NAMES.versions], "readwrite");
+      const projects = transaction.objectStore(STORE_NAMES.projects);
+      const sequences = transaction.objectStore(STORE_NAMES.sequences);
+      const versions = transaction.objectStore(STORE_NAMES.versions);
+      const ids = [...new Set(sequenceIds)];
+      let result: Result<{ readonly revision: WorkspaceRevision; readonly sequenceIds: readonly SequenceId[]; readonly versionIds: readonly VersionId[] }, SaveError> = err({ kind: "unavailable", retryable: true });
+      transaction.oncomplete = () => resolve(result);
+      transaction.onabort = () => resolve(isQuotaError(transaction.error) ? err({ kind: "quota-exceeded" }) : err({ kind: "unavailable", retryable: true }));
+      const projectRequest = projects.get(projectId);
+      projectRequest.onsuccess = () => {
+        const workspace = projectRequest.result as ProjectWorkspace | undefined;
+        if (!workspace) { result = err({ kind: "not-found", entity: "project", id: projectId }); return; }
+        if (workspace.revision !== expectedWorkspaceRevision) { result = err({ kind: "conflict", expectedRevision: expectedWorkspaceRevision, actualRevision: workspace.revision }); return; }
+        const sequenceRequest = sequences.index("by-project-id").getAll(projectId);
+        sequenceRequest.onsuccess = () => {
+          const records = sequenceRequest.result as SequenceDocument[];
+          const selected = records.filter((sequence) => ids.includes(sequence.id));
+          const missing = ids.find((id) => !selected.some((sequence) => sequence.id === id));
+          if (missing) { result = err({ kind: "not-found", entity: "sequence", id: missing }); return; }
+          const removed = new Set(ids);
+          const versionRequest = versions.index("by-project-id").getAll(projectId);
+          versionRequest.onsuccess = () => {
+            const allVersions = versionRequest.result as SequenceVersion[];
+            const removedVersionIds = new Set(allVersions.filter((version) => removed.has(version.sequenceId)).map((version) => version.id));
+            removedVersionIds.forEach((id) => versions.delete(id));
+            ids.forEach((id) => sequences.delete(id));
+            const revision = (expectedWorkspaceRevision + 1) as WorkspaceRevision;
+            projects.put(clone({ ...workspace, sequenceIds: workspace.sequenceIds.filter((id) => !removed.has(id)), versionIds: workspace.versionIds.filter((id) => !removedVersionIds.has(id)), worktableDraft, revision, updatedAt: new Date().toISOString() }));
+            result = ok({ revision, sequenceIds: workspace.sequenceIds.filter((id) => !removed.has(id)), versionIds: workspace.versionIds.filter((id) => !removedVersionIds.has(id)) });
+          };
+        };
+      };
+    });
+  }
+
   async createVersion(
     projectId: ProjectId,
     expectedRevision: WorkspaceRevision,

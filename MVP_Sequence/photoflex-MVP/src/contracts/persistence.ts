@@ -248,6 +248,12 @@ export interface ProjectStore {
     sequence: SequenceDocument,
     expectedRevision: SequenceRevision,
   ): Promise<Result<{ readonly summary: SequenceSummary; readonly revision: SequenceRevision }, SequenceWriteError>>;
+  deleteSequences(
+    projectId: ProjectId,
+    sequenceIds: readonly SequenceId[],
+    expectedWorkspaceRevision: WorkspaceRevision,
+    worktableDraft: WorktableDraft,
+  ): Promise<Result<{ readonly revision: WorkspaceRevision; readonly sequenceIds: readonly SequenceId[]; readonly versionIds: readonly VersionId[] }, SaveError>>;
   createVersion(
     projectId: ProjectId,
     expectedRevision: WorkspaceRevision,

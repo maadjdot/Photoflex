@@ -18,7 +18,7 @@ import removeIcon from "../assets/icons/table-remove.svg";
 import rowIcon from "../assets/icons/table-row.svg";
 import sequenceIcon from "../assets/icons/table-sequence.svg";
 import undoIcon from "../assets/icons/table-undo.svg";
-import type { PhotoId, ProjectId, ReadingUnitId, SequenceDocument, SequenceId, SequenceItemId, SequenceRevision, SequenceSummary, SequenceVersion, SequenceWriteError, SourceError, VersionId, WorktableAlignment, WorktableDraft, WorktableEditCommand, WorktableEditor, WorktablePoint, WorktableViewport } from "../contracts";
+import type { DerivedPreviewMaxEdge, PhotoId, ProjectId, ReadingUnitId, SequenceDocument, SequenceId, SequenceItemId, SequenceRevision, SequenceSummary, SequenceVersion, SequenceWriteError, SourceError, VersionId, WorktableAlignment, WorktableDraft, WorktableEditCommand, WorktableEditor, WorktablePoint, WorktableViewport } from "../contracts";
 import { isPhotoSequenceItem } from "../contracts";
 import { calculateSequenceStripVirtualRange, createSequenceEditor } from "../modules/sequence";
 import { clampWorktableZoom, createWorktableEditor, screenToWorld, visibleWorktablePhotoIds, zoomAroundScreenPoint } from "../modules/worktable";
@@ -30,6 +30,8 @@ import { useProjectWorkspace, workspaceSaveErrorMessage } from "./useProjectWork
 const DEFAULT_VIEWPORT: WorktableViewport = { originX: 48, originY: 38, zoom: 1 };
 const PILE_WIDTH = 211;
 const PILE_HEIGHT = 142;
+const TABLE_IMAGE_RETENTION_MS = 20_000;
+const TABLE_RETAINED_IMAGE_LIMIT = 72;
 type Gesture =
   | { kind: "photo"; pointerId: number; start: WorktablePoint; ids: readonly PhotoId[] }
   | { kind: "pile"; pointerId: number; start: WorktablePoint; ids: readonly SequenceId[] }
@@ -41,7 +43,7 @@ interface Marquee { left: number; top: number; width: number; height: number }
 interface SequenceConfirmation { name: string; photoIds: readonly PhotoId[] }
 
 export function TablePage({ dependencies, projectId, navigate }: { dependencies: AppDependencies; projectId: ProjectId; navigate: (route: AppRoute) => void }) {
-  const { workspace, workspaceRef, setWorkspace, save, saveWorktable, loading, error } = useProjectWorkspace(dependencies, projectId);
+  const { workspace, workspaceRef, setWorkspace, save, saveWorktable, deleteSequences, loading, error } = useProjectWorkspace(dependencies, projectId);
   const [draft, setDraft] = useState<WorktableDraft>();
   const [summaries, setSummaries] = useState<readonly SequenceSummary[]>([]);
   const [activeSequence, setActiveSequence] = useState<SequenceDocument>();
@@ -65,6 +67,7 @@ export function TablePage({ dependencies, projectId, navigate }: { dependencies:
   const [alignment, setAlignment] = useState<WorktableAlignment | "">("");
   const [stageSize, setStageSize] = useState({ width: 0, height: 0 });
   const [stripSize, setStripSize] = useState({ width: 0, scrollLeft: 0 });
+  const [retainedPhotoIds, setRetainedPhotoIds] = useState<ReadonlySet<PhotoId>>(new Set());
   const stageRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<WorktableEditor | undefined>(undefined);
   const gestureRef = useRef<Gesture | undefined>(undefined);
@@ -79,11 +82,39 @@ export function TablePage({ dependencies, projectId, navigate }: { dependencies:
   const pendingDragDeltaRef = useRef<WorktablePoint>({ x: 0, y: 0 });
   const sequenceQueueRef = useRef<Promise<void>>(Promise.resolve());
   const activeSequenceRef = useRef<SequenceDocument | undefined>(undefined);
+  const photoRetentionRef = useRef(new Map<PhotoId, number>());
+  const photoRetentionTimerRef = useRef<number | undefined>(undefined);
   viewportRef.current = viewport;
   activeSequenceRef.current = activeSequence;
 
   const visiblePhotoIds = useMemo(() => draft ? visibleWorktablePhotoIds(draft, viewport, stageSize) : new Set<PhotoId>(), [draft, stageSize, viewport]);
+  const mountedPhotoIds = useMemo(() => new Set<PhotoId>([...retainedPhotoIds, ...visiblePhotoIds]), [retainedPhotoIds, visiblePhotoIds]);
   const stripRange = useMemo(() => calculateSequenceStripVirtualRange({ itemCount: activeSequence?.items.length ?? 0, viewportWidth: stripSize.width, scrollLeft: stripSize.scrollLeft }), [activeSequence?.items.length, stripSize]);
+
+  useEffect(() => {
+    const retention = photoRetentionRef.current;
+    const now = Date.now();
+    visiblePhotoIds.forEach((id) => retention.set(id, now));
+    if (photoRetentionTimerRef.current !== undefined) window.clearTimeout(photoRetentionTimerRef.current);
+    const prune = () => {
+      const cutoff = Date.now() - TABLE_IMAGE_RETENTION_MS;
+      const valid = [...retention.entries()]
+        .filter(([id, lastSeen]) => Boolean(draft?.placements[id]) && (visiblePhotoIds.has(id) || lastSeen >= cutoff))
+        .sort((left, right) => right[1] - left[1]);
+      const visible = valid.filter(([id]) => visiblePhotoIds.has(id));
+      const nearby = valid.filter(([id]) => !visiblePhotoIds.has(id)).slice(0, Math.max(0, TABLE_RETAINED_IMAGE_LIMIT - visible.length));
+      const next = new Set([...visible, ...nearby].map(([id]) => id));
+      retention.forEach((_lastSeen, id) => { if (!next.has(id) && !visiblePhotoIds.has(id)) retention.delete(id); });
+      setRetainedPhotoIds((current) => setsEqual(current, next) ? current : next);
+      const nextExpiry = valid.filter(([id, lastSeen]) => !visiblePhotoIds.has(id) && lastSeen >= cutoff).sort((left, right) => left[1] - right[1])[0];
+      if (nextExpiry) photoRetentionTimerRef.current = window.setTimeout(prune, Math.max(250, nextExpiry[1] + TABLE_IMAGE_RETENTION_MS - Date.now() + 25));
+    };
+    prune();
+    return () => {
+      if (photoRetentionTimerRef.current !== undefined) window.clearTimeout(photoRetentionTimerRef.current);
+      photoRetentionTimerRef.current = undefined;
+    };
+  }, [draft?.placements, visiblePhotoIds]);
 
   useLayoutEffect(() => {
     const stage = stageRef.current;
@@ -349,6 +380,18 @@ export function TablePage({ dependencies, projectId, navigate }: { dependencies:
     setViewport({ zoom, originX: (stage.clientWidth - (maxX - minX) * zoom) / 2 - minX * zoom, originY: (stage.clientHeight - (maxY - minY) * zoom) / 2 - minY * zoom });
   };
   const zoom = (value: number) => { const stage = stageRef.current; if (!stage) return; const rect = stage.getBoundingClientRect(); setViewport(zoomAroundScreenPoint(viewportRef.current, { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 }, rect, value)); };
+  const removeSelectedPiles = useCallback(async () => {
+    if (!draft || !pileIds.length) return;
+    const editor = createWorktableEditor(draft);
+    const removed = editor.execute({ type: "remove-sequence-piles", sequenceIds: pileIds });
+    if (!removed.ok) { setNotice("This Sequence pile could not be removed."); return; }
+    const result = await deleteSequences(pileIds, removed.value);
+    if (!result.ok) { setNotice(workspaceSaveErrorMessage(result.error)); return; }
+    editorRef.current = editor;
+    setDraft(removed.value);
+    setSelectedPiles(new Set());
+    setSummaries((items) => items.filter((item) => !pileIds.includes(item.id)));
+  }, [deleteSequences, draft, pileIds]);
   useEffect(() => {
     const stage = stageRef.current;
     if (!stage) return;
@@ -368,7 +411,7 @@ export function TablePage({ dependencies, projectId, navigate }: { dependencies:
     if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "z") { event.preventDefault(); history(event.shiftKey ? "redo" : "undo"); }
     if (event.key === "Escape") { setSelected(new Set()); setSelectedPiles(new Set()); }
     if (event.key.toLowerCase() === "s" && photoIds.length) requestSequence(photoIds);
-    if (event.key === "Delete" || event.key === "Backspace") { if (pileIds.length) { execute({ type: "remove-sequence-piles", sequenceIds: pileIds }); setSelectedPiles(new Set()); } else if (photoIds.length) { execute({ type: "remove", photoIds }); setSelected(new Set()); } }
+    if (event.key === "Delete" || event.key === "Backspace") { if (pileIds.length) { void removeSelectedPiles(); } else if (photoIds.length) { execute({ type: "remove", photoIds }); setSelected(new Set()); } }
   };
 
   if (loading || !draft) return <main className="page centered-state"><div className="loading-mark" /><p>Loading Table…</p></main>;
@@ -415,7 +458,7 @@ export function TablePage({ dependencies, projectId, navigate }: { dependencies:
       <span className="table-toolbar-divider" />
       <div className="table-toolbar-group">
         <TableToolButton icon={frontIcon} label="Front" disabled={!photoIds.length && !pileIds.length} onClick={() => pileIds.length ? execute({ type: "bring-sequence-piles-to-front", sequenceIds: pileIds }) : execute({ type: "bring-to-front", photoIds })} />
-        <TableToolButton className="is-danger" icon={removeIcon} label="Remove" disabled={!photoIds.length && !pileIds.length} onClick={() => { if (pileIds.length) { execute({ type: "remove-sequence-piles", sequenceIds: pileIds }); setSelectedPiles(new Set()); } else { execute({ type: "remove", photoIds }); setSelected(new Set()); } }} />
+        <TableToolButton className="is-danger" icon={removeIcon} label="Remove" disabled={!photoIds.length && !pileIds.length} onClick={() => { if (pileIds.length) void removeSelectedPiles(); else { execute({ type: "remove", photoIds }); setSelected(new Set()); } }} />
       </div>
       <span className="table-toolbar-spacer" />
       <div className="table-toolbar-status">
@@ -432,7 +475,7 @@ export function TablePage({ dependencies, projectId, navigate }: { dependencies:
       <div className="worktable-world" style={{ transform: `translate3d(${viewport.originX}px,${viewport.originY}px,0) scale(${viewport.zoom})` }}>
         <svg className="worktable-links">{draft.links.flatMap((link) => link.photoIds.slice(1).map((id, i) => { const a = draft.placements[link.photoIds[i]], b = draft.placements[id]; return <line key={`${link.id}-${id}`} x1={a.x + a.width / 2} y1={a.y + a.height / 2} x2={b.x + b.width / 2} y2={b.y + b.height / 2} />; }))}</svg>
         {draft.groups.map((g) => { const box = groupBounds(draft, g.photoIds); return <div key={g.id} className="worktable-group-frame" style={{ left: box.left, top: box.top, width: box.width, height: box.height }}><span>{g.name} · {g.photoIds.length}</span></div>; })}
-        {draft.entryOrder.map((id) => { const item = draft.placements[id], chosen = selected.has(id), delta = chosen && gestureRef.current?.kind === "photo" ? dragDelta : { x: 0, y: 0 }, scale = gestureRef.current?.kind === "resize" && gestureRef.current.photoId === id ? resizeScale : 1; return <article key={id} aria-label={item.filename} className={`worktable-card${chosen ? " is-selected" : ""}${missing.has(id) ? " is-missing" : ""}`} style={{ width: item.width * scale, height: item.height * scale, zIndex: item.z, transform: `translate3d(${item.x + delta.x}px,${item.y + delta.y}px,0)` }} onPointerDown={(event) => onPhotoDown(event, id)} onDoubleClick={() => setPreviewPhotoId(id)}><div className="worktable-photo" style={{ height: item.height * scale }}>{visiblePhotoIds.has(id) ? <PhotoThumb photoSource={dependencies.photoSource} photoId={id} alt={item.filename} onError={onPhotoError} resolution="table" /> : <div className="thumb-placeholder" aria-hidden="true" />}{missing.has(id) && <span className="worktable-missing">MISSING</span>}</div>{chosen && photoIds.length === 1 && <button aria-label="Resize photo" className="worktable-resize-handle" onPointerDown={(event) => onResizeDown(event, id)} />}</article>; })}
+        {draft.entryOrder.map((id) => { const item = draft.placements[id], chosen = selected.has(id), delta = chosen && gestureRef.current?.kind === "photo" ? dragDelta : { x: 0, y: 0 }, scale = gestureRef.current?.kind === "resize" && gestureRef.current.photoId === id ? resizeScale : 1; return <article key={id} aria-label={item.filename} className={`worktable-card${chosen ? " is-selected" : ""}${missing.has(id) ? " is-missing" : ""}`} style={{ width: item.width * scale, height: item.height * scale, zIndex: item.z, transform: `translate3d(${item.x + delta.x}px,${item.y + delta.y}px,0)` }} onPointerDown={(event) => onPhotoDown(event, id)} onDoubleClick={() => setPreviewPhotoId(id)}><div className="worktable-photo" style={{ height: item.height * scale }}>{mountedPhotoIds.has(id) ? <PhotoThumb photoSource={dependencies.photoSource} photoId={id} alt={item.filename} onError={onPhotoError} resolution="table" progressiveTo={visiblePhotoIds.has(id) ? tablePreviewEdge(viewport.zoom, chosen) : 768} /> : <div className="thumb-placeholder" aria-hidden="true" />}{missing.has(id) && <span className="worktable-missing">MISSING</span>}</div>{chosen && photoIds.length === 1 && <button aria-label="Resize photo" className="worktable-resize-handle" onPointerDown={(event) => onResizeDown(event, id)} />}</article>; })}
         {draft.pileOrder.map((id) => { const pile = draft.pilePlacements[id], summary = summaries.find((x) => x.id === id), chosen = selectedPiles.has(id), delta = chosen && gestureRef.current?.kind === "pile" ? dragDelta : { x: 0, y: 0 }, scale = gestureRef.current?.kind === "resize-pile" && gestureRef.current.sequenceId === id ? pileResizeScale : 1; return <article key={id} aria-label={`Sequence pile ${summary?.name ?? "Missing Sequence"}`} className={`sequence-pile${chosen ? " is-selected" : ""}`} style={{ width: pile.width * scale, height: pile.height * scale, zIndex: pile.z, transform: `translate3d(${pile.x + delta.x - (pile.width * (scale - 1)) / 2}px,${pile.y + delta.y - (pile.height * (scale - 1)) / 2}px,0)` }} onPointerDown={(event) => onPileDown(event, id)} onDoubleClick={(event) => { event.stopPropagation(); navigate({ name: "sequence", projectId, sequenceId: id }); }}><header><strong>{summary?.name ?? "Missing Sequence"}</strong><span>{summary?.itemCount ?? 0}</span></header><div className="sequence-pile-thumbs">{summary?.previewPhotoIds.map((photoId, index) => <span key={`${photoId}-${index}`}><PhotoThumb photoSource={dependencies.photoSource} photoId={photoId} alt="" onError={onPhotoError} /></span>)}</div><small>Double-click to open</small>{chosen && <button aria-label="Resize sequence pile" className="worktable-resize-handle sequence-pile-resize-handle" onPointerDown={(event) => onPileResizeDown(event, id)} />}</article>; })}
       </div>
       {marquee && <div className="worktable-marquee" style={marquee} />}
@@ -465,6 +508,12 @@ function groupBounds(draft: WorktableDraft, ids: readonly PhotoId[]) { const x =
 function maximumZ(draft: WorktableDraft) { return Math.max(-1, ...Object.values(draft.placements).map((x) => x.z), ...Object.values(draft.pilePlacements).map((x) => x.z)); }
 function movePhoto(items: readonly PhotoId[], id: PhotoId, to: number) { const rest = items.filter((x) => x !== id), target = items.slice(0, to).filter((x) => x !== id).length; return [...rest.slice(0, target), id, ...rest.slice(target)]; }
 function newId(prefix: string) { return globalThis.crypto?.randomUUID?.() ?? `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2)}`; }
+function setsEqual(left: ReadonlySet<PhotoId>, right: ReadonlySet<PhotoId>) { return left.size === right.size && [...left].every((id) => right.has(id)); }
+function tablePreviewEdge(zoom: number, selected: boolean): DerivedPreviewMaxEdge {
+  if (zoom >= 4) return 2048;
+  if (selected || zoom >= 2) return 1536;
+  return 768;
+}
 function sequenceSaveErrorMessage(kind: SequenceWriteError["kind"]): string {
   if (kind === "sequence-conflict") return "Sequence 已在其他标签页更新，请重新载入。";
   if (kind === "not-found") return "Sequence 已不存在。";

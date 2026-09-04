@@ -6,6 +6,7 @@ import {
   type ProjectWorkspace,
   type Result,
   type SaveError,
+  type SequenceId,
   type WorktableDraft,
 } from "../contracts";
 import type { AppDependencies } from "./dependencies";
@@ -110,5 +111,27 @@ export function useProjectWorkspace(dependencies: AppDependencies, projectId: Pr
     [dependencies.projectStore, projectId],
   );
 
-  return { workspace, workspaceRef, setWorkspace, save, saveWorktable, loading, error };
+  const deleteSequences = useCallback(
+    (sequenceIds: readonly SequenceId[], worktableDraft: WorktableDraft): Promise<WorkspaceSaveResult> => {
+      const requestedProjectId = projectId;
+      const requestedGeneration = generationRef.current;
+      const run = async () => {
+        const current = workspaceRef.current;
+        if (!current || current.projectId !== requestedProjectId || worktableDraft.projectId !== requestedProjectId || projectIdRef.current !== requestedProjectId || generationRef.current !== requestedGeneration) return err({ kind: "workspace-not-ready" } as const);
+        const result = await dependencies.projectStore.deleteSequences(requestedProjectId, sequenceIds, current.revision, worktableDraft);
+        if (!result.ok) return result;
+        if (projectIdRef.current !== requestedProjectId || generationRef.current !== requestedGeneration) return err({ kind: "workspace-not-ready" } as const);
+        const saved = { ...current, worktableDraft, sequenceIds: result.value.sequenceIds, versionIds: result.value.versionIds, updatedAt: new Date().toISOString(), revision: result.value.revision };
+        workspaceRef.current = saved;
+        setWorkspace(saved);
+        return ok(saved);
+      };
+      const pending = saveQueueRef.current.then(run, run);
+      saveQueueRef.current = pending.then(() => undefined, () => undefined);
+      return pending;
+    },
+    [dependencies.projectStore, projectId],
+  );
+
+  return { workspace, workspaceRef, setWorkspace, save, saveWorktable, deleteSequences, loading, error };
 }

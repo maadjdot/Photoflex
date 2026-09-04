@@ -285,6 +285,32 @@ export class MemoryProjectStore implements ProjectStore {
     return ok({ summary: toSequenceSummary(saved), revision });
   }
 
+  async deleteSequences(
+    projectId: ProjectId,
+    sequenceIds: readonly SequenceId[],
+    expectedWorkspaceRevision: WorkspaceRevision,
+    worktableDraft: WorktableDraft,
+  ): Promise<Result<{ readonly revision: WorkspaceRevision; readonly sequenceIds: readonly SequenceId[]; readonly versionIds: readonly VersionId[] }, SaveError>> {
+    if (this.options.unavailable) return err({ kind: "unavailable", retryable: true });
+    if (worktableDraft.projectId !== projectId) return err({ kind: "not-found", entity: "project", id: projectId });
+    const workspace = this.database.projects.get(projectId);
+    if (!workspace) return err({ kind: "not-found", entity: "project", id: projectId });
+    if (workspace.revision !== expectedWorkspaceRevision) return err({ kind: "conflict", expectedRevision: expectedWorkspaceRevision, actualRevision: workspace.revision });
+    const ids = [...new Set(sequenceIds)];
+    for (const sequenceId of ids) {
+      const sequence = this.database.sequences.get(sequenceId);
+      if (!sequence || sequence.projectId !== projectId) return err({ kind: "not-found", entity: "sequence", id: sequenceId });
+    }
+    const removed = new Set(ids);
+    const removedVersionIds = new Set([...this.database.versions.values()].filter((version) => removed.has(version.sequenceId)).map((version) => version.id));
+    const versionIds = workspace.versionIds.filter((versionId) => !removedVersionIds.has(versionId));
+    ids.forEach((sequenceId) => this.database.sequences.delete(sequenceId));
+    removedVersionIds.forEach((versionId) => this.database.versions.delete(versionId));
+    const revision = (expectedWorkspaceRevision + 1) as WorkspaceRevision;
+    this.database.projects.set(projectId, clone({ ...workspace, sequenceIds: workspace.sequenceIds.filter((id) => !removed.has(id)), versionIds, worktableDraft, revision, updatedAt: new Date().toISOString() }));
+    return ok({ revision, sequenceIds: workspace.sequenceIds.filter((id) => !removed.has(id)), versionIds });
+  }
+
   async listVersions(projectId: ProjectId): Promise<Result<readonly VersionSummary[], LoadError>> {
     const loaded = await this.loadWorkspace(projectId);
     if (!loaded.ok) return loaded;
