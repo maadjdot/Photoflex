@@ -106,7 +106,7 @@ describe("TablePage", () => {
     fireEvent.click(screen.getByRole("button", { name: "Close preview" }));
 
     const mainNavigation = screen.getByLabelText("主导航");
-    const contactSheet = within(mainNavigation).getByRole("button", { name: "Contact Sheet" });
+    const contactSheet = within(mainNavigation).getByRole("button", { name: "Photos" });
     await waitFor(() => expect((contactSheet as HTMLButtonElement).disabled).toBe(false));
     fireEvent.click(contactSheet);
     expect(window.location.hash).toBe(`#/projects/${projectId}/sources/${sourceId}`);

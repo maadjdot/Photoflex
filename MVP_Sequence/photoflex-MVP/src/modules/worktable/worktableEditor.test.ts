@@ -19,7 +19,7 @@ describe("WorktableEditor", () => {
     expect(repeated.ok).toBe(true);
     if (!repeated.ok) return;
     expect(repeated.value.entryOrder).toEqual(["a", "b", "c"]);
-    expect(repeated.value.placements[photoId("b")].x).toBe(347);
+    expect(repeated.value.placements[photoId("b")].x).toBe(339);
   });
 
   it("rejects duplicate request ids without changing history", () => {

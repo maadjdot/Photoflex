@@ -145,7 +145,7 @@ export function ProjectPage({
       <ProjectRail dependencies={dependencies} currentProjectId={projectId} currentPhotoCount={totalIndexed(states)} navigate={navigate} />
       <section className="workspace-main">
         <div className="workspace-heading">
-          <div><InlineTitle value={workspace.name} onSave={updateName} /><p className="subtitle">管理照片来源，并从 Contact Sheet 进入选片桌面</p></div>
+          <div><InlineTitle value={workspace.name} onSave={updateName} /><p className="subtitle">管理照片来源，并从 Photos 进入选片桌面</p></div>
           <div className="workspace-actions">
             <button className="button button-danger" disabled={deletingProject} onClick={() => void deleteProject()}>{deletingProject ? "Deleting…" : "Delete project"}</button>
             <button className="button button-primary" onClick={addSource}>Add photo folder</button>

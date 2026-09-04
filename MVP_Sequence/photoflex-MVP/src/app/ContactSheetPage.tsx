@@ -228,7 +228,7 @@ export function ContactSheetPage({
       <section className="workspace-main contact-main">
         <div className="workspace-heading contact-heading">
           <h1>{source.displayName}</h1>
-          <div className="sheet-zoom" aria-label="Contact Sheet 缩放">
+          <div className="sheet-zoom" aria-label="Photos 缩放">
             <button onClick={() => setGridZoom((value) => Math.max(50, value - 25))} disabled={gridZoom === 50} aria-label="缩小照片">−</button>
             <span>{gridZoom}%</span>
             <button onClick={() => setGridZoom((value) => Math.min(125, value + 25))} disabled={gridZoom === 125} aria-label="放大照片">＋</button>

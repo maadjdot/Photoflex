@@ -12,7 +12,7 @@ import type { SequenceDocument, SequenceSummary } from "./sequence";
 import type { SequenceVersion, VersionSummary } from "./versioning";
 import type { PhotoState, WorktableDraft, WorktableViewport } from "./worktable";
 
-export const INDEXED_DB_SCHEMA_VERSION = 7 as const;
+export const INDEXED_DB_SCHEMA_VERSION = 8 as const;
 export const WORKSPACE_SCHEMA_VERSION = 6 as const;
 
 export type SourceStatus =
@@ -54,6 +54,8 @@ export interface PhotoRef {
   readonly relativePath: string;
   readonly width: number;
   readonly height: number;
+  readonly fileSize?: number;
+  readonly fileLastModified?: number;
 }
 
 export interface PhotoPage {

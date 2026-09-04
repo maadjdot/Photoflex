@@ -14,6 +14,7 @@ export const STORE_NAMES = {
   photoIndex: "photo-index",
   sourceGrants: "source-grants",
   photoThumbnails: "photo-thumbnails",
+  photoDerivedPreviews: "photo-derived-previews",
 } as const;
 
 interface OpenDatabaseOptions {
@@ -158,6 +159,12 @@ export function migrateToV7(transaction: IDBTransaction): void {
   };
 }
 
+export function migrateToV8(database: IDBDatabase): void {
+  if (!database.objectStoreNames.contains(STORE_NAMES.photoDerivedPreviews)) {
+    database.createObjectStore(STORE_NAMES.photoDerivedPreviews, { keyPath: ["photoId", "maxEdge"] });
+  }
+}
+
 export function openPhotoFlexDatabase(
   options: OpenDatabaseOptions = {},
 ): Promise<Result<IDBDatabase, StorageAccessError>> {
@@ -208,6 +215,7 @@ export function openPhotoFlexDatabase(
           // v6 performs the complete row normalization in one cursor pass.
           if (migrationFrom < 6) migrateToV6(request.result, request.transaction!);
           else if (migrationFrom < 7) migrateToV7(request.transaction!);
+          if (migrationFrom < 8) migrateToV8(request.result);
         } catch {
           migrationFailed = true;
           request.transaction?.abort();

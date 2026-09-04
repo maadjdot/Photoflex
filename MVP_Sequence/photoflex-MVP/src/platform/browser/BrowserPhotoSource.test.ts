@@ -265,4 +265,29 @@ describe("BrowserPhotoSource", () => {
     expect(directory.getFileReadCount() - readsBefore).toBe(2);
     if (cached.ok) cached.value.release();
   });
+
+  it("persists derived previews beyond the in-memory cache", async () => {
+    const directory = createDirectory("persistent-preview", "Persistent preview", ["same.jpg"]);
+    const databaseName = `photoflex-source-${crypto.randomUUID()}`;
+    const source = new BrowserPhotoSource({ databaseName, picker: async () => directory.handle });
+    databases.push(source);
+
+    const grant = await source.chooseFolder([]);
+    expect(grant.ok).toBe(true);
+    if (!grant.ok) return;
+    await scanToEnd(source, grant.value.sourceId);
+    const page = await source.listPhotos(grant.value.sourceId);
+    expect(page.ok).toBe(true);
+    if (!page.ok) return;
+
+    const first = await source.derivedPreview(page.value.items[0].id, 768);
+    expect(first.ok).toBe(true);
+    if (first.ok) first.value.release();
+    const readsAfterGeneration = directory.getFileReadCount();
+    (source as unknown as { derivedPreviewCache: Map<string, unknown> }).derivedPreviewCache.clear();
+    const cached = await source.derivedPreview(page.value.items[0].id, 768);
+    expect(cached.ok).toBe(true);
+    expect(directory.getFileReadCount()).toBe(readsAfterGeneration);
+    if (cached.ok) cached.value.release();
+  });
 });

@@ -261,7 +261,7 @@ describe("VirtualPhotoGrid", () => {
 
     expect(await screen.findByRole("heading", { name: "Raw Selects" })).toBeTruthy();
     expect(screen.getByPlaceholderText("Search Project")).toBeTruthy();
-    expect(screen.getByLabelText("Contact Sheet 缩放").textContent).toContain("75%");
+    expect(screen.getByLabelText("Photos 缩放").textContent).toContain("75%");
   });
 
   it("预览用 CSS 一次适应全图，并由 PhotoFlex 接管 Ctrl 加滚轮", async () => {

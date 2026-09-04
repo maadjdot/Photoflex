@@ -22,9 +22,9 @@ export const DEFAULT_WORKTABLE_CARD_HEIGHT = 175;
 export const DEFAULT_WORKTABLE_GAP = 24;
 
 const DEFAULT_ORIGIN = { x: 64, y: 64 } as const;
-const DEFAULT_COLUMNS = 4;
-const DEFAULT_CELL_WIDTH = DEFAULT_WORKTABLE_CARD_WIDTH + 48;
-const DEFAULT_CELL_HEIGHT = DEFAULT_WORKTABLE_CARD_HEIGHT + 88;
+const DEFAULT_COLUMNS = 7;
+const DEFAULT_CELL_WIDTH = DEFAULT_WORKTABLE_CARD_WIDTH + 40;
+const DEFAULT_CELL_HEIGHT = DEFAULT_WORKTABLE_CARD_HEIGHT + 72;
 
 export function createEmptyWorktable(projectId: WorktableDraft["projectId"]): WorktableDraft {
   return { projectId, entryOrder: [], placements: {}, groups: [], links: [], pileOrder: [], pilePlacements: {} };
@@ -45,7 +45,19 @@ export function migratePoolToWorktable(
       filename: placeholderFilename(photoId),
     })),
   });
-  return editor.snapshot();
+  const migrated = editor.snapshot();
+  // Keep the historical pool migration geometry stable. New placements use
+  // the more compact seven-column layout, but existing projects should not
+  // jump when their legacy pool is converted to a Table draft.
+  const placements = Object.fromEntries(uniquePhotoIds.map((photoId, index) => {
+    const placement = migrated.placements[photoId];
+    return [photoId, {
+      ...placement,
+      x: DEFAULT_ORIGIN.x + (index % 4) * 283,
+      y: DEFAULT_ORIGIN.y + Math.floor(index / 4) * 263,
+    }];
+  })) as WorktableDraft["placements"];
+  return { ...migrated, placements };
 }
 
 export function createWorktableEditor(initial: WorktableDraft): WorktableEditor {

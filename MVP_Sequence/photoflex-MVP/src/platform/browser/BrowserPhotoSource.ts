@@ -42,6 +42,14 @@ interface StoredThumbnail {
   readonly photoId: PhotoId;
   readonly blob: Blob;
   readonly maxEdge?: number;
+  readonly sourceVersion?: string;
+}
+
+interface StoredDerivedPreview {
+  readonly photoId: PhotoId;
+  readonly maxEdge: DerivedPreviewMaxEdge;
+  readonly sourceVersion: string;
+  readonly blob: Blob;
 }
 
 interface CachedUrl {
@@ -54,6 +62,7 @@ interface CachedUrl {
 
 interface CachedDerivedPreview {
   readonly blob: Blob;
+  readonly sourceVersion: string;
   lastUsed: number;
 }
 
@@ -93,11 +102,20 @@ const initialState = (sourceId: SourceId, status: SourceRuntimeState["status"]):
 
 const isJpeg = (name: string): boolean => /\.(jpe?g)$/i.test(name);
 
+const photoVersion = (photo: PhotoRef): string => [
+  photo.relativePath,
+  photo.width,
+  photo.height,
+  photo.fileSize ?? "unknown-size",
+  photo.fileLastModified ?? "unknown-mtime",
+].join("|");
+
 const toSourceError = (): SourceError => ({ kind: "io", retryable: true });
 
 export class BrowserPhotoSource implements PhotoSource {
   private readonly handles = new Map<SourceId, FileSystemDirectoryHandle>();
   private readonly states = new Map<SourceId, SourceRuntimeState>();
+  private readonly photoVersions = new Map<PhotoId, string>();
   private readonly urlCache = new Map<string, CachedUrl>();
   private readonly thumbnailJobs = new Map<PhotoId, Promise<Result<Blob, SourceError>>>();
   private readonly derivedPreviewJobs = new Map<string, Promise<Result<Blob, SourceError>>>();
@@ -127,6 +145,7 @@ export class BrowserPhotoSource implements PhotoSource {
     for (const cached of this.urlCache.values()) URL.revokeObjectURL(cached.url);
     this.urlCache.clear();
     this.derivedPreviewCache.clear();
+    this.photoVersions.clear();
   }
 
   async chooseFolder(
@@ -215,20 +234,23 @@ export class BrowserPhotoSource implements PhotoSource {
     try {
       const photos = await this.readSourcePhotos(opened.value, sourceId);
       const transaction = opened.value.transaction(
-        [STORE_NAMES.sourceGrants, STORE_NAMES.photoIndex, STORE_NAMES.photoThumbnails],
+        [STORE_NAMES.sourceGrants, STORE_NAMES.photoIndex, STORE_NAMES.photoThumbnails, STORE_NAMES.photoDerivedPreviews],
         "readwrite",
       );
       transaction.objectStore(STORE_NAMES.sourceGrants).delete(sourceId);
       const photoStore = transaction.objectStore(STORE_NAMES.photoIndex);
       const thumbnailStore = transaction.objectStore(STORE_NAMES.photoThumbnails);
+      const derivedStore = transaction.objectStore(STORE_NAMES.photoDerivedPreviews);
       for (const photo of photos) {
         photoStore.delete(photo.id);
         thumbnailStore.delete(photo.id);
+        for (const maxEdge of [768, 1536, 2048] as const) derivedStore.delete([photo.id, maxEdge]);
       }
       await transactionResult(transaction);
       this.handles.delete(sourceId);
       this.states.delete(sourceId);
       for (const photo of photos) {
+        this.photoVersions.delete(photo.id);
         this.dropCachedUrl(`thumbnail:${photo.id}`);
         this.dropCachedUrl(`preview:${photo.id}`);
         this.thumbnailJobs.delete(photo.id);
@@ -236,7 +258,9 @@ export class BrowserPhotoSource implements PhotoSource {
           const key = `derived:${maxEdge}:${photo.id}`;
           this.dropCachedUrl(key);
           this.derivedPreviewCache.delete(key);
-          this.derivedPreviewJobs.delete(key);
+          for (const jobKey of this.derivedPreviewJobs.keys()) {
+            if (jobKey.startsWith(`${key}:`)) this.derivedPreviewJobs.delete(jobKey);
+          }
         }
       }
       return ok({ photoIds: photos.map((photo) => photo.id) });
@@ -294,13 +318,17 @@ export class BrowserPhotoSource implements PhotoSource {
           const file = await entry.handle.getFile();
           const dimensions = await readDimensions(file);
           const previous = byPath.get(entry.relativePath);
-          batch.push({
+          const indexedPhoto: PhotoRef = {
             id: previous?.id ?? (crypto.randomUUID() as PhotoId),
             sourceId,
             relativePath: entry.relativePath,
             width: dimensions.width,
             height: dimensions.height,
-          });
+            fileSize: file.size,
+            fileLastModified: file.lastModified,
+          };
+          batch.push(indexedPhoto);
+          this.photoVersions.set(indexedPhoto.id, photoVersion(indexedPhoto));
         } catch {
           state = { ...state, failedCount: state.failedCount + 1 };
         }
@@ -386,12 +414,7 @@ export class BrowserPhotoSource implements PhotoSource {
     const opened = await this.database;
     if (!opened.ok) return err(toSourceError());
     try {
-      const photo = await requestValue<PhotoRef | undefined>(
-        opened.value
-          .transaction(STORE_NAMES.photoIndex, "readonly")
-          .objectStore(STORE_NAMES.photoIndex)
-          .get(photoId),
-      );
+      const photo = await this.readStoredPhoto(opened.value, photoId);
       return photo ? ok(photo) : err({ kind: "photo-not-found", photoId });
     } catch {
       return err(toSourceError());
@@ -401,19 +424,21 @@ export class BrowserPhotoSource implements PhotoSource {
   async thumbnail(photoId: PhotoId): Promise<Result<PreviewLease, SourceError>> {
     const opened = await this.database;
     if (!opened.ok) return err(toSourceError());
+    const sourceVersion = await this.getPhotoVersion(opened.value, photoId);
+    if (!sourceVersion) return err({ kind: "photo-not-found", photoId });
     const stored = await requestValue<StoredThumbnail | undefined>(
       opened.value
         .transaction(STORE_NAMES.photoThumbnails, "readonly")
         .objectStore(STORE_NAMES.photoThumbnails)
         .get(photoId),
     ).catch(() => undefined);
-    if (stored?.maxEdge === THUMBNAIL_MAX_EDGE) {
+    if (stored?.maxEdge === THUMBNAIL_MAX_EDGE && stored.sourceVersion === sourceVersion) {
       return ok(this.createLease(`thumbnail:${photoId}`, stored.blob));
     }
 
     let job = this.thumbnailJobs.get(photoId);
     if (!job) {
-      job = this.generateThumbnail(opened.value, photoId);
+      job = this.generateThumbnail(opened.value, photoId, sourceVersion);
       this.thumbnailJobs.set(photoId, job);
       void job.finally(() => {
         if (this.thumbnailJobs.get(photoId) === job) this.thumbnailJobs.delete(photoId);
@@ -435,24 +460,42 @@ export class BrowserPhotoSource implements PhotoSource {
   async derivedPreview(photoId: PhotoId, maxEdge: DerivedPreviewMaxEdge): Promise<Result<PreviewLease, SourceError>> {
     const opened = await this.database;
     if (!opened.ok) return err(toSourceError());
+    const sourceVersion = await this.getPhotoVersion(opened.value, photoId);
+    if (!sourceVersion) return err({ kind: "photo-not-found", photoId });
     const key = `derived:${maxEdge}:${photoId}`;
     const cached = this.derivedPreviewCache.get(key);
-    if (cached) {
+    if (cached?.sourceVersion === sourceVersion) {
       cached.lastUsed = ++this.urlClock;
       return ok(this.createLease(key, cached.blob));
     }
+    if (cached) this.derivedPreviewCache.delete(key);
 
-    let job = this.derivedPreviewJobs.get(key);
+    const stored = maxEdge === 768
+      ? await requestValue<StoredDerivedPreview | undefined>(
+        opened.value
+          .transaction(STORE_NAMES.photoDerivedPreviews, "readonly")
+          .objectStore(STORE_NAMES.photoDerivedPreviews)
+          .get([photoId, maxEdge]),
+      ).catch(() => undefined)
+      : undefined;
+    if (stored?.sourceVersion === sourceVersion) {
+      this.derivedPreviewCache.set(key, { blob: stored.blob, sourceVersion, lastUsed: ++this.urlClock });
+      this.trimDerivedPreviewCache();
+      return ok(this.createLease(key, stored.blob));
+    }
+
+    const jobKey = `${key}:${sourceVersion}`;
+    let job = this.derivedPreviewJobs.get(jobKey);
     if (!job) {
-      job = this.generateDerivedPreview(opened.value, photoId, maxEdge);
-      this.derivedPreviewJobs.set(key, job);
+      job = this.generateDerivedPreview(opened.value, photoId, maxEdge, sourceVersion);
+      this.derivedPreviewJobs.set(jobKey, job);
       void job.finally(() => {
-        if (this.derivedPreviewJobs.get(key) === job) this.derivedPreviewJobs.delete(key);
+        if (this.derivedPreviewJobs.get(jobKey) === job) this.derivedPreviewJobs.delete(jobKey);
       });
     }
     const generated = await job;
     if (!generated.ok) return generated;
-    this.derivedPreviewCache.set(key, { blob: generated.value, lastUsed: ++this.urlClock });
+    this.derivedPreviewCache.set(key, { blob: generated.value, sourceVersion, lastUsed: ++this.urlClock });
     this.trimDerivedPreviewCache();
     return ok(this.createLease(key, generated.value));
   }
@@ -465,14 +508,14 @@ export class BrowserPhotoSource implements PhotoSource {
     }
   }
 
-  private async generateThumbnail(database: IDBDatabase, photoId: PhotoId): Promise<Result<Blob, SourceError>> {
+  private async generateThumbnail(database: IDBDatabase, photoId: PhotoId, sourceVersion: string): Promise<Result<Blob, SourceError>> {
     await this.acquireThumbnailSlot();
     try {
       const file = await this.readPhotoFile(database, photoId);
       if (!file.ok) return file;
       const blob = await createThumbnail(file.value);
       const transaction = database.transaction(STORE_NAMES.photoThumbnails, "readwrite");
-      transaction.objectStore(STORE_NAMES.photoThumbnails).put({ photoId, blob, maxEdge: THUMBNAIL_MAX_EDGE } satisfies StoredThumbnail);
+      transaction.objectStore(STORE_NAMES.photoThumbnails).put({ photoId, blob, maxEdge: THUMBNAIL_MAX_EDGE, sourceVersion } satisfies StoredThumbnail);
       await transactionResult(transaction);
       return ok(blob);
     } catch {
@@ -482,12 +525,16 @@ export class BrowserPhotoSource implements PhotoSource {
     }
   }
 
-  private async generateDerivedPreview(database: IDBDatabase, photoId: PhotoId, maxEdge: number): Promise<Result<Blob, SourceError>> {
+  private async generateDerivedPreview(database: IDBDatabase, photoId: PhotoId, maxEdge: DerivedPreviewMaxEdge, sourceVersion: string): Promise<Result<Blob, SourceError>> {
     await this.acquireThumbnailSlot();
     try {
       const file = await this.readPhotoFile(database, photoId);
       if (!file.ok) return file;
-      return ok(await createResizedPreview(file.value, maxEdge));
+      const blob = await createResizedPreview(file.value, maxEdge);
+      // Persistence is best effort: a full disk must not turn an otherwise
+      // usable preview into a visible loading error.
+      if (maxEdge === 768) await this.persistDerivedPreview(database, { photoId, maxEdge, sourceVersion, blob });
+      return ok(blob);
     } catch {
       return err({ kind: "preview-unavailable", photoId });
     } finally {
@@ -507,6 +554,32 @@ export class BrowserPhotoSource implements PhotoSource {
     const next = this.thumbnailWaiters.shift();
     if (next) next();
     else this.activeThumbnailJobs -= 1;
+  }
+
+  private async readStoredPhoto(database: IDBDatabase, photoId: PhotoId): Promise<PhotoRef | undefined> {
+    return requestValue<PhotoRef | undefined>(
+      database.transaction(STORE_NAMES.photoIndex, "readonly").objectStore(STORE_NAMES.photoIndex).get(photoId),
+    );
+  }
+
+  private async getPhotoVersion(database: IDBDatabase, photoId: PhotoId): Promise<string | undefined> {
+    const cached = this.photoVersions.get(photoId);
+    if (cached) return cached;
+    const photo = await this.readStoredPhoto(database, photoId).catch(() => undefined);
+    if (!photo) return undefined;
+    const version = photoVersion(photo);
+    this.photoVersions.set(photoId, version);
+    return version;
+  }
+
+  private async persistDerivedPreview(database: IDBDatabase, preview: StoredDerivedPreview): Promise<void> {
+    try {
+      const transaction = database.transaction(STORE_NAMES.photoDerivedPreviews, "readwrite");
+      transaction.objectStore(STORE_NAMES.photoDerivedPreviews).put(preview);
+      await transactionResult(transaction);
+    } catch {
+      // Browser quota and private-mode failures should not block the preview.
+    }
   }
 
   private async loadHandle(sourceId: SourceId, database: IDBDatabase): Promise<FileSystemDirectoryHandle | undefined> {
@@ -598,9 +671,7 @@ export class BrowserPhotoSource implements PhotoSource {
   }
 
   private async readPhotoFile(database: IDBDatabase, photoId: PhotoId): Promise<Result<Blob, SourceError>> {
-    const photo = await requestValue<PhotoRef | undefined>(
-      database.transaction(STORE_NAMES.photoIndex, "readonly").objectStore(STORE_NAMES.photoIndex).get(photoId),
-    ).catch(() => undefined);
+    const photo = await this.readStoredPhoto(database, photoId).catch(() => undefined);
     if (!photo) return err({ kind: "photo-not-found", photoId });
     const handle = await this.loadHandle(photo.sourceId, database);
     if (!handle) return err({ kind: "permission-lost", sourceId: photo.sourceId });
