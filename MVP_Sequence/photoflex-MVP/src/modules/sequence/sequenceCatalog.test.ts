@@ -29,4 +29,9 @@ describe("Sequence catalog", () => {
     expect(diff.rightOnly).toEqual(["4"]);
     expect(diff.shared.map((item) => [item.photoId, item.leftIndex, item.rightIndex])).toEqual([["1", 0, 1], ["2", 1, 0]]);
   });
+
+  it("ignores index shifts caused only by inserted photos", () => {
+    const diff = compareSequences(document("a", ["1", "2", "3"]), document("b", ["0", "1", "2", "3"]));
+    expect(diff.shared.every((item) => !item.moved)).toBe(true);
+  });
 });

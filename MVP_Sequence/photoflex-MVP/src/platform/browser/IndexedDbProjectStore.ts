@@ -182,6 +182,23 @@ export class IndexedDbProjectStore implements ProjectStore {
     });
   }
 
+  async saveWorktable(
+    projectId: ProjectId,
+    draft: WorktableDraft,
+    expectedRevision: WorkspaceRevision,
+  ): Promise<Result<{ readonly revision: WorkspaceRevision }, SaveError>> {
+    if (draft.projectId !== projectId) return err({ kind: "not-found", entity: "project", id: projectId });
+    const loaded = await this.loadWorkspace(projectId);
+    if (!loaded.ok) {
+      if (loaded.error.kind === "corrupt-data") return err({ kind: "unavailable", retryable: false });
+      return err(loaded.error);
+    }
+    if (loaded.value.revision !== expectedRevision) {
+      return err({ kind: "conflict", expectedRevision, actualRevision: loaded.value.revision });
+    }
+    return this.saveWorkspace({ ...loaded.value, worktableDraft: draft, updatedAt: new Date().toISOString() }, expectedRevision);
+  }
+
   async createSequence(
     projectId: ProjectId,
     expectedRevision: WorkspaceRevision,

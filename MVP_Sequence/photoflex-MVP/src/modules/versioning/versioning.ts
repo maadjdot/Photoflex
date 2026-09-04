@@ -65,12 +65,18 @@ export function compareVersions(left: SequenceVersion, right: SequenceVersion): 
   const leftSet = new Set(leftIds), rightSet = new Set(rightIds);
   const added = rightIds.filter((id) => !leftSet.has(id));
   const removed = leftIds.filter((id) => !rightSet.has(id));
-  const moved = rightIds.flatMap((itemId) => {
-    const from = leftIds.indexOf(itemId), to = rightIds.indexOf(itemId);
-    return from >= 0 && from !== to ? [{ itemId, from, to }] : [];
+  const leftShared = leftIds.filter((id) => rightSet.has(id));
+  const rightShared = rightIds.filter((id) => leftSet.has(id));
+  const leftPositions = new Map(leftIds.map((id, index) => [id, index]));
+  const rightPositions = new Map(rightIds.map((id, index) => [id, index]));
+  const leftSharedPositions = new Map(leftShared.map((id, index) => [id, index]));
+  const moved = rightShared.flatMap((itemId, to) => {
+    const sharedFrom = leftSharedPositions.get(itemId);
+    if (sharedFrom === to) return [];
+    return [{ itemId, from: leftPositions.get(itemId)!, to: rightPositions.get(itemId)! }];
   });
   const readingUnitChanged = changedItemsByUnit(left, right), segmentChanged = changedItemsBySegment(left, right);
-  return ok({ leftVersionId: left.id, rightVersionId: right.id, added, removed, moved, readingUnitChanged, segmentChanged, readingUnitChanges: readingUnitChanged, segmentChanges: segmentChanged });
+  return ok({ leftVersionId: left.id, rightVersionId: right.id, added, removed, moved, readingUnitChanged, segmentChanged });
 }
 
 function changedItemsByUnit(left: SequenceVersion, right: SequenceVersion): SequenceItemId[] {

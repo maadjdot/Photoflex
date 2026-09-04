@@ -130,7 +130,7 @@ IndexedDB 使用六个独立 object store：
 | `versions` | 不可变 SequenceVersion，以 VersionId 为 key | 创建版本时追加，不被自动保存重写 |
 | `photo-index` | Source 下的 PhotoRef | Source 扫描时分页写入 |
 | `source-grants` | 可恢复的浏览器文件夹授权 | 添加或重新授权 Source 时更新 |
-| `photo-thumbnails` | 最长边 320px 的 WebP 缩略图缓存 | 缩略图首次生成时写入 |
+| `photo-thumbnails` | 最长边 512px 的 WebP 缩略图缓存 | 缩略图首次生成时写入 |
 
 存储同时维护三个独立版本号：IndexedDB 数据库版本控制 object store/index，ProjectWorkspace schemaVersion 控制工作区记录形状，备份 schemaVersion 控制可移植 JSON。当前代码基线为 IndexedDB v7、Workspace schema v6；第一版就建立顺序 migration runner，升级只在 `onupgradeneeded` 的 versionchange 事务中执行。迁移失败不删除旧库；其他标签页必须响应 `versionchange` 关闭连接，升级被阻塞时明确提示用户关闭其他 PhotoFlex 标签页。
 

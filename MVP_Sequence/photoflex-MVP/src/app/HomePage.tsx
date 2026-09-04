@@ -170,31 +170,6 @@ function ProjectCard({
 }
 
 function ProjectCover({ project, dependencies }: { readonly project: ProjectSummary; readonly dependencies: AppDependencies }) {
-  const [photoId, setPhotoId] = useState(project.coverPhotoId);
-
-  useEffect(() => {
-    if (project.coverPhotoId) {
-      setPhotoId(project.coverPhotoId);
-      return;
-    }
-    let active = true;
-
-    // M1 has no cover picker: the first indexed photo is the project cover.
-    void dependencies.projectStore.loadWorkspace(project.id).then(async (workspace) => {
-      if (!workspace.ok) return;
-      for (const source of workspace.value.sources) {
-        if (source.removedAt) continue;
-        const page = await dependencies.photoSource.listPhotos(source.id, "0", 1);
-        const first = page.ok ? page.value.items[0] : undefined;
-        if (first) {
-          if (active) setPhotoId(first.id);
-          return;
-        }
-      }
-    });
-    return () => { active = false; };
-  }, [dependencies, project.coverPhotoId, project.id]);
-
-  if (photoId) return <PhotoThumb photoSource={dependencies.photoSource} photoId={photoId} alt={`${project.name} cover`} />;
+  if (project.coverPhotoId) return <PhotoThumb photoSource={dependencies.photoSource} photoId={project.coverPhotoId} alt={`${project.name} cover`} />;
   return <div className="cover-placeholder" aria-hidden="true"><span /><span /></div>;
 }

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import { routeToHash } from "./router";
-import type { PhotoRef, SourceError, SourceId, SourceRuntimeState } from "../contracts";
+import type { CreateProjectError, PhotoRef, SourceError, SourceId, SourceRuntimeState } from "../contracts";
 export const now = () => new Date().toISOString();
 
 export function stateNeedsScan(state?: SourceRuntimeState) {
@@ -33,7 +33,7 @@ export function sourceErrorMessage(kind: SourceError["kind"]) {
   if (kind === "permission-lost") return "文件夹授权已失效，请重新连接。";
   return "文件夹暂时无法读取，请重试。";
 }
-export function createErrorMessage(kind: string) {
+export function createErrorMessage(kind: CreateProjectError["kind"]) {
   if (kind === "project-id-exists") return "项目已存在，请重试。";
   if (kind === "quota-exceeded") return "浏览器存储空间不足。";
   return "项目创建失败，已保留当前输入。";

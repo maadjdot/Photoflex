@@ -28,6 +28,12 @@ export function compareSequences(left: SequenceDocument, right: SequenceDocument
   const rightPositions = new Map<PhotoId, number>();
   leftItems.forEach((item, index) => { if (!leftPositions.has(item.photoId)) leftPositions.set(item.photoId, index); });
   rightItems.forEach((item, index) => { if (!rightPositions.has(item.photoId)) rightPositions.set(item.photoId, index); });
+  const leftShared = leftItems.filter((item) => rightPositions.has(item.photoId));
+  const rightShared = rightItems.filter((item) => leftPositions.has(item.photoId));
+  const leftSharedPositions = new Map<PhotoId, number>();
+  leftShared.forEach((item, index) => { if (!leftSharedPositions.has(item.photoId)) leftSharedPositions.set(item.photoId, index); });
+  const rightSharedPositions = new Map<PhotoId, number>();
+  rightShared.forEach((item, index) => { if (!rightSharedPositions.has(item.photoId)) rightSharedPositions.set(item.photoId, index); });
   return {
     leftSequenceId: left.id,
     rightSequenceId: right.id,
@@ -35,7 +41,7 @@ export function compareSequences(left: SequenceDocument, right: SequenceDocument
     rightOnly: rightItems.map((item) => item.photoId).filter((photoId) => !leftPositions.has(photoId)),
     shared: leftItems.flatMap((item, leftIndex) => {
       const rightIndex = rightPositions.get(item.photoId);
-      return rightIndex === undefined ? [] : [{ photoId: item.photoId, leftIndex, rightIndex, moved: leftIndex !== rightIndex }];
+      return rightIndex === undefined ? [] : [{ photoId: item.photoId, leftIndex, rightIndex, moved: leftSharedPositions.get(item.photoId) !== rightSharedPositions.get(item.photoId) }];
     }),
   };
 }

@@ -18,7 +18,7 @@ export function AppHeader({ dependencies, route, projectId, contactSourceId, las
       <NavButton active={route.name === "project"} disabled={!projectId} onClick={() => projectId && navigate({ name: "project", projectId })}>Project</NavButton>
       <NavButton active={route.name === "contact-sheet"} disabled={!projectId || !contactSourceId} title={contactSourceId ? undefined : "项目尚未连接照片来源"} onClick={() => projectId && contactSourceId && navigate({ name: "contact-sheet", projectId, sourceId: contactSourceId })}>Contact Sheet</NavButton>
       <NavButton active={route.name === "table"} disabled={!projectId} onClick={() => projectId && navigate({ name: "table", projectId })}>Table</NavButton>
-      <NavButton active={route.name === "sequence" || route.name === "sequence-compare"} disabled={!projectId} title="Open the last Sequence" onClick={() => {
+      <NavButton active={route.name === "sequence" || route.name === "sequence-compare" || route.name === "version-compare"} disabled={!projectId} title="Open the last Sequence" onClick={() => {
         if (!projectId) return;
         void Promise.all([dependencies.projectStore.listSequences(projectId), dependencies.projectStore.loadWorkspace(projectId)]).then(([sequences, workspace]) => {
           const available = sequences.ok ? sequences.value : [];

@@ -333,7 +333,7 @@ h1, h2, p { margin-top: 0; }
 .sequence-strip.is-empty { min-height: 29px; }
 .sequence-strip-items { display: flex; align-items: flex-start; gap: 12px; min-height: 104px; overflow-x: auto; padding: 10px 15px; }
 .sequence-strip-track { position: relative; height: 84px; }
-.sequence-strip-item { position: relative; top: auto; flex: 0 0 140px; width: 140px; height: 76px; padding: 0; border: 1px solid transparent; background: #ddd8d1; cursor: grab; transition: border-color .16s ease, box-shadow .16s ease, opacity .16s ease; will-change: transform; }
+.sequence-strip-item { position: absolute; top: 0; width: 140px; height: 76px; padding: 0; border: 1px solid transparent; background: #ddd8d1; cursor: grab; transition: border-color .16s ease, box-shadow .16s ease, opacity .16s ease; will-change: transform; }
 .sequence-strip-item:hover { border-color: #1c1814; }
 .sequence-strip-item.is-dragging { opacity: .48; }
 .sequence-strip-item img, .sequence-strip-item .thumb-placeholder { display: block; width: 100%; height: 100%; object-fit: cover; }
@@ -437,7 +437,7 @@ h1, h2, p { margin-top: 0; }
 .sequence-order-collapse { margin-left: auto; }
 .sequence-order-track { position: relative; display: flex; align-items: flex-start; gap: 13px; height: 116px; overflow-x: auto; padding: 4px 72px 12px; touch-action: pan-y; }
 .sequence-order-virtual-inner { position: relative; height: 100%; }
-.sequence-order-item { position: relative; top: auto; flex: 0 0 140px; display: grid; width: 140px; height: 100px; grid-template-rows: 76px auto auto; gap: 2px; min-width: 0; padding: 0; border: 2px solid transparent; background: transparent; text-align: left; touch-action: none; }
+.sequence-order-item { position: absolute; top: 0; display: grid; width: 140px; height: 100px; grid-template-rows: 76px auto auto; gap: 2px; min-width: 0; padding: 0; border: 2px solid transparent; background: transparent; text-align: left; touch-action: none; }
 .sequence-order-item.is-selected { border-color: #171513; }
 .sequence-order-image { position: relative; display: grid; place-items: center; width: 100%; height: 76px; overflow: hidden; background: transparent; }
 .sequence-order-image img, .sequence-order-image .thumb-placeholder { width: 100%; height: 100%; object-fit: contain; }

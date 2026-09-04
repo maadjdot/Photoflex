@@ -550,7 +550,7 @@ IndexedDB 使用独立 object store；未来 SQLite 使用对应的表：
 | `versions` | 完整且不可变的 SequenceVersion，以 VersionId 为 key | 只在创建版本时追加 |
 | `photo-index` | PhotoRef，以 SourceId/PhotoId 建索引 | 扫描 Source 时分页写入 |
 | `source-grants` | 浏览器可恢复的文件夹授权信息 | 添加或重新授权 Source 时 |
-| `photo-thumbnails` | 最长边 320px 的 WebP 缩略图缓存 | 缩略图首次生成时写入 |
+| `photo-thumbnails` | 最长边 512px 的 WebP 缩略图缓存 | 缩略图首次生成时写入 |
 
 重要关系：
 

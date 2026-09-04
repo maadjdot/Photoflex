@@ -26,4 +26,13 @@ describe("versioning", () => {
     expect(diff.ok && diff.value.added).toEqual(["c"]);
     expect(diff.ok && diff.value.moved.map((item) => item.itemId)).toEqual(["b", "a"]);
   });
+
+  it("does not mark unchanged relative order as moved after insertion", () => {
+    const left = make(["a", "b", "c"], "left");
+    const right = make(["x", "a", "b", "c"], "right");
+    expect(left.ok && right.ok).toBe(true);
+    if (!left.ok || !right.ok) return;
+    const diff = compareVersions(left.value, right.value);
+    expect(diff.ok && diff.value.moved).toEqual([]);
+  });
 });

@@ -237,7 +237,7 @@ describe("BrowserPhotoSource", () => {
     results.forEach((result) => { if (result.ok) result.value.release(); });
   });
 
-  it("deduplicates concurrent Sequence 派生预览并复用 lease", async () => {
+  it("deduplicates and caches size-tiered derived previews", async () => {
     const directory = createDirectory("sequence-preview", "Sequence preview", ["same.jpg"]);
     const source = new BrowserPhotoSource({
       databaseName: `photoflex-source-${crypto.randomUUID()}`,
@@ -253,12 +253,16 @@ describe("BrowserPhotoSource", () => {
     if (!page.ok) return;
     const readsBefore = directory.getFileReadCount();
     const results = await Promise.all([
-      source.sequencePreview(page.value.items[0].id),
-      source.sequencePreview(page.value.items[0].id),
+      source.derivedPreview(page.value.items[0].id, 1536),
+      source.derivedPreview(page.value.items[0].id, 1536),
     ]);
     expect(results.every((result) => result.ok)).toBe(true);
     expect(directory.getFileReadCount() - readsBefore).toBe(2);
     if (results[0].ok && results[1].ok) expect(results[0].value.url).toBe(results[1].value.url);
     results.forEach((result) => { if (result.ok) result.value.release(); });
+    const cached = await source.derivedPreview(page.value.items[0].id, 1536);
+    expect(cached.ok).toBe(true);
+    expect(directory.getFileReadCount() - readsBefore).toBe(2);
+    if (cached.ok) cached.value.release();
   });
 });

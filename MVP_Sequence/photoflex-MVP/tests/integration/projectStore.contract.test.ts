@@ -103,6 +103,16 @@ for (const implementation of implementations) {
       expect(latest.ok && latest.value.name).toBe("第一个写入");
     });
 
+    it("通过独立 Interface 保存 Worktable 文档", async () => {
+      const created = await stores.first.createProject(PROJECT_INPUT);
+      if (!created.ok) throw new Error("测试项目未创建");
+      const draft = { ...created.value.worktableDraft, groups: [] };
+      const saved = await stores.first.saveWorktable(PROJECT_ID, draft, created.value.revision);
+      expect(saved).toEqual({ ok: true, value: { revision: 1 } });
+      const loaded = await stores.first.loadWorkspace(PROJECT_ID);
+      expect(loaded.ok && loaded.value.worktableDraft).toEqual(draft);
+    });
+
     it("原子创建版本并推进工作区 revision", async () => {
       const project = await stores.first.createProject(PROJECT_INPUT);
       if (!project.ok) throw new Error("测试项目未创建");

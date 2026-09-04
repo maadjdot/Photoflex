@@ -57,8 +57,6 @@ export interface VersionDiff {
   }>;
   readonly readingUnitChanged: readonly SequenceItemId[];
   readonly segmentChanged: readonly SequenceItemId[];
-  readonly readingUnitChanges: readonly SequenceItemId[];
-  readonly segmentChanges: readonly SequenceItemId[];
 }
 
 export interface Versioning {

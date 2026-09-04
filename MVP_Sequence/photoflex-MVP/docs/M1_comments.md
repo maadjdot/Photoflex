@@ -19,7 +19,7 @@
 
 ### 现状与范围
 
-- 固定行高虚拟化、overscan、`ResizeObserver`、320px WebP、`PreviewLease` 引用计数、idle Object URL LRU 已经实现，本轮只需回归；
+- 固定行高虚拟化、overscan、`ResizeObserver`、512px WebP、`PreviewLease` 引用计数、idle Object URL LRU 已经实现，本轮只需回归；Table、Sequence 与 Read 使用独立的 768/1536/2048px 派生层级。
 - 当前静态审查确认的首要瓶颈是 `findPhotoIssues` 每页串行检查 Missing（100 张 ≈ 100 次异步 FS）；缩略图首次生成、快速滚动时的并发解码和增量分页合并继续通过性能计数观察，不能提前断言只有一个瓶颈。
 
 ### 本轮改动

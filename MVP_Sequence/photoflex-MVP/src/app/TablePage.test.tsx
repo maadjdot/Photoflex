@@ -2,7 +2,7 @@
 
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { ok, type PhotoId, type ProjectId, type SourceId } from "../contracts";
+import { err, ok, type PhotoId, type ProjectId, type SourceId } from "../contracts";
 import { createWorktableEditor } from "../modules/worktable";
 import { MemoryPhotoSource } from "../platform/memory/MemoryPhotoSource";
 import { MemoryProjectStore } from "../platform/memory/MemoryProjectStore";
@@ -120,10 +120,10 @@ describe("TablePage", () => {
     expect(saved.value.sequenceIds).toEqual([]);
   });
 
-  it("Table 卡片使用清晰缩略图，双击才读取原图", async () => {
+  it("Table 可见卡片使用 768px 派生图，双击才读取原图", async () => {
     const dependencies = await createFixture();
-    const thumbnail = vi.spyOn(dependencies.photoSource, "thumbnail").mockImplementation(async (photoId) => ok({
-      url: `thumbnail:${photoId}`,
+    const derivedPreview = vi.spyOn(dependencies.photoSource, "derivedPreview").mockImplementation(async (photoId) => ok({
+      url: `table:${photoId}`,
       release() {},
     }));
     const preview = vi.spyOn(dependencies.photoSource, "preview").mockImplementation(async (photoId) => ok({
@@ -133,11 +133,26 @@ describe("TablePage", () => {
 
     render(<App dependencies={dependencies} />);
     const card = await screen.findByLabelText("A.jpg");
-    await waitFor(() => expect(preview).toHaveBeenCalledWith(photoA));
-    expect(thumbnail).not.toHaveBeenCalled();
+    await waitFor(() => expect(derivedPreview).toHaveBeenCalledWith(photoA, 768));
+    expect(preview).not.toHaveBeenCalled();
 
     fireEvent.doubleClick(card);
-    expect(preview).toHaveBeenCalledWith(photoA);
+    await waitFor(() => expect(preview).toHaveBeenCalledWith(photoA));
+  });
+
+  it("后台保存失败时保留编辑并显示具体原因", async () => {
+    const dependencies = await createFixture();
+    vi.spyOn(dependencies.projectStore, "saveWorktable").mockResolvedValue(err({ kind: "quota-exceeded" }));
+    render(<App dependencies={dependencies} />);
+    const stage = await screen.findByLabelText("Photo worktable");
+    const card = screen.getByLabelText("A.jpg");
+
+    fireEvent.pointerDown(card, { pointerId: 8, button: 0, clientX: 100, clientY: 100 });
+    fireEvent.pointerMove(stage, { pointerId: 8, clientX: 140, clientY: 120 });
+    fireEvent.pointerUp(stage, { pointerId: 8, clientX: 140, clientY: 120 });
+
+    expect(await screen.findByText("浏览器存储空间不足，当前状态未覆盖。")).toBeTruthy();
+    expect(screen.getByLabelText("A.jpg")).toBeTruthy();
   });
 
 });

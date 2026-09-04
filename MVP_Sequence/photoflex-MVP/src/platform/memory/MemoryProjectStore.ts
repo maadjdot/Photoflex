@@ -124,6 +124,17 @@ export class MemoryProjectStore implements ProjectStore {
     return ok({ revision });
   }
 
+  async saveWorktable(
+    projectId: ProjectId,
+    draft: WorktableDraft,
+    expectedRevision: WorkspaceRevision,
+  ): Promise<Result<{ readonly revision: WorkspaceRevision }, SaveError>> {
+    if (draft.projectId !== projectId) return err({ kind: "not-found", entity: "project", id: projectId });
+    const current = this.database.projects.get(projectId);
+    if (!current) return err({ kind: "not-found", entity: "project", id: projectId });
+    return this.saveWorkspace({ ...current, worktableDraft: draft, updatedAt: new Date().toISOString() }, expectedRevision);
+  }
+
   async createVersion(
     projectId: ProjectId,
     expectedRevision: WorkspaceRevision,

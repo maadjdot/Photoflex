@@ -76,6 +76,8 @@ export interface PreviewLease {
   release(): void;
 }
 
+export type DerivedPreviewMaxEdge = 768 | 1536 | 2048;
+
 export type SourceScanEvent =
   | { readonly kind: "progress"; readonly state: SourceRuntimeState }
   | { readonly kind: "completed"; readonly state: SourceRuntimeState };
@@ -102,8 +104,8 @@ export interface PhotoSource {
   ): Promise<Result<PhotoPage, SourceError>>;
   getPhoto(photoId: PhotoId): Promise<Result<PhotoRef, SourceError>>;
   thumbnail(photoId: PhotoId): Promise<Result<PreviewLease, SourceError>>;
-  /** A higher-resolution derived image for canvas cards; never the original file. */
-  sequencePreview(photoId: PhotoId): Promise<Result<PreviewLease, SourceError>>;
+  /** A size-tiered derived image; never the original file. */
+  derivedPreview(photoId: PhotoId, maxEdge: DerivedPreviewMaxEdge): Promise<Result<PreviewLease, SourceError>>;
   preview(photoId: PhotoId): Promise<Result<PreviewLease, SourceError>>;
 }
 
@@ -226,6 +228,11 @@ export interface ProjectStore {
   loadWorkspace(projectId: ProjectId): Promise<Result<ProjectWorkspace, LoadError>>;
   saveWorkspace(
     workspace: ProjectWorkspace,
+    expectedRevision: WorkspaceRevision,
+  ): Promise<Result<{ readonly revision: WorkspaceRevision }, SaveError>>;
+  saveWorktable(
+    projectId: ProjectId,
+    draft: WorktableDraft,
     expectedRevision: WorkspaceRevision,
   ): Promise<Result<{ readonly revision: WorkspaceRevision }, SaveError>>;
   createSequence(

@@ -44,9 +44,7 @@ function ProjectRail({
             onClick={() => navigate({ name: "project", projectId: project.id })}
           >
             <strong>{project.name.toUpperCase()}</strong>
-            {project.id === currentProjectId
-              ? <span>{currentPhotoCount} photos</span>
-              : <ProjectPhotoCount dependencies={dependencies} projectId={project.id} />}
+            <span>{project.id === currentProjectId ? `${currentPhotoCount} photos` : `${project.sourceCount} folders · ${project.tableCount} table`}</span>
           </button>
         ))}
       </div>
@@ -54,19 +52,6 @@ function ProjectRail({
       {showDialog && <NewProjectDialog dependencies={dependencies} onClose={() => setShowDialog(false)} onCreated={(projectId) => navigate({ name: "project", projectId })} />}
     </aside>
   );
-}
-function ProjectPhotoCount({ dependencies, projectId }: { readonly dependencies: AppDependencies; readonly projectId: ProjectId }) {
-  const [count, setCount] = useState(0);
-  useEffect(() => {
-    let active = true;
-    void dependencies.projectStore.loadWorkspace(projectId).then(async (result) => {
-      if (!result.ok) return;
-      const states = await Promise.all(result.value.sources.filter((source) => !source.removedAt).map((source) => dependencies.photoSource.getSourceState(source.id)));
-      if (active) setCount(states.reduce((total, state) => total + (state.ok ? state.value.indexedCount : 0), 0));
-    });
-    return () => { active = false; };
-  }, [dependencies, projectId]);
-  return <span>{count} photos</span>;
 }
 
 export function ProjectPage({

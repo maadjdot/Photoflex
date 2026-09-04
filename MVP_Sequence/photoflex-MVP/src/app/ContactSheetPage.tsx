@@ -21,7 +21,7 @@ export function ContactSheetPage({
   readonly sourceId: SourceId;
   readonly navigate: (route: AppRoute) => void;
 }) {
-  const { workspace, workspaceRef, save, loading, error } = useProjectWorkspace(dependencies, projectId);
+  const { workspace, workspaceRef, save, saveWorktable, loading, error } = useProjectWorkspace(dependencies, projectId);
   const source = workspace?.sources.find((item) => item.id === sourceId && !item.removedAt);
   const { states, startScan } = useSourceMonitor(
     dependencies.photoSource,
@@ -82,6 +82,12 @@ export function ContactSheetPage({
       if (!active) return;
       if (page.ok) {
         setPhotos(mergeUniquePhotos([], page.value.items));
+        const firstPhoto = page.value.items[0];
+        if (firstPhoto) {
+          void save((current) => current.coverPhotoId ? current : { ...current, coverPhotoId: firstPhoto.id }).then((result) => {
+            if (!result.ok) setNotice(workspaceSaveErrorMessage(result.error));
+          });
+        }
         setMissingPhotoIds(new Set(page.value.issues.filter((issue) => issue.kind === "missing-file").map((issue) => issue.photoId)));
         setCursor(page.value.nextCursor);
       }
@@ -177,7 +183,7 @@ export function ContactSheetPage({
       return false;
     }
     const added = placed.value.entryOrder.length - beforeCount;
-    const saveResult = await save((latest) => ({ ...latest, worktableDraft: placed.value, updatedAt: now() }));
+    const saveResult = await saveWorktable(placed.value);
     if (saveResult.ok) {
       setSelected(new Set());
       setNotice(`${added} photos placed on Table${requested.length - added ? ` · ${requested.length - added} already there` : ""}`);
@@ -201,7 +207,7 @@ export function ContactSheetPage({
       setNotice("Table 状态保存失败。");
       return;
     }
-    const saveResult = await save((latest) => ({ ...latest, worktableDraft: result.value, updatedAt: now() }));
+    const saveResult = await saveWorktable(result.value);
     if (!saveResult.ok) setNotice(workspaceSaveErrorMessage(saveResult.error));
   };
 

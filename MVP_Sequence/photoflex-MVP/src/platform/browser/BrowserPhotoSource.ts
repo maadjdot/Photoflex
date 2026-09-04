@@ -1,6 +1,7 @@
 import {
   err,
   ok,
+  type DerivedPreviewMaxEdge,
   type PhotoId,
   type PhotoPage,
   type PhotoRef,
@@ -51,6 +52,11 @@ interface CachedUrl {
   lastUsed: number;
 }
 
+interface CachedDerivedPreview {
+  readonly blob: Blob;
+  lastUsed: number;
+}
+
 const PAGE_SIZE = 100;
 const THUMBNAIL_GENERATION_CONCURRENCY = 4;
 // A 512 px edge remains compact while rendering the default 235 px Table card
@@ -60,7 +66,7 @@ const THUMBNAIL_MAX_EDGE = 512;
 // the canvas never needs to decode the original file for every mounted card.
 // 1536px keeps high-DPI canvas cards crisp while remaining much cheaper than
 // retaining original-file blobs for every visible item.
-const SEQUENCE_PREVIEW_MAX_EDGE = 1536;
+const DERIVED_PREVIEW_CACHE_LIMIT = 24;
 
 const requestValue = <T>(request: IDBRequest<T>): Promise<T> =>
   new Promise((resolve, reject) => {
@@ -93,7 +99,8 @@ export class BrowserPhotoSource implements PhotoSource {
   private readonly states = new Map<SourceId, SourceRuntimeState>();
   private readonly urlCache = new Map<string, CachedUrl>();
   private readonly thumbnailJobs = new Map<PhotoId, Promise<Result<Blob, SourceError>>>();
-  private readonly sequencePreviewJobs = new Map<PhotoId, Promise<Result<Blob, SourceError>>>();
+  private readonly derivedPreviewJobs = new Map<string, Promise<Result<Blob, SourceError>>>();
+  private readonly derivedPreviewCache = new Map<string, CachedDerivedPreview>();
   private readonly thumbnailWaiters: Array<() => void> = [];
   private activeThumbnailJobs = 0;
   private urlClock = 0;
@@ -118,6 +125,7 @@ export class BrowserPhotoSource implements PhotoSource {
     if (opened.ok) opened.value.close();
     for (const cached of this.urlCache.values()) URL.revokeObjectURL(cached.url);
     this.urlCache.clear();
+    this.derivedPreviewCache.clear();
   }
 
   async chooseFolder(
@@ -222,6 +230,13 @@ export class BrowserPhotoSource implements PhotoSource {
       for (const photo of photos) {
         this.dropCachedUrl(`thumbnail:${photo.id}`);
         this.dropCachedUrl(`preview:${photo.id}`);
+        this.thumbnailJobs.delete(photo.id);
+        for (const maxEdge of [768, 1536, 2048] as const) {
+          const key = `derived:${maxEdge}:${photo.id}`;
+          this.dropCachedUrl(key);
+          this.derivedPreviewCache.delete(key);
+          this.derivedPreviewJobs.delete(key);
+        }
       }
       return ok({ photoIds: photos.map((photo) => photo.id) });
     } catch {
@@ -416,21 +431,37 @@ export class BrowserPhotoSource implements PhotoSource {
     return file.ok ? ok(this.createLease(`preview:${photoId}`, file.value)) : err(file.error);
   }
 
-  async sequencePreview(photoId: PhotoId): Promise<Result<PreviewLease, SourceError>> {
+  async derivedPreview(photoId: PhotoId, maxEdge: DerivedPreviewMaxEdge): Promise<Result<PreviewLease, SourceError>> {
     const opened = await this.database;
     if (!opened.ok) return err(toSourceError());
-    let job = this.sequencePreviewJobs.get(photoId);
+    const key = `derived:${maxEdge}:${photoId}`;
+    const cached = this.derivedPreviewCache.get(key);
+    if (cached) {
+      cached.lastUsed = ++this.urlClock;
+      return ok(this.createLease(key, cached.blob));
+    }
+
+    let job = this.derivedPreviewJobs.get(key);
     if (!job) {
-      job = this.generateDerivedPreview(opened.value, photoId, SEQUENCE_PREVIEW_MAX_EDGE);
-      this.sequencePreviewJobs.set(photoId, job);
+      job = this.generateDerivedPreview(opened.value, photoId, maxEdge);
+      this.derivedPreviewJobs.set(key, job);
       void job.finally(() => {
-        if (this.sequencePreviewJobs.get(photoId) === job) this.sequencePreviewJobs.delete(photoId);
+        if (this.derivedPreviewJobs.get(key) === job) this.derivedPreviewJobs.delete(key);
       });
     }
     const generated = await job;
-    return generated.ok
-      ? ok(this.createLease(`sequence:${photoId}`, generated.value))
-      : generated;
+    if (!generated.ok) return generated;
+    this.derivedPreviewCache.set(key, { blob: generated.value, lastUsed: ++this.urlClock });
+    this.trimDerivedPreviewCache();
+    return ok(this.createLease(key, generated.value));
+  }
+
+  private trimDerivedPreviewCache(): void {
+    while (this.derivedPreviewCache.size > DERIVED_PREVIEW_CACHE_LIMIT) {
+      const oldest = [...this.derivedPreviewCache.entries()].sort((left, right) => left[1].lastUsed - right[1].lastUsed)[0];
+      if (!oldest) return;
+      this.derivedPreviewCache.delete(oldest[0]);
+    }
   }
 
   private async generateThumbnail(database: IDBDatabase, photoId: PhotoId): Promise<Result<Blob, SourceError>> {

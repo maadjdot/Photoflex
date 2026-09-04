@@ -135,7 +135,7 @@ export class MemoryPhotoSource implements PhotoSource {
     return this.preview(photoId);
   }
 
-  async sequencePreview(photoId: PhotoId): Promise<Result<PreviewLease, SourceError>> {
+  async derivedPreview(photoId: PhotoId): Promise<Result<PreviewLease, SourceError>> {
     return this.preview(photoId);
   }
 
