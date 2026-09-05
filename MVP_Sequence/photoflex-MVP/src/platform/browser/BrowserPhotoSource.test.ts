@@ -186,6 +186,38 @@ describe("BrowserPhotoSource", () => {
     });
   });
 
+  it("重扫后按源文件版本隔离旧缩略图缓存", async () => {
+    const directory = createDirectory("versioned-thumbnail", "Versioned thumbnail", ["same.jpg"]);
+    const source = new BrowserPhotoSource({
+      databaseName: `photoflex-source-${crypto.randomUUID()}`,
+      picker: async () => directory.handle,
+    });
+    databases.push(source);
+
+    const grant = await source.chooseFolder([]);
+    expect(grant.ok).toBe(true);
+    if (!grant.ok) return;
+    await scanToEnd(source, grant.value.sourceId);
+    const page = await source.listPhotos(grant.value.sourceId);
+    expect(page.ok).toBe(true);
+    if (!page.ok) return;
+
+    const first = await source.thumbnail(page.value.items[0].id);
+    expect(first.ok).toBe(true);
+    if (!first.ok) return;
+    const firstText = await (await fetch(first.value.url)).text();
+    directory.files.set("same.jpg", new File(["updated"], "same.jpg", { type: "image/jpeg", lastModified: 2 }));
+    await scanToEnd(source, grant.value.sourceId);
+    const second = await source.thumbnail(page.value.items[0].id);
+    expect(second.ok).toBe(true);
+    if (!second.ok) return;
+    const secondText = await (await fetch(second.value.url)).text();
+    expect(firstText).not.toBe(secondText);
+    expect(second.value.url).not.toBe(first.value.url);
+    first.value.release();
+    second.value.release();
+  });
+
   it("刷新后需要重新授权时不会把仍存在的照片误报为 missing-file", async () => {
     const directory = createDirectory("refresh", "Refresh", ["still-here.jpg"]);
     const source = new BrowserPhotoSource({

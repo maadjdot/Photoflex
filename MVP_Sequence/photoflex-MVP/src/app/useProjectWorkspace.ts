@@ -15,6 +15,10 @@ export type WorkspaceUpdate =
   | ProjectWorkspace
   | ((current: ProjectWorkspace) => ProjectWorkspace);
 
+export type WorktableUpdate =
+  | WorktableDraft
+  | ((current: WorktableDraft) => WorktableDraft);
+
 export type WorkspaceSaveError = SaveError | { readonly kind: "workspace-not-ready" };
 export type WorkspaceSaveResult = Result<ProjectWorkspace, WorkspaceSaveError>;
 
@@ -36,10 +40,12 @@ export function useProjectWorkspace(dependencies: AppDependencies, projectId: Pr
   const saveQueueRef = useRef<Promise<unknown>>(Promise.resolve());
   const generationRef = useRef(0);
   const projectIdRef = useRef(projectId);
+  const activeRef = useRef(true);
   projectIdRef.current = projectId;
 
   useEffect(() => {
     let active = true;
+    activeRef.current = true;
     const generation = ++generationRef.current;
     setLoading(true);
     setError(undefined);
@@ -58,6 +64,7 @@ export function useProjectWorkspace(dependencies: AppDependencies, projectId: Pr
     });
     return () => {
       active = false;
+      activeRef.current = false;
       generationRef.current += 1;
     };
   }, [dependencies.projectStore, projectId]);
@@ -65,20 +72,19 @@ export function useProjectWorkspace(dependencies: AppDependencies, projectId: Pr
   const save = useCallback(
     (update: WorkspaceUpdate): Promise<WorkspaceSaveResult> => {
       const requestedProjectId = projectId;
-      const requestedGeneration = generationRef.current;
       const run = async () => {
         const current = workspaceRef.current;
-        if (!current || current.projectId !== requestedProjectId || projectIdRef.current !== requestedProjectId || generationRef.current !== requestedGeneration) return err({ kind: "workspace-not-ready" } as const);
+        if (!current || current.projectId !== requestedProjectId || projectIdRef.current !== requestedProjectId) return err({ kind: "workspace-not-ready" } as const);
         const requested = typeof update === "function" ? update(current) : update;
         if (requested.projectId !== requestedProjectId) return err({ kind: "workspace-not-ready" } as const);
         if (requested === current) return ok(current);
         const next = { ...requested, revision: current.revision };
         const result = await dependencies.projectStore.saveWorkspace(next, current.revision);
         if (!result.ok) return result;
-        if (projectIdRef.current !== requestedProjectId || generationRef.current !== requestedGeneration) return err({ kind: "workspace-not-ready" } as const);
+        if (projectIdRef.current !== requestedProjectId) return err({ kind: "workspace-not-ready" } as const);
         const saved = { ...next, revision: result.value.revision };
         workspaceRef.current = saved;
-        setWorkspace(saved);
+        if (activeRef.current) setWorkspace(saved);
         return ok(saved);
       };
       const pending = saveQueueRef.current.then(run, run);
@@ -89,19 +95,20 @@ export function useProjectWorkspace(dependencies: AppDependencies, projectId: Pr
   );
 
   const saveWorktable = useCallback(
-    (draft: WorktableDraft): Promise<WorkspaceSaveResult> => {
+    (update: WorktableUpdate): Promise<WorkspaceSaveResult> => {
       const requestedProjectId = projectId;
-      const requestedGeneration = generationRef.current;
       const run = async () => {
         const current = workspaceRef.current;
-        if (!current || draft.projectId !== requestedProjectId || current.projectId !== requestedProjectId || projectIdRef.current !== requestedProjectId || generationRef.current !== requestedGeneration) return err({ kind: "workspace-not-ready" } as const);
+        if (!current || current.projectId !== requestedProjectId || projectIdRef.current !== requestedProjectId) return err({ kind: "workspace-not-ready" } as const);
+        const draft = typeof update === "function" ? update(current.worktableDraft) : update;
+        if (draft.projectId !== requestedProjectId) return err({ kind: "workspace-not-ready" } as const);
         if (draft === current.worktableDraft) return ok(current);
         const result = await dependencies.projectStore.saveWorktable(requestedProjectId, draft, current.revision);
         if (!result.ok) return result;
-        if (projectIdRef.current !== requestedProjectId || generationRef.current !== requestedGeneration) return err({ kind: "workspace-not-ready" } as const);
+        if (projectIdRef.current !== requestedProjectId) return err({ kind: "workspace-not-ready" } as const);
         const saved = { ...current, worktableDraft: draft, updatedAt: new Date().toISOString(), revision: result.value.revision };
         workspaceRef.current = saved;
-        setWorkspace(saved);
+        if (activeRef.current) setWorkspace(saved);
         return ok(saved);
       };
       const pending = saveQueueRef.current.then(run, run);
@@ -114,16 +121,15 @@ export function useProjectWorkspace(dependencies: AppDependencies, projectId: Pr
   const deleteSequences = useCallback(
     (sequenceIds: readonly SequenceId[], worktableDraft: WorktableDraft): Promise<WorkspaceSaveResult> => {
       const requestedProjectId = projectId;
-      const requestedGeneration = generationRef.current;
       const run = async () => {
         const current = workspaceRef.current;
-        if (!current || current.projectId !== requestedProjectId || worktableDraft.projectId !== requestedProjectId || projectIdRef.current !== requestedProjectId || generationRef.current !== requestedGeneration) return err({ kind: "workspace-not-ready" } as const);
+        if (!current || current.projectId !== requestedProjectId || worktableDraft.projectId !== requestedProjectId || projectIdRef.current !== requestedProjectId) return err({ kind: "workspace-not-ready" } as const);
         const result = await dependencies.projectStore.deleteSequences(requestedProjectId, sequenceIds, current.revision, worktableDraft);
         if (!result.ok) return result;
-        if (projectIdRef.current !== requestedProjectId || generationRef.current !== requestedGeneration) return err({ kind: "workspace-not-ready" } as const);
+        if (projectIdRef.current !== requestedProjectId) return err({ kind: "workspace-not-ready" } as const);
         const saved = { ...current, worktableDraft, sequenceIds: result.value.sequenceIds, versionIds: result.value.versionIds, updatedAt: new Date().toISOString(), revision: result.value.revision };
         workspaceRef.current = saved;
-        setWorkspace(saved);
+        if (activeRef.current) setWorkspace(saved);
         return ok(saved);
       };
       const pending = saveQueueRef.current.then(run, run);

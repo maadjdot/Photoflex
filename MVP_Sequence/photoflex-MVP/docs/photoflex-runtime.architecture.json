@@ -1,0 +1,64 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "PhotoFlex MVP Runtime Architecture",
+    "locale": "zh-CN",
+    "output": "photoflex-runtime-architecture.html",
+    "quality_profile": "showcase",
+    "views": [
+      {
+        "id": "import-to-pool",
+        "label": "Import to project pool",
+        "focus": ["user", "react-ui", "app-state", "photo-source", "project-store", "indexeddb"],
+        "note": "Follow the current M1 path from local photo selection into a persisted project."
+      },
+      {
+        "id": "editor-core",
+        "label": "Editing core",
+        "focus": ["react-ui", "app-state", "worktable", "sequence", "contracts"],
+        "note": "See how React views call pure TypeScript modules through shared contracts."
+      },
+      {
+        "id": "platform-adapters",
+        "label": "Platform adapters",
+        "focus": ["photo-source", "project-store", "indexeddb", "memory-store", "tauri-future"],
+        "note": "Compare browser persistence, test doubles, and the planned desktop seam."
+      }
+    ]
+  },
+  "components": [
+    { "id": "user", "type": "external", "label": "摄影师", "sublabel": "本地浏览器用户", "pos": [20, 300], "size": [130, 72] },
+    { "id": "react-ui", "type": "frontend", "label": "React UI", "sublabel": "M1 React pages", "pos": [180, 300], "size": [190, 72] },
+    { "id": "app-state", "type": "backend", "label": "App orchestration", "sublabel": "navigation + commands + save queue", "pos": [400, 300], "size": [190, 72] },
+    { "id": "contracts", "type": "backend", "label": "Domain contracts", "sublabel": "workspace + sequence + persistence", "pos": [400, 100], "size": [190, 72] },
+    { "id": "worktable", "type": "backend", "label": "Worktable module", "sublabel": "placement / grouping / viewport", "pos": [640, 100], "size": [170, 72] },
+    { "id": "sequence", "type": "backend", "label": "Sequence module", "sublabel": "catalog / ordering / editor", "pos": [640, 300], "size": [170, 72] },
+    { "id": "photo-source", "type": "backend", "label": "PhotoSource boundary", "sublabel": "scan + preview + photo metadata", "pos": [180, 500], "size": [180, 72] },
+    { "id": "project-store", "type": "backend", "label": "ProjectStore boundary", "sublabel": "workspace persistence + CAS", "pos": [850, 300], "size": [190, 72] },
+    { "id": "indexeddb", "type": "database", "label": "IndexedDB", "sublabel": "projects / sequences / versions", "pos": [1070, 300], "size": [170, 72] },
+    { "id": "memory-store", "type": "database", "label": "Memory test store", "sublabel": "contract and integration fixtures", "pos": [850, 100], "size": [190, 72] },
+    { "id": "tauri-future", "type": "cloud", "label": "Tauri 2 adapter (planned)", "sublabel": "SQLite/WAL desktop seam", "pos": [1070, 100], "size": [170, 72], "tag": "planned" }
+  ],
+  "boundaries": [
+    { "kind": "security-group", "label": "Browser runtime", "wraps": ["react-ui", "app-state", "contracts", "worktable", "sequence", "photo-source", "project-store", "indexeddb"] },
+    { "kind": "region", "label": "Platform seam", "wraps": ["photo-source", "project-store", "indexeddb", "memory-store", "tauri-future"] }
+  ],
+  "connections": [
+    { "id": "user-to-ui", "from": "user", "to": "react-ui", "label": "选择照片 / 编辑工作区", "variant": "emphasis", "route": "orthogonal-h", "labelAt": [165, 260] },
+    { "id": "ui-to-state", "from": "react-ui", "to": "app-state", "label": "用户命令", "labelAt": [390, 386] },
+    { "id": "contracts-to-state", "from": "contracts", "to": "app-state", "label": "领域类型", "fromSide": "bottom", "toSide": "top", "labelAt": [350, 210] },
+    { "id": "state-to-worktable", "from": "app-state", "to": "worktable", "label": "Table commands", "fromSide": "top", "toSide": "bottom", "via": [[495, 230], [725, 230]], "labelAt": [610, 230] },
+    { "id": "state-to-sequence", "from": "app-state", "to": "sequence", "label": "Sequence commands", "labelAt": [615, 260] },
+    { "id": "ui-to-photo-source", "from": "react-ui", "to": "photo-source", "label": "scan / preview", "variant": "dashed", "fromSide": "bottom", "toSide": "top", "labelAt": [330, 436] },
+    { "id": "state-to-project-store", "from": "app-state", "to": "project-store", "label": "串行保存队列", "variant": "emphasis", "fromSide": "bottom", "toSide": "bottom", "via": [[495, 430], [945, 430]], "labelAt": [720, 430] },
+    { "id": "store-to-indexeddb", "from": "project-store", "to": "indexeddb", "label": "事务 + CAS", "variant": "emphasis", "labelAt": [1060, 260] },
+    { "id": "store-to-memory", "from": "project-store", "to": "memory-store", "variant": "dashed", "fromSide": "top", "toSide": "bottom" },
+    { "id": "store-to-tauri", "from": "project-store", "to": "tauri-future", "label": "未来适配点", "variant": "dashed", "fromSide": "top", "toSide": "bottom" }
+  ],
+  "cards": [
+    { "dot": "cyan", "title": "当前闭环", "items": ["本地 JPEG Source → Contact Sheet → Project Pool", "Table 与 Sequence 通过显式命令协作", "React 视图不直接依赖平台 API"] },
+    { "dot": "emerald", "title": "持久化", "items": ["IndexedDbProjectStore 是当前浏览器实现", "ProjectStore 负责工作区 revision 与 CAS 冲突语义", "MemoryProjectStore 用于契约和集成测试"] },
+    { "dot": "violet", "title": "边界与未来", "items": ["PhotoSource / ProjectStore 是平台能力注入点", "原片保持只读，业务数据保存 ID、相对路径与元数据", "Tauri 2 + SQLite/WAL 属于规划中的桌面适配器"] }
+  ]
+}

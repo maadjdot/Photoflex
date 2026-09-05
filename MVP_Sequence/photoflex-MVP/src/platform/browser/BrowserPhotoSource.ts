@@ -117,7 +117,7 @@ export class BrowserPhotoSource implements PhotoSource {
   private readonly states = new Map<SourceId, SourceRuntimeState>();
   private readonly photoVersions = new Map<PhotoId, string>();
   private readonly urlCache = new Map<string, CachedUrl>();
-  private readonly thumbnailJobs = new Map<PhotoId, Promise<Result<Blob, SourceError>>>();
+  private readonly thumbnailJobs = new Map<string, Promise<Result<Blob, SourceError>>>();
   private readonly derivedPreviewJobs = new Map<string, Promise<Result<Blob, SourceError>>>();
   private readonly derivedPreviewCache = new Map<string, CachedDerivedPreview>();
   private readonly thumbnailWaiters: Array<() => void> = [];
@@ -251,15 +251,18 @@ export class BrowserPhotoSource implements PhotoSource {
       this.states.delete(sourceId);
       for (const photo of photos) {
         this.photoVersions.delete(photo.id);
-        this.dropCachedUrl(`thumbnail:${photo.id}`);
-        this.dropCachedUrl(`preview:${photo.id}`);
-        this.thumbnailJobs.delete(photo.id);
+        this.dropCachedUrls(`thumbnail:${photo.id}:`);
+        this.dropCachedUrls(`preview:${photo.id}:`);
+        for (const jobKey of this.thumbnailJobs.keys()) {
+          if (jobKey.startsWith(`${photo.id}:`)) this.thumbnailJobs.delete(jobKey);
+        }
         for (const maxEdge of [768, 1536, 2048] as const) {
-          const key = `derived:${maxEdge}:${photo.id}`;
-          this.dropCachedUrl(key);
-          this.derivedPreviewCache.delete(key);
+          const prefix = `derived:${maxEdge}:${photo.id}:`;
+          for (const cacheKey of this.derivedPreviewCache.keys()) {
+            if (cacheKey.startsWith(prefix)) this.derivedPreviewCache.delete(cacheKey);
+          }
           for (const jobKey of this.derivedPreviewJobs.keys()) {
-            if (jobKey.startsWith(`${key}:`)) this.derivedPreviewJobs.delete(jobKey);
+            if (jobKey.startsWith(prefix)) this.derivedPreviewJobs.delete(jobKey);
           }
         }
       }
@@ -426,6 +429,7 @@ export class BrowserPhotoSource implements PhotoSource {
     if (!opened.ok) return err(toSourceError());
     const sourceVersion = await this.getPhotoVersion(opened.value, photoId);
     if (!sourceVersion) return err({ kind: "photo-not-found", photoId });
+    const cacheKey = `thumbnail:${photoId}:${sourceVersion}`;
     const stored = await requestValue<StoredThumbnail | undefined>(
       opened.value
         .transaction(STORE_NAMES.photoThumbnails, "readonly")
@@ -433,28 +437,31 @@ export class BrowserPhotoSource implements PhotoSource {
         .get(photoId),
     ).catch(() => undefined);
     if (stored?.maxEdge === THUMBNAIL_MAX_EDGE && stored.sourceVersion === sourceVersion) {
-      return ok(this.createLease(`thumbnail:${photoId}`, stored.blob));
+      return ok(this.createLease(cacheKey, stored.blob));
     }
 
-    let job = this.thumbnailJobs.get(photoId);
+    const jobKey = `${photoId}:${sourceVersion}`;
+    let job = this.thumbnailJobs.get(jobKey);
     if (!job) {
       job = this.generateThumbnail(opened.value, photoId, sourceVersion);
-      this.thumbnailJobs.set(photoId, job);
+      this.thumbnailJobs.set(jobKey, job);
       void job.finally(() => {
-        if (this.thumbnailJobs.get(photoId) === job) this.thumbnailJobs.delete(photoId);
+        if (this.thumbnailJobs.get(jobKey) === job) this.thumbnailJobs.delete(jobKey);
       });
     }
     const generated = await job;
     return generated.ok
-      ? ok(this.createLease(`thumbnail:${photoId}`, generated.value))
+      ? ok(this.createLease(cacheKey, generated.value))
       : generated;
   }
 
   async preview(photoId: PhotoId): Promise<Result<PreviewLease, SourceError>> {
     const opened = await this.database;
     if (!opened.ok) return err(toSourceError());
+    const sourceVersion = await this.getPhotoVersion(opened.value, photoId);
+    if (!sourceVersion) return err({ kind: "photo-not-found", photoId });
     const file = await this.readPhotoFile(opened.value, photoId);
-    return file.ok ? ok(this.createLease(`preview:${photoId}`, file.value)) : err(file.error);
+    return file.ok ? ok(this.createLease(`preview:${photoId}:${sourceVersion}`, file.value)) : err(file.error);
   }
 
   async derivedPreview(photoId: PhotoId, maxEdge: DerivedPreviewMaxEdge): Promise<Result<PreviewLease, SourceError>> {
@@ -462,7 +469,7 @@ export class BrowserPhotoSource implements PhotoSource {
     if (!opened.ok) return err(toSourceError());
     const sourceVersion = await this.getPhotoVersion(opened.value, photoId);
     if (!sourceVersion) return err({ kind: "photo-not-found", photoId });
-    const key = `derived:${maxEdge}:${photoId}`;
+    const key = `derived:${maxEdge}:${photoId}:${sourceVersion}`;
     const cached = this.derivedPreviewCache.get(key);
     if (cached?.sourceVersion === sourceVersion) {
       cached.lastUsed = ++this.urlClock;
@@ -723,11 +730,12 @@ export class BrowserPhotoSource implements PhotoSource {
     }
   }
 
-  private dropCachedUrl(key: string): void {
-    const cached = this.urlCache.get(key);
-    if (!cached) return;
-    URL.revokeObjectURL(cached.url);
-    this.urlCache.delete(key);
+  private dropCachedUrls(prefix: string): void {
+    for (const [key, cached] of this.urlCache) {
+      if (!key.startsWith(prefix)) continue;
+      URL.revokeObjectURL(cached.url);
+      this.urlCache.delete(key);
+    }
   }
 }
 

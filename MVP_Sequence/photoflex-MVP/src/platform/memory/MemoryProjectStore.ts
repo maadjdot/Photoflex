@@ -108,6 +108,7 @@ export class MemoryProjectStore implements ProjectStore {
   ): Promise<Result<{ readonly revision: WorkspaceRevision }, SaveError>> {
     if (this.options.unavailable) return err({ kind: "unavailable", retryable: true });
     if (this.options.quotaExceeded) return err({ kind: "quota-exceeded" });
+    if (!isWorkspace(workspace)) return err({ kind: "unavailable", retryable: false });
     const current = this.database.projects.get(workspace.projectId);
     if (!current) {
       return err({ kind: "not-found", entity: "project", id: workspace.projectId });

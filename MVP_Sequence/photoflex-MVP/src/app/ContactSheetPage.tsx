@@ -21,7 +21,7 @@ export function ContactSheetPage({
   readonly sourceId: SourceId;
   readonly navigate: (route: AppRoute) => void;
 }) {
-  const { workspace, workspaceRef, save, saveWorktable, loading, error } = useProjectWorkspace(dependencies, projectId);
+  const { workspace, save, saveWorktable, loading, error } = useProjectWorkspace(dependencies, projectId);
   const source = workspace?.sources.find((item) => item.id === sourceId && !item.removedAt);
   const { states, startScan } = useSourceMonitor(
     dependencies.photoSource,
@@ -43,6 +43,7 @@ export function ContactSheetPage({
   const lastSelectedIndexRef = useRef<number | undefined>(undefined);
   const resumeSavedKeyRef = useRef<string | undefined>(undefined);
   const exhaustedAtIndexedCountRef = useRef(-1);
+  const reconciledScanRef = useRef(-1);
   const initialPageLoadRef = useRef(0);
   const handlePhotoSourceError = useCallback((photoId: PhotoId, photoError: SourceError) => {
     if (photoError.kind === "photo-not-found") {
@@ -76,6 +77,7 @@ export function ContactSheetPage({
     const requestId = initialPageLoadRef.current + 1;
     initialPageLoadRef.current = requestId;
     exhaustedAtIndexedCountRef.current = -1;
+    reconciledScanRef.current = -1;
     setPhotos([]); setCursor("0"); setSelected(new Set()); setMissingPhotoIds(new Set()); setFilter("all");
     void (async () => {
       const page = await dependencies.photoSource.listPhotos(sourceId, "0", 100);
@@ -111,6 +113,20 @@ export function ContactSheetPage({
   };
 
   const indexedCount = states[sourceId]?.indexedCount ?? 0;
+  const sourceState = states[sourceId];
+  useEffect(() => {
+    if (!sourceState || !["ready", "partial", "empty"].includes(sourceState.status)) return;
+    if (reconciledScanRef.current === sourceState.indexedCount) return;
+    reconciledScanRef.current = sourceState.indexedCount;
+    let active = true;
+    void dependencies.photoSource.listPhotos(sourceId, "0", 100).then((page) => {
+      if (!active || !page.ok) return;
+      setPhotos(mergeUniquePhotos([], page.value.items));
+      setMissingPhotoIds(new Set(page.value.issues.filter((issue) => issue.kind === "missing-file").map((issue) => issue.photoId)));
+      setCursor(page.value.nextCursor);
+    });
+    return () => { active = false; };
+  }, [dependencies.photoSource, sourceId, sourceState?.indexedCount, sourceState?.status]);
   useEffect(() => {
     if (indexedCount <= photos.length || loadingPage || initialPageLoadRef.current !== 0 || exhaustedAtIndexedCountRef.current === indexedCount) return;
     // A null cursor means the previous read reached the then-current tail. If a
@@ -165,25 +181,22 @@ export function ContactSheetPage({
     });
   };
   const placeOnTable = async (ids: readonly PhotoId[]) => {
-    const current = workspaceRef.current;
-    if (!current) return false;
-    const editor = createWorktableEditor(current.worktableDraft);
     const requested = ids.map((photoId) => photos.find((photo) => photo.id === photoId)).filter((photo): photo is PhotoRef => Boolean(photo));
-    const beforeCount = current.worktableDraft.entryOrder.length;
-    const placed = editor.execute({
-      type: "place",
-      items: requested.map((photo) => ({
-        photoId: photo.id,
-        ...worktableDisplaySize(photo.width, photo.height),
-        filename: photo.relativePath.split("/").at(-1) ?? shortId(photo.id),
-      })),
+    let added = 0;
+    const saveResult = await saveWorktable((current) => {
+      const editor = createWorktableEditor(current);
+      const placed = editor.execute({
+        type: "place",
+        items: requested.map((photo) => ({
+          photoId: photo.id,
+          ...worktableDisplaySize(photo.width, photo.height),
+          filename: photo.relativePath.split("/").at(-1) ?? shortId(photo.id),
+        })),
+      });
+      if (!placed.ok) return current;
+      added = placed.value.entryOrder.length - current.entryOrder.length;
+      return placed.value;
     });
-    if (!placed.ok) {
-      setNotice("无法把当前选择放到 Table。");
-      return false;
-    }
-    const added = placed.value.entryOrder.length - beforeCount;
-    const saveResult = await saveWorktable(placed.value);
     if (saveResult.ok) {
       setSelected(new Set());
       setNotice(`${added} photos placed on Table${requested.length - added ? ` · ${requested.length - added} already there` : ""}`);
@@ -193,21 +206,17 @@ export function ContactSheetPage({
     return false;
   };
   const toggleTable = async (photoId: PhotoId) => {
-    const current = workspaceRef.current;
-    if (!current) return;
-    const editor = createWorktableEditor(current.worktableDraft);
-    const inTable = Boolean(current.worktableDraft.placements[photoId]);
     const photo = photos.find((item) => item.id === photoId);
-    const result = inTable
-      ? editor.execute({ type: "remove", photoIds: [photoId] })
-      : photo
-        ? editor.execute({ type: "place", items: [{ photoId, ...worktableDisplaySize(photo.width, photo.height), filename: photo.relativePath.split("/").at(-1) ?? shortId(photo.id) }] })
-        : undefined;
-    if (!result?.ok) {
-      setNotice("Table 状态保存失败。");
-      return;
-    }
-    const saveResult = await saveWorktable(result.value);
+    const saveResult = await saveWorktable((current) => {
+      const editor = createWorktableEditor(current);
+      const inTable = Boolean(current.placements[photoId]);
+      const result = inTable
+        ? editor.execute({ type: "remove", photoIds: [photoId] })
+        : photo
+          ? editor.execute({ type: "place", items: [{ photoId, ...worktableDisplaySize(photo.width, photo.height), filename: photo.relativePath.split("/").at(-1) ?? shortId(photoId) }] })
+          : undefined;
+      return result?.ok ? result.value : current;
+    });
     if (!saveResult.ok) setNotice(workspaceSaveErrorMessage(saveResult.error));
   };
 

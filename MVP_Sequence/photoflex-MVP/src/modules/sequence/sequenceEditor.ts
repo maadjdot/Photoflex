@@ -104,6 +104,7 @@ function addItems(draft: SequenceDraft, items: readonly SequenceItem[], at: numb
 function removeItems(draft: SequenceDraft, itemIds: readonly SequenceItemId[]): Result<SequenceDraft, SequenceCommandError> {
   const removed = new Set(itemIds);
   if (!removed.size) return ok(draft);
+  if (draft.items.length - removed.size < 1) return err({ kind: "cannot-remove-last-item" });
   return ok(normalize({ ...draft, items: draft.items.filter((item) => !removed.has(item.id)) }));
 }
 

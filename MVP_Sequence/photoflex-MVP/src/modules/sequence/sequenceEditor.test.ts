@@ -52,6 +52,15 @@ describe("SequenceEditor", () => {
     expect(editor.canUndo()).toBe(false);
   });
 
+  it("rejects removing the last item so the persisted Sequence stays valid", () => {
+    const editor = createSequenceEditor(draft([item("a")]));
+    expect(editor.execute({ type: "remove", itemIds: ["a" as SequenceItemId] })).toEqual({
+      ok: false,
+      error: { kind: "cannot-remove-last-item" },
+    });
+    expect(editor.snapshot().items.map((value) => value.id)).toEqual(["a"]);
+  });
+
   it("does not create history when a move preserves the existing order", () => {
     const editor = createSequenceEditor(draft([item("a"), item("b")]));
     expect(editor.execute({ type: "move", itemIds: ["b" as SequenceItemId], to: 2 }).ok).toBe(true);

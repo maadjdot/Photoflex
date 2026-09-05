@@ -90,6 +90,7 @@ export type SequenceCommandError =
   | { readonly kind: "invalid-reading-unit" }
   | { readonly kind: "invalid-segment" }
   | { readonly kind: "empty-name" }
+  | { readonly kind: "cannot-remove-last-item" }
   | { readonly kind: "invalid-target"; readonly target: number }
   | {
       readonly kind: "sequence-limit-exceeded";

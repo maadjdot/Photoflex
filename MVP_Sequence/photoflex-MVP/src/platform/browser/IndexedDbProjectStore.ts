@@ -144,6 +144,7 @@ export class IndexedDbProjectStore implements ProjectStore {
   ): Promise<Result<{ readonly revision: WorkspaceRevision }, SaveError>> {
     const opened = await this.database;
     if (!opened.ok) return opened;
+    if (!isWorkspace(workspace)) return err({ kind: "unavailable", retryable: false });
 
     return new Promise((resolve) => {
       const transaction = opened.value.transaction(STORE_NAMES.projects, "readwrite");

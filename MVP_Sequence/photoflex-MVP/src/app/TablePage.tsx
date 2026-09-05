@@ -387,7 +387,9 @@ export function TablePage({ dependencies, projectId, navigate }: { dependencies:
     if (!removed.ok) { setNotice("This Sequence pile could not be removed."); return; }
     const result = await deleteSequences(pileIds, removed.value);
     if (!result.ok) { setNotice(workspaceSaveErrorMessage(result.error)); return; }
-    editorRef.current = editor;
+    // Deleting a pile also deletes its Sequence and versions. Start a new
+    // history so Undo cannot resurrect a dangling pile reference.
+    editorRef.current = createWorktableEditor(removed.value);
     setDraft(removed.value);
     setSelectedPiles(new Set());
     setSummaries((items) => items.filter((item) => !pileIds.includes(item.id)));
