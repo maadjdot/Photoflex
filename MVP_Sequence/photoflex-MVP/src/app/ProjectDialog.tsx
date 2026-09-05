@@ -80,8 +80,8 @@ export function NewProjectDialog({
           <div className="field-label"><span>Photo folder <small>项目照片资料夹</small></span>
             <span className="folder-row"><span className="folder-value">{grant ? grant.displayName : "No folder selected"}</span><button className="folder-picker" type="button" onClick={chooseFolder}>Browse folder</button></span>
           </div>
-          <label className="field-label"><span>Project memo <small>项目 Memo</small></span><textarea value={memo} onChange={(event) => setMemo(event.target.value)} placeholder="可记录拍摄主题、地点或筛选目标……" rows={3} /></label>
           <label className="field-label expected-field"><span>Expected photo count <small>预期照片张数</small></span><input inputMode="numeric" value={expected} onChange={(event) => setExpected(event.target.value.replace(/[^0-9]/g, ""))} placeholder="e.g. 60" /></label>
+          <label className="field-label"><span>Project memo <small>项目 Memo</small></span><textarea value={memo} onChange={(event) => setMemo(event.target.value)} placeholder="Shooting theme, inspirations, destinations, etc." rows={3} /></label>
         </div>
         {error && <p className="form-error" role="alert">{error}</p>}
         <footer className="modal-footer">

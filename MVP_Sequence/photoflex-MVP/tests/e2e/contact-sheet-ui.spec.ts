@@ -3,7 +3,7 @@ import { expect, test } from "@playwright/test";
 test("M2.1 Contact Sheet 提供 Place on Table，并移除 Pool 栏", async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 1441, height: 1027 });
   await page.goto("/");
-  await expect(page.getByText("Begin with a body of work.")).toBeVisible();
+  await expect(page.getByText("Begin your photo journey")).toBeVisible();
   await page.evaluate(async () => {
     const request = indexedDB.open("photoflex-mvp");
     const database = await new Promise<IDBDatabase>((resolve, reject) => {
@@ -59,7 +59,7 @@ test("M2.1 Contact Sheet 提供 Place on Table，并移除 Pool 栏", async ({ p
     return tops.filter((top) => Math.abs(top - firstTop) <= 1).length;
   });
 
-  expect(header?.height).toBe(80);
+  expect(header?.height).toBe(65);
   expect(sourceRail?.width).toBeGreaterThanOrEqual(210);
   expect(sourceRail?.width).toBeLessThanOrEqual(213);
   await expect(page.locator(".pool-panel")).toHaveCount(0);

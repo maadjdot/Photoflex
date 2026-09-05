@@ -3,7 +3,7 @@ import { expect, test } from "@playwright/test";
 test("M2 Sequence supports Reading Units, Segment, Overview, Read and one-save drag", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 1024 });
   await page.goto("/");
-  await expect(page.getByText("Begin with a body of work.")).toBeVisible();
+  await expect(page.getByText("Begin your photo journey")).toBeVisible();
   await page.evaluate(async () => {
     const request = indexedDB.open("photoflex-mvp");
     const database = await new Promise<IDBDatabase>((resolve, reject) => { request.onsuccess = () => resolve(request.result); request.onerror = () => reject(request.error); });

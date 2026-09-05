@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
 
-import { cleanup, render, screen } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { ProjectId } from "../contracts";
 import { MemoryPhotoSource } from "../platform/memory/MemoryPhotoSource";
 import { MemoryProjectStore } from "../platform/memory/MemoryProjectStore";
 import { App } from "./App";
@@ -10,7 +11,10 @@ describe("M1 app", () => {
   beforeEach(() => {
     window.location.hash = "#/";
   });
-  afterEach(() => cleanup());
+  afterEach(() => {
+    cleanup();
+    vi.restoreAllMocks();
+  });
 
   it("显示项目首页", async () => {
     render(
@@ -41,5 +45,54 @@ describe("M1 app", () => {
 
     // Figma 交互要求资料齐全前不可提交，因此这里验证禁用状态，而不是提交后的报错。
     expect((createButton as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("可以把项目封面拖到垃圾桶删除项目", async () => {
+    const projectStore = new MemoryProjectStore();
+    const projectId = "drag-project" as ProjectId;
+    const created = await projectStore.createProject({
+      id: projectId,
+      name: "Drag Project",
+      createdAt: "2026-09-05T08:00:00.000Z",
+    });
+    if (!created.ok) throw new Error("fixture project not created");
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+
+    render(
+      <App
+        dependencies={{
+          projectStore,
+          photoSource: new MemoryPhotoSource(),
+        }}
+      />,
+    );
+
+    const cover = await screen.findByRole("button", { name: "打开项目 Drag Project" });
+    expect(cover.querySelector(".project-cover")).not.toBeNull();
+    const trash = screen.getByLabelText("拖动项目到这里删除");
+    const values = new Map<string, string>();
+    const dataTransfer = {
+      effectAllowed: "all",
+      dropEffect: "none",
+      types: [] as string[],
+      setData(type: string, value: string) {
+        values.set(type, value);
+        if (!this.types.includes(type)) this.types.push(type);
+      },
+      getData(type: string) {
+        return values.get(type) ?? "";
+      },
+    };
+
+    fireEvent.dragStart(cover, { dataTransfer });
+    fireEvent.dragEnter(trash, { dataTransfer });
+    fireEvent.dragOver(trash, { dataTransfer });
+    fireEvent.drop(trash, { dataTransfer });
+
+    await waitFor(async () => {
+      const result = await projectStore.listProjects();
+      expect(result.ok && result.value).toHaveLength(0);
+    });
+    expect(screen.queryByText("Drag Project")).toBeNull();
   });
 });
