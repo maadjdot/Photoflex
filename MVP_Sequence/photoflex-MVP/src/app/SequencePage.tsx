@@ -10,16 +10,16 @@ import undoIcon from "../assets/icons/table-undo.svg";
 import segmentIcon from "../assets/icons/table-segment.svg";
 import sequenceIcon from "../assets/icons/table-sequence.svg";
 import swapIcon from "../assets/icons/table-swap.svg";
-import type { PhotoId, PhotoState, ProjectId, ReadingUnit, ReadingUnitId, SequenceDocument, SequenceEditCommand, SequenceEditor, SequenceId, SequenceItem, SequenceItemId, SequenceSegment, SequenceSegmentId, SequenceSummary, SequenceVersion, VersionId, VersionSummary, WorktableDraft, WorktableSequencePilePlacement } from "../contracts";
-import { calculateSequenceStripVirtualRange, compareSequences, createSequenceEditor, sequenceStripInsertionIndex } from "../modules/sequence";
+import type { PhotoId, PhotoState, ProjectId, ReadingUnit, ReadingUnitId, SequenceDocument, SequenceEditCommand, SequenceId, SequenceItem, SequenceItemId, SequenceSegment, SequenceSegmentId, SequenceSummary, SequenceVersion, VersionId, VersionSummary } from "../contracts";
+import { calculateSequenceStripVirtualRange, compareSequences, sequenceStripInsertionIndex } from "../modules/sequence";
 import { compareVersions } from "../modules/versioning";
 import { openVersionAsDraft } from "../modules/versioning";
-import { createWorktableEditor } from "../modules/worktable";
 import type { AppDependencies } from "./dependencies";
 import { PhotoThumb } from "./PhotoThumb";
 import type { AppRoute } from "./router";
 import { fitSequenceCardFrame } from "./sequenceCardGeometry";
-import { useProjectWorkspace } from "./useProjectWorkspace";
+import { useProjectWorkspaceSession } from "./useProjectWorkspace";
+import { useSequenceSession } from "./sequenceSession";
 
 const ZOOM_LEVELS = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2] as const;
 type DragSource = "stage" | "strip" | "overview";
@@ -29,7 +29,6 @@ interface SegmentDialog { mode: "create" | "rename"; value: string; segmentId?: 
 interface SequenceDialog { value: string }
 
 export function SequencePage({ dependencies, projectId, sequenceId, openVersionId, navigate }: { dependencies: AppDependencies; projectId: ProjectId; sequenceId: SequenceId; openVersionId?: VersionId; navigate: (route: AppRoute) => void }) {
-  const [sequence, setSequence] = useState<SequenceDocument>();
   const [selected, setSelected] = useState<Set<SequenceItemId>>(new Set());
   const [anchor, setAnchor] = useState<SequenceItemId>();
   const [zoom, setZoom] = useState(1.25);
@@ -40,7 +39,6 @@ export function SequencePage({ dependencies, projectId, sequenceId, openVersionI
   const [readIndex, setReadIndex] = useState<number>();
   const [segmentDialog, setSegmentDialog] = useState<SegmentDialog>();
   const [notice, setNotice] = useState<string>();
-  const [saveState, setSaveState] = useState<"idle" | "saving" | "failed">("idle");
   const [missing, setMissing] = useState<Set<PhotoId>>(new Set());
   const [availableSequences, setAvailableSequences] = useState<readonly SequenceSummary[]>([]);
   const [selectedCompareSequenceIds, setSelectedCompareSequenceIds] = useState<Set<SequenceId>>(new Set());
@@ -48,60 +46,45 @@ export function SequencePage({ dependencies, projectId, sequenceId, openVersionI
   const [newSequenceDialog, setNewSequenceDialog] = useState<SequenceDialog>();
   const [stripLayout, setStripLayout] = useState({ width: 0, scrollLeft: 0 });
   const [visibleStageIds, setVisibleStageIds] = useState<Set<SequenceItemId>>(new Set());
-  const editorRef = useRef<SequenceEditor | undefined>(undefined);
-  const sequenceRef = useRef<SequenceDocument | undefined>(undefined);
-  const revisionRef = useRef(0);
-  const saveQueueRef = useRef<Promise<void>>(Promise.resolve());
-  const saveGenerationRef = useRef(0);
   const dragRef = useRef<DragState | undefined>(undefined);
   const workspaceRef = useRef<HTMLElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
   const stripRef = useRef<HTMLDivElement>(null);
   const overviewRef = useRef<HTMLElement>(null);
   const baselineKeyRef = useRef<string | undefined>(undefined);
-  const loadGenerationRef = useRef(0);
+  const openedVersionRef = useRef<string | undefined>(undefined);
   const dragFrameRef = useRef<number | undefined>(undefined);
   const pendingDragPointRef = useRef<{ x: number; y: number; pointerId: number } | undefined>(undefined);
   const dragLayoutRef = useRef<readonly DragLayoutItem[]>([]);
   const photoNameCacheRef = useRef(new Map<PhotoId, string>());
-  const { workspace, workspaceRef: projectWorkspaceRef, setWorkspace, save: saveWorkspace } = useProjectWorkspace(dependencies, projectId);
-
-  const load = useCallback(async () => {
-    const generation = ++loadGenerationRef.current;
-    const result = await dependencies.projectStore.loadSequence(sequenceId);
-    if (generation !== loadGenerationRef.current) return;
-    if (!result.ok) { setNotice("Sequence could not be loaded."); return; }
-    const loaded = result.value;
-    sequenceRef.current = loaded;
-    revisionRef.current = loaded.revision;
-    editorRef.current = createSequenceEditor(toDraft(loaded));
-    setSequence(loaded);
-    setSelected(new Set());
-    setSaveState("idle");
-    baselineKeyRef.current = sequenceDraftKey(loaded);
-    const sequenceList = await dependencies.projectStore.listSequences(projectId);
-    if (generation !== loadGenerationRef.current) return;
-    if (sequenceList.ok) setAvailableSequences(sequenceList.value);
-    if (openVersionId) {
-      const opened = await dependencies.projectStore.loadVersion(openVersionId);
-      if (generation !== loadGenerationRef.current) return;
-      if (opened.ok) {
-        const draft = openVersionAsDraft(opened.value);
-        editorRef.current = createSequenceEditor(draft);
-        const next = { ...loaded, items: draft.items, segments: draft.segments, readingUnits: draft.readingUnits };
-        sequenceRef.current = next; setSequence(next); setNotice(`Opened ${opened.value.name} as Working Draft.`);
-      }
-    }
-  }, [dependencies.projectStore, openVersionId, projectId, sequenceId]);
+  const { workspace, save: saveWorkspace, updateResumeContext, listSequences, loadVersion, createSequenceBundle, coordinator } = useProjectWorkspaceSession(dependencies, projectId);
+  const sequenceSession = useSequenceSession(coordinator, projectId, sequenceId);
+  const { sequence, editor, canUndo, canRedo, saveState } = sequenceSession;
 
   useEffect(() => {
-    void load();
-    return () => {
-      loadGenerationRef.current += 1;
-      saveGenerationRef.current += 1;
-      if (dragFrameRef.current !== undefined) cancelAnimationFrame(dragFrameRef.current);
-    };
-  }, [load]);
+    let live = true;
+    void listSequences().then((result) => live && result.ok && setAvailableSequences(result.value));
+    return () => { live = false; };
+  }, [listSequences, projectId, sequenceId]);
+
+  useEffect(() => {
+    if (!sequence || !openVersionId || openedVersionRef.current === openVersionId) return;
+    openedVersionRef.current = openVersionId;
+    let live = true;
+    void loadVersion(openVersionId).then((opened) => {
+      if (!live || !opened.ok) return;
+      sequenceSession.replaceDraft(openVersionAsDraft(opened.value), `Opened ${opened.value.name} as Working Draft.`);
+    });
+    return () => { live = false; };
+  }, [loadVersion, openVersionId, sequence, sequenceSession]);
+
+  useEffect(() => {
+    if (sequence && baselineKeyRef.current === undefined) baselineKeyRef.current = sequenceDraftKey(sequence);
+  }, [sequence]);
+
+  useEffect(() => () => {
+    if (dragFrameRef.current !== undefined) cancelAnimationFrame(dragFrameRef.current);
+  }, []);
 
   const stripRange = useMemo(() => calculateSequenceStripVirtualRange({ itemCount: sequence?.items.length ?? 0, viewportWidth: stripLayout.width, scrollLeft: stripLayout.scrollLeft }), [sequence?.items.length, stripLayout]);
 
@@ -145,8 +128,8 @@ export function SequencePage({ dependencies, projectId, sequenceId, openVersionI
   useEffect(() => {
     if (!workspace || !sequence) return;
     if (workspace.resumeContext?.page === "sequence" && workspace.resumeContext.sequenceId === sequenceId) return;
-    void saveWorkspace((current) => ({ ...current, lastOpenedAt: new Date().toISOString(), resumeContext: { page: "sequence", filter: "all", sequenceId } }));
-  }, [saveWorkspace, sequence, sequenceId, workspace]);
+    void updateResumeContext({ page: "sequence", filter: "all", sequenceId }, true);
+  }, [sequence, sequenceId, updateResumeContext, workspace]);
   useEffect(() => {
     const targets = [stageRef.current, overviewRef.current].filter((value): value is HTMLElement => Boolean(value));
     if (!targets.length) return;
@@ -160,45 +143,17 @@ export function SequencePage({ dependencies, projectId, sequenceId, openVersionI
     return () => targets.forEach((target) => target.removeEventListener("wheel", onNativeWheel));
   }, [overview, zoom]);
 
-  const persist = useCallback((draft: ReturnType<SequenceEditor["snapshot"]>) => {
-    const current = sequenceRef.current;
-    if (!current) return;
-    const next: SequenceDocument = { ...current, items: draft.items, segments: draft.segments, readingUnits: draft.readingUnits, updatedAt: new Date().toISOString() };
-    sequenceRef.current = next;
-    setSequence(next);
-    setSaveState("saving");
-    const generation = saveGenerationRef.current;
-    saveQueueRef.current = saveQueueRef.current.then(async () => {
-      if (generation !== saveGenerationRef.current) return;
-      const expected = revisionRef.current as SequenceDocument["revision"];
-      const result = await dependencies.projectStore.saveSequence({ ...next, revision: expected }, expected);
-      if (generation !== saveGenerationRef.current) return;
-      if (!result.ok) {
-        setSaveState("failed");
-        setNotice(result.error.kind === "sequence-conflict" ? "Sequence changed elsewhere. Reloaded the latest draft." : "Draft save failed. Your current edit remains on screen.");
-        if (result.error.kind === "sequence-conflict") { saveGenerationRef.current += 1; await load(); }
-        return;
-      }
-      revisionRef.current = result.value.revision;
-      if (sequenceRef.current) sequenceRef.current = { ...sequenceRef.current, revision: result.value.revision };
-      setSequence((value) => value ? { ...value, revision: result.value.revision } : value);
-      setSaveState("idle");
-    });
-  }, [dependencies.projectStore, load]);
-
   const commit = useCallback((command: SequenceEditCommand) => {
-    const result = editorRef.current?.execute(command);
-    if (!result?.ok) { if (result) setNotice(commandErrorMessage(result.error.kind)); return false; }
-    persist(result.value);
+    const result = sequenceSession.execute(command);
+    if (!result.ok) { setNotice(commandErrorMessage(result.error.kind)); return false; }
     setSelected((current) => new Set([...current].filter((id) => result.value.items.some((item) => item.id === id))));
     return true;
-  }, [persist]);
+  }, [sequenceSession]);
 
   const history = useCallback((direction: "undo" | "redo") => {
-    const editor = editorRef.current;
-    if (!editor || (direction === "undo" ? !editor.canUndo() : !editor.canRedo())) return;
-    persist(direction === "undo" ? editor.undo() : editor.redo());
-  }, [persist]);
+    if (direction === "undo") sequenceSession.undo();
+    else sequenceSession.redo();
+  }, [sequenceSession]);
 
   const orderedSelection = useMemo(() => sequence?.items.filter((item) => selected.has(item.id)) ?? [], [selected, sequence]);
   const tableSequences = useMemo(() => {
@@ -407,12 +362,12 @@ export function SequencePage({ dependencies, projectId, sequenceId, openVersionI
   }, [availableSequences, sequence, sequenceChanged]);
 
   const createNewSequence = useCallback(async () => {
-    const current = sequenceRef.current;
+    const current = sequence;
     const dialog = newSequenceDialog;
     if (!current || !dialog || !dialog.value.trim()) return;
     const name = dialog.value.trim();
     if (availableSequences.some((item) => item.name.toLocaleLowerCase() === name.toLocaleLowerCase())) { setNotice("That Sequence name already exists."); return; }
-    const draft = editorRef.current?.snapshot();
+    const draft = editor?.snapshot();
     if (!draft) return;
     const itemIds = new Map<SequenceItemId, SequenceItemId>();
     const items = draft.items.map((item) => { const id = newId("item") as SequenceItemId; itemIds.set(item.id, id); return item.kind === "photo" ? { id, kind: "photo" as const, photoId: item.photoId } : { id, kind: "blank" as const }; });
@@ -425,24 +380,16 @@ export function SequencePage({ dependencies, projectId, sequenceId, openVersionI
     const currentVersionId = newId("version") as VersionId;
     const nextSequence: SequenceDocument = { id, projectId, name, items, segments, readingUnits: units, currentVersionId, revision: 0 as SequenceDocument["revision"], createdAt: now, updatedAt: now };
     const initialVersion: SequenceVersion = { id: currentVersionId, projectId, sequenceId: id, name: `Initial · ${name}`, itemCount: items.length, items, segments, readingUnits: units, createdAt: now };
-    await saveQueueRef.current;
-    await saveWorkspace((value) => value);
-    const latest = projectWorkspaceRef.current;
+    await sequenceSession.flush();
+    const latest = coordinator.getSnapshot().workspace;
     if (!latest) { setNotice("Project data is still loading."); return; }
-    const worktableEditor = createWorktableEditor(latest.worktableDraft);
-    const placement: WorktableSequencePilePlacement = { sequenceId: id, x: 120 + latest.worktableDraft.pileOrder.length * 28, y: 120 + latest.worktableDraft.pileOrder.length * 28, z: maximumWorktableZ(latest.worktableDraft) + 1, width: 211, height: 142 };
-    const placed = worktableEditor.execute({ type: "place-sequence-pile", placement });
-    if (!placed.ok) { setNotice("Sequence pile could not be created."); return; }
-    const result = await dependencies.projectStore.createSequence(projectId, latest.revision, nextSequence, initialVersion, placed.value);
+    const result = await createSequenceBundle({ sequence: nextSequence, initialVersion, pile: { x: 120 + latest.worktableDraft.pileOrder.length * 28, y: 120 + latest.worktableDraft.pileOrder.length * 28, width: 211, height: 142 } });
     if (!result.ok) { setNotice(result.error.kind === "sequence-name-exists" ? "That Sequence name already exists." : "Sequence could not be created."); return; }
-    const savedWorkspace = { ...latest, worktableDraft: placed.value, sequenceIds: [...latest.sequenceIds, id], versionIds: [...latest.versionIds, currentVersionId], revision: result.value.revision, updatedAt: now };
-    projectWorkspaceRef.current = savedWorkspace;
-    setWorkspace(savedWorkspace);
     setAvailableSequences((values) => [...values, result.value.summary]);
     setNewSequenceDialog(undefined);
     setNotice(`Created ${name}.`);
     navigate({ name: "sequence", projectId, sequenceId: id });
-  }, [availableSequences, dependencies.projectStore, navigate, newSequenceDialog, projectId, projectWorkspaceRef, saveWorkspace, setWorkspace]);
+  }, [availableSequences, coordinator, createSequenceBundle, editor, navigate, newSequenceDialog, projectId, sequence, sequenceSession, sequenceSession.flush]);
 
   const openSequenceCompareDialog = useCallback(() => { setSelectedCompareSequenceIds(new Set()); setSequenceCompareDialog(true); }, []);
   const toggleCompareSequence = useCallback((id: SequenceId) => {
@@ -462,8 +409,8 @@ export function SequencePage({ dependencies, projectId, sequenceId, openVersionI
       <label className="sequence-name-picker"><span className="sr-only">Sequence</span><select value={sequence.id} onChange={(event) => navigate({ name: "sequence", projectId, sequenceId: event.target.value as SequenceId })}>{sequencePickerOptions.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
       <span className={`sequence-save-state is-${saveState}`}>{saveState === "saving" ? "Draft saving…" : saveState === "failed" ? "Save failed" : "Working Draft"}</span>
       <nav>
-        <SequenceToolButton icon={undoIcon} label="Undo" disabled={!editorRef.current?.canUndo()} onClick={() => history("undo")} />
-        <SequenceToolButton icon={redoIcon} label="Redo" disabled={!editorRef.current?.canRedo()} onClick={() => history("redo")} />
+        <SequenceToolButton icon={undoIcon} label="Undo" disabled={!canUndo} onClick={() => history("undo")} />
+        <SequenceToolButton icon={redoIcon} label="Redo" disabled={!canRedo} onClick={() => history("redo")} />
         <SequenceToolButton icon={segmentIcon} label="Segment" disabled={!orderedSelection.length} onClick={openSegmentDialog} />
         <SequenceToolButton icon={previewIcon} label="Read" disabled={!sequence.readingUnits.length} onPointerEnter={() => warmReadAt(orderedSelection[0] ? readUnitForItem(orderedSelection[0].id) : 0)} onFocus={() => warmReadAt(orderedSelection[0] ? readUnitForItem(orderedSelection[0].id) : 0)} onClick={() => openRead(orderedSelection[0] ? readUnitForItem(orderedSelection[0].id) : 0)} />
         <SequenceToolButton icon={fitIcon} label="Fit Sequence" onClick={fitSequence} />
@@ -503,7 +450,8 @@ function SequenceToolButton({ icon, label, className = "", ...props }: { icon: s
 
 export function SequenceComparePage({ dependencies, projectId, leftSequenceId, rightSequenceId, navigate }: { dependencies: AppDependencies; projectId: ProjectId; leftSequenceId: SequenceId; rightSequenceId: SequenceId; navigate: (route: AppRoute) => void }) {
   const [left, setLeft] = useState<SequenceDocument>(); const [right, setRight] = useState<SequenceDocument>(); const [availableSequences, setAvailableSequences] = useState<readonly SequenceSummary[]>([]); const [error, setError] = useState<string>();
-  useEffect(() => { let live = true; void Promise.all([dependencies.projectStore.loadSequence(leftSequenceId), dependencies.projectStore.loadSequence(rightSequenceId), dependencies.projectStore.listSequences(projectId)]).then(([a, b, all]) => { if (!live) return; if (!a.ok || !b.ok) return setError("Sequences could not be compared."); setLeft(a.value); setRight(b.value); if (all.ok) setAvailableSequences(all.value); }); return () => { live = false; }; }, [dependencies.projectStore, leftSequenceId, projectId, rightSequenceId]);
+  const { loadSequence, listSequences } = useProjectWorkspaceSession(dependencies, projectId);
+  useEffect(() => { let live = true; void Promise.all([loadSequence(leftSequenceId), loadSequence(rightSequenceId), listSequences()]).then(([a, b, all]) => { if (!live) return; if (!a.ok || !b.ok) return setError("Sequences could not be compared."); setLeft(a.value); setRight(b.value); if (all.ok) setAvailableSequences(all.value); }); return () => { live = false; }; }, [leftSequenceId, listSequences, loadSequence, projectId, rightSequenceId]);
   const diff = useMemo(() => left && right ? compareSequences(left, right) : undefined, [left, right]);
   if (!left || !right || !diff) return <main className="page centered-state">{error ? <h1>{error}</h1> : <><div className="loading-mark" /><p>Comparing Sequences…</p></>}</main>;
   const leftOnly = new Set(diff.leftOnly), rightOnly = new Set(diff.rightOnly), moved = new Set(diff.shared.filter((item) => item.moved).map((item) => item.photoId));
@@ -516,7 +464,8 @@ export function VersionComparePage({ dependencies, projectId, leftVersionId, rig
   const [right, setRight] = useState<SequenceVersion>();
   const [availableVersions, setAvailableVersions] = useState<readonly VersionSummary[]>([]);
   const [error, setError] = useState<string>();
-  useEffect(() => { let live = true; void Promise.all([dependencies.projectStore.loadVersion(leftVersionId), dependencies.projectStore.loadVersion(rightVersionId), dependencies.projectStore.listVersions(projectId)]).then(([a, b, all]) => { if (!live) return; if (!a.ok || !b.ok) { setError("Versions could not be compared."); return; } setLeft(a.value); setRight(b.value); if (all.ok) setAvailableVersions(all.value); }); return () => { live = false; }; }, [dependencies.projectStore, leftVersionId, projectId, rightVersionId]);
+  const { loadVersion, listVersions } = useProjectWorkspaceSession(dependencies, projectId);
+  useEffect(() => { let live = true; void Promise.all([loadVersion(leftVersionId), loadVersion(rightVersionId), listVersions()]).then(([a, b, all]) => { if (!live) return; if (!a.ok || !b.ok) { setError("Versions could not be compared."); return; } setLeft(a.value); setRight(b.value); if (all.ok) setAvailableVersions(all.value); }); return () => { live = false; }; }, [leftVersionId, listVersions, loadVersion, projectId, rightVersionId]);
   const diff = useMemo(() => left && right ? compareVersions(left, right) : undefined, [left, right]);
   if (!left || !right || !diff?.ok) return <main className="page centered-state">{error ? <h1>{error}</h1> : <><div className="loading-mark" /><p>Comparing versions…</p></>}</main>;
   const moved = new Set(diff.value.moved.map((item) => item.itemId));
@@ -638,7 +587,6 @@ function renderSequenceFlow(sequence: SequenceDocument, collapsed: ReadonlySet<S
   return nodes;
 }
 function unitItemIds(unit: ReadingUnit): readonly SequenceItemId[] { return unit.kind === "spread" ? [unit.leftItemId, unit.rightItemId] : [unit.itemId]; }
-function toDraft(sequence: SequenceDocument) { return { projectId: sequence.projectId, baseVersionId: sequence.currentVersionId, items: sequence.items, segments: sequence.segments, readingUnits: sequence.readingUnits }; }
 function nextSegmentName(segments: readonly SequenceSegment[]): string { let n = segments.length + 1; const used = new Set(segments.map((segment) => segment.name.toLocaleLowerCase())); while (used.has(`segment ${String(n).padStart(2, "0")}`)) n += 1; return `Segment ${String(n).padStart(2, "0")}`; }
 function pageLabel(sequence: SequenceDocument, unit: ReadingUnit): string { const indices = unitItemIds(unit).map((id) => sequence.items.findIndex((item) => item.id === id) + 1); return indices.length === 2 ? `${String(indices[0]).padStart(2, "0")}–${String(indices[1]).padStart(2, "0")} / ${sequence.items.length}` : `${String(indices[0]).padStart(2, "0")} / ${sequence.items.length}`; }
 function toggleSet<T>(current: ReadonlySet<T>, value: T): Set<T> { const next = new Set(current); next.has(value) ? next.delete(value) : next.add(value); return next; }
@@ -647,5 +595,4 @@ function clampZoom(value: number): number { return Math.max(0.25, Math.min(2, va
 function isTypingTarget(target: EventTarget | null): boolean { return target instanceof HTMLElement && (target.matches("input, textarea, [contenteditable=true]") || Boolean(target.closest("input, textarea, [contenteditable=true]"))); }
 function commandErrorMessage(kind: string): string { if (kind === "invalid-segment") return "Select a continuous range of complete Reading Units."; if (kind === "invalid-reading-unit") return "That Reading Unit cannot be created from the current selection."; if (kind === "sequence-limit-exceeded") return "This Sequence has reached the MVP item limit."; if (kind === "cannot-remove-last-item") return "A Sequence must keep at least one item."; return "This Sequence operation could not be completed."; }
 function sequenceDraftKey(sequence: SequenceDocument | undefined): string { return sequence ? JSON.stringify({ items: sequence.items, segments: sequence.segments, readingUnits: sequence.readingUnits }) : ""; }
-function maximumWorktableZ(draft: WorktableDraft): number { return Math.max(-1, ...Object.values(draft.placements).map((item) => item.z), ...Object.values(draft.pilePlacements).map((item) => item.z)); }
 function newId(prefix: string): string { return `${prefix}-${globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`}`; }

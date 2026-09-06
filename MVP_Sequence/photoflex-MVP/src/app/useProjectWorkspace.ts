@@ -1,26 +1,18 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import {
-  err,
-  ok,
-  type ProjectId,
-  type ProjectWorkspace,
-  type Result,
-  type SaveError,
-  type SequenceId,
-  type WorktableDraft,
-} from "../contracts";
+import { createContext, createElement, useContext, useEffect, useMemo, useSyncExternalStore, type ReactNode } from "react";
+import type { ProjectId, ProjectWorkspace, WorktableDraft } from "../contracts";
 import type { AppDependencies } from "./dependencies";
+import {
+  createProjectWriteCoordinator,
+  type CoordinatorWorkspaceError,
+  type CoordinatorWorkspaceResult,
+  type ProjectWriteCoordinator,
+  type ResumeContextUpdate,
+} from "./projectWriteCoordinator";
 
-export type WorkspaceUpdate =
-  | ProjectWorkspace
-  | ((current: ProjectWorkspace) => ProjectWorkspace);
-
-export type WorktableUpdate =
-  | WorktableDraft
-  | ((current: WorktableDraft) => WorktableDraft);
-
-export type WorkspaceSaveError = SaveError | { readonly kind: "workspace-not-ready" };
-export type WorkspaceSaveResult = Result<ProjectWorkspace, WorkspaceSaveError>;
+export type WorkspaceUpdate = ProjectWorkspace | ((current: ProjectWorkspace) => ProjectWorkspace);
+export type WorktableUpdate = WorktableDraft | ((current: WorktableDraft) => WorktableDraft);
+export type WorkspaceSaveError = CoordinatorWorkspaceError;
+export type WorkspaceSaveResult = CoordinatorWorkspaceResult;
 
 export function workspaceSaveErrorMessage(error: WorkspaceSaveError): string {
   if (error.kind === "conflict") return "项目已在其他标签页更新，请刷新后重试。";
@@ -29,115 +21,78 @@ export function workspaceSaveErrorMessage(error: WorkspaceSaveError): string {
   if (error.kind === "unsupported-storage-schema") return "项目数据来自不兼容的版本，无法保存。";
   if (error.kind === "migration-failed") return "项目数据升级失败，当前状态未保存。";
   if (error.kind === "workspace-not-ready") return "项目尚未载入，当前状态未保存。";
+  if (error.kind === "writes-paused") return "项目保存已暂停，请重试后再继续编辑。";
   return error.retryable ? "存储暂时不可用，请稍后重试。" : "此浏览器无法使用项目存储。";
 }
 
-export function useProjectWorkspace(dependencies: AppDependencies, projectId: ProjectId) {
-  const [workspace, setWorkspace] = useState<ProjectWorkspace>();
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string>();
-  const workspaceRef = useRef<ProjectWorkspace | undefined>(undefined);
-  const saveQueueRef = useRef<Promise<unknown>>(Promise.resolve());
-  const generationRef = useRef(0);
-  const projectIdRef = useRef(projectId);
-  const activeRef = useRef(true);
-  projectIdRef.current = projectId;
+const ProjectWorkspaceContext = createContext<ProjectWriteCoordinator | undefined>(undefined);
 
+export function ProjectWorkspaceProvider({ dependencies, projectId, children }: { readonly dependencies: AppDependencies; readonly projectId: ProjectId; readonly children: ReactNode }) {
+  const coordinator = useMemo(() => createProjectWriteCoordinator(dependencies, projectId), [dependencies, projectId]);
   useEffect(() => {
-    let active = true;
-    activeRef.current = true;
-    const generation = ++generationRef.current;
-    setLoading(true);
-    setError(undefined);
-    setWorkspace(undefined);
-    workspaceRef.current = undefined;
-    saveQueueRef.current = Promise.resolve();
-    void dependencies.projectStore.loadWorkspace(projectId).then((result) => {
-      if (!active || generation !== generationRef.current) return;
-      setLoading(false);
-      if (result.ok) {
-        workspaceRef.current = result.value;
-        setWorkspace(result.value);
-      } else {
-        setError("项目数据无法读取，请返回 Home 重试。");
-      }
-    });
-    return () => {
-      active = false;
-      activeRef.current = false;
-      generationRef.current += 1;
-    };
-  }, [dependencies.projectStore, projectId]);
+    void coordinator.load();
+    return () => coordinator.dispose();
+  }, [coordinator]);
+  return createElement(ProjectWorkspaceContext.Provider, { value: coordinator }, children);
+}
 
-  const save = useCallback(
-    (update: WorkspaceUpdate): Promise<WorkspaceSaveResult> => {
-      const requestedProjectId = projectId;
-      const run = async () => {
-        const current = workspaceRef.current;
-        if (!current || current.projectId !== requestedProjectId || projectIdRef.current !== requestedProjectId) return err({ kind: "workspace-not-ready" } as const);
-        const requested = typeof update === "function" ? update(current) : update;
-        if (requested.projectId !== requestedProjectId) return err({ kind: "workspace-not-ready" } as const);
-        if (requested === current) return ok(current);
-        const next = { ...requested, revision: current.revision };
-        const result = await dependencies.projectStore.saveWorkspace(next, current.revision);
-        if (!result.ok) return result;
-        if (projectIdRef.current !== requestedProjectId) return err({ kind: "workspace-not-ready" } as const);
-        const saved = { ...next, revision: result.value.revision };
-        workspaceRef.current = saved;
-        if (activeRef.current) setWorkspace(saved);
-        return ok(saved);
-      };
-      const pending = saveQueueRef.current.then(run, run);
-      saveQueueRef.current = pending.then(() => undefined, () => undefined);
-      return pending;
-    },
-    [dependencies.projectStore, projectId],
+function useCoordinator(dependencies: AppDependencies, projectId: ProjectId): ProjectWriteCoordinator {
+  const provided = useContext(ProjectWorkspaceContext);
+  const local = useMemo(() => provided ?? createProjectWriteCoordinator(dependencies, projectId), [dependencies, projectId, provided]);
+  useEffect(() => {
+    if (provided) return;
+    void local.load();
+    return () => local.dispose();
+  }, [local, provided]);
+  return local;
+}
+
+export interface ProjectWorkspaceSession {
+  readonly coordinator: ProjectWriteCoordinator;
+  readonly workspace?: ProjectWorkspace;
+  readonly loading: boolean;
+  readonly error?: string;
+  readonly saving: boolean;
+  readonly save: (update: WorkspaceUpdate) => Promise<WorkspaceSaveResult>;
+  readonly updateResumeContext: (update: ResumeContextUpdate, touchLastOpened?: boolean) => Promise<WorkspaceSaveResult>;
+  readonly saveWorktable: (update: WorktableUpdate) => Promise<WorkspaceSaveResult>;
+  readonly deleteSequences: ProjectWriteCoordinator["deleteSequences"];
+  readonly createSequence: ProjectWriteCoordinator["createSequence"];
+  readonly createSequenceBundle: ProjectWriteCoordinator["createSequenceBundle"];
+  readonly listSequences: ProjectWriteCoordinator["listSequences"];
+  readonly loadSequence: ProjectWriteCoordinator["loadSequence"];
+  readonly loadVersion: ProjectWriteCoordinator["loadVersion"];
+  readonly listVersions: ProjectWriteCoordinator["listVersions"];
+  readonly saveSequenceDraft: ProjectWriteCoordinator["saveSequenceDraft"];
+  readonly editSequence: ProjectWriteCoordinator["editSequence"];
+  readonly flush: ProjectWriteCoordinator["flush"];
+}
+
+export function useProjectWorkspaceSession(dependencies: AppDependencies, projectId: ProjectId): ProjectWorkspaceSession {
+  const coordinator = useCoordinator(dependencies, projectId);
+  const snapshot = useSyncExternalStore(
+    (listener) => coordinator.subscribe(listener),
+    () => coordinator.getSnapshot(),
+    () => coordinator.getSnapshot(),
   );
-
-  const saveWorktable = useCallback(
-    (update: WorktableUpdate): Promise<WorkspaceSaveResult> => {
-      const requestedProjectId = projectId;
-      const run = async () => {
-        const current = workspaceRef.current;
-        if (!current || current.projectId !== requestedProjectId || projectIdRef.current !== requestedProjectId) return err({ kind: "workspace-not-ready" } as const);
-        const draft = typeof update === "function" ? update(current.worktableDraft) : update;
-        if (draft.projectId !== requestedProjectId) return err({ kind: "workspace-not-ready" } as const);
-        if (draft === current.worktableDraft) return ok(current);
-        const result = await dependencies.projectStore.saveWorktable(requestedProjectId, draft, current.revision);
-        if (!result.ok) return result;
-        if (projectIdRef.current !== requestedProjectId) return err({ kind: "workspace-not-ready" } as const);
-        const saved = { ...current, worktableDraft: draft, updatedAt: new Date().toISOString(), revision: result.value.revision };
-        workspaceRef.current = saved;
-        if (activeRef.current) setWorkspace(saved);
-        return ok(saved);
-      };
-      const pending = saveQueueRef.current.then(run, run);
-      saveQueueRef.current = pending.then(() => undefined, () => undefined);
-      return pending;
-    },
-    [dependencies.projectStore, projectId],
-  );
-
-  const deleteSequences = useCallback(
-    (sequenceIds: readonly SequenceId[], worktableDraft: WorktableDraft): Promise<WorkspaceSaveResult> => {
-      const requestedProjectId = projectId;
-      const run = async () => {
-        const current = workspaceRef.current;
-        if (!current || current.projectId !== requestedProjectId || worktableDraft.projectId !== requestedProjectId || projectIdRef.current !== requestedProjectId) return err({ kind: "workspace-not-ready" } as const);
-        const result = await dependencies.projectStore.deleteSequences(requestedProjectId, sequenceIds, current.revision, worktableDraft);
-        if (!result.ok) return result;
-        if (projectIdRef.current !== requestedProjectId) return err({ kind: "workspace-not-ready" } as const);
-        const saved = { ...current, worktableDraft, sequenceIds: result.value.sequenceIds, versionIds: result.value.versionIds, updatedAt: new Date().toISOString(), revision: result.value.revision };
-        workspaceRef.current = saved;
-        if (activeRef.current) setWorkspace(saved);
-        return ok(saved);
-      };
-      const pending = saveQueueRef.current.then(run, run);
-      saveQueueRef.current = pending.then(() => undefined, () => undefined);
-      return pending;
-    },
-    [dependencies.projectStore, projectId],
-  );
-
-  return { workspace, workspaceRef, setWorkspace, save, saveWorktable, deleteSequences, loading, error };
+  return useMemo(() => ({
+    coordinator,
+    workspace: snapshot.workspace,
+    loading: snapshot.loading,
+    error: snapshot.error,
+    saving: snapshot.saving,
+    save: coordinator.saveWorkspace,
+    updateResumeContext: coordinator.updateResumeContext,
+    saveWorktable: coordinator.saveWorktable,
+    deleteSequences: coordinator.deleteSequences,
+    createSequence: coordinator.createSequence,
+    createSequenceBundle: coordinator.createSequenceBundle,
+    listSequences: coordinator.listSequences,
+    loadSequence: coordinator.loadSequence,
+    loadVersion: coordinator.loadVersion,
+    listVersions: coordinator.listVersions,
+    saveSequenceDraft: coordinator.saveSequenceDraft,
+    editSequence: coordinator.editSequence,
+    flush: coordinator.flush,
+  }), [coordinator, projectId, snapshot]);
 }

@@ -1,24 +1,28 @@
 import { expect, test } from "@playwright/test";
 
 test("M2.1 Contact Sheet 提供 Place on Table，并移除 Pool 栏", async ({ page }, testInfo) => {
+  const projectId = `visual-project-${testInfo.project.name}-${Date.now()}`;
+  const sourceId = `visual-source-${testInfo.project.name}-${Date.now()}`;
+  const projectName = `Visual Project ${testInfo.project.name}`;
   await page.setViewportSize({ width: 1441, height: 1027 });
   await page.goto("/");
-  await expect(page.getByText("Begin your photo journey")).toBeVisible();
-  await page.evaluate(async () => {
+  await expect(page.getByRole("heading", { name: "Projects" })).toBeVisible();
+  await page.evaluate(async ({ projectId, sourceId, projectName }) => {
     const request = indexedDB.open("photoflex-mvp");
     const database = await new Promise<IDBDatabase>((resolve, reject) => {
       request.onsuccess = () => resolve(request.result);
       request.onerror = () => reject(request.error);
     });
-    const projectId = "visual-project";
-    const sourceId = "visual-source";
     const createdAt = "2026-08-28T06:32:00.000Z";
     const photoIds = Array.from({ length: 16 }, (_, index) => `visual-photo-${index}`);
-    const transaction = database.transaction(["projects", "photo-index", "photo-thumbnails"], "readwrite");
+    const storeNames = ["projects", "photo-index", "photo-thumbnails", "sequences", "versions", "source-grants", "photo-derived-previews"]
+      .filter((name) => database.objectStoreNames.contains(name));
+    const transaction = database.transaction(storeNames, "readwrite");
+    storeNames.forEach((name) => transaction.objectStore(name).clear());
     transaction.objectStore("projects").put({
       schemaVersion: 6,
       projectId,
-      name: "Visual Project",
+      name: projectName,
       memo: "",
       expectedPhotoCount: null,
       sources: [{ id: sourceId, displayName: "Raw Selects", createdAt }],
@@ -45,9 +49,9 @@ test("M2.1 Contact Sheet 提供 Place on Table，并移除 Pool 栏", async ({ p
       transaction.onabort = () => reject(transaction.error);
     });
     database.close();
-  });
+  }, { projectId, sourceId, projectName });
 
-  await page.goto("/#/projects/visual-project/sources/visual-source");
+  await page.goto(`/#/projects/${projectId}/sources/${sourceId}`);
   await expect(page.getByRole("heading", { name: "Raw Selects" })).toBeVisible();
   await expect(page.locator(".photo-tile").first()).toBeVisible();
 
@@ -59,7 +63,7 @@ test("M2.1 Contact Sheet 提供 Place on Table，并移除 Pool 栏", async ({ p
     return tops.filter((top) => Math.abs(top - firstTop) <= 1).length;
   });
 
-  expect(header?.height).toBe(65);
+  expect(header?.height).toBe(64);
   expect(sourceRail?.width).toBeGreaterThanOrEqual(210);
   expect(sourceRail?.width).toBeLessThanOrEqual(213);
   await expect(page.locator(".pool-panel")).toHaveCount(0);
@@ -71,10 +75,28 @@ test("M2.1 Contact Sheet 提供 Place on Table，并移除 Pool 栏", async ({ p
   await page.locator(".photo-tile").nth(0).click();
   await page.locator(".photo-tile").nth(1).click();
   await page.getByRole("button", { name: "Place on Table" }).click();
+  await expect.poll(async () => page.evaluate(async (id) => {
+    const request = indexedDB.open("photoflex-mvp");
+    const database = await new Promise<IDBDatabase>((resolve, reject) => { request.onsuccess = () => resolve(request.result); request.onerror = () => reject(request.error); });
+    const workspace = await new Promise<{ worktableDraft?: { entryOrder?: unknown[] } } | undefined>((resolve, reject) => {
+      const read = database.transaction("projects", "readonly").objectStore("projects").get(id);
+      read.onsuccess = () => resolve(read.result);
+      read.onerror = () => reject(read.error);
+    });
+    database.close();
+    return workspace?.worktableDraft?.entryOrder?.length ?? 0;
+  }, projectId)).toBe(2);
   await page.getByRole("button", { name: "Table", exact: true }).click();
-  await expect(page).toHaveURL(/#\/projects\/visual-project\/table$/);
+  await expect(page).toHaveURL(new RegExp(`#\\/projects\\/${projectId}\\/table$`));
   await expect(page.locator(".worktable-card")).toHaveCount(2);
   await expect(page.getByRole("button", { name: "Group" })).toBeDisabled();
+  await expect(page.getByRole("complementary", { name: "Photo Sources" })).toBeVisible();
+  await page.getByLabel("Search photos").fill("PF_2403.jpg");
+  const sourcePhoto = page.getByRole("button", { name: "PF_2403.jpg" });
+  await expect(sourcePhoto).toBeVisible();
+  await sourcePhoto.click();
+  await page.getByRole("button", { name: "Add 1 to Table" }).click();
+  await expect(page.locator(".worktable-card")).toHaveCount(3);
 
   const firstCard = page.locator(".worktable-card").first();
   const beforeDrag = await firstCard.boundingBox();
@@ -86,9 +108,29 @@ test("M2.1 Contact Sheet 提供 Place on Table，并移除 Pool 栏", async ({ p
   await expect.poll(async () => (await firstCard.boundingBox())?.x).toBeGreaterThan(beforeDrag.x + 40);
   const afterDrag = await firstCard.boundingBox();
   await page.reload();
-  await expect(page.locator(".worktable-card")).toHaveCount(2);
+  await expect(page.locator(".worktable-card")).toHaveCount(3);
   const afterReload = await page.locator(".worktable-card").first().boundingBox();
   expect(Math.round(afterReload?.x ?? 0)).toBe(Math.round(afterDrag?.x ?? 0));
 
   await page.screenshot({ path: testInfo.outputPath("table.png"), fullPage: true });
+
+  await page.goto("/");
+  await page.getByRole("button", { name: `打开项目 ${projectName}` }).click();
+  await expect(page).toHaveURL(new RegExp(`#\\/projects\\/${projectId}\\/table$`));
+  const sourceBrowser = page.getByRole("complementary", { name: "Photo Sources" });
+  await expect(sourceBrowser).toBeVisible();
+  await sourceBrowser.getByRole("button", { name: "Collapse Photo Sources" }).click();
+  await expect(sourceBrowser).toHaveClass(/is-closed/);
+  await sourceBrowser.getByRole("button", { name: "Photo Sources" }).click();
+  await expect(sourceBrowser).not.toHaveClass(/is-closed/);
+  const sourceCard = sourceBrowser.locator(".table-source-photo").first();
+  await expect(sourceCard).toBeVisible();
+  await expect.poll(() => sourceCard.locator(":scope > img, :scope > .thumb-placeholder").first().evaluate((image) => getComputedStyle(image).objectFit)).toBe("contain");
+
+  for (const viewport of [{ width: 1920, height: 1080 }, { width: 1440, height: 900 }, { width: 1280, height: 800 }, { width: 1024, height: 800 }]) {
+    await page.setViewportSize(viewport);
+    await page.goto(`/#/projects/${projectId}/table`);
+    await expect(page.locator(".worktable-card")).toHaveCount(3);
+    await page.screenshot({ path: testInfo.outputPath(`table-${viewport.width}x${viewport.height}.png`), fullPage: true });
+  }
 });

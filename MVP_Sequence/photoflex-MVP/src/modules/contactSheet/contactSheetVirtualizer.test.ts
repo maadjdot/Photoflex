@@ -13,10 +13,11 @@ describe("calculateContactSheetVirtualGrid", () => {
 
     expect(grid).toEqual({
       columns: 2,
-      gap: 18,
-      tileWidth: 196,
-      rowHeight: 205,
-      totalHeight: 10_250,
+      gap: 12,
+      rowGap: 15,
+      tileWidth: 199,
+      rowHeight: 187,
+      totalHeight: 9_350,
       firstVisibleIndex: 2,
       startIndex: 2,
       endIndex: 6,
@@ -38,7 +39,7 @@ describe("calculateContactSheetVirtualGrid", () => {
       scrollTop: 10_000,
       overscanRows: 0,
     });
-    expect(bottom.startIndex).toBe(6);
+    expect(bottom.startIndex).toBe(4);
     expect(bottom.endIndex).toBe(7);
   });
 

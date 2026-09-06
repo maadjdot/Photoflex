@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
 import type { PhotoId, PhotoRef, ProjectId, ProjectWorkspace, SourceError, SourceId } from "../contracts";
-import { createWorktableEditor } from "../modules/worktable";
 import type { AppDependencies } from "./dependencies";
 import type { AppRoute } from "./router";
 import { InlineNotice, EmptyPanel, ErrorPage, LoadingPage, mergeUniquePhotos, now, shortId, sourceErrorMessage, stateNeedsScan, worktableDisplaySize, formatUpdated } from "./AppPrimitives";
-import { useProjectWorkspace, workspaceSaveErrorMessage } from "./useProjectWorkspace";
+import { useProjectWorkspaceSession, workspaceSaveErrorMessage } from "./useProjectWorkspace";
+import { useTableSession } from "./tableSession";
 import { useSourceMonitor } from "./ProjectSourceMonitor";
 import { TablePreviewPanel } from "./TablePreviewPanel";
 import { VirtualPhotoGrid } from "./VirtualPhotoGrid";
@@ -21,7 +21,13 @@ export function ContactSheetPage({
   readonly sourceId: SourceId;
   readonly navigate: (route: AppRoute) => void;
 }) {
-  const { workspace, save, saveWorktable, loading, error } = useProjectWorkspace(dependencies, projectId);
+  const { workspace, save, updateResumeContext, saveWorktable, loading, error } = useProjectWorkspaceSession(dependencies, projectId);
+  const tableSession = useTableSession(projectId, async ({ draft }) => {
+    const result = await saveWorktable(draft);
+    if (!result.ok) setNotice(workspaceSaveErrorMessage(result.error));
+  });
+  const tableDraft = tableSession.draft;
+  const initializedTableRef = useRef<ProjectId | undefined>(undefined);
   const source = workspace?.sources.find((item) => item.id === sourceId && !item.removedAt);
   const { states, startScan } = useSourceMonitor(
     dependencies.photoSource,
@@ -58,15 +64,17 @@ export function ContactSheetPage({
   }, []);
 
   useEffect(() => {
+    if (!workspace || initializedTableRef.current === workspace.projectId) return;
+    initializedTableRef.current = workspace.projectId;
+    tableSession.resetCommittedDraft(workspace.worktableDraft);
+  }, [tableSession.resetCommittedDraft, workspace]);
+
+  useEffect(() => {
     const resumeKey = `${projectId}/${sourceId}`;
     if (!workspace || !source || resumeSavedKeyRef.current === resumeKey) return;
     resumeSavedKeyRef.current = resumeKey;
-    void save((current) => ({
-      ...current,
-      lastOpenedAt: now(),
-      resumeContext: { page: "contact-sheet" as const, sourceId, filter: "all" as const, sequenceId: current.resumeContext?.sequenceId },
-    }));
-  }, [projectId, sourceId, workspace?.projectId, source?.id]);
+    void updateResumeContext((current) => ({ page: "contact-sheet" as const, sourceId, filter: "all" as const, sequenceId: current?.sequenceId }), true);
+  }, [projectId, sourceId, updateResumeContext, workspace?.projectId, source?.id]);
 
   useEffect(() => {
     if (source && stateNeedsScan(states[source.id])) startScan(source.id);
@@ -152,13 +160,10 @@ export function ContactSheetPage({
   useEffect(() => {
     if (!anchorPhotoId) return;
     const timer = window.setTimeout(() => {
-      void save((latest) => ({
-        ...latest,
-        resumeContext: { page: "contact-sheet" as const, sourceId, filter: "all" as const, anchorPhotoId, sequenceId: latest.resumeContext?.sequenceId },
-      }));
+      void updateResumeContext((current) => ({ page: "contact-sheet" as const, sourceId, filter: "all" as const, anchorPhotoId, sequenceId: current?.sequenceId }));
     }, 500);
     return () => window.clearTimeout(timer);
-  }, [anchorPhotoId, save, sourceId]);
+  }, [anchorPhotoId, sourceId, updateResumeContext]);
 
   if (loading) return <LoadingPage />;
   if (!workspace || !source) return <ErrorPage message={error ?? "Source 无法读取。"} />;
@@ -182,42 +187,26 @@ export function ContactSheetPage({
   };
   const placeOnTable = async (ids: readonly PhotoId[]) => {
     const requested = ids.map((photoId) => photos.find((photo) => photo.id === photoId)).filter((photo): photo is PhotoRef => Boolean(photo));
-    let added = 0;
-    const saveResult = await saveWorktable((current) => {
-      const editor = createWorktableEditor(current);
-      const placed = editor.execute({
-        type: "place",
-        items: requested.map((photo) => ({
-          photoId: photo.id,
-          ...worktableDisplaySize(photo.width, photo.height),
-          filename: photo.relativePath.split("/").at(-1) ?? shortId(photo.id),
-        })),
-      });
-      if (!placed.ok) return current;
-      added = placed.value.entryOrder.length - current.entryOrder.length;
-      return placed.value;
-    });
-    if (saveResult.ok) {
+    const before = tableSession.draft.entryOrder.length;
+    const result = tableSession.placePhotos(requested.map((photo) => ({ photoId: photo.id, ...worktableDisplaySize(photo.width, photo.height), filename: photo.relativePath.split(/[\\/]/).at(-1) ?? shortId(photo.id) })));
+    if (result.ok) {
+      const added = result.value.draft.entryOrder.length - before;
       setSelected(new Set());
       setNotice(`${added} photos placed on Table${requested.length - added ? ` · ${requested.length - added} already there` : ""}`);
       return true;
     }
-    setNotice(workspaceSaveErrorMessage(saveResult.error));
+    setNotice("Photos could not be placed on Table.");
     return false;
   };
   const toggleTable = async (photoId: PhotoId) => {
     const photo = photos.find((item) => item.id === photoId);
-    const saveResult = await saveWorktable((current) => {
-      const editor = createWorktableEditor(current);
-      const inTable = Boolean(current.placements[photoId]);
-      const result = inTable
-        ? editor.execute({ type: "remove", photoIds: [photoId] })
-        : photo
-          ? editor.execute({ type: "place", items: [{ photoId, ...worktableDisplaySize(photo.width, photo.height), filename: photo.relativePath.split("/").at(-1) ?? shortId(photoId) }] })
-          : undefined;
-      return result?.ok ? result.value : current;
-    });
-    if (!saveResult.ok) setNotice(workspaceSaveErrorMessage(saveResult.error));
+    const inTable = tableSession.draft.placements[photoId];
+    const result = inTable
+      ? tableSession.execute({ type: "remove", photoIds: [photoId] })
+      : photo
+        ? tableSession.placePhotos([{ photoId, ...worktableDisplaySize(photo.width, photo.height), filename: photo.relativePath.split(/[\\/]/).at(-1) ?? shortId(photoId) }])
+        : undefined;
+    if (result && !result.ok) setNotice("Table update could not be completed.");
   };
 
   return (
@@ -245,11 +234,11 @@ export function ContactSheetPage({
         </div>
         <div className="sheet-toolbar"><div className="filter-tabs"><button className={filter === "all" ? "is-active" : ""} onClick={() => setFilter("all")}>All {Math.max(states[sourceId]?.indexedCount ?? 0, photos.length)}</button><button className={filter === "selected" ? "is-active" : ""} onClick={() => setFilter("selected")}>Selected {selected.size}</button></div><div className="toolbar-actions"><button className="button button-secondary" onClick={() => setSelected(new Set(visiblePhotos.map((photo) => photo.id)))}>Select all</button><button className="button button-secondary" onClick={() => setSelected((current) => new Set(visiblePhotos.filter((photo) => !current.has(photo.id)).map((photo) => photo.id)))}>Invert</button><button className="button button-primary" disabled={!selected.size} onClick={() => void placeOnTable([...selected])}>Place on Table</button></div></div>
         {notice && <InlineNotice message={notice} />}
-        {visiblePhotos.length ? <VirtualPhotoGrid photos={visiblePhotos} selected={selected} tableIds={workspace.worktableDraft.entryOrder} missingIds={missingPhotoIds} zoom={gridZoom} initialAnchorPhotoId={workspace.resumeContext?.sourceId === sourceId ? workspace.resumeContext.anchorPhotoId : undefined} onAnchorChange={setAnchorPhotoId} onToggle={toggleSelection} onOpen={(index) => setPreviewIndex(index)} onNearEnd={() => void loadMore()} onPhotoSourceError={handlePhotoSourceError} photoSource={dependencies.photoSource} /> : <EmptyPanel title={filter === "selected" ? "No selected photos" : "No supported JPEG files"} detail={filter === "selected" ? "Select photos in All to continue." : "This folder has no readable .jpg or .jpeg files."} />}
+        {visiblePhotos.length ? <VirtualPhotoGrid photos={visiblePhotos} selected={selected} tableIds={tableDraft.entryOrder} missingIds={missingPhotoIds} zoom={gridZoom} initialAnchorPhotoId={workspace.resumeContext?.sourceId === sourceId ? workspace.resumeContext.anchorPhotoId : undefined} onAnchorChange={setAnchorPhotoId} onToggle={toggleSelection} onOpen={(index) => setPreviewIndex(index)} onNearEnd={() => void loadMore()} onPhotoSourceError={handlePhotoSourceError} photoSource={dependencies.photoSource} /> : <EmptyPanel title={filter === "selected" ? "No selected photos" : "No supported JPEG files"} detail={filter === "selected" ? "Select photos in All to continue." : "This folder has no readable .jpg or .jpeg files."} />}
         {loadingPage && <p className="loading-line">Loading more photos…</p>}
       </section>
       <TablePreviewPanel
-        draft={workspace.worktableDraft}
+        draft={tableDraft}
         photoSource={dependencies.photoSource}
         onOpen={setTablePreviewPhotoId}
         onOpenTable={() => navigate({ name: "table", projectId })}
@@ -257,12 +246,12 @@ export function ContactSheetPage({
       />
       {previewIndex !== undefined && <PreviewOverlay photoIds={visiblePhotos.map((photo) => photo.id)} index={previewIndex} workspace={workspace} photoSource={dependencies.photoSource} onClose={() => setPreviewIndex(undefined)} onMove={setPreviewIndex} onToggleTable={toggleTable} onPhotoSourceError={handlePhotoSourceError} />}
       {tablePreviewPhotoId && <PreviewOverlay
-        photoIds={workspace.worktableDraft.entryOrder}
-        index={Math.max(0, workspace.worktableDraft.entryOrder.indexOf(tablePreviewPhotoId))}
+        photoIds={tableDraft.entryOrder}
+        index={Math.max(0, tableDraft.entryOrder.indexOf(tablePreviewPhotoId))}
         workspace={workspace}
         photoSource={dependencies.photoSource}
         onClose={() => setTablePreviewPhotoId(undefined)}
-        onMove={(index) => setTablePreviewPhotoId(workspace.worktableDraft.entryOrder[index])}
+        onMove={(index) => setTablePreviewPhotoId(tableDraft.entryOrder[index])}
         onToggleTable={toggleTable}
         onPhotoSourceError={handlePhotoSourceError}
       />}

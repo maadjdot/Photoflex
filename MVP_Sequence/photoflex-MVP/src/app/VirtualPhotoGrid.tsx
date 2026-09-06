@@ -65,10 +65,14 @@ export function VirtualPhotoGrid({ photos, selected, tableIds, missingIds, zoom 
     const viewport = viewportRef.current;
     if (!viewport) return;
     refreshGrid(false);
-    const observer = new ResizeObserver(scheduleGridRefresh);
-    observer.observe(viewport);
+    const observer = typeof ResizeObserver === "function"
+      ? new ResizeObserver(scheduleGridRefresh)
+      : undefined;
+    observer?.observe(viewport);
+    if (!observer) window.addEventListener("resize", scheduleGridRefresh);
     return () => {
-      observer.disconnect();
+      observer?.disconnect();
+      if (!observer) window.removeEventListener("resize", scheduleGridRefresh);
       if (frameRef.current !== undefined) window.cancelAnimationFrame(frameRef.current);
       frameRef.current = undefined;
     };

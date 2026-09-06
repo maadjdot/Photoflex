@@ -132,14 +132,18 @@ export class MemoryPhotoSource implements PhotoSource {
   }
 
   async thumbnail(photoId: PhotoId): Promise<Result<PreviewLease, SourceError>> {
-    return this.preview(photoId);
+    return this.fixturePreview(photoId);
   }
 
   async derivedPreview(photoId: PhotoId): Promise<Result<PreviewLease, SourceError>> {
-    return this.preview(photoId);
+    return this.fixturePreview(photoId);
   }
 
   async preview(photoId: PhotoId): Promise<Result<PreviewLease, SourceError>> {
+    return this.fixturePreview(photoId);
+  }
+
+  private fixturePreview(photoId: PhotoId): Result<PreviewLease, SourceError> {
     const fixture = this.fixtures.find(({ previewUrls }) => previewUrls?.[photoId]);
     const url = fixture?.previewUrls?.[photoId];
     return url ? ok({ url, release() {} }) : err({ kind: "photo-not-found", photoId });

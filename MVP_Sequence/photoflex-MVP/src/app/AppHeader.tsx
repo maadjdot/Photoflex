@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import type { ProjectId, SequenceId, SourceId } from "../contracts";
 import type { AppDependencies } from "./dependencies";
 import type { AppRoute } from "./router";
@@ -11,13 +11,26 @@ export function AppHeader({ dependencies, route, projectId, contactSourceId, las
   readonly lastSequenceId?: SequenceId;
   readonly navigate: (route: AppRoute) => void;
 }) {
+  const [projectName, setProjectName] = useState<string>();
+
+  useEffect(() => {
+    let active = true;
+    if (!projectId) {
+      setProjectName(undefined);
+      return () => { active = false; };
+    }
+    void dependencies.projectStore.loadWorkspace(projectId).then((result) => {
+      if (active && result.ok) setProjectName(result.value.name);
+    });
+    return () => { active = false; };
+  }, [dependencies.projectStore, projectId]);
+
   return <header className="topbar">
     <button className="brand" onClick={() => navigate({ name: "home" })} aria-label="返回 Home">Photoflex</button>
+    {projectId && <span className="project-context-name" title={projectName ?? projectId}>{projectName ?? projectId}</span>}
     <nav className="topnav" aria-label="主导航">
-      <NavButton active={route.name === "home"} onClick={() => navigate({ name: "home" })}>Home</NavButton>
-      <NavButton active={route.name === "project"} disabled={!projectId} onClick={() => projectId && navigate({ name: "project", projectId })}>Project</NavButton>
-      <NavButton active={route.name === "contact-sheet"} disabled={!projectId || !contactSourceId} title={contactSourceId ? undefined : "项目尚未连接照片来源"} onClick={() => projectId && contactSourceId && navigate({ name: "contact-sheet", projectId, sourceId: contactSourceId })}>Photos</NavButton>
-      <NavButton active={route.name === "table"} disabled={!projectId} onClick={() => projectId && navigate({ name: "table", projectId })}>Table</NavButton>
+      {!projectId && <NavButton active={route.name === "home"} onClick={() => navigate({ name: "home" })}>Home</NavButton>}
+      <NavButton active={route.name === "table" || route.name === "project" || route.name === "contact-sheet"} disabled={!projectId} onClick={() => projectId && navigate({ name: "table", projectId })}>Table</NavButton>
       <NavButton active={route.name === "sequence" || route.name === "sequence-compare" || route.name === "version-compare"} disabled={!projectId} title="Open the last Sequence" onClick={() => {
         if (!projectId) return;
         void Promise.all([dependencies.projectStore.listSequences(projectId), dependencies.projectStore.loadWorkspace(projectId)]).then(([sequences, workspace]) => {

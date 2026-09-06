@@ -1,0 +1,65 @@
+{
+  "checks": [
+    {
+      "mode": "expanded",
+      "width": 1672,
+      "height": 941,
+      "missingImages": [],
+      "documentOverflow": false,
+      "sourceGridOverflow": false,
+      "sourceWidth": 640,
+      "sequenceHeight": 220
+    },
+    {
+      "mode": "compact",
+      "width": 1440,
+      "height": 900,
+      "missingImages": [],
+      "documentOverflow": false,
+      "sourceGridOverflow": false,
+      "sourceWidth": 368,
+      "sequenceHeight": 220
+    },
+    {
+      "mode": "closed",
+      "width": 1672,
+      "height": 941,
+      "missingImages": [],
+      "documentOverflow": false,
+      "sourceGridOverflow": false,
+      "sourceWidth": 48,
+      "sequenceHeight": 220
+    },
+    {
+      "mode": "project",
+      "width": 1672,
+      "height": 941,
+      "missingImages": [],
+      "documentOverflow": false,
+      "sourceGridOverflow": false,
+      "sourceWidth": 640,
+      "sequenceHeight": 220
+    },
+    {
+      "mode": "expanded",
+      "width": 1280,
+      "height": 800,
+      "missingImages": [],
+      "documentOverflow": false,
+      "sourceGridOverflow": false,
+      "sourceWidth": 560,
+      "sequenceHeight": 200
+    },
+    {
+      "mode": "error",
+      "width": 1672,
+      "height": 941,
+      "missingImages": [],
+      "documentOverflow": false,
+      "sourceGridOverflow": false,
+      "sourceWidth": 640,
+      "sequenceHeight": 220
+    }
+  ],
+  "errors": []
+}

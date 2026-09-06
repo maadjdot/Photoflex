@@ -1,0 +1,57 @@
+{
+  "fixture": "Isolated Chrome context, 160 generated thumbnails, 12 sequence items",
+  "geometry": {
+    "source": {
+      "x": 1312,
+      "y": 103,
+      "width": 360,
+      "height": 838,
+      "scrollWidth": 359,
+      "clientWidth": 359,
+      "scrollHeight": 838,
+      "clientHeight": 838
+    },
+    "grid": {
+      "x": 1313,
+      "y": 257,
+      "width": 359,
+      "height": 684,
+      "scrollWidth": 373,
+      "clientWidth": 359,
+      "scrollHeight": 14962,
+      "clientHeight": 684
+    },
+    "strip": {
+      "x": 0,
+      "y": 807,
+      "width": 1312,
+      "height": 134,
+      "scrollWidth": 1312,
+      "clientWidth": 1312,
+      "scrollHeight": 133,
+      "clientHeight": 133
+    },
+    "stripImageFit": "cover",
+    "toolbar": {
+      "x": 0,
+      "y": 65,
+      "width": 1672,
+      "height": 38,
+      "scrollWidth": 1672,
+      "clientWidth": 1672,
+      "scrollHeight": 37,
+      "clientHeight": 37
+    },
+    "rootChildren": 1
+  },
+  "after": {
+    "rootChildren": 0,
+    "text": "",
+    "errors": [
+      {
+        "message": "Cannot read properties of null (reading 'scrollTop')",
+        "stack": "TypeError: Cannot read properties of null (reading 'scrollTop')\n    at http://127.0.0.1:5174/src/app/SourceBrowser.tsx:367:204\n    at basicStateReducer (http://127.0.0.1:5174/node_modules/.vite/deps/react-dom_client.js?v=bf64fce6:4404:47)\n    at updateReducerImpl (http://127.0.0.1:5174/node_modules/.vite/deps/react-dom_client.js?v=bf64fce6:4491:54)\n    at updateReducer (http://127.0.0.1:5174/node_modules/.vite/deps/react-dom_client.js?v=bf64fce6:4437:16)\n    at Object.useState (http://127.0.0.1:5174/node_modules/.vite/deps/react-dom_client.js?v=bf64fce6:16788:20)\n    at exports.useState (http://127.0.0.1:5174/node_modules/.vite/deps/chunk-R4YQI57L.js?v=bf64fce6:931:36)\n    at SourcePhotoGrid (http://127.0.0.1:5174/src/app/SourceBrowser.tsx:332:31)\n    at Object.react_stack_bottom_frame (http://127.0.0.1:5174/node_modules/.vite/deps/react-dom_client.js?v=bf64fce6:17422:20)\n    at renderWithHooks (http://127.0.0.1:5174/node_modules/.vite/deps/react-dom_client.js?v=bf64fce6:4204:24)\n    at updateFunctionComponent (http://127.0.0.1:5174/node_modules/.vite/deps/react-dom_client.js?v=bf64fce6:6617:21)"
+      }
+    ]
+  }
+}

@@ -10,6 +10,7 @@ export interface ContactSheetVirtualGridInput {
 export interface ContactSheetVirtualGrid {
   readonly columns: number;
   readonly gap: number;
+  readonly rowGap: number;
   readonly tileWidth: number;
   readonly rowHeight: number;
   readonly totalHeight: number;
@@ -18,11 +19,12 @@ export interface ContactSheetVirtualGrid {
   readonly endIndex: number;
 }
 
-const GAP = 18;
+const GAP = 12;
+const ROW_GAP = 15;
 const TARGET_TILE_WIDTH = 205;
 const MIN_COLUMNS = 2;
 const PHOTO_ASPECT_HEIGHT = 0.75;
-const META_AND_GAP_HEIGHT = 58;
+const META_AND_GAP_HEIGHT = 38;
 const DEFAULT_OVERSCAN_ROWS = 2;
 
 /**
@@ -45,7 +47,7 @@ export function calculateContactSheetVirtualGrid(
   const totalHeight = rowCount * rowHeight;
 
   if (!photoCount) {
-    return { columns, gap: GAP, tileWidth, rowHeight, totalHeight, firstVisibleIndex: 0, startIndex: 0, endIndex: 0 };
+    return { columns, gap: GAP, rowGap: ROW_GAP, tileWidth, rowHeight, totalHeight, firstVisibleIndex: 0, startIndex: 0, endIndex: 0 };
   }
 
   // Browser scrollTop is bounded by the content height. Clamping here keeps
@@ -62,6 +64,7 @@ export function calculateContactSheetVirtualGrid(
   return {
     columns,
     gap: GAP,
+    rowGap: ROW_GAP,
     tileWidth,
     rowHeight,
     totalHeight,

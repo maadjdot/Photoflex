@@ -47,6 +47,18 @@ describe("M1 app", () => {
     expect((createButton as HTMLButtonElement).disabled).toBe(true);
   });
 
+  it("从项目首页进入项目时默认打开 Table", async () => {
+    const projectStore = new MemoryProjectStore();
+    const projectId = "project-default-table" as ProjectId;
+    const created = await projectStore.createProject({ id: projectId, name: "Default Table", createdAt: "2026-09-05T08:00:00.000Z" });
+    if (!created.ok) throw new Error("project fixture not created");
+    render(<App dependencies={{ projectStore, photoSource: new MemoryPhotoSource() }} />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "打开项目 Default Table" }));
+    expect(await screen.findByLabelText("Photo worktable")).toBeTruthy();
+    expect(window.location.hash).toBe(`#/projects/${projectId}/table`);
+  });
+
   it("可以把项目封面拖到垃圾桶删除项目", async () => {
     const projectStore = new MemoryProjectStore();
     const projectId = "drag-project" as ProjectId;

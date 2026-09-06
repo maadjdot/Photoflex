@@ -40,7 +40,7 @@ test("M2 Sequence supports Reading Units, Segment, Overview, Read and one-save d
   await page.keyboard.down("Control");
   await page.mouse.wheel(0, 120);
   await page.keyboard.up("Control");
-  await expect(page.locator(".sequence-zoom")).toContainText("50%");
+  await expect(page.locator(".sequence-zoom")).toContainText("100%");
   expect(await page.evaluate(() => window.devicePixelRatio)).toBe(deviceScale);
 
   await page.locator(".sequence-card").nth(0).click();

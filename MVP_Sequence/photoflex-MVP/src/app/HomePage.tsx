@@ -113,7 +113,7 @@ export function HomePage({
               className="home-project-feature-media"
               draggable
               data-project-id={selectedProject.id}
-              onClick={() => navigate({ name: "project", projectId: selectedProject.id })}
+              onClick={() => navigate({ name: "table", projectId: selectedProject.id })}
               onDragStart={(event) => startProjectDrag(event, selectedProject.id)}
               onDragEnd={endProjectDrag}
               aria-label={`打开项目 ${selectedProject.name}`}
@@ -165,7 +165,7 @@ export function HomePage({
         <NewProjectDialog
           dependencies={dependencies}
           onClose={() => setShowDialog(false)}
-          onCreated={(projectId) => navigate({ name: "project", projectId })}
+          onCreated={(projectId) => navigate({ name: "table", projectId })}
         />
       )}
     </main>

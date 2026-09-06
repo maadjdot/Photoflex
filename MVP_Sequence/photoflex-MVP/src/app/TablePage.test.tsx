@@ -91,7 +91,7 @@ describe("TablePage", () => {
     const cardA = screen.getByLabelText("A.jpg");
     expect(cardA).toBeTruthy();
     expect(screen.getByLabelText("B.jpg")).toBeTruthy();
-    expect(screen.queryByText("A.jpg")).toBeNull();
+    expect(screen.getAllByText("A.jpg")).toHaveLength(1);
     const toolbar = within(screen.getByLabelText("Table 工具栏"));
     expect(toolbar.queryByRole("button", { name: "Contact Sheet" })).toBeNull();
     expect(toolbar.getByText("Table Project")).toBeTruthy();
@@ -106,10 +106,10 @@ describe("TablePage", () => {
     fireEvent.click(screen.getByRole("button", { name: "Close preview" }));
 
     const mainNavigation = screen.getByLabelText("主导航");
-    const contactSheet = within(mainNavigation).getByRole("button", { name: "Photos" });
-    await waitFor(() => expect((contactSheet as HTMLButtonElement).disabled).toBe(false));
+    expect(within(mainNavigation).queryByRole("button", { name: "Photos" })).toBeNull();
+    const contactSheet = screen.getByRole("button", { name: /Contact Sheet/ });
     fireEvent.click(contactSheet);
-    expect(window.location.hash).toBe(`#/projects/${projectId}/sources/${sourceId}`);
+    await waitFor(() => expect(window.location.hash).toBe(`#/projects/${projectId}/sources/${sourceId}`));
   });
 
   it("一次拖拽只提交一次桌面写入且不改变 Sequence", async () => {
@@ -138,6 +138,30 @@ describe("TablePage", () => {
     expect(saved.value.worktableDraft.placements[photoA].x).toBe(109);
     expect(saved.value.worktableDraft.placements[photoA].y).toBe(94);
     expect(saved.value.sequenceIds).toEqual([]);
+  });
+
+  it("取消中的桌面手势只丢弃预览，不提交编辑", async () => {
+    const dependencies = await createFixture();
+    const saveSpy = vi.spyOn(dependencies.projectStore, "saveWorktable");
+    render(<App dependencies={dependencies} />);
+    const stage = await screen.findByLabelText("Photo worktable");
+    const card = screen.getByLabelText("A.jpg");
+    Object.defineProperty(stage, "getBoundingClientRect", {
+      configurable: true,
+      value: () => ({ left: 0, top: 0, width: 1000, height: 700, right: 1000, bottom: 700, x: 0, y: 0, toJSON() {} }),
+    });
+
+    fireEvent.pointerDown(card, { pointerId: 11, button: 0, clientX: 100, clientY: 100 });
+    fireEvent.pointerMove(stage, { pointerId: 11, clientX: 150, clientY: 130 });
+    fireEvent.pointerCancel(stage, { pointerId: 11, clientX: 150, clientY: 130 });
+
+    await new Promise((resolve) => window.setTimeout(resolve, 20));
+    expect(saveSpy).not.toHaveBeenCalled();
+    const workspace = await dependencies.projectStore.loadWorkspace(projectId);
+    expect(workspace.ok).toBe(true);
+    if (!workspace.ok) return;
+    expect(workspace.value.worktableDraft.placements[photoA].x).toBe(64);
+    expect(workspace.value.worktableDraft.placements[photoA].y).toBe(64);
   });
 
   it("Table 先使用 768px 派生图，选中后渐进替换为更高清版本，双击才读取原图", async () => {
@@ -184,7 +208,8 @@ describe("TablePage", () => {
 
     const pile = await screen.findByLabelText("Sequence pile Sequence 01");
     fireEvent.pointerDown(pile, { pointerId: 10, button: 0, clientX: 200, clientY: 150 });
-    fireEvent.click(within(screen.getByLabelText("Table 工具栏")).getByRole("button", { name: "Remove" }));
+    fireEvent.click(within(screen.getByLabelText("Table 工具栏")).getByRole("button", { name: "Delete Sequence…" }));
+    fireEvent.click(screen.getByRole("button", { name: "Delete Sequence" }));
 
     await waitFor(async () => {
       const listed = await projectStore.listSequences(projectId);

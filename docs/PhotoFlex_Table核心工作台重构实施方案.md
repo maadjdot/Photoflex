@@ -511,35 +511,55 @@ Grid、Row、Align 只作用于当前选择；没有足够选择时禁用。排�
 
 ### 6.2 模块划分
 
-| 模块 | 责任 |
-| --- | --- |
-| ProjectWorkspaceProvider | 项目级 workspace、持久化队列、保存状态和来源运行状态 |
-| TableWorkspace | 页面布局、右侧面板、项目信息面板、活动区域 |
-| useTableSession | 唯一 WorktableEditor、乐观草稿、选区、Undo/Redo、放置入口 |
-| TableCanvas | 图片与关系渲染、命中测试、可见区域 |
-| useTableGestures | 指针状态机、平移、框选、拖动和缩放预览 |
-| PhotoSourcesPanel | Compact/Expanded 结构及来源操作 |
-| useSourceBrowser | 索引读取、搜索筛选、来源临时选择和滚动锚点 |
-| SequenceOrderPanel | 活动序列展示、排序、添加和局部历史 |
-| TableContextToolbar | 按选区派生可用动作 |
-| ProjectInfoPanel | 名称、Memo、封面展示和项目删除 |
+本节不仅规定拆分文件，还规定每个模块独占的可变状态和唯一修改入口。所有跨模块状态必须通过只读快照和明确动作传递，禁止通过共享 ref、直接调用 store 或互相修改 React state 建立隐式写入通道。
 
-布局模块不直接访问 ProjectStore；按钮不自行建立新的 WorktableEditor。
+| 模块 | 独占状态 | 对外只提供的读取/修改入口 |
+| --- | --- | --- |
+| `ProjectWorkspaceProvider` | 项目会话生命周期、当前 `ProjectId`、加载代次，以及各子会话的创建和销毁 | 提供只读项目快照、`ProjectWriteCoordinator`、`TableSession` 和 `SequenceSession`；不暴露 `workspaceRef`、`setWorkspace` 或 ProjectStore |
+| `ProjectWriteCoordinator` | 已加载/已落盘 workspace 快照、workspace revision、项目写入队列、保存状态、失败任务、Retry/flush 和结构性事务状态 | `updateProjectInfo()`、`saveTableDraft()`、`updateResumeContext()`、`addSource()`、`removeSource()`、`reconnectSource()`、`refreshSource()`、`createSequenceBundle()`、`deleteSequenceBundle()`、`retry()`、`flush()`；唯一允许调用 ProjectStore 的模块 |
+| `TableWorkspace` / `TablePage` | 路由派生视图状态、面板组合和页面级临时覆盖层 | 组合子组件并转发动作；不持有桌面草稿、编辑器、保存队列，不直接协调数据写入 |
+| `TableSession`（实现 hook 可命名为 `useTableSession`） | 当前本地桌面草稿、Table 选区、唯一 `WorktableEditor` 实例、桌面 Undo/Redo、编辑序号和待保存桌面变更 | `snapshot`、`selection`、`execute()`、`placePhotos()`、`undo()`、`redo()`、`clearSelection()`、`flush()`；通过协调模块登记保存，不直接调用 ProjectStore |
+| `WorktableEditor` | 不拥有项目生命周期或持久化状态；只实现桌面命令、历史变换、Group/Link/排列/缩放和布局规则 | 输入命令，输出合法草稿或可判别错误；不得访问 React、ProjectStore、来源或序列状态 |
+| `TableActionPolicy` | 无可变状态；集中定义选区到动作能力的派生规则 | `deriveTableActions(snapshot, selection)` 返回动作可用性和禁用原因；工具栏、快捷键和右键菜单共用，执行时仍由 Editor/Session 再验证 |
+| `useTableGestures` | 当前指针手势、拖动偏移、缩放预览、框选框、指针捕获和取消状态 | 输出预览状态和一次性的 `onCommit`/`onCancel`；不得写项目快照、历史或保存队列 |
+| `TableCanvas` | 可见照片集合、挂载集合、图片租约和清理计时器，以及画布展示所需的局部测量 | 根据 `TableSession.snapshot` 渲染并转交用户操作；不修改桌面草稿，不调用 ProjectStore |
+| `PhotoSourcesPanel` | Compact/Expanded/Closed 的展示组合和面板局部 UI 状态 | 展示来源浏览状态并转发动作；不拥有索引、待加入选择或项目来源记录 |
+| `SourceBrowser`（实现 hook 可命名为 `useSourceBrowser`） | 来源索引分页状态、搜索/筛选、当前来源、待加入 `PhotoId`、焦点和滚动锚点 | `setSource()`、`setSearch()`、`setFilter()`、`toggleSelection()`、`selectAll()`、`clearSelection()`、`openPreview()`；来源记录变化通过协调模块动作完成 |
+| `SequenceSession` | 当前活动序列、序列草稿、序列 Undo/Redo、SequenceRevision 和序列内容保存进度 | `addItems()`、`moveItems()`、`undo()`、`redo()`、`flush()`；创建/删除序列必须调用 `createSequenceBundle()`/`deleteSequenceBundle()` 结构性事务 |
+| `SequenceOrderPanel` | 序列带的局部展开/折叠、焦点和滚动状态 | 展示 `SequenceSession` 快照并转发排序、添加和打开动作；不维护第二份序列草稿 |
+| `TableContextToolbar` | 工具栏屏幕定位和显示/隐藏状态 | 消费 `TableActionPolicy` 的结果并发出动作；不复制业务判断 |
+| `ProjectInfoPanel` | 项目信息面板的编辑控件和临时输入值 | 提交时调用 `updateProjectInfo()`；不直接改 workspace |
 
-codebase-design 的应用重点是把放置、历史与保存协调集中到同一个模块入口，而不是仅把长文件拆分成许多仍互相修改状态的小文件。
+必须满足以下依赖方向：`TablePage/TableWorkspace → Session/Coordinator → ProjectStore`，`TableCanvas/useTableGestures → TableSession`，`PhotoSourcesPanel → SourceBrowser/Coordinator`。布局组件不直接访问 ProjectStore；按钮不自行建立新的 `WorktableEditor`；任何一个动作只能有一个持久化入口。
+
+codebase-design 的应用重点是让放置、历史、保存和结构性事务各有唯一边界，而不是把长文件机械拆成许多仍互相修改状态的小文件。
 
 ### 6.3 项目级共享状态
 
 在项目路由外层挂载 ProjectWorkspaceProvider，以 ProjectId 为 key。Home 不挂载该 Provider。
 
-- 将现有 workspace 加载、ref 和串行保存逻辑迁入 Provider。
-- useProjectWorkspace 保留为消费共享状态的入口，保持主要返回语义，逐个适配调用方。
-- Table、来源面板和项目信息面板共用同一个实例。
-- Sequence 页也使用共享 workspace 状态，避免其直接更新 revision 后其他模块仍持有旧值。
+- Provider 只负责项目会话的生命周期和依赖注入；workspace 加载、revision、队列和失败恢复由 `ProjectWriteCoordinator` 实现，不能把这些行为重新堆回 Provider 文件。
+- 将现有 `useProjectWorkspace` 的加载代次、串行写入和 Result 适配迁移到协调模块；旧 hook 只可作为过渡适配层，最终不再向界面暴露 `workspaceRef` 或 `setWorkspace`。
+- Table、来源面板、项目信息面板和 Sequence 页共用同一个项目会话、协调模块和对应子会话，不能各自加载 workspace 或建立独立的项目写入队列。
+- Sequence 页也使用共享会话，避免其直接更新 revision 后其他模块仍持有旧值。
 - 项目切换时清空前一个项目的临时选择和控制器；异步返回不得写入新项目。
 - Table 会话在同一项目内切换至 Sequence 时保留，返回后协调刷新序列堆。
 
-状态分为三类：
+#### 6.3.1 本地草稿、已保存快照与写入结果
+
+桌面编辑必须明确区分三种状态：
+
+1. `ProjectWriteCoordinator` 持有最近一次成功加载或写入的已保存 workspace 快照及其 `workspaceRevision`。
+2. `TableSession` 持有当前本地桌面草稿和 `latestLocalEditSeq`；Sources 的 `On Table`、桌面数量和工具栏状态均从这个草稿派生。
+3. 协调模块持有每个写入任务的 `pending/succeeded/failed` 状态及 `savedEditSeq`。保存成功只代表对应任务成功，不能覆盖更晚的本地编辑。
+
+每个桌面写入携带项目代次、基础 revision 和本地编辑序号。返回结果必须同时匹配当前项目会话和提交时的编辑序号；迟到的旧结果不得覆盖更新的本地草稿。失败时保留本地草稿和布局，暂停依赖该失败任务的后续写入；Retry 重放原任务并复用已有 ID，Reload latest 则由用户明确确认后丢弃本地未保存修改。
+
+界面只能读取 `TableSession.snapshot`、`SequenceSession.snapshot` 和协调模块的只读保存状态，不能在 `workspace.worktableDraft` 与本地草稿之间自行选择。
+
+#### 6.3.2 项目 UI 状态与临时状态
+
+状态分为以下几类：
 
 | 状态 | 存储位置 |
 | --- | --- |
@@ -584,6 +604,12 @@ interface TablePlacementActions {
 
 UI 不能通过“先 place、再 arrange”产生两个历史记录。
 
+#### 6.4.1 序列创建与其他结构性事务
+
+创建序列不是 TablePage 的组合动作，而是 `ProjectWriteCoordinator.createSequenceBundle()` 的单一结构性事务入口。调用方只提交序列名称、照片顺序和 Table 堆的初始布局意图；协调模块在项目写入队列内部读取最新 workspace，原子生成 `SequenceDocument`、初始版本和 `Table Sequence Pile`，成功后同步项目快照、序列摘要并重置相关桌面历史。
+
+删除序列同理由 `deleteSequenceBundle()` 完成。TablePage、SequenceSession 和对话框不得自行组合存储调用、等待队列后再写入，或手动同步 workspace、editor、draft 和序列摘要。
+
 ### 6.5 来源索引与虚拟网格
 
 本轮保留 PhotoSource.listPhotos() 接口，不增加数据库查询语言。
@@ -622,7 +648,7 @@ VirtualPhotoGrid 的改造：
 
 ### 7.1 保存队列
 
-保留现有 revision 乐观并发控制，但由共享 workspace 模块统一协调。
+保留现有 revision 乐观并发控制，但由 `ProjectWriteCoordinator` 统一协调；`ProjectWorkspaceProvider` 只管理会话生命周期，不拥有第二套队列。
 
 以下操作共用项目写入队列：
 
@@ -701,17 +727,30 @@ Table 编辑继续采用乐观反馈，但需要记录：
 
 ## 8. 实施顺序与交付拆分
 
-按以下顺序实施，每阶段保持可运行：
+先完成桌面会话、手势和写入边界，再接入 Photo Sources。每阶段都保持可运行，并先沿用现有行为和测试，再增加该阶段的新交互；在右侧来源面板接入前，必须通过第 9.5 节的架构边界验收。
 
 | 阶段 | 内容 | 完成条件 |
 | --- | --- | --- |
-| 1. 项目会话 | 共享 workspace、保存状态、队列与 Result 调用适配 | 当前 Table、Sequence 保存行为正常，失败状态可信 |
-| 2. 页面结构 | 核心导航、路由兼容、右侧三态面板、项目信息 | 从 Home 进入 Table，旧链接正确落到新入口 |
-| 3. 来源浏览 | 索引聚合、搜索筛选、虚拟网格、多选、预览、来源断开重连 | 单来源及 All Sources 可连续选片，刷新不丢上下文 |
-| 4. 来源到桌面 | 统一放置、批量拖入、坐标转换、去重和历史 | 拖入与按钮结果一致，一次 Undo 撤销一批 |
-| 5. Table 优化 | 上下文工具栏、Group Grid、命名、整体移动、多选缩放 | 图中主要操作有确定反馈，现有 Link/Pile 可用 |
-| 6. 序列衔接 | 活动序列、序列带历史、切页 flush 与刷新 | 排列与序列互不污染，返回 Table 显示最新序列 |
-| 7. 清理与验收 | 移除旧页面重复实现、兼容和交互测试、截图核验 | 完整检查通过，关键桌面尺寸和数据场景验收完成 |
+| 1. 桌面会话与规则 | 从 TablePage 提取 `TableSession`、唯一 `WorktableEditor`、桌面历史、选区和 `TableActionPolicy`；保持现有 Group/Link/Pile 行为 | TablePage 不再持有编辑器和桌面历史；Group、Link、Undo/Redo 现有测试通过 |
+| 2. 手势与画布边界 | 提取 `useTableGestures` 和 `TableCanvas`；隔离拖动/框选/缩放预览、图片租约和可见性管理 | 手势取消不写数据，pointerup 只提交一次命令，画布局部更新不污染项目会话 |
+| 3. 项目写入与序列事务 | 建立 `ProjectWorkspaceProvider` + `ProjectWriteCoordinator`；迁移 revision、队列、失败暂停、Retry、flush；定义 `SequenceSession` 和结构性事务接口，并将创建/删除序列收拢到协调模块 | Table、Sequence、项目资料共用一个写入协调器；不存在页面级 ProjectStore 调用或独立项目队列 |
+| 4. Table 页面结构 | 建立 `TableWorkspace`，统一页面组合、项目信息覆盖层、Table/Sequence 活动区域和旧路由兼容；删除重复 workspace 加载 | Home、新建项目和旧 Project/Photos 链接进入正确的 Table 状态 |
+| 5. Table 操作完善 | 接入上下文工具栏、统一动作规则、Group Grid、命名、整体移动和多选缩放 | 工具栏、快捷键和右键菜单使用同一动作派生结果；主要操作有确定反馈 |
+| 6. 序列衔接 | 落地 `SequenceSession`、活动序列、`SequenceOrderPanel`、序列局部历史、切页 flush 和返回刷新 | Table 与 Sequence 历史互不污染，返回 Table 显示最新序列 |
+| 7. Photo Sources 浏览 | 在架构边界稳定后接入 `SourceBrowser`、Compact/Expanded/Closed 面板、索引聚合、搜索筛选、多选、预览和来源断开重连 | 单来源及 All Sources 可连续选片，刷新不丢上下文；Sources 不修改 Table 内部状态 |
+| 8. 来源到桌面、清理与验收 | 通过 `TableSession.placePhotos()` 接入按钮加入和批量拖入；移除旧页面重复实现，完成兼容、交互、存储竞态、浏览器和截图核验 | 拖入与按钮结果一致，一次 Undo 撤销一批；完整检查通过并记录实际限制 |
+
+### 8.1 当前重构进度（2026-09-06）
+
+- 阶段 1、2 已完成：`TableSession`、`TableActionPolicy`、`useTableGestures` 和 `TableCanvas` 已从 `TablePage` 提取；取消手势、单次提交、渐进图片读取和视觉回归已有测试覆盖。
+- 阶段 3 已完成：新增 `ProjectWorkspaceProvider`、`ProjectWriteCoordinator` 和 `SequenceSession`。TablePage、SequencePage、ProjectPage、ContactSheetPage 的项目写入已通过共享 coordinator/session；序列草稿、排序、追加、Retry/flush 和序列创建 bundle 均不再建立页面级保存队列。创建 bundle 由 coordinator 统一提交 Sequence、初始 Version、Table Pile 和 workspace revision；`updateResumeContext()` 统一合并恢复信息，避免页面覆盖其他恢复字段。
+- 阶段 4、5 已完成：新增 `TableWorkspace`、`TableContextToolbar`、`ProjectInfoPanel` 布局接缝，Table 页面保留单一 `TableSession` 和 `TableActionPolicy`；TablePage 不直接访问 ProjectStore、不持有 WorktableEditor；ContactSheet 的 Place on Table 也复用 `TableSession.placePhotos()`。
+- 阶段 6 已完成：Sequence 页使用 `SequenceSession`，`SequenceOrderPanel` 使用自己的局部 UI 状态并复用活动序列会话；Table 的 Add to Sequence 对话框也通过目标 `SequenceSession` 执行追加，序列编辑历史和桌面编辑历史分离，切换到 Sequence 前 flush，序列页创建新序列使用 coordinator 的结构性 bundle 入口。
+- 阶段 7、8 已完成：`SourceBrowser` 支持 All Sources、来源索引聚合、搜索、Not on Table、多选、未上桌照片预览、Compact/Expanded/Closed 局部模式、sessionStorage 上下文恢复、按钮加入和从来源面板拖入 Table。来源网格使用虚拟化，只渲染可见窗口；拖入与按钮加入均最终调用 `TableSession.placePhotos()`。
+- 来源生命周期已补齐第一版：ProjectPage 的 Remove Source 改为软断开，保留 SourceRecord 及其 PhotoRef/桌面/序列引用；Reconnect 成功后恢复记录并重新扫描。原文件不受影响。
+- 项目入口和 Photo Sources 视觉接缝已补齐：从 Home、顶部 Project 和项目侧栏进入项目默认打开 Table；Table 页面在共享 Provider 跨页切换时先 flush 并重新载入最新 workspace；Photo Sources Closed 会收缩布局列并可恢复；来源照片缩略图使用 contain 保持完整比例。
+- 浏览器验收已完成：Chrome 与 Edge 均覆盖 1920×1080、1440×900、1280×800 和 1024×800 截图，并验证项目入口、来源栏收起/恢复、完整比例缩略图、搜索、加入 Table 和刷新持久化。浏览器级断开/重连无法在无真实文件系统授权变化的自动化夹具中可靠制造，仍由 `BrowserPhotoSource` 存储测试和项目页软断开逻辑覆盖；真实授权失效需在手工验收中确认。
+- 当前自动化基线：`pnpm check` 已通过（23 个测试文件、102 个测试、类型检查和生产构建）；Playwright `tests/e2e/contact-sheet-ui.spec.ts` 已在 Chrome/Edge 串行通过（2 个测试项目，每个包含四个视口截图）。
 
 不引入新的状态管理库、拖拽库或画布库。使用现有 React、Pointer Events、原生 Drag and Drop、虚拟化和 ProjectStore 接口完成。
 
@@ -774,5 +813,19 @@ Table 编辑继续采用乐观反馈，但需要记录：
 
 运行现有 pnpm check，补充并运行与本轮相关的 Playwright 用例。性能结论记录实际测试环境与观察结果，不预先承诺未经测量的帧率。
 
-最终交付包含可运行实现、交互测试、Compact/Expanded/空状态截图，以及与本方案不一致的实际限制说明。
+### 9.5 架构边界验收
 
+不以 TablePage 行数作为主要指标，而以状态所有权和入口是否唯一作为验收标准：
+
+- 修改 Group 排列，只需修改 `WorktableEditor`/桌面规则及对应纯逻辑测试，不需要修改来源浏览或页面写入协调。
+- 修改来源搜索、筛选或分页，不需要修改 TablePage、TableSession 或 WorktableEditor。
+- 新增任何一种加入桌面的入口，必须复用 `TableSession.placePhotos()`，不得复制布局、去重和历史逻辑。
+- 创建序列失败、保存冲突、Retry 和 flush 可以在不渲染整页的情况下通过协调模块测试。
+- `TablePage/TableWorkspace` 不直接调用 ProjectStore、不持有 WorktableEditor、不维护项目或序列保存队列。
+- `ProjectWorkspaceProvider` 不暴露 `workspaceRef`、`setWorkspace` 等绕过协调模块的可变句柄。
+- `TableSession` 的本地草稿、已保存 workspace 快照和保存结果有明确来源；迟到结果不能覆盖更新的本地编辑。
+- `useTableGestures` 的移动/缩放/框选预览只存在于手势生命周期内，取消不写数据，结束时最多提交一条编辑命令。
+- 工具栏、快捷键和右键菜单消费同一个动作派生结果；执行入口仍执行最终规则校验。
+- SourceBrowser、SequenceSession 和 TableSession 不各自保存同一份项目草稿；跨模块修改只能通过已声明的 coordinator/session 动作完成。
+
+最终交付包含可运行实现、交互测试、Compact/Expanded/空状态截图，以及与本方案不一致的实际限制说明。
