@@ -10,30 +10,29 @@ interface TableWorkspaceProps {
 /** Stable Table layout seam: the page supplies content, this module owns the workspace columns. */
 export function TableWorkspace({ children, sidebar, sidebarMode = "compact", storageKey = "photoflex:table-sidebar" }: TableWorkspaceProps) {
   const [width, setWidth] = useState(() => readWidth(storageKey, sidebarMode));
-  const dragRef = useRef(false);
-  const limits = sidebarMode === "expanded" ? { min: 560, max: 880 } : { min: 320, max: 420 };
+  const dragRef = useRef<{ clientX: number; width: number } | undefined>(undefined);
+  const limits = sidebarMode === "expanded" ? { min: 560, max: 880 } : { min: 280, max: 420 };
 
   useEffect(() => {
     setWidth(readWidth(storageKey, sidebarMode));
   }, [sidebarMode, storageKey]);
   useEffect(() => {
-    try { window.sessionStorage.setItem(storageKey, String(width)); } catch { /* UI state is disposable. */ }
-  }, [storageKey, width]);
+    if (sidebarMode === "closed") return;
+    try { window.sessionStorage.setItem(widthStorageKey(storageKey, sidebarMode), String(width)); } catch { /* UI state is disposable. */ }
+  }, [sidebarMode, storageKey, width]);
 
-  const resizeFromClientX = (clientX: number) => {
-    const next = Math.max(limits.min, Math.min(limits.max, window.innerWidth - clientX));
-    setWidth(next);
-  };
   const onPointerDown = (event: PointerEvent<HTMLButtonElement>) => {
     if (sidebarMode === "closed") return;
     event.preventDefault();
-    dragRef.current = true;
+    dragRef.current = { clientX: event.clientX, width };
     event.currentTarget.setPointerCapture(event.pointerId);
   };
   const onPointerMove = (event: PointerEvent<HTMLButtonElement>) => {
-    if (dragRef.current) resizeFromClientX(event.clientX);
+    const drag = dragRef.current;
+    if (!drag) return;
+    setWidth(Math.max(limits.min, Math.min(limits.max, drag.width + drag.clientX - event.clientX)));
   };
-  const stopResize = () => { dragRef.current = false; };
+  const stopResize = () => { dragRef.current = undefined; };
   const onKeyDown = (event: ReactKeyboardEvent<HTMLButtonElement>) => {
     const step = event.shiftKey ? 32 : 16;
     if (event.key === "ArrowLeft") { event.preventDefault(); setWidth((value) => Math.min(limits.max, value + step)); }
@@ -46,11 +45,16 @@ export function TableWorkspace({ children, sidebar, sidebarMode = "compact", sto
 }
 
 function readWidth(storageKey: string, mode: TableWorkspaceProps["sidebarMode"]): number {
-  const min = mode === "expanded" ? 560 : 320;
-  const max = mode === "expanded" ? 880 : 420;
-  const fallback = mode === "expanded" ? 640 : 368;
+  const openMode = mode === "expanded" ? "expanded" : "compact";
+  const min = openMode === "expanded" ? 560 : 280;
+  const max = openMode === "expanded" ? 880 : 420;
+  const fallback = openMode === "expanded" ? 560 : 280;
   try {
-    const stored = Number(window.sessionStorage.getItem(storageKey));
+    const stored = Number(window.sessionStorage.getItem(widthStorageKey(storageKey, openMode)) ?? window.sessionStorage.getItem(storageKey));
     return Number.isFinite(stored) && stored > 0 ? Math.max(min, Math.min(max, stored)) : fallback;
   } catch { return fallback; }
+}
+
+function widthStorageKey(storageKey: string, mode: "compact" | "expanded"): string {
+  return `${storageKey}:${mode}`;
 }

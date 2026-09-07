@@ -95,12 +95,12 @@ describe("WorktableEditor", () => {
   it("keeps Group and Link as Table-only relationships and restores them with undo", () => {
     const editor = createWorktableEditor(createEmptyWorktable(projectId));
     editor.execute({ type: "place", items: [seed("a"), seed("b"), seed("c")] });
-    const anchorX = editor.snapshot().placements[photoId("b")].x;
     const grouped = editor.execute({ type: "create-group", photoIds: [photoId("a"), photoId("b")] });
     expect(grouped.ok).toBe(true);
     if (!grouped.ok) return;
     expect(grouped.value.groups[0].photoIds).toEqual(["a", "b"]);
-    expect(grouped.value.placements[photoId("b")].x).toBe(anchorX);
+    expect(grouped.value.placements[photoId("a")]).toMatchObject({ x: 64, y: 64, width: 196, height: 146 });
+    expect(grouped.value.placements[photoId("b")]).toMatchObject({ x: 266, y: 64, width: 196, height: 146 });
     const linked = editor.execute({ type: "create-link", photoIds: [photoId("b"), photoId("c")] });
     expect(linked.ok).toBe(true);
     if (!linked.ok) return;
@@ -111,6 +111,32 @@ describe("WorktableEditor", () => {
     expect(unlinked.value.links).toEqual([]);
     expect(editor.undo().links).toHaveLength(1);
     expect(editor.undo().links).toEqual([]);
+  });
+
+  it("packs Group photos into a maximum four-column Figma grid", () => {
+    const editor = createWorktableEditor(createEmptyWorktable(projectId));
+    editor.execute({ type: "place", items: [seed("a"), seed("b"), seed("c"), seed("d"), seed("e")] });
+    const before = editor.snapshot().placements;
+    const result = editor.execute({ type: "create-group", photoIds: ["a", "b", "c", "d", "e"] as PhotoId[] });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.placements[photoId("a")]).toMatchObject({ x: 64, y: 64, width: 196, height: 146 });
+    expect(result.value.placements[photoId("d")]).toMatchObject({ x: 670, y: 64, width: 196, height: 146 });
+    expect(result.value.placements[photoId("e")]).toMatchObject({ x: 64, y: 216, width: 196, height: 146 });
+    for (const id of ["a", "b", "c", "d", "e"] as PhotoId[]) {
+      expect(result.value.placements[id]).toMatchObject({ width: before[id].width, height: before[id].height });
+    }
+  });
+
+  it("keeps a Group grid in place when Link connects one of its photos", () => {
+    const editor = createWorktableEditor(createEmptyWorktable(projectId));
+    editor.execute({ type: "place", items: [seed("a"), seed("b"), seed("c")] });
+    editor.execute({ type: "create-group", photoIds: [photoId("a"), photoId("b")] });
+    const before = editor.snapshot().placements;
+    const linked = editor.execute({ type: "create-link", photoIds: [photoId("a"), photoId("c")] });
+    expect(linked.ok).toBe(true);
+    if (!linked.ok) return;
+    expect(linked.value.placements).toEqual(before);
   });
 
   it("adds one photo to an existing Group and lets one photo leave without changing table membership", () => {

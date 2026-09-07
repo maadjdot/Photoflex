@@ -1,4 +1,8 @@
 import { useLayoutEffect, useMemo, useRef, useState } from "react";
+import chevronIcon from "../assets/icons/table-chevron-down.svg";
+import openIcon from "../assets/icons/table-preview.svg";
+import removeIcon from "../assets/icons/table-remove.svg";
+import sequenceIcon from "../assets/icons/table-sequence.svg";
 import type { PhotoId, ProjectId, SequenceId, SequenceItemId, SourceError } from "../contracts";
 import { calculateSequenceStripVirtualRange, sequenceStripInsertionIndex, TABLE_SEQUENCE_STRIP_ITEM_GAP, TABLE_SEQUENCE_STRIP_ITEM_WIDTH } from "../modules/sequence";
 import type { AppDependencies } from "./dependencies";
@@ -12,25 +16,27 @@ interface SequenceOrderPanelProps {
   readonly dependencies: AppDependencies;
   readonly projectId: ProjectId;
   readonly sequenceId?: SequenceId;
+  readonly refreshKey?: number;
   readonly navigate: (route: AppRoute) => void;
   readonly onPhotoError: (photoId: PhotoId, error: SourceError) => void;
   readonly onNotice: (message: string) => void;
+  readonly onItemCountChange?: (sequenceId: SequenceId, itemCount: number) => void;
 }
 
 /** Owns the sequence strip's local UI and sequence-session interaction. */
 export function SequenceOrderPanel(props: SequenceOrderPanelProps) {
   const { sequenceId } = props;
   return sequenceId
-    ? <ActiveSequenceOrderPanel {...props} sequenceId={sequenceId} />
+    ? <ActiveSequenceOrderPanel key={`${sequenceId}:${props.refreshKey ?? 0}`} {...props} sequenceId={sequenceId} />
     : <EmptySequenceOrderPanel />;
 }
 
 function EmptySequenceOrderPanel() {
   const [collapsed, setCollapsed] = useState(false);
-  return <section className={`sequence-strip${collapsed ? " is-collapsed" : " is-empty"}`} aria-label="Sequence Order"><header><button onClick={() => setCollapsed((value) => !value)}>{collapsed ? "↑" : "↓"}</button><strong>SEQUENCE ORDER</strong><span>Select one Sequence Pile</span></header></section>;
+  return <section className={`sequence-strip${collapsed ? " is-collapsed" : " is-empty"}`} aria-label="Sequence Order"><header><button className="sequence-strip-heading" aria-label={collapsed ? "Expand Sequence Order" : "Collapse Sequence Order"} onClick={() => setCollapsed((value) => !value)}><strong>Sequence Order</strong><img src={chevronIcon} alt="" /></button><span>Select one Sequence Pile</span></header></section>;
 }
 
-function ActiveSequenceOrderPanel({ coordinator, dependencies, projectId, sequenceId, navigate, onPhotoError, onNotice }: SequenceOrderPanelProps & { readonly sequenceId: SequenceId }) {
+function ActiveSequenceOrderPanel({ coordinator, dependencies, projectId, sequenceId, navigate, onPhotoError, onNotice, onItemCountChange }: SequenceOrderPanelProps & { readonly sequenceId: SequenceId }) {
   const sequenceSession = useSequenceSession(coordinator, projectId, sequenceId);
   const { sequence, execute } = sequenceSession;
   const [collapsed, setCollapsed] = useState(false);
@@ -77,6 +83,34 @@ function ActiveSequenceOrderPanel({ coordinator, dependencies, projectId, sequen
   const openSequence = () => {
     void sequenceSession.flush().then((result) => { if (result.ok) navigate({ name: "sequence", projectId, sequenceId }); else onNotice("Sequence changes could not be saved. Retry before opening."); });
   };
+  const removeItem = (itemId: SequenceItemId) => {
+    const result = execute({ type: "remove", itemIds: [itemId] });
+    if (!result.ok) { onNotice("Sequence item could not be removed."); return; }
+    onItemCountChange?.(sequenceId, result.value.items.length);
+    onNotice("Removed 1 item from Sequence.");
+  };
 
-  return <section className={`sequence-strip${collapsed ? " is-collapsed" : ""}${sequence ? "" : " is-empty"}`} aria-label="Sequence Order"><header><button aria-label={collapsed ? "Expand Sequence Order" : "Collapse Sequence Order"} onClick={() => setCollapsed((value) => !value)}>{collapsed ? "↑" : "↓"}</button><strong>Sequence Order</strong><span>{sequence ? `${sequence.name} · ${sequence.items.filter((item) => item.kind === "photo").length} photos` : "Select one Sequence Pile"}</span>{sequence && <><small>Drag to reorder</small><button className="sequence-strip-open" disabled={sequenceSession.saveState !== "idle"} onClick={openSequence}>Open Sequence →</button></>}</header>{sequenceSession.error && <p className="sequence-strip-error" role="alert">{sequenceSession.error} <button type="button" onClick={() => void sequenceSession.retry()}>Retry</button></p>}{!collapsed && sequence && <div ref={viewportRef} className="sequence-strip-items" onScroll={(event) => setSize({ width: event.currentTarget.clientWidth, scrollLeft: event.currentTarget.scrollLeft })} onDragOver={(event) => { if (!dragId || !viewportRef.current) return; event.preventDefault(); setDropIndex(sequenceStripInsertionIndex(event.clientX, viewportRef.current.getBoundingClientRect().left, viewportRef.current.scrollLeft, sequence.items.length, 16, TABLE_SEQUENCE_STRIP_ITEM_WIDTH, TABLE_SEQUENCE_STRIP_ITEM_GAP)); }} onDrop={(event) => { event.preventDefault(); if (dropIndex !== undefined) move(dropIndex); }}><div className="sequence-strip-track" style={{ width: range.totalWidth }}>{sequence.items.slice(range.startIndex, range.endIndex).map((item, offset) => { const index = range.startIndex + offset; return <button key={item.id} ref={(element) => { if (element) itemRefs.current.set(item.id, element); else itemRefs.current.delete(item.id); }} style={{ left: index * range.itemStride }} className={`sequence-strip-item${dragId === item.id ? " is-dragging" : ""}${dropIndex === index ? " is-drop-target" : ""}`} disabled={sequenceSession.saveState !== "idle"} draggable={sequenceSession.saveState === "idle"} onDragStart={() => { setDragId(item.id); setDropIndex(index); }} onDragOver={(event) => { event.preventDefault(); setDropIndex(index); }} onDrop={(event) => { event.stopPropagation(); move(index); }} onDragEnd={() => { setDragId(undefined); setDropIndex(undefined); }} onKeyDown={(event) => { if (event.key === "Home") { event.preventDefault(); move(0); } else if (event.key === "End") { event.preventDefault(); move(sequence.items.length); } else if (event.key === "ArrowLeft" || event.key === "ArrowRight") { event.preventDefault(); if (event.altKey) move(Math.max(0, Math.min(sequence.items.length, index + (event.key === "ArrowLeft" ? -1 : 2)))); else { const next = Math.max(0, Math.min(sequence.items.length - 1, index + (event.key === "ArrowLeft" ? -1 : 1))); itemRefs.current.get(sequence.items[next]?.id)?.focus(); } } else if (event.key === "Escape") { setDragId(undefined); setDropIndex(undefined); } }}>{item.kind === "photo" ? <PhotoThumb photoSource={dependencies.photoSource} photoId={item.photoId} alt={`Sequence ${index + 1}`} onError={onPhotoError} /> : <span className="sequence-blank-thumb">Blank</span>}<span>{String(index + 1).padStart(2, "0")} · {item.kind === "photo" ? item.photoId.slice(0, 8) : "Blank"}</span></button>; })}{dropIndex === sequence.items.length && dragId && <span className="sequence-strip-end-drop" style={{ left: range.totalWidth - range.itemStride + TABLE_SEQUENCE_STRIP_ITEM_WIDTH }} aria-label="Drop at end" />}</div></div>}</section>;
+  return <section className={`sequence-strip${collapsed ? " is-collapsed" : ""}${sequence ? "" : " is-empty"}`} aria-label="Sequence Order">
+    <header>
+      <button className="sequence-strip-heading" aria-label={collapsed ? "Expand Sequence Order" : "Collapse Sequence Order"} onClick={() => setCollapsed((value) => !value)}><strong>Sequence Order</strong><img className={collapsed ? "is-collapsed" : ""} src={chevronIcon} alt="" /></button>
+      <span className="sequence-strip-meta"><img src={sequenceIcon} alt="" />{sequence ? `${sequence.name} · ${sequence.items.filter((item) => item.kind === "photo").length} photos` : "Select one Sequence Pile"}</span>
+      {sequence && <><small>Drag to reorder</small><button className="sequence-strip-open" disabled={sequenceSession.saveState !== "idle"} onClick={openSequence}><img src={openIcon} alt="" />Open Sequence <span aria-hidden="true">→</span></button></>}
+    </header>
+    {sequenceSession.error && <p className="sequence-strip-error" role="alert">{sequenceSession.error} <button type="button" onClick={() => void sequenceSession.retry()}>Retry</button></p>}
+    {!collapsed && sequence && <div ref={viewportRef} className="sequence-strip-items" onScroll={(event) => setSize({ width: event.currentTarget.clientWidth, scrollLeft: event.currentTarget.scrollLeft })} onDragOver={(event) => { if (!dragId || !viewportRef.current) return; event.preventDefault(); setDropIndex(sequenceStripInsertionIndex(event.clientX, viewportRef.current.getBoundingClientRect().left, viewportRef.current.scrollLeft, sequence.items.length, 16, TABLE_SEQUENCE_STRIP_ITEM_WIDTH, TABLE_SEQUENCE_STRIP_ITEM_GAP)); }} onDrop={(event) => { event.preventDefault(); if (dropIndex !== undefined) move(dropIndex); }}>
+      <div className="sequence-strip-track" style={{ width: range.totalWidth }}>
+        {sequence.items.slice(range.startIndex, range.endIndex).map((item, offset) => {
+          const index = range.startIndex + offset;
+          return <div key={item.id} className="sequence-strip-slot" style={{ left: index * range.itemStride }}>
+            <button ref={(element) => { if (element) itemRefs.current.set(item.id, element); else itemRefs.current.delete(item.id); }} className={`sequence-strip-item${dragId === item.id ? " is-dragging" : ""}${dropIndex === index ? " is-drop-target" : ""}`} disabled={sequenceSession.saveState !== "idle"} draggable={sequenceSession.saveState === "idle"} onDragStart={() => { setDragId(item.id); setDropIndex(index); }} onDragOver={(event) => { event.preventDefault(); setDropIndex(index); }} onDrop={(event) => { event.stopPropagation(); move(index); }} onDragEnd={() => { setDragId(undefined); setDropIndex(undefined); }} onKeyDown={(event) => { if (event.key === "Home") { event.preventDefault(); move(0); } else if (event.key === "End") { event.preventDefault(); move(sequence.items.length); } else if (event.key === "ArrowLeft" || event.key === "ArrowRight") { event.preventDefault(); if (event.altKey) move(Math.max(0, Math.min(sequence.items.length, index + (event.key === "ArrowLeft" ? -1 : 2)))); else { const next = Math.max(0, Math.min(sequence.items.length - 1, index + (event.key === "ArrowLeft" ? -1 : 1))); itemRefs.current.get(sequence.items[next]?.id)?.focus(); } } else if (event.key === "Escape") { setDragId(undefined); setDropIndex(undefined); } }}>
+              {item.kind === "photo" ? <PhotoThumb photoSource={dependencies.photoSource} photoId={item.photoId} alt={`Sequence ${index + 1}`} onError={onPhotoError} /> : <span className="sequence-blank-thumb">Blank</span>}
+              <span className="sequence-strip-index">{String(index + 1).padStart(2, "0")}</span>
+            </button>
+            <button type="button" className="sequence-strip-remove" aria-label={`Remove item ${index + 1} from Sequence`} title="Remove from Sequence" disabled={sequenceSession.saveState !== "idle"} onClick={() => removeItem(item.id)}><img src={removeIcon} alt="" /></button>
+          </div>;
+        })}
+        {dropIndex === sequence.items.length && dragId && <span className="sequence-strip-end-drop" style={{ left: range.totalWidth - range.itemStride + TABLE_SEQUENCE_STRIP_ITEM_WIDTH }} aria-label="Drop at end" />}
+      </div>
+    </div>}
+  </section>;
 }

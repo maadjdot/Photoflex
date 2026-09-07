@@ -25,6 +25,8 @@ const DEFAULT_ORIGIN = { x: 64, y: 64 } as const;
 const DEFAULT_COLUMNS = 7;
 const DEFAULT_CELL_WIDTH = DEFAULT_WORKTABLE_CARD_WIDTH + 40;
 const DEFAULT_CELL_HEIGHT = DEFAULT_WORKTABLE_CARD_HEIGHT + 72;
+const GROUP_GAP = 6;
+const GROUP_COLUMNS = 4;
 
 export function createEmptyWorktable(projectId: WorktableDraft["projectId"]): WorktableDraft {
   return { projectId, entryOrder: [], placements: {}, groups: [], links: [], pileOrder: [], pilePlacements: {} };
@@ -147,8 +149,9 @@ function createGroup(
   }
   const ordered = draft.entryOrder.filter((photoId) => photoIds.includes(photoId));
   if (ordered.length !== photoIds.length) return err({ kind: "invalid-relation" });
-  const anchor = draft.placements[ordered.at(-1)!];
-  const packed = packNearAnchor(draft, ordered, anchor.x, anchor.y, 16);
+  const originX = Math.min(...ordered.map((photoId) => draft.placements[photoId].x));
+  const originY = Math.min(...ordered.map((photoId) => draft.placements[photoId].y));
+  const packed = packGroupGrid(draft, ordered, originX, originY);
   return ok({
     ...packed,
     groups: [...packed.groups, { id: nextRelationId("group", packed.groups), name: `GROUP ${String(packed.groups.length + 1).padStart(2, "0")}`, photoIds: ordered }],
@@ -170,8 +173,9 @@ function addToGroup(
     return err({ kind: "invalid-relation" });
   }
   const photoIds = [...group.photoIds, photoId];
-  const anchor = draft.placements[photoId];
-  const packed = packNearAnchor(draft, photoIds, anchor.x, anchor.y, 16);
+  const originX = Math.min(...group.photoIds.map((memberId) => draft.placements[memberId].x));
+  const originY = Math.min(...group.photoIds.map((memberId) => draft.placements[memberId].y));
+  const packed = packGroupGrid(draft, photoIds, originX, originY);
   return ok({ ...packed, groups: packed.groups.map((candidate) => candidate.id === groupId ? { ...candidate, photoIds } : candidate) });
 }
 
@@ -179,11 +183,14 @@ function removeFromGroup(draft: WorktableDraft, photoId: PhotoId): Result<Workta
   const group = draft.groups.find((candidate) => candidate.photoIds.includes(photoId));
   if (!group) return err({ kind: "invalid-relation" });
   const members = group.photoIds.filter((memberId) => memberId !== photoId);
+  const originX = Math.min(...group.photoIds.map((memberId) => draft.placements[memberId].x));
+  const originY = Math.min(...group.photoIds.map((memberId) => draft.placements[memberId].y));
+  const packed = members.length > 1 ? packGroupGrid(draft, members, originX, originY) : draft;
   return ok({
-    ...draft,
+    ...packed,
     groups: members.length > 1
-      ? draft.groups.map((candidate) => candidate.id === group.id ? { ...candidate, photoIds: members } : candidate)
-      : draft.groups.filter((candidate) => candidate.id !== group.id),
+      ? packed.groups.map((candidate) => candidate.id === group.id ? { ...candidate, photoIds: members } : candidate)
+      : packed.groups.filter((candidate) => candidate.id !== group.id),
   });
 }
 
@@ -194,8 +201,9 @@ function createLink(
   if (photoIds.length < 2 || photoIds.length > 6 || new Set(photoIds).size !== photoIds.length) return err({ kind: "invalid-relation" });
   const ordered = draft.entryOrder.filter((photoId) => photoIds.includes(photoId));
   if (ordered.length !== photoIds.length) return err({ kind: "invalid-relation" });
+  const touchesGroup = draft.groups.some((group) => ordered.some((photoId) => group.photoIds.includes(photoId)));
   const anchor = draft.placements[ordered.at(-1)!];
-  const packed = packNearAnchor(draft, ordered, anchor.x, anchor.y, 28);
+  const packed = touchesGroup ? draft : packNearAnchor(draft, ordered, anchor.x, anchor.y, 28);
   return ok({
     ...packed,
     links: [...packed.links, { id: nextRelationId("link", packed.links), name: `LINK ${String(packed.links.length + 1).padStart(2, "0")}`, photoIds: ordered }],
@@ -223,6 +231,27 @@ function packNearAnchor(
     const placement = placements[photoId];
     placements[photoId] = { ...placement, x, y: anchorY };
     x += placement.width + gap;
+  }
+  return { ...draft, placements };
+}
+
+function packGroupGrid(
+  draft: WorktableDraft,
+  photoIds: readonly PhotoId[],
+  originX: number,
+  originY: number,
+): WorktableDraft {
+  const placements = { ...draft.placements } as Record<PhotoId, WorktablePlacement>;
+  for (let rowStart = 0, y = originY; rowStart < photoIds.length; rowStart += GROUP_COLUMNS) {
+    const row = photoIds.slice(rowStart, rowStart + GROUP_COLUMNS);
+    const rowHeight = Math.max(...row.map((photoId) => placements[photoId].height));
+    let x = originX;
+    row.forEach((photoId) => {
+      const current = placements[photoId];
+      placements[photoId] = { ...current, x, y };
+      x += current.width + GROUP_GAP;
+    });
+    y += rowHeight + GROUP_GAP;
   }
   return { ...draft, placements };
 }

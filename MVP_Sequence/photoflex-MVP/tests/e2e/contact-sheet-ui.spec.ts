@@ -63,7 +63,7 @@ test("M2.1 Contact Sheet 提供 Place on Table，并移除 Pool 栏", async ({ p
     return tops.filter((top) => Math.abs(top - firstTop) <= 1).length;
   });
 
-  expect(header?.height).toBe(64);
+  expect(header?.height).toBe(44);
   expect(sourceRail?.width).toBeGreaterThanOrEqual(210);
   expect(sourceRail?.width).toBeLessThanOrEqual(213);
   await expect(page.locator(".pool-panel")).toHaveCount(0);
@@ -89,9 +89,8 @@ test("M2.1 Contact Sheet 提供 Place on Table，并移除 Pool 栏", async ({ p
   await page.getByRole("button", { name: "Table", exact: true }).click();
   await expect(page).toHaveURL(new RegExp(`#\\/projects\\/${projectId}\\/table$`));
   await expect(page.locator(".worktable-card")).toHaveCount(2);
-  await expect(page.getByRole("button", { name: "Group" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Group" })).toHaveCount(0);
   await expect(page.getByRole("complementary", { name: "Photo Sources" })).toBeVisible();
-  await page.getByLabel("Search photos").fill("PF_2403.jpg");
   const sourcePhoto = page.getByRole("button", { name: "PF_2403.jpg" });
   await expect(sourcePhoto).toBeVisible();
   await sourcePhoto.click();
@@ -127,10 +126,74 @@ test("M2.1 Contact Sheet 提供 Place on Table，并移除 Pool 栏", async ({ p
   await expect(sourceCard).toBeVisible();
   await expect.poll(() => sourceCard.locator(":scope > img, :scope > .thumb-placeholder").first().evaluate((image) => getComputedStyle(image).objectFit)).toBe("contain");
 
-  for (const viewport of [{ width: 1920, height: 1080 }, { width: 1440, height: 900 }, { width: 1280, height: 800 }, { width: 1024, height: 800 }]) {
+  for (const viewport of [{ width: 1577, height: 900 }, { width: 1280, height: 800 }, { width: 1024, height: 800 }]) {
     await page.setViewportSize(viewport);
+    await page.evaluate((key) => window.sessionStorage.removeItem(`${key}:expanded`), `photoflex:table-sidebar:${projectId}`);
     await page.goto(`/#/projects/${projectId}/table`);
     await expect(page.locator(".worktable-card")).toHaveCount(3);
+    const responsiveSidebar = page.getByRole("complementary", { name: "Photo Sources" });
+    if (await responsiveSidebar.getAttribute("class").then((value) => !value?.includes("is-expanded"))) {
+      await responsiveSidebar.getByRole("button", { name: "Expand Photo Sources" }).click();
+    }
+    await expect(responsiveSidebar).toHaveClass(/is-expanded/);
+    const mainBox = await page.locator(".table-workspace-main").boundingBox();
+    const sidebarBox = await responsiveSidebar.boundingBox();
+    const resizer = page.getByRole("separator", { name: "Resize Photo Sources" });
+    const resizerBox = await resizer.boundingBox();
+    expect(Math.round(sidebarBox?.width ?? 0)).toBe(560);
+    expect(Math.round(resizerBox?.width ?? 0)).toBe(9);
+    if (viewport.width === 1024) {
+      expect(Math.round(mainBox?.width ?? 0)).toBe(viewport.width);
+      expect(Math.round(sidebarBox?.x ?? 0)).toBe(viewport.width - 560);
+      if (!resizerBox) throw new Error("Photo Sources resizer is not visible");
+      await page.mouse.move(resizerBox.x + resizerBox.width / 2, resizerBox.y + resizerBox.height / 2);
+      await page.mouse.down();
+      await page.mouse.move(resizerBox.x + resizerBox.width / 2 - 64, resizerBox.y + resizerBox.height / 2, { steps: 3 });
+      await page.mouse.up();
+      await expect.poll(async () => Math.round((await responsiveSidebar.boundingBox())?.width ?? 0)).toBe(624);
+      await resizer.focus();
+      await page.keyboard.press("ArrowRight");
+      await expect.poll(async () => Math.round((await responsiveSidebar.boundingBox())?.width ?? 0)).toBe(608);
+      await page.keyboard.press("Home");
+      await expect.poll(async () => Math.round((await responsiveSidebar.boundingBox())?.width ?? 0)).toBe(560);
+      await responsiveSidebar.getByRole("button", { name: "Use compact Photo Sources" }).click();
+      await expect(responsiveSidebar).toHaveClass(/is-compact/);
+      const compactMainBox = await page.locator(".table-workspace-main").boundingBox();
+      const compactSidebarBox = await responsiveSidebar.boundingBox();
+      expect(Math.round(compactMainBox?.width ?? 0)).toBe(viewport.width);
+      expect(Math.round(compactSidebarBox?.width ?? 0)).toBe(280);
+      expect(Math.round(compactSidebarBox?.x ?? 0)).toBe(viewport.width - 280);
+      await page.screenshot({ path: testInfo.outputPath("table-1024x800-compact.png"), fullPage: true });
+      await responsiveSidebar.getByRole("button", { name: "Expand Photo Sources" }).click();
+      await expect(responsiveSidebar).toHaveClass(/is-expanded/);
+    } else {
+      expect(Math.round((mainBox?.width ?? 0) + (resizerBox?.width ?? 0) + (sidebarBox?.width ?? 0))).toBe(viewport.width);
+    }
+    if (viewport.width === 1280) {
+      await responsiveSidebar.getByRole("button", { name: "Use compact Photo Sources" }).click();
+      await expect(responsiveSidebar).toHaveClass(/is-compact/);
+      await expect.poll(async () => Math.round((await responsiveSidebar.boundingBox())?.width ?? 0)).toBe(280);
+      await responsiveSidebar.getByRole("button", { name: "Collapse Photo Sources" }).click();
+      await expect(responsiveSidebar).toHaveClass(/is-closed/);
+      await expect.poll(async () => Math.round((await responsiveSidebar.boundingBox())?.width ?? 0)).toBe(32);
+      await responsiveSidebar.getByRole("button", { name: "Open Photo Sources" }).click();
+      await responsiveSidebar.getByRole("button", { name: "Expand Photo Sources" }).click();
+      await expect(responsiveSidebar).toHaveClass(/is-expanded/);
+      await expect.poll(async () => Math.round((await responsiveSidebar.boundingBox())?.width ?? 0)).toBe(560);
+    }
     await page.screenshot({ path: testInfo.outputPath(`table-${viewport.width}x${viewport.height}.png`), fullPage: true });
   }
+
+  await page.setViewportSize({ width: 1577, height: 900 });
+  await page.goto(`/#/projects/${projectId}/table`);
+  const finalCards = page.locator(".worktable-card");
+  await expect(finalCards).toHaveCount(3);
+  await finalCards.nth(0).click();
+  await finalCards.nth(1).click({ modifiers: ["Control"] });
+  await expect(page.getByRole("group", { name: "Table selection actions" })).toBeVisible();
+  const finalSourcePhotos = page.locator(".table-source-photo");
+  await expect(finalSourcePhotos.nth(3)).toBeVisible();
+  await finalSourcePhotos.nth(3).click();
+  await expect(finalSourcePhotos.nth(3)).toHaveClass(/is-selected/);
+  await page.screenshot({ path: testInfo.outputPath("table-final-interaction-states.png"), fullPage: true });
 });

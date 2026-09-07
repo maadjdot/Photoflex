@@ -1,0 +1,65 @@
+/* Table navigation and command surfaces; Source and filmstrip retain their geometry. */
+.app-shell.is-table { --topbar-height: 44px; font-family: "Inter", "Microsoft YaHei", "PingFang SC", sans-serif; }
+.topbar.is-table { grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); gap: 16px; padding: 0 16px; border-color: #d4d2cc; color: #1a1917; font-family: inherit; }
+.topbar.is-table .brand { flex-shrink: 0; color: #1a1917; font-family: inherit; font-size: 14px; font-weight: 700; letter-spacing: -.35px; }
+.table-header-project { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.table-header-slash { color: #d4d2cc; }
+.topbar.is-table .project-context-name { position: static; min-width: 0; max-width: 100%; color: #6b6966; font-size: 14px; }
+.topbar.is-table .topnav { gap: 0; width: auto; }
+.topbar.is-table .nav-button { padding: 0 16px; color: #6b6966; font-size: 14px; font-weight: 500; }
+.topbar.is-table .nav-button.is-active { border-color: #1a1917; color: #1a1917; }
+.topbar.is-table .nav-button:hover { background: #f0efeb; color: #1a1917; }
+.topbar.is-table .nav-button:focus-visible { outline: 2px solid #1a1917; outline-offset: -2px; }
+.topbar.is-table .login-button { width: auto; color: #6b6966; font-size: 14px; font-weight: 500; }
+.table-header-actions { display: flex; align-items: center; justify-self: end; gap: 12px; min-width: 0; font-size: 10px; white-space: nowrap; }
+.table-shortcuts-button { display: inline-flex; align-items: center; gap: 6px; padding: 4px 8px; border: 1px solid #d4d2cc; border-radius: 4px; background: #fff; color: #6b6966; font-size: 10px; }
+.table-shortcuts-button img { width: 11px; height: 11px; }
+.table-shortcuts-button:hover { background: #f0efeb; color: #1a1917; }
+.table-shortcuts-button:focus-visible { outline: 2px solid #1a1917; outline-offset: 2px; }
+.table-header-save { display: inline-flex; align-items: center; gap: 4px; color: #6b6966; }
+.table-header-save > span { width: 6px; height: 6px; border-radius: 50%; background: #00c950; }
+.table-header-save.is-saving > span { background: #9b6b28; }
+.table-header-save.is-failed { color: #a23b30; }
+.table-header-save.is-failed > span { background: #a23b30; }
+.table-canvas-area { position: relative; display: flex; flex: 1; min-width: 0; min-height: 0; }
+.table-floating-toolbar { position: absolute; z-index: 4; left: 12px; display: flex; flex-direction: column; gap: 2px; width: 42px; padding: 12px 4px 4px; border: 1px solid #d4d2cc; border-radius: 8px; background: #fff; box-shadow: 0 4px 4px rgb(0 0 0 / 8%); font-size: 12px; }
+.table-floating-drag-handle { position: absolute; top: 2px; left: 5px; display: grid; place-items: center; width: 30px; height: 9px; padding: 0; border: 0; border-radius: 4px; background: transparent; cursor: ns-resize; touch-action: none; }
+.table-floating-drag-handle span { width: 14px; height: 2px; border-top: 1px solid #b8b6b0; border-bottom: 1px solid #b8b6b0; }
+.table-floating-drag-handle:hover { background: #f0efeb; }
+.table-floating-drag-handle:focus-visible { outline: 2px solid #1a1917; outline-offset: 2px; }
+.table-floating-toolbar .table-tool-button { width: 32px; height: 32px; padding: 0; }
+.table-floating-divider { height: 1px; margin: 4px 0; background: #d4d2cc; }
+.table-floating-align { position: relative; display: grid; place-items: center; width: 32px; height: 32px; border-radius: 4px; }
+.table-floating-align img { width: 13px; height: 13px; }
+.table-floating-align select { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
+.table-floating-align.is-disabled { opacity: .3; }
+.table-floating-align:hover:not(.is-disabled) { background: #f0efeb; }
+.table-floating-align:focus-within { outline: 2px solid #1a1917; outline-offset: 2px; }
+.table-context-toolbar-position { position: absolute; z-index: 4; right: 16px; bottom: 34px; left: 64px; display: flex; justify-content: center; pointer-events: none; }
+.table-context-toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 4px; max-width: 100%; padding: 6px; border: 1px solid #d4d2cc; border-radius: 10px; background: #fff; color: #6b6966; box-shadow: 0 4px 4px rgb(0 0 0 / 8%); font-size: 12px; pointer-events: auto; }
+.table-context-toolbar .table-tool-button { height: 28px; color: #6b6966; white-space: nowrap; }
+.table-context-toolbar .table-tool-button:hover:not(:disabled) { color: #1a1917; }
+.table-context-toolbar .table-tool-button.is-danger:not(:disabled) { color: #a23b30; }
+.table-selection-summary { padding: 5px 8px; border-radius: 4px; background: #f0efeb; color: #1a1917; font-size: 12px; font-weight: 600; white-space: nowrap; }
+.table-clear-selection { padding: 4px; border: 0; background: transparent; color: #6b6966; font-size: 10px; text-decoration: underline; }
+.table-clear-selection:hover { color: #1a1917; }
+.table-clear-selection:focus-visible { outline: 2px solid #1a1917; outline-offset: 2px; }
+.table-canvas-summary { position: absolute; top: 8px; right: 16px; color: #6b6966; font-size: 11px; pointer-events: none; }
+.table-shortcuts-backdrop { position: fixed; z-index: 60; inset: 0; display: grid; place-items: center; padding: 24px; background: rgb(0 0 0 / 28%); }
+.table-shortcuts-dialog { width: min(460px, 100%); max-height: calc(100dvh - 48px); overflow-y: auto; padding: 24px; border: 1px solid #d4d2cc; border-radius: 10px; background: #fff; color: #1a1917; box-shadow: 0 12px 40px rgb(0 0 0 / 14%); }
+.table-shortcuts-dialog header { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.table-shortcuts-dialog h2 { margin: 0; font-size: 16px; font-weight: 600; }
+.table-shortcuts-dialog header button { padding: 0 6px; border: 0; border-radius: 4px; background: transparent; color: #6b6966; font-size: 24px; }
+.table-shortcuts-dialog header button:hover { background: #f0efeb; }
+.table-shortcuts-dialog header button:focus-visible { outline: 2px solid #1a1917; outline-offset: 2px; }
+.table-shortcuts-dialog p { margin: 12px 0; color: #6b6966; font-size: 11px; }
+.table-shortcuts-dialog dl { display: grid; gap: 0; margin: 0; font-size: 12px; }
+.table-shortcuts-dialog dl > div { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 10px 0; border-bottom: 1px solid #d4d2cc; }
+.table-shortcuts-dialog dl > div:last-child { border-bottom: 0; }
+.table-shortcuts-dialog dd { margin: 0; color: #6b6966; text-align: right; }
+
+/* Keep selection tools readable and immediately accessible as the canvas narrows. */
+.table-context-toolbar { gap: 4px 6px; max-width: 880px; padding: 8px; box-shadow: 0 4px 20px rgb(26 25 23 / 8%); }
+.table-context-toolbar .table-tool-button, .table-context-toolbar .table-tool-select { min-height: 32px; }
+.table-context-toolbar .table-tool-select select { max-width: 160px; height: 26px; }
+.table-context-toolbar .table-tool-button:disabled { opacity: .5; }

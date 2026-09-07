@@ -1,13 +1,11 @@
-import { useEffect, useMemo, useRef, useState, type DragEvent as ReactDragEvent } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { PhotoId, ProjectId, ProjectSummary } from "../contracts";
-import trashBinIcon from "../assets/icons/trash-bin.png";
 import { PhotoThumb } from "./PhotoThumb";
 import type { AppDependencies } from "./dependencies";
 import type { AppRoute } from "./router";
 import { formatUpdated, InlineError, EmptyPanel } from "./AppPrimitives";
 import { NewProjectDialog } from "./ProjectDialog";
 import { deleteProjectWorkspace } from "./ProjectWorkspaceActions";
-export const PROJECT_DRAG_TYPE = "application/x-photoflex-project";
 
 export function HomePage({
   dependencies,
@@ -20,11 +18,9 @@ export function HomePage({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string>();
   const [showDialog, setShowDialog] = useState(false);
-  const [draggingProject, setDraggingProject] = useState(false);
   const [deletingProjectId, setDeletingProjectId] = useState<ProjectId>();
   const [selectedProjectId, setSelectedProjectId] = useState<ProjectId>();
   const [coverPhotoIds, setCoverPhotoIds] = useState<Record<string, PhotoId | null>>({});
-  const draggingProjectRef = useRef<ProjectId | undefined>(undefined);
 
   useEffect(() => {
     let active = true;
@@ -63,59 +59,52 @@ export function HomePage({
     setDeletingProjectId(undefined);
   };
 
-  const startProjectDrag = (event: ReactDragEvent<HTMLElement>, projectId: ProjectId) => {
-    event.dataTransfer.effectAllowed = "move";
-    event.dataTransfer.setData(PROJECT_DRAG_TYPE, projectId);
-    event.dataTransfer.setData("text/plain", projectId);
-    draggingProjectRef.current = projectId;
-    setDraggingProject(true);
-  };
-
-  const endProjectDrag = () => {
-    draggingProjectRef.current = undefined;
-    setDraggingProject(false);
-  };
-
   return (
     <main className="page home-page">
-      <section className={`page-intro home-intro${projects.length === 0 ? " is-empty" : ""}`}>
-        <h1 aria-label="Your Projects">
-          Projects
+      <aside className="home-project-index" aria-label="项目索引">
+        <section className={`page-intro home-intro${projects.length === 0 ? " is-empty" : ""}`}>
+          <h1 aria-label="Your Projects">Projects</h1>
           <button className="home-new-project" aria-label="New project" onClick={() => setShowDialog(true)}>+</button>
-        </h1>
-      </section>
-
-      {error && <InlineError message={error} onRetry={() => window.location.reload()} />}
-      {loading ? (
-        <div className="project-grid" aria-label="项目加载中">
-          {[1, 2, 3].map((item) => <div className="skeleton-card" key={item} />)}
-        </div>
-      ) : filtered.length && selectedProject ? (
-        <section className="home-projects-view" aria-label="项目列表">
-          <aside className="home-project-index" aria-label="项目索引">
-            <div className="home-project-index-list">
-              {filtered.map((project) => (
+        </section>
+        {loading ? (
+          <div className="home-project-index-skeleton" aria-label="项目加载中">
+            {[1, 2, 3, 4].map((item) => <span key={item} />)}
+          </div>
+        ) : (
+          <ul className="home-project-index-list">
+            {filtered.map((project) => (
+              <li key={project.id} className={`home-project-index-item${project.id === selectedProject?.id ? " is-active" : ""}`}>
                 <button
-                  key={project.id}
-                  className={`home-project-index-item${project.id === selectedProject.id ? " is-active" : ""}`}
-                  draggable
+                  type="button"
+                  className="home-project-select"
                   onClick={() => setSelectedProjectId(project.id)}
-                  onDragStart={(event) => startProjectDrag(event, project.id)}
-                  onDragEnd={endProjectDrag}
                 >
-                  <strong>{project.name}</strong>
+                  {project.name}
                 </button>
-              ))}
-            </div>
-          </aside>
+                <button
+                  type="button"
+                  className="home-project-delete"
+                  title="Delete project"
+                  aria-label={`Delete project ${project.name}`}
+                  disabled={deletingProjectId === project.id}
+                  onClick={() => void deleteProject(project)}
+                >×</button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </aside>
+
+      <section className="home-project-stage">
+        {error && <InlineError message={error} onRetry={() => window.location.reload()} />}
+        {loading ? (
+          <div className="home-feature-skeleton" aria-hidden="true" />
+        ) : filtered.length && selectedProject ? (
           <article className="home-project-feature">
             <button
-              className="home-project-feature-media"
-              draggable
+              className={`home-project-feature-media${coverPhotoIds[selectedProject.id] ? " has-photo" : ""}`}
               data-project-id={selectedProject.id}
               onClick={() => navigate({ name: "table", projectId: selectedProject.id })}
-              onDragStart={(event) => startProjectDrag(event, selectedProject.id)}
-              onDragEnd={endProjectDrag}
               aria-label={`打开项目 ${selectedProject.name}`}
             >
               <div className="project-cover">
@@ -123,43 +112,15 @@ export function HomePage({
               </div>
             </button>
             <div className="home-project-feature-copy">
-              <h2>{selectedProject.name}</h2>
               <span>Updated {formatUpdated(selectedProject.updatedAt)}</span>
             </div>
           </article>
-        </section>
-      ) : (
-        <EmptyPanel eyebrow="NO PROJECTS YET" title="Begin your photo journey" />
-      )}
-
-      {projects.length > 0 && (
-        <div
-          className={`project-trash${draggingProject ? " is-dragging" : ""}`}
-          onDragOver={(event) => {
-            if (!draggingProjectRef.current && !event.dataTransfer.types.includes(PROJECT_DRAG_TYPE)) return;
-            event.preventDefault();
-            event.dataTransfer.dropEffect = "move";
-          }}
-          onDragEnter={(event) => {
-            if (!draggingProjectRef.current && !event.dataTransfer.types.includes(PROJECT_DRAG_TYPE)) return;
-            event.preventDefault();
-            setDraggingProject(true);
-          }}
-          onDrop={(event) => {
-            event.preventDefault();
-            event.stopPropagation();
-            const projectId = draggingProjectRef.current || event.dataTransfer.getData(PROJECT_DRAG_TYPE) || event.dataTransfer.getData("text/plain");
-            draggingProjectRef.current = undefined;
-            setDraggingProject(false);
-            const project = projects.find((item) => item.id === projectId);
-            if (project && project.id !== deletingProjectId) void deleteProject(project);
-          }}
-          aria-label="拖动项目到这里删除"
-        >
-          <img src={trashBinIcon} alt="" aria-hidden="true" />
-          <small>Drag project here to delete</small>
-        </div>
-      )}
+        ) : (
+          <EmptyPanel eyebrow="NO PROJECTS YET" title="Begin your photo journey">
+            <button type="button" className="button button-primary home-empty-create" onClick={() => setShowDialog(true)}>Create a project</button>
+          </EmptyPanel>
+        )}
+      </section>
 
       {showDialog && (
         <NewProjectDialog

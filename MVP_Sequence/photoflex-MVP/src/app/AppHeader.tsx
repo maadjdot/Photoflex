@@ -3,19 +3,22 @@ import type { ProjectId, SequenceId, SourceId } from "../contracts";
 import type { AppDependencies } from "./dependencies";
 import type { AppRoute } from "./router";
 
-export function AppHeader({ dependencies, route, projectId, contactSourceId, lastSequenceId, navigate }: {
+export function AppHeader({ dependencies, route, projectId, contactSourceId, lastSequenceId, navigate, variant = "default", projectLabel, actions }: {
   readonly dependencies: AppDependencies;
   readonly route: AppRoute;
   readonly projectId?: ProjectId;
   readonly contactSourceId?: SourceId;
   readonly lastSequenceId?: SequenceId;
   readonly navigate: (route: AppRoute) => void;
+  readonly variant?: "default" | "table";
+  readonly projectLabel?: string;
+  readonly actions?: ReactNode;
 }) {
   const [projectName, setProjectName] = useState<string>();
 
   useEffect(() => {
     let active = true;
-    if (!projectId) {
+    if (!projectId || projectLabel) {
       setProjectName(undefined);
       return () => { active = false; };
     }
@@ -23,13 +26,14 @@ export function AppHeader({ dependencies, route, projectId, contactSourceId, las
       if (active && result.ok) setProjectName(result.value.name);
     });
     return () => { active = false; };
-  }, [dependencies.projectStore, projectId]);
+  }, [dependencies.projectStore, projectId, projectLabel]);
 
-  return <header className="topbar">
-    <button className="brand" onClick={() => navigate({ name: "home" })} aria-label="返回 Home">Photoflex</button>
-    {projectId && <span className="project-context-name" title={projectName ?? projectId}>{projectName ?? projectId}</span>}
+  const brand = <button className="brand" onClick={() => navigate({ name: "home" })} aria-label="返回 Home">Photoflex</button>;
+  const label = projectLabel ?? projectName ?? projectId;
+  return <header className={`topbar${variant === "table" ? " is-table" : ""}`}>
+    {variant === "table" ? <div className="table-header-project">{brand}{projectId && <><span className="table-header-slash" aria-hidden="true">/</span><span className="project-context-name" title={label}>{label}</span></>}</div> : <>{brand}{projectId && <span className="project-context-name" title={label}>{label}</span>}</>}
     <nav className="topnav" aria-label="主导航">
-      {!projectId && <NavButton active={route.name === "home"} onClick={() => navigate({ name: "home" })}>Home</NavButton>}
+      {(!projectId || variant === "table") && <NavButton active={route.name === "home"} onClick={() => navigate({ name: "home" })}>Home</NavButton>}
       <NavButton active={route.name === "table" || route.name === "project" || route.name === "contact-sheet"} disabled={!projectId} onClick={() => projectId && navigate({ name: "table", projectId })}>Table</NavButton>
       <NavButton active={route.name === "sequence" || route.name === "sequence-compare" || route.name === "version-compare"} disabled={!projectId} title="Open the last Sequence" onClick={() => {
         if (!projectId) return;
@@ -42,7 +46,7 @@ export function AppHeader({ dependencies, route, projectId, contactSourceId, las
         });
       }}>Sequence</NavButton>
     </nav>
-    <button className="login-button" aria-label="登录（M1 占位）">Login</button>
+    {actions ?? <button className="login-button" aria-label="登录（M1 占位）">Login</button>}
   </header>;
 }
 

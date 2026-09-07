@@ -28,6 +28,8 @@ describe("M1 app", () => {
 
     expect(await screen.findByRole("heading", { name: "Your Projects" })).toBeTruthy();
     expect(screen.getAllByRole("button", { name: /New project/i }).length).toBeGreaterThan(0);
+    expect(screen.getByRole("button", { name: "Create a project" })).toBeTruthy();
+    expect(screen.getByRole("banner").classList.contains("is-table")).toBe(true);
   });
 
   it("创建项目时要求名称与照片文件夹", async () => {
@@ -40,7 +42,7 @@ describe("M1 app", () => {
       />,
     );
     await screen.findByRole("heading", { name: "Your Projects" });
-    screen.getAllByRole("button", { name: /New project/i })[0].click();
+    screen.getByRole("button", { name: "Create a project" }).click();
     const createButton = await screen.findByRole("button", { name: "Create project" });
 
     // Figma 交互要求资料齐全前不可提交，因此这里验证禁用状态，而不是提交后的报错。
@@ -59,7 +61,7 @@ describe("M1 app", () => {
     expect(window.location.hash).toBe(`#/projects/${projectId}/table`);
   });
 
-  it("可以把项目封面拖到垃圾桶删除项目", async () => {
+  it("可以从项目列表删除项目", async () => {
     const projectStore = new MemoryProjectStore();
     const projectId = "drag-project" as ProjectId;
     const created = await projectStore.createProject({
@@ -79,27 +81,8 @@ describe("M1 app", () => {
       />,
     );
 
-    const cover = await screen.findByRole("button", { name: "打开项目 Drag Project" });
-    expect(cover.querySelector(".project-cover")).not.toBeNull();
-    const trash = screen.getByLabelText("拖动项目到这里删除");
-    const values = new Map<string, string>();
-    const dataTransfer = {
-      effectAllowed: "all",
-      dropEffect: "none",
-      types: [] as string[],
-      setData(type: string, value: string) {
-        values.set(type, value);
-        if (!this.types.includes(type)) this.types.push(type);
-      },
-      getData(type: string) {
-        return values.get(type) ?? "";
-      },
-    };
-
-    fireEvent.dragStart(cover, { dataTransfer });
-    fireEvent.dragEnter(trash, { dataTransfer });
-    fireEvent.dragOver(trash, { dataTransfer });
-    fireEvent.drop(trash, { dataTransfer });
+    await screen.findByRole("button", { name: "打开项目 Drag Project" });
+    fireEvent.click(screen.getByRole("button", { name: "Delete project Drag Project" }));
 
     await waitFor(async () => {
       const result = await projectStore.listProjects();

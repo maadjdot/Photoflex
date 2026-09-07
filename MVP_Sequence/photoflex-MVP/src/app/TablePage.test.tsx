@@ -91,13 +91,17 @@ describe("TablePage", () => {
     const cardA = screen.getByLabelText("A.jpg");
     expect(cardA).toBeTruthy();
     expect(screen.getByLabelText("B.jpg")).toBeTruthy();
-    expect(screen.getAllByText("A.jpg")).toHaveLength(1);
+    expect(screen.queryByText("A.jpg")).toBeNull();
     const toolbar = within(screen.getByLabelText("Table 工具栏"));
     expect(toolbar.queryByRole("button", { name: "Contact Sheet" })).toBeNull();
-    expect(toolbar.getByText("Table Project")).toBeTruthy();
-    expect((toolbar.getByRole("button", { name: "Preview" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(within(screen.getByLabelText("主导航").closest("header")!).getByText("Table Project")).toBeTruthy();
+    expect(toolbar.queryByRole("button", { name: "Preview" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Hand" })).toBeNull();
-    expect(within(screen.getByLabelText("Table 工具栏")).getByRole("button", { name: "Group" })).toBeTruthy();
+    expect(screen.queryByRole("group", { name: "Table selection actions" })).toBeNull();
+    expect(screen.getByRole("group", { name: "Table arrangement tools" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Move toolbar vertically" })).toBeTruthy();
+    expect(within(screen.getByLabelText("主导航")).getByRole("button", { name: "Home" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /登录/ })).toBeNull();
     expect(screen.queryByText(/Juxtapose/)).toBeNull();
 
     fireEvent.doubleClick(cardA);
@@ -110,6 +114,77 @@ describe("TablePage", () => {
     const contactSheet = screen.getByRole("button", { name: /Contact Sheet/ });
     fireEvent.click(contactSheet);
     await waitFor(() => expect(window.location.hash).toBe(`#/projects/${projectId}/sources/${sourceId}`));
+  });
+
+  it("选中操作栏保留 Link、Undo、Redo 与直接可见的 Front 操作，Clear 仅清除选择", async () => {
+    const dependencies = await createFixture();
+    render(<App dependencies={dependencies} />);
+    const stage = await screen.findByLabelText("Photo worktable");
+    fireEvent.keyDown(stage, { key: "a", ctrlKey: true });
+    const toolbar = within(screen.getByRole("group", { name: "Table selection actions" }));
+    expect(toolbar.getByText("2 selected")).toBeTruthy();
+    expect(toolbar.getByRole("button", { name: "Create Sequence" })).toBeTruthy();
+    fireEvent.click(toolbar.getByRole("button", { name: "Link" }));
+    expect(toolbar.getByRole("button", { name: "Unlink" })).toBeTruthy();
+    expect(stage.querySelectorAll(".worktable-links line")).toHaveLength(1);
+    fireEvent.click(screen.getByRole("button", { name: "Undo" }));
+    expect(stage.querySelectorAll(".worktable-links line")).toHaveLength(0);
+    fireEvent.click(screen.getByRole("button", { name: "Redo" }));
+    expect(stage.querySelectorAll(".worktable-links line")).toHaveLength(1);
+    fireEvent.click(toolbar.getByRole("button", { name: "Unlink" }));
+    expect(stage.querySelectorAll(".worktable-links line")).toHaveLength(0);
+    fireEvent.click(toolbar.getByRole("button", { name: "Group" }));
+    expect(toolbar.getByRole("button", { name: "Ungroup" })).toBeTruthy();
+    fireEvent.click(toolbar.getByRole("button", { name: "Ungroup" }));
+    expect(toolbar.queryByText("More")).toBeNull();
+    fireEvent.click(toolbar.getByRole("button", { name: "Front" }));
+    expect(toolbar.getByText("2 selected")).toBeTruthy();
+    fireEvent.click(toolbar.getByRole("button", { name: "Clear" }));
+    expect(screen.queryByRole("group", { name: "Table selection actions" })).toBeNull();
+    expect(screen.getByLabelText("A.jpg")).toBeTruthy();
+    expect(screen.getByLabelText("B.jpg")).toBeTruthy();
+  });
+
+  it("单选组内照片即可解除分组和链接，并可撤销", async () => {
+    render(<App dependencies={await createFixture()} />);
+    const stage = await screen.findByLabelText("Photo worktable");
+    fireEvent.keyDown(stage, { key: "a", ctrlKey: true });
+    fireEvent.keyDown(stage, { key: "g" });
+    fireEvent.keyDown(stage, { key: "l" });
+    fireEvent.click(screen.getByRole("button", { name: "Clear" }));
+    fireEvent.pointerDown(screen.getByLabelText("A.jpg"), { pointerId: 31, button: 0, clientX: 100, clientY: 100 });
+    fireEvent.pointerUp(stage, { pointerId: 31, clientX: 100, clientY: 100 });
+    expect(screen.getByText("1 selected")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Leave Group" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Unlink" }));
+    expect(stage.querySelectorAll(".worktable-links line")).toHaveLength(0);
+    fireEvent.click(screen.getByRole("button", { name: "Undo" }));
+    expect(stage.querySelectorAll(".worktable-links line")).toHaveLength(1);
+    fireEvent.click(screen.getByRole("button", { name: "Ungroup" }));
+    expect(stage.querySelectorAll(".worktable-group-frame")).toHaveLength(0);
+    fireEvent.click(screen.getByRole("button", { name: "Undo" }));
+    expect(stage.querySelectorAll(".worktable-group-frame")).toHaveLength(1);
+    fireEvent.keyDown(stage, { key: "G", shiftKey: true });
+    fireEvent.keyDown(stage, { key: "L", shiftKey: true });
+    expect(stage.querySelectorAll(".worktable-group-frame")).toHaveLength(0);
+    expect(stage.querySelectorAll(".worktable-links line")).toHaveLength(0);
+  });
+
+  it("快捷键弹窗支持焦点约束、Escape 关闭并返回入口", async () => {
+    render(<App dependencies={await createFixture()} />);
+    await screen.findByLabelText("Photo worktable");
+    const opener = screen.getByRole("button", { name: "Shortcuts" });
+    opener.focus();
+    fireEvent.click(opener);
+    const dialog = screen.getByRole("dialog", { name: "Table shortcuts" });
+    const close = within(dialog).getByRole("button", { name: "Close shortcuts" });
+    expect(document.activeElement).toBe(close);
+    fireEvent.keyDown(close, { key: "Tab" });
+    expect(document.activeElement).toBe(close);
+    expect(within(dialog).getByText("Right-drag or scroll")).toBeTruthy();
+    fireEvent.keyDown(close, { key: "Escape" });
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(document.activeElement).toBe(opener);
   });
 
   it("一次拖拽只提交一次桌面写入且不改变 Sequence", async () => {
@@ -128,8 +203,10 @@ describe("TablePage", () => {
 
     fireEvent.pointerDown(card, { pointerId: 7, button: 0, clientX: 100, clientY: 100 });
     fireEvent.pointerMove(stage, { pointerId: 7, clientX: 120, clientY: 115 });
+    expect(card.className).toContain("is-dragging");
     fireEvent.pointerMove(stage, { pointerId: 7, clientX: 145, clientY: 130 });
     fireEvent.pointerUp(stage, { pointerId: 7, clientX: 145, clientY: 130 });
+    expect(card.className).not.toContain("is-dragging");
 
     await waitFor(() => expect(saveSpy).toHaveBeenCalledTimes(1));
     const saved = await dependencies.projectStore.loadWorkspace(projectId);
@@ -224,6 +301,34 @@ describe("TablePage", () => {
     const recreatedSequence = { ...sequence, currentVersionId: "version-recreated" as VersionId };
     const recreated = await projectStore.createSequence(projectId, deletedWorkspace.value.revision, recreatedSequence, { id: "version-recreated" as VersionId, projectId, sequenceId: sequence.id, name: "Initial · Sequence 01", itemCount: 1, items: sequence.items, segments: [], readingUnits: sequence.readingUnits, createdAt: sequence.createdAt }, deletedWorkspace.value.worktableDraft);
     expect(recreated.ok).toBe(true);
+  });
+
+  it("Add to Sequence 后实时刷新 Sequence Order，并可从底栏移除照片", async () => {
+    const { projectStore, photoSource, sequenceId } = await createPileFixture();
+    render(<App dependencies={{ projectStore, photoSource }} />);
+
+    await screen.findByText("Sequence 01 · 1 photos");
+    const strip = screen.getByLabelText("Sequence Order");
+    expect(within(strip).queryByText("A.jpg")).toBeNull();
+
+    const cardB = screen.getByLabelText("B.jpg");
+    fireEvent.pointerDown(cardB, { pointerId: 21, button: 0, clientX: 320, clientY: 160 });
+    const selectionActions = screen.getByRole("group", { name: "Table selection actions" });
+    fireEvent.click(within(selectionActions).getByRole("button", { name: "Add to Sequence" }));
+    const addButton = await screen.findByRole("button", { name: "Add photos" });
+    await waitFor(() => expect(addButton.hasAttribute("disabled")).toBe(false));
+    fireEvent.click(addButton);
+
+    await waitFor(() => expect(within(screen.getByLabelText("Sequence Order")).getByText("Sequence 01 · 2 photos")).toBeTruthy());
+    expect(within(screen.getByLabelText("Sequence Order")).queryByText("B.jpg")).toBeNull();
+    fireEvent.click(within(screen.getByLabelText("Sequence Order")).getByRole("button", { name: "Remove item 2 from Sequence" }));
+    expect(within(screen.getByLabelText("Sequence Order")).getByText("Sequence 01 · 1 photos")).toBeTruthy();
+
+    await waitFor(async () => {
+      const saved = await projectStore.loadSequence(sequenceId);
+      expect(saved.ok).toBe(true);
+      if (saved.ok) expect(saved.value.items.map((item) => item.kind === "photo" ? item.photoId : "blank")).toEqual([photoA]);
+    });
   });
 
 });

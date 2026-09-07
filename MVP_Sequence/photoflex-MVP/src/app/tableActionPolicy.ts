@@ -11,6 +11,8 @@ export interface TableActionState {
   readonly pileIds: readonly SequenceId[];
   readonly completeGroup?: WorktableGroup;
   readonly memberGroup?: WorktableGroup;
+  readonly selectedGroup?: WorktableGroup;
+  readonly matchingLinks: readonly WorktableLink[];
   readonly selectedLink?: WorktableLink;
   readonly canGroup: boolean;
   readonly canJoinGroup: boolean;
@@ -38,12 +40,14 @@ export function deriveTableActions(
   const memberGroup = photoIds.length === 1
     ? draft.groups.find((group) => group.photoIds.includes(photoIds[0]))
     : undefined;
-  const selectedLink = photoIds.length > 1
-    ? draft.links.find((link) => (
-      link.photoIds.length === photoIds.length
-      && photoIds.every((id) => link.photoIds.includes(id))
-    ))
+  const selectedGroup = photoIds.length > 0
+    ? draft.groups.find((group) => photoIds.every((id) => group.photoIds.includes(id)))
     : undefined;
+  const matchingLinks = photoIds.length > 0
+    ? draft.links.filter((link) => photoIds.every((id) => link.photoIds.includes(id)))
+    : [];
+  const selectedLink = matchingLinks.find((link) => link.photoIds.length === photoIds.length)
+    ?? (matchingLinks.length === 1 ? matchingLinks[0] : undefined);
   const canComparePhotos = photoIds.length === 2 && pileIds.length === 0;
   const canComparePiles = pileIds.length === 2 && photoIds.length === 0;
   const selectedCount = photoIds.length + pileIds.length;
@@ -53,6 +57,8 @@ export function deriveTableActions(
     pileIds,
     completeGroup,
     memberGroup,
+    selectedGroup,
+    matchingLinks,
     selectedLink,
     canGroup: photoIds.length >= 2 && photoIds.every((id) => !draft.groups.some((group) => group.photoIds.includes(id))),
     canJoinGroup: photoIds.length === 1 && !memberGroup && draft.groups.length > 0,

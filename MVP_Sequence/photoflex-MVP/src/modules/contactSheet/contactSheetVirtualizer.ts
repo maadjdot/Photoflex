@@ -5,6 +5,11 @@ export interface ContactSheetVirtualGridInput {
   readonly scrollTop: number;
   readonly targetTileWidth?: number;
   readonly overscanRows?: number;
+  readonly columns?: number;
+  readonly gap?: number;
+  readonly rowGap?: number;
+  readonly photoAspectHeight?: number;
+  readonly metaAndGapHeight?: number;
 }
 
 export interface ContactSheetVirtualGrid {
@@ -40,14 +45,20 @@ export function calculateContactSheetVirtualGrid(
   const viewportHeight = Math.max(0, input.viewportHeight);
   const targetTileWidth = Math.max(120, input.targetTileWidth ?? TARGET_TILE_WIDTH);
   const overscanRows = Math.max(0, Math.floor(input.overscanRows ?? DEFAULT_OVERSCAN_ROWS));
-  const columns = Math.max(MIN_COLUMNS, Math.floor((viewportWidth + GAP) / targetTileWidth));
-  const tileWidth = (viewportWidth - GAP * (columns - 1)) / columns;
-  const rowHeight = Math.round(tileWidth * PHOTO_ASPECT_HEIGHT + META_AND_GAP_HEIGHT);
+  const gap = Math.max(0, input.gap ?? GAP);
+  const rowGap = Math.max(0, input.rowGap ?? ROW_GAP);
+  const columns = input.columns === undefined
+    ? Math.max(MIN_COLUMNS, Math.floor((viewportWidth + gap) / targetTileWidth))
+    : Math.max(1, Math.floor(input.columns));
+  const tileWidth = (viewportWidth - gap * (columns - 1)) / columns;
+  const photoAspectHeight = Math.max(0.1, input.photoAspectHeight ?? PHOTO_ASPECT_HEIGHT);
+  const metaAndGapHeight = Math.max(0, input.metaAndGapHeight ?? META_AND_GAP_HEIGHT);
+  const rowHeight = Math.round(tileWidth * photoAspectHeight + metaAndGapHeight);
   const rowCount = Math.ceil(photoCount / columns);
   const totalHeight = rowCount * rowHeight;
 
   if (!photoCount) {
-    return { columns, gap: GAP, rowGap: ROW_GAP, tileWidth, rowHeight, totalHeight, firstVisibleIndex: 0, startIndex: 0, endIndex: 0 };
+    return { columns, gap, rowGap, tileWidth, rowHeight, totalHeight, firstVisibleIndex: 0, startIndex: 0, endIndex: 0 };
   }
 
   // Browser scrollTop is bounded by the content height. Clamping here keeps
@@ -63,8 +74,8 @@ export function calculateContactSheetVirtualGrid(
 
   return {
     columns,
-    gap: GAP,
-    rowGap: ROW_GAP,
+    gap,
+    rowGap,
     tileWidth,
     rowHeight,
     totalHeight,

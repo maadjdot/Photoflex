@@ -31,6 +31,7 @@ import {
 } from "../modules/worktable";
 import type { AppDependencies } from "./dependencies";
 import { PhotoThumb } from "./PhotoThumb";
+import { deriveTableActions } from "./tableActionPolicy";
 import { useTableGestures } from "./useTableGestures";
 
 const TABLE_IMAGE_RETENTION_MS = 20_000;
@@ -263,6 +264,17 @@ export const TableCanvas = forwardRef<TableCanvasHandle, TableCanvasProps>(funct
       if (event.shiftKey) session.redo();
       else session.undo();
     }
+    if (!event.ctrlKey && !event.metaKey && !event.altKey && ["g", "l"].includes(event.key.toLowerCase())) {
+      event.preventDefault();
+      const actions = deriveTableActions(draft, new Set(selectedPhotoIds), new Set(selectedPileIds));
+      if (event.key.toLowerCase() === "g") {
+        if (event.shiftKey && actions.selectedGroup) session.execute({ type: "remove-group", groupId: actions.selectedGroup.id });
+        else if (!event.shiftKey && actions.canGroup) session.execute({ type: "create-group", photoIds: selectedPhotoIds });
+      } else {
+        if (event.shiftKey && actions.selectedLink) session.execute({ type: "remove-link", linkId: actions.selectedLink.id });
+        else if (!event.shiftKey && actions.canCreateLink && !actions.selectedLink) session.execute({ type: "create-link", photoIds: selectedPhotoIds });
+      }
+    }
     if (event.key === "Escape") session.clearSelection();
     if (event.key.toLowerCase() === "s" && selectedPhotoIds.length) onRequestSequence(selectedPhotoIds);
     if (event.key === "Delete" || event.key === "Backspace") {
@@ -308,18 +320,19 @@ export const TableCanvas = forwardRef<TableCanvasHandle, TableCanvasProps>(funct
         </svg>
         {draft.groups.map((group) => {
           const box = groupBounds(draft, group.photoIds);
-          return <div key={group.id} className="worktable-group-frame" style={{ left: box.left, top: box.top, width: box.width, height: box.height }}><span>{group.name} · {group.photoIds.length}</span></div>;
+          return <div key={group.id} className="worktable-group-frame" style={{ left: box.left, top: box.top, width: box.width, height: box.height }}><span>{group.name} · {group.photoIds.length} photos</span></div>;
         })}
         {draft.entryOrder.map((id) => {
           const item = draft.placements[id];
           const chosen = selected.has(id);
+          const dragging = chosen && preview.kind === "photo";
           const delta = chosen && preview.kind === "photo" ? preview.dragDelta : { x: 0, y: 0 };
           const scale = preview.kind === "resize" && preview.photoId === id ? preview.resizeScale : 1;
           return (
             <article
               key={id}
               aria-label={item.filename}
-              className={`worktable-card${chosen ? " is-selected" : ""}${missingPhotoIds.has(id) ? " is-missing" : ""}`}
+              className={`worktable-card${chosen ? " is-selected" : ""}${dragging ? " is-dragging" : ""}${missingPhotoIds.has(id) ? " is-missing" : ""}`}
               style={{ width: item.width * scale, height: item.height * scale, zIndex: item.z, transform: `translate3d(${item.x + delta.x}px,${item.y + delta.y}px,0)` }}
               onPointerDown={(event) => gestures.onPhotoPointerDown(event, id)}
               onDoubleClick={() => onOpenPhoto(id)}
@@ -338,13 +351,14 @@ export const TableCanvas = forwardRef<TableCanvasHandle, TableCanvasProps>(funct
           const pile = draft.pilePlacements[id];
           const summary = summaries.find((item) => item.id === id);
           const chosen = selectedPiles.has(id);
+          const dragging = chosen && preview.kind === "pile";
           const delta = chosen && preview.kind === "pile" ? preview.dragDelta : { x: 0, y: 0 };
           const scale = preview.kind === "resize-pile" && preview.sequenceId === id ? preview.pileResizeScale : 1;
           return (
             <article
               key={id}
               aria-label={`Sequence pile ${summary?.name ?? "Missing Sequence"}`}
-              className={`sequence-pile${chosen ? " is-selected" : ""}`}
+              className={`sequence-pile${chosen ? " is-selected" : ""}${dragging ? " is-dragging" : ""}`}
               style={{ width: pile.width * scale, height: pile.height * scale, zIndex: pile.z, transform: `translate3d(${pile.x + delta.x - (pile.width * (scale - 1)) / 2}px,${pile.y + delta.y - (pile.height * (scale - 1)) / 2}px,0)` }}
               onPointerDown={(event) => gestures.onPilePointerDown(event, id)}
               onDoubleClick={(event) => { event.stopPropagation(); onOpenSequence(id); }}
@@ -362,7 +376,7 @@ export const TableCanvas = forwardRef<TableCanvasHandle, TableCanvasProps>(funct
         <section className="worktable-empty">
           <span>EMPTY TABLE</span>
           <h1>Bring photographs here to think with them.</h1>
-          <p>Select photographs in Photos, then choose Place on Table.</p>
+          <p>Select photographs in Photo Sources, then choose Add to Table.</p>
           <button className="button button-primary" onClick={emptyAction.onClick}>{emptyAction.label}</button>
         </section>
       )}
@@ -378,12 +392,18 @@ export const TableCanvas = forwardRef<TableCanvasHandle, TableCanvasProps>(funct
 
 function groupBounds(draft: WorktableDraft, ids: readonly PhotoId[]) {
   const placements = ids.map((id) => draft.placements[id]);
-  const padding = 24;
-  const left = Math.min(...placements.map((item) => item.x)) - padding;
-  const top = Math.min(...placements.map((item) => item.y)) - padding;
-  const right = Math.max(...placements.map((item) => item.x + item.width)) + padding;
-  const bottom = Math.max(...placements.map((item) => item.y + item.height)) + padding;
-  return { left, top, width: right - left, height: bottom - top };
+  const contentLeft = Math.min(...placements.map((item) => item.x));
+  const contentTop = Math.min(...placements.map((item) => item.y));
+  const contentRight = Math.max(...placements.map((item) => item.x + item.width));
+  const contentBottom = Math.max(...placements.map((item) => item.y + item.height));
+  const left = contentLeft - 13;
+  const top = contentTop - 44;
+  return {
+    left,
+    top,
+    width: Math.max(240, contentRight - contentLeft + 26),
+    height: contentBottom - contentTop + 57,
+  };
 }
 
 function setsEqual(left: ReadonlySet<PhotoId>, right: ReadonlySet<PhotoId>) {

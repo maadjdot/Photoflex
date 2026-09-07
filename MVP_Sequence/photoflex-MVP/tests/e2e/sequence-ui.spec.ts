@@ -33,6 +33,10 @@ test("M2 Sequence supports Reading Units, Segment, Overview, Read and one-save d
 
   await page.goto("/#/projects/sequence-visual-project/sequences/sequence-visual");
   await expect(page.getByRole("button", { name: "Sequence", exact: true })).toHaveClass(/is-active/);
+  await expect(page.locator(".topbar")).toHaveClass(/is-table/);
+  await expect(page.locator(".project-context-name")).toHaveText("Sequence Visual");
+  await expect(page.getByRole("button", { name: "Undo" })).toHaveClass(/table-tool-button/);
+  await expect(page.getByRole("button", { name: "Collapse Sequence Order" })).toBeVisible();
   await expect(page.locator(".sequence-card")).toHaveCount(4);
 
   const deviceScale = await page.evaluate(() => window.devicePixelRatio);

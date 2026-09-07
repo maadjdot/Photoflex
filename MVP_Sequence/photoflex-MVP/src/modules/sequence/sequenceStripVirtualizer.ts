@@ -18,7 +18,7 @@ export interface SequenceStripVirtualRange {
 // larger review geometry is passed explicitly by SequenceOrderPanel.
 export const SEQUENCE_STRIP_ITEM_WIDTH = 140;
 export const SEQUENCE_STRIP_ITEM_GAP = 12;
-export const TABLE_SEQUENCE_STRIP_ITEM_WIDTH = 148;
+export const TABLE_SEQUENCE_STRIP_ITEM_WIDTH = 128;
 export const TABLE_SEQUENCE_STRIP_ITEM_GAP = 16;
 
 /** Converts a pointer coordinate in the strip viewport into an insertion index. */

@@ -91,4 +91,36 @@ describe("calculateContactSheetVirtualGrid", () => {
     expect(zoomedOut.columns).toBe(5);
     expect(zoomedIn.columns).toBe(3);
   });
+
+  it("支持 Source 面板的固定列数和方形照片布局", () => {
+    const compact = calculateContactSheetVirtualGrid({
+      photoCount: 12,
+      viewportWidth: 252,
+      viewportHeight: 600,
+      scrollTop: 0,
+      columns: 2,
+      gap: 8,
+      rowGap: 8,
+      photoAspectHeight: 1,
+      metaAndGapHeight: 27,
+    });
+    const expanded = calculateContactSheetVirtualGrid({
+      photoCount: 12,
+      viewportWidth: 352,
+      viewportHeight: 600,
+      scrollTop: 0,
+      columns: 3,
+      gap: 8,
+      rowGap: 8,
+      photoAspectHeight: 1,
+      metaAndGapHeight: 27,
+    });
+
+    expect(compact.columns).toBe(2);
+    expect(compact.tileWidth).toBe(122);
+    expect(compact.rowHeight).toBe(149);
+    expect(expanded.columns).toBe(3);
+    expect(expanded.tileWidth).toBe(112);
+    expect(expanded.rowHeight).toBe(139);
+  });
 });
