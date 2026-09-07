@@ -4,6 +4,7 @@ import {
   migrateToV2,
   migrateToV3,
   migrateToV6,
+  migrateToV8,
   openPhotoFlexDatabase,
   STORE_NAMES,
 } from "../../src/platform/browser/indexedDbSchema";
@@ -74,7 +75,7 @@ describe("IndexedDB schema 0 → 1", () => {
     const migrated = await requestValue<Record<string, unknown>>(
       opened.value.transaction(STORE_NAMES.projects, "readonly").objectStore(STORE_NAMES.projects).get("legacy-project"),
     );
-    expect(migrated.schemaVersion).toBe(6);
+    expect(migrated.schemaVersion).toBe(7);
     expect(migrated.memo).toBe("");
     expect(migrated.expectedPhotoCount).toBeNull();
     expect(migrated.lastOpenedAt).toBe("2026-08-26T08:10:00.000Z");
@@ -170,7 +171,55 @@ describe("IndexedDB schema 0 → 1", () => {
     const version = await requestValue<Record<string, unknown>>(opened.value.transaction(STORE_NAMES.versions, "readonly").objectStore(STORE_NAMES.versions).get(currentVersionId));
     expect(version).toMatchObject({ name: "Initial · Street Edit", sequenceId: "sequence-a" });
     const workspace = await requestValue<Record<string, unknown>>(opened.value.transaction(STORE_NAMES.projects, "readonly").objectStore(STORE_NAMES.projects).get("sequence-project"));
-    expect(workspace).toMatchObject({ schemaVersion: 6, versionIds: [currentVersionId] });
+    expect(workspace).toMatchObject({ schemaVersion: 7, versionIds: [currentVersionId] });
     opened.value.close(); await deleteDatabase(databaseName);
+  });
+});
+
+describe("IndexedDB schema 8 → 9", () => {
+  it("upgrades schema 6 workspaces for persistent deletion recovery", async () => {
+    const databaseName = `photoflex-deletion-recovery-${crypto.randomUUID()}`;
+    const legacy = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open(databaseName, 8);
+      request.onupgradeneeded = () => {
+        migrateToV1(request.result);
+        migrateToV2(request.result, request.transaction!);
+        migrateToV3(request.transaction!);
+        migrateToV6(request.result, request.transaction!);
+        migrateToV8(request.result);
+      };
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    const transaction = legacy.transaction(STORE_NAMES.projects, "readwrite");
+    transaction.objectStore(STORE_NAMES.projects).put({
+      schemaVersion: 6,
+      projectId: "pending-deletion-project",
+      name: "Pending deletion",
+      memo: "",
+      expectedPhotoCount: null,
+      sources: [],
+      photoStates: {},
+      worktableDraft: { projectId: "pending-deletion-project", entryOrder: [], placements: {}, groups: [], links: [], pileOrder: [], pilePlacements: {} },
+      sequenceIds: [],
+      versionIds: [],
+      revision: 0,
+      createdAt: "2026-09-07T00:00:00.000Z",
+      updatedAt: "2026-09-07T00:00:00.000Z",
+      lastOpenedAt: "2026-09-07T00:00:00.000Z",
+    });
+    await transactionResult(transaction);
+    legacy.close();
+
+    const opened = await openPhotoFlexDatabase({ databaseName });
+    expect(opened.ok).toBe(true);
+    if (!opened.ok) return;
+    const migrated = await requestValue<Record<string, unknown>>(
+      opened.value.transaction(STORE_NAMES.projects, "readonly").objectStore(STORE_NAMES.projects).get("pending-deletion-project"),
+    );
+    expect(migrated.schemaVersion).toBe(7);
+    expect(migrated).not.toHaveProperty("deletionPendingAt");
+    opened.value.close();
+    await deleteDatabase(databaseName);
   });
 });

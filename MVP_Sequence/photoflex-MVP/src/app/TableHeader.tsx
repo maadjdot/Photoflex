@@ -21,7 +21,7 @@ export function TableHeader({ dependencies, projectId, lastSequenceId, navigate 
       <div className="table-header-actions">
         <button type="button" className="table-shortcuts-button" onClick={() => setShortcutsOpen(true)}><img src={shortcutsIcon} alt="" />Shortcuts</button>
         <span className={`table-header-save is-${writeState}`} role="status"><span aria-hidden="true" />{loading ? "Loading…" : saving ? "Saving…" : writeState === "failed" ? "Changes not saved" : "All changes saved"}</span>
-        {writeState === "failed" && <button type="button" className="table-save-retry" onClick={() => void coordinator.retry()}>Retry</button>}
+        {writeState === "failed" && <button type="button" className="table-save-retry" onClick={() => void coordinator.retry({ kind: "workspace" })}>Retry</button>}
       </div>
     } />
     {shortcutsOpen && <TableShortcutsDialog onClose={() => setShortcutsOpen(false)} />}

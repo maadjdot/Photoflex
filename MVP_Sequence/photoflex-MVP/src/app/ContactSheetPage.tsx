@@ -49,7 +49,7 @@ export function ContactSheetPage({
   const lastSelectedIndexRef = useRef<number | undefined>(undefined);
   const resumeSavedKeyRef = useRef<string | undefined>(undefined);
   const exhaustedAtIndexedCountRef = useRef(-1);
-  const reconciledScanRef = useRef(-1);
+  const reconciledScanRef = useRef<string | undefined>(undefined);
   const initialPageLoadRef = useRef(0);
   const handlePhotoSourceError = useCallback((photoId: PhotoId, photoError: SourceError) => {
     if (photoError.kind === "photo-not-found") {
@@ -85,7 +85,7 @@ export function ContactSheetPage({
     const requestId = initialPageLoadRef.current + 1;
     initialPageLoadRef.current = requestId;
     exhaustedAtIndexedCountRef.current = -1;
-    reconciledScanRef.current = -1;
+    reconciledScanRef.current = undefined;
     setPhotos([]); setCursor("0"); setSelected(new Set()); setMissingPhotoIds(new Set()); setFilter("all");
     void (async () => {
       const page = await dependencies.photoSource.listPhotos(sourceId, "0", 100);
@@ -122,10 +122,12 @@ export function ContactSheetPage({
 
   const indexedCount = states[sourceId]?.indexedCount ?? 0;
   const sourceState = states[sourceId];
+  const sourceRevision = sourceState?.scanRevision ?? 0;
   useEffect(() => {
     if (!sourceState || !["ready", "partial", "empty"].includes(sourceState.status)) return;
-    if (reconciledScanRef.current === sourceState.indexedCount) return;
-    reconciledScanRef.current = sourceState.indexedCount;
+    const scanKey = `${sourceRevision}:${sourceState.indexedCount}`;
+    if (reconciledScanRef.current === scanKey) return;
+    reconciledScanRef.current = scanKey;
     let active = true;
     void dependencies.photoSource.listPhotos(sourceId, "0", 100).then((page) => {
       if (!active || !page.ok) return;
@@ -134,7 +136,7 @@ export function ContactSheetPage({
       setCursor(page.value.nextCursor);
     });
     return () => { active = false; };
-  }, [dependencies.photoSource, sourceId, sourceState?.indexedCount, sourceState?.status]);
+  }, [dependencies.photoSource, sourceId, sourceRevision, sourceState?.indexedCount, sourceState?.status]);
   useEffect(() => {
     if (indexedCount <= photos.length || loadingPage || initialPageLoadRef.current !== 0 || exhaustedAtIndexedCountRef.current === indexedCount) return;
     // A null cursor means the previous read reached the then-current tail. If a
@@ -169,6 +171,9 @@ export function ContactSheetPage({
   if (!workspace || !source) return <ErrorPage message={error ?? "Source 无法读取。"} />;
 
   const visiblePhotos = filter === "selected" ? photos.filter((photo) => selected.has(photo.id)) : photos;
+  const tablePreviewIndex = tablePreviewPhotoId === undefined
+    ? -1
+    : tableDraft.entryOrder.indexOf(tablePreviewPhotoId);
   const visibleSources = workspace.sources.filter((item) => {
     if (item.removedAt) return false;
     return item.displayName.toLowerCase().includes(sourceSearch.trim().toLowerCase());
@@ -234,7 +239,7 @@ export function ContactSheetPage({
         </div>
         <div className="sheet-toolbar"><div className="filter-tabs"><button className={filter === "all" ? "is-active" : ""} onClick={() => setFilter("all")}>All {Math.max(states[sourceId]?.indexedCount ?? 0, photos.length)}</button><button className={filter === "selected" ? "is-active" : ""} onClick={() => setFilter("selected")}>Selected {selected.size}</button></div><div className="toolbar-actions"><button className="button button-secondary" onClick={() => setSelected(new Set(visiblePhotos.map((photo) => photo.id)))}>Select all</button><button className="button button-secondary" onClick={() => setSelected((current) => new Set(visiblePhotos.filter((photo) => !current.has(photo.id)).map((photo) => photo.id)))}>Invert</button><button className="button button-primary" disabled={!selected.size} onClick={() => void placeOnTable([...selected])}>Place on Table</button></div></div>
         {notice && <InlineNotice message={notice} />}
-        {visiblePhotos.length ? <VirtualPhotoGrid photos={visiblePhotos} selected={selected} tableIds={tableDraft.entryOrder} missingIds={missingPhotoIds} zoom={gridZoom} initialAnchorPhotoId={workspace.resumeContext?.sourceId === sourceId ? workspace.resumeContext.anchorPhotoId : undefined} onAnchorChange={setAnchorPhotoId} onToggle={toggleSelection} onOpen={(index) => setPreviewIndex(index)} onNearEnd={() => void loadMore()} onPhotoSourceError={handlePhotoSourceError} photoSource={dependencies.photoSource} /> : <EmptyPanel title={filter === "selected" ? "No selected photos" : "No supported JPEG files"} detail={filter === "selected" ? "Select photos in All to continue." : "This folder has no readable .jpg or .jpeg files."} />}
+        {visiblePhotos.length ? <VirtualPhotoGrid photos={visiblePhotos} selected={selected} tableIds={tableDraft.entryOrder} missingIds={missingPhotoIds} zoom={gridZoom} sourceRevision={sourceRevision} initialAnchorPhotoId={workspace.resumeContext?.sourceId === sourceId ? workspace.resumeContext.anchorPhotoId : undefined} onAnchorChange={setAnchorPhotoId} onToggle={toggleSelection} onOpen={(index) => setPreviewIndex(index)} onNearEnd={() => void loadMore()} onPhotoSourceError={handlePhotoSourceError} photoSource={dependencies.photoSource} /> : <EmptyPanel title={filter === "selected" ? "No selected photos" : "No supported JPEG files"} detail={filter === "selected" ? "Select photos in All to continue." : "This folder has no readable .jpg or .jpeg files."} />}
         {loadingPage && <p className="loading-line">Loading more photos…</p>}
       </section>
       <TablePreviewPanel
@@ -245,9 +250,9 @@ export function ContactSheetPage({
         onPhotoSourceError={handlePhotoSourceError}
       />
       {previewIndex !== undefined && <PreviewOverlay photoIds={visiblePhotos.map((photo) => photo.id)} index={previewIndex} workspace={workspace} photoSource={dependencies.photoSource} onClose={() => setPreviewIndex(undefined)} onMove={setPreviewIndex} onToggleTable={toggleTable} onPhotoSourceError={handlePhotoSourceError} />}
-      {tablePreviewPhotoId && <PreviewOverlay
+      {tablePreviewIndex >= 0 && <PreviewOverlay
         photoIds={tableDraft.entryOrder}
-        index={Math.max(0, tableDraft.entryOrder.indexOf(tablePreviewPhotoId))}
+        index={tablePreviewIndex}
         workspace={workspace}
         photoSource={dependencies.photoSource}
         onClose={() => setTablePreviewPhotoId(undefined)}

@@ -120,6 +120,7 @@ describe("BrowserPhotoSource", () => {
       error: { kind: "source-not-found", sourceId: grant.value.sourceId },
     });
     expect(await source.listPhotos(grant.value.sourceId)).toMatchObject({ ok: true, value: { items: [] } });
+    expect(await source.removeSource(grant.value.sourceId)).toEqual({ ok: true, value: { photoIds: [] } });
   });
 
   it("扫描 JPEG、复用同一目录，并隔离不同目录的同名文件", async () => {

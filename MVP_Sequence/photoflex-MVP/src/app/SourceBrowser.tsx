@@ -1,7 +1,7 @@
-import { Component, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ErrorInfo, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type ReactNode, type UIEvent } from "react";
-import type { PhotoId, PhotoRef, ProjectId, ProjectWorkspace, SourceError, SourceId } from "../contracts";
+import { Component, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ErrorInfo, type MouseEvent as ReactMouseEvent, type ReactNode, type UIEvent } from "react";
+import type { PhotoId, PhotoRef, ProjectId, ProjectWorkspace, SourceError, SourceId, SourceRuntimeState } from "../contracts";
 import type { AppDependencies } from "./dependencies";
-import { mergeUniquePhotos, stateNeedsScan } from "./AppPrimitives";
+import { mergeUniquePhotos, stateNeedsScan, useDialogKeyboard } from "./AppPrimitives";
 import { useSourceMonitor } from "./ProjectSourceMonitor";
 import { PhotoThumb } from "./PhotoThumb";
 import { calculateContactSheetVirtualGrid } from "../modules/contactSheet/contactSheetVirtualizer";
@@ -46,10 +46,12 @@ export function SourceBrowser({ dependencies, workspace, onPlacePhotos, onOpenPh
   const [notice, setNotice] = useState<string>();
   const [previewPhoto, setPreviewPhoto] = useState<PhotoRef>();
   const generationRef = useRef(0);
+  const contactDialogRef = useRef<HTMLDivElement>(null);
+  useDialogKeyboard(contactDialogRef, () => setContactPickerOpen(false), contactPickerOpen);
   const { states, startScan } = useSourceMonitor(dependencies.photoSource, connectedSources);
   const sourceLoadSignal = connectedSources.map((source) => {
     const state = states[source.id];
-    return `${source.id}:${state?.status ?? "unknown"}:${(state?.indexedCount ?? 0) > 0 ? "has-photos" : "empty"}`;
+    return `${source.id}:${state?.status ?? "unknown"}:${state?.indexedCount ?? 0}:${state?.scanRevision ?? 0}`;
   }).join("|");
   const tableIds = useMemo(() => new Set(workspace.worktableDraft.entryOrder), [workspace.worktableDraft.entryOrder]);
 
@@ -161,6 +163,7 @@ export function SourceBrowser({ dependencies, workspace, onPlacePhotos, onOpenPh
       selected={selected}
       tableIds={tableIds}
       photoSource={dependencies.photoSource}
+      sourceStates={states}
       onToggle={toggle}
       onOpen={(photo) => tableIds.has(photo.id) ? onOpenPhoto(photo.id) : setPreviewPhoto(photo)}
       onPhotoError={onPhotoError}
@@ -175,16 +178,17 @@ export function SourceBrowser({ dependencies, workspace, onPlacePhotos, onOpenPh
     </footer>}
     </div>
     {previewPhoto && <SourcePreview photo={previewPhoto} photoSource={dependencies.photoSource} onClose={() => setPreviewPhoto(undefined)} onError={onPhotoError} />}
-    {contactPickerOpen && <div className="source-contact-picker" role="dialog" aria-modal="true" aria-label="Choose Contact Sheet source"><strong>Choose a source</strong>{connectedSources.map((source) => <button key={source.id} type="button" onClick={() => { setContactPickerOpen(false); onOpenContactSheet?.(source.id); }}>{source.displayName}</button>)}<button type="button" onClick={() => setContactPickerOpen(false)}>Cancel</button></div>}
+    {contactPickerOpen && <div ref={contactDialogRef} className="source-contact-picker" role="dialog" aria-modal="true" aria-label="Choose Contact Sheet source"><strong>Choose a source</strong>{connectedSources.map((source) => <button key={source.id} type="button" onClick={() => { setContactPickerOpen(false); onOpenContactSheet?.(source.id); }}>{source.displayName}</button>)}<button type="button" onClick={() => setContactPickerOpen(false)}>Cancel</button></div>}
   </aside>;
 }
 
-function SourcePhotoGrid({ photos, loading, selected, tableIds, photoSource, onToggle, onOpen, onPhotoError, onDragStart, resetKey, mode }: {
+function SourcePhotoGrid({ photos, loading, selected, tableIds, photoSource, sourceStates, onToggle, onOpen, onPhotoError, onDragStart, resetKey, mode }: {
   readonly photos: readonly PhotoRef[];
   readonly loading: boolean;
   readonly selected: ReadonlySet<PhotoId>;
   readonly tableIds: ReadonlySet<PhotoId>;
   readonly photoSource: AppDependencies["photoSource"];
+  readonly sourceStates: Readonly<Record<string, SourceRuntimeState>>;
   readonly onToggle: (photoId: PhotoId) => void;
   readonly onOpen: (photo: PhotoRef) => void;
   readonly onPhotoError: (photoId: PhotoId, error: SourceError) => void;
@@ -267,7 +271,7 @@ function SourcePhotoGrid({ photos, loading, selected, tableIds, photoSource, onT
         const column = index % grid.columns;
         const style: CSSProperties = { top: row * grid.rowHeight, left: column * (grid.tileWidth + grid.gap), width: grid.tileWidth, height: grid.rowHeight - grid.rowGap };
         return <button type="button" key={photo.id} className={`table-source-photo${selected.has(photo.id) ? " is-selected" : ""}`} style={style} onClick={(event) => onPhotoClick(event, photo.id)} onDoubleClick={() => onPhotoDoubleClick(photo)} aria-pressed={selected.has(photo.id)} title={`${photo.relativePath}${tableIds.has(photo.id) ? " · On Table" : " · Click to select · Double-click to preview"}`} draggable onDragStart={(event) => onDragStart(event, photo)} aria-label={`${photo.relativePath}${tableIds.has(photo.id) ? "，已在 Table" : ""}`}>
-          <PhotoThumb photoSource={photoSource} photoId={photo.id} alt={photo.relativePath} onError={onPhotoError} />
+          <PhotoThumb photoSource={photoSource} photoId={photo.id} alt={photo.relativePath} sourceRevision={sourceStates[photo.sourceId]?.scanRevision} onError={onPhotoError} />
           {tableIds.has(photo.id) && <span className="table-source-on-table" aria-hidden="true" title="On Table">✓</span>}
           {selected.has(photo.id) && <span className="table-source-check">✓</span>}
         </button>;
@@ -290,10 +294,9 @@ class LocalGridErrorBoundary extends Component<{ readonly children: ReactNode; r
 
 function SourcePreview({ photo, photoSource, onClose, onError }: { readonly photo: PhotoRef; readonly photoSource: AppDependencies["photoSource"]; readonly onClose: () => void; readonly onError: (photoId: PhotoId, error: SourceError) => void }) {
   const [url, setUrl] = useState<string>();
+  const dialogRef = useRef<HTMLDivElement>(null);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
-  const previousFocusRef = useRef<HTMLElement | null>(typeof document !== "undefined" && document.activeElement instanceof HTMLElement ? document.activeElement : null);
-  const onCloseRef = useRef(onClose);
-  onCloseRef.current = onClose;
+  useDialogKeyboard(dialogRef, onClose);
   useEffect(() => {
     let active = true;
     let lease: { readonly url: string; readonly release: () => void } | undefined;
@@ -307,22 +310,8 @@ function SourcePreview({ photo, photoSource, onClose, onError }: { readonly phot
   }, [onError, photo.id, photoSource]);
   useEffect(() => {
     closeButtonRef.current?.focus();
-    const onKeyDown = (event: globalThis.KeyboardEvent) => {
-      if (event.key === "Escape") { event.preventDefault(); onCloseRef.current(); return; }
-      if (event.key !== "Tab") return;
-      event.preventDefault();
-      closeButtonRef.current?.focus();
-    };
-    document.addEventListener("keydown", onKeyDown);
-    return () => {
-      document.removeEventListener("keydown", onKeyDown);
-      previousFocusRef.current?.focus();
-    };
   }, []);
-  const onDialogKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
-    if (event.key === "Tab") { event.preventDefault(); closeButtonRef.current?.focus(); }
-  };
-  return <div className="table-preview-backdrop" role="dialog" aria-modal="true" aria-label={`Preview ${photo.relativePath}`} onPointerDown={onClose} onKeyDown={onDialogKeyDown}><section className="table-preview-dialog" onPointerDown={(event) => event.stopPropagation()}><header><span>{photo.relativePath}</span><button ref={closeButtonRef} onClick={onClose} aria-label="Close preview">×</button></header><div className="table-preview-image-wrap">{url ? <img src={url} alt={photo.relativePath} /> : <div className="preview-placeholder">Preview unavailable</div>}</div></section></div>;
+  return <div ref={dialogRef} className="table-preview-backdrop" role="dialog" aria-modal="true" aria-label={`Preview ${photo.relativePath}`} onPointerDown={onClose}><section className="table-preview-dialog" onPointerDown={(event) => event.stopPropagation()}><header><span>{photo.relativePath}</span><button ref={closeButtonRef} onClick={onClose} aria-label="Close preview">×</button></header><div className="table-preview-image-wrap">{url ? <img src={url} alt={photo.relativePath} /> : <div className="preview-placeholder">Preview unavailable</div>}</div></section></div>;
 }
 
 function readPanelState(key: string, sources: readonly { readonly id: SourceId }[]): { mode: SourcePanelMode; lastOpenMode: "compact" | "expanded"; sourceId: SourceSelection; filter: SourceFilter } {

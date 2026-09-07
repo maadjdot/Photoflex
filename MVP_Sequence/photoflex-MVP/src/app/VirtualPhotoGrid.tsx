@@ -4,7 +4,7 @@ import { calculateContactSheetVirtualGrid, type ContactSheetVirtualGrid } from "
 import { PhotoThumb } from "./PhotoThumb";
 import type { AppDependencies } from "./dependencies";
 
-export function VirtualPhotoGrid({ photos, selected, tableIds, missingIds, zoom = 75, initialAnchorPhotoId, onAnchorChange, onToggle, onOpen, onNearEnd, onPhotoSourceError, photoSource }: { readonly photos: readonly PhotoRef[]; readonly selected: ReadonlySet<PhotoId>; readonly tableIds: readonly PhotoId[]; readonly missingIds: ReadonlySet<PhotoId>; readonly zoom?: number; readonly initialAnchorPhotoId?: PhotoId; readonly onAnchorChange: (photoId: PhotoId | undefined) => void; readonly onToggle: (photoId: PhotoId, index: number, event?: ReactMouseEvent<HTMLElement>) => void; readonly onOpen: (index: number) => void; readonly onNearEnd: () => void; readonly onPhotoSourceError: (photoId: PhotoId, error: SourceError) => void; readonly photoSource: AppDependencies["photoSource"]; }) {
+export function VirtualPhotoGrid({ photos, selected, tableIds, missingIds, zoom = 75, sourceRevision, initialAnchorPhotoId, onAnchorChange, onToggle, onOpen, onNearEnd, onPhotoSourceError, photoSource }: { readonly photos: readonly PhotoRef[]; readonly selected: ReadonlySet<PhotoId>; readonly tableIds: readonly PhotoId[]; readonly missingIds: ReadonlySet<PhotoId>; readonly zoom?: number; readonly sourceRevision?: number; readonly initialAnchorPhotoId?: PhotoId; readonly onAnchorChange: (photoId: PhotoId | undefined) => void; readonly onToggle: (photoId: PhotoId, index: number, event?: ReactMouseEvent<HTMLElement>) => void; readonly onOpen: (index: number) => void; readonly onNearEnd: () => void; readonly onPhotoSourceError: (photoId: PhotoId, error: SourceError) => void; readonly photoSource: AppDependencies["photoSource"]; }) {
   const viewportRef = useRef<HTMLDivElement>(null);
   // Resume only once when the page mounts.  Subsequent anchor updates are
   // persistence metadata, never instructions to snap a reader back in place.
@@ -112,7 +112,7 @@ export function VirtualPhotoGrid({ photos, selected, tableIds, missingIds, zoom 
     });
   };
   const visible = photos.slice(grid.startIndex, grid.endIndex);
-  return <div className="sheet-scroll" ref={viewportRef} onScroll={onScroll} tabIndex={0}><div className="virtual-grid-inner" style={{ height: grid.totalHeight }}><div className="virtual-grid-layer">{visible.map((photo, offset) => { const index = grid.startIndex + offset; const row = Math.floor(index / grid.columns); const column = index % grid.columns; return <PhotoTile key={photo.id} photoSource={photoSource} photo={photo} selected={selected.has(photo.id)} inTable={tableIdSet.has(photo.id)} missing={missingIds.has(photo.id)} index={index} columns={grid.columns} style={{ top: row * grid.rowHeight, left: column * (grid.tileWidth + grid.gap), width: grid.tileWidth, height: grid.rowHeight - grid.gap }} onToggle={(event) => onToggle(photo.id, index, event)} onOpen={() => onOpen(index)} onMoveFocus={moveFocus} onPhotoSourceError={onPhotoSourceError} />; })}</div></div></div>;
+  return <div className="sheet-scroll" ref={viewportRef} onScroll={onScroll} tabIndex={0}><div className="virtual-grid-inner" style={{ height: grid.totalHeight }}><div className="virtual-grid-layer">{visible.map((photo, offset) => { const index = grid.startIndex + offset; const row = Math.floor(index / grid.columns); const column = index % grid.columns; return <PhotoTile key={photo.id} photoSource={photoSource} photo={photo} sourceRevision={sourceRevision} selected={selected.has(photo.id)} inTable={tableIdSet.has(photo.id)} missing={missingIds.has(photo.id)} index={index} columns={grid.columns} style={{ top: row * grid.rowHeight, left: column * (grid.tileWidth + grid.gap), width: grid.tileWidth, height: grid.rowHeight - grid.gap }} onToggle={(event) => onToggle(photo.id, index, event)} onOpen={() => onOpen(index)} onMoveFocus={moveFocus} onPhotoSourceError={onPhotoSourceError} />; })}</div></div></div>;
 }
 function sameVirtualGrid(left: ContactSheetVirtualGrid, right: ContactSheetVirtualGrid) {
   return left.columns === right.columns
@@ -125,7 +125,7 @@ function sameVirtualGrid(left: ContactSheetVirtualGrid, right: ContactSheetVirtu
 }
 
 
-function PhotoTile({ photoSource, photo, selected, inTable, missing, index, columns, style, onToggle, onOpen, onMoveFocus, onPhotoSourceError }: { readonly photoSource: AppDependencies["photoSource"]; readonly photo: PhotoRef; readonly selected: boolean; readonly inTable: boolean; readonly missing: boolean; readonly index: number; readonly columns: number; readonly style: CSSProperties; readonly onToggle: (event?: ReactMouseEvent<HTMLElement>) => void; readonly onOpen: () => void; readonly onMoveFocus: (index: number, delta: number) => void; readonly onPhotoSourceError: (photoId: PhotoId, error: SourceError) => void; }) {
+function PhotoTile({ photoSource, photo, sourceRevision, selected, inTable, missing, index, columns, style, onToggle, onOpen, onMoveFocus, onPhotoSourceError }: { readonly photoSource: AppDependencies["photoSource"]; readonly photo: PhotoRef; readonly sourceRevision?: number; readonly selected: boolean; readonly inTable: boolean; readonly missing: boolean; readonly index: number; readonly columns: number; readonly style: CSSProperties; readonly onToggle: (event?: ReactMouseEvent<HTMLElement>) => void; readonly onOpen: () => void; readonly onMoveFocus: (index: number, delta: number) => void; readonly onPhotoSourceError: (photoId: PhotoId, error: SourceError) => void; }) {
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.key === " ") { event.preventDefault(); onToggle(); }
     if (event.key === "Enter") { event.preventDefault(); onOpen(); }
@@ -150,7 +150,7 @@ function PhotoTile({ photoSource, photo, selected, inTable, missing, index, colu
       aria-label={`${photo.relativePath}，${stateLabel}`}
     >
       <div className="photo-image-wrap">
-        <PhotoThumb photoSource={photoSource} photoId={photo.id} alt={photo.relativePath} onError={onPhotoSourceError} />
+        <PhotoThumb photoSource={photoSource} photoId={photo.id} alt={photo.relativePath} sourceRevision={sourceRevision} onError={onPhotoSourceError} />
         {inTable && <span className="table-mark">ON TABLE</span>}
         {missing && <span className="missing-mark">MISSING</span>}
         {selected && <span className="check-mark">✓</span>}

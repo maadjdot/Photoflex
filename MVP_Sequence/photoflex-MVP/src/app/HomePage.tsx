@@ -5,7 +5,7 @@ import type { AppDependencies } from "./dependencies";
 import type { AppRoute } from "./router";
 import { formatUpdated, InlineError, EmptyPanel } from "./AppPrimitives";
 import { NewProjectDialog } from "./ProjectDialog";
-import { deleteProjectWorkspace } from "./ProjectWorkspaceActions";
+import { deleteProjectWorkspace, projectDeletionErrorMessage, resumePendingProjectDeletions } from "./ProjectWorkspaceActions";
 
 export function HomePage({
   dependencies,
@@ -24,13 +24,16 @@ export function HomePage({
 
   useEffect(() => {
     let active = true;
-    void dependencies.projectStore.listProjects().then((result) => {
+    void dependencies.projectStore.listProjects().then(async (result) => {
       if (!active) return;
       setLoading(false);
       if (result.ok) {
-        setProjects(result.value);
+        const recovery = await resumePendingProjectDeletions(dependencies, result.value);
+        if (!active) return;
+        if (recovery.failures.length) setError(projectDeletionErrorMessage(recovery.failures[0].error));
+        setProjects(recovery.projects);
         setCoverPhotoIds({});
-        void Promise.all(result.value.map(async (project) => [project.id, await resolveHomeCoverPhoto(dependencies, project.id)] as const)).then((covers) => {
+        void Promise.all(recovery.projects.map(async (project) => [project.id, await resolveHomeCoverPhoto(dependencies, project.id)] as const)).then((covers) => {
           if (!active) return;
           setCoverPhotoIds(Object.fromEntries(covers));
         });
@@ -49,9 +52,9 @@ export function HomePage({
   const deleteProject = async (project: ProjectSummary) => {
     if (!window.confirm(`Delete project “${project.name}”? Original photos will not be deleted.`)) return;
     setDeletingProjectId(project.id);
-    const loaded = await dependencies.projectStore.loadWorkspace(project.id);
-    if (!loaded.ok || !(await deleteProjectWorkspace(dependencies, loaded.value))) {
-      setError("项目删除失败，请重试。");
+    const deleted = await deleteProjectWorkspace(dependencies, project.id);
+    if (!deleted.ok) {
+      setError(projectDeletionErrorMessage(deleted.error));
       setDeletingProjectId(undefined);
       return;
     }

@@ -98,7 +98,8 @@ describe("ProjectWriteCoordinator", () => {
 
   it("pauses dependent writes after a storage failure and retries the original task", async () => {
     const { projectStore, photoSource, workspace } = await fixture();
-    const coordinator = createProjectWriteCoordinator({ projectStore, photoSource }, projectId);
+    const report = vi.fn();
+    const coordinator = createProjectWriteCoordinator({ projectStore, photoSource, diagnostics: { report } }, projectId);
     await coordinator.load();
     const original = projectStore.saveWorktable.bind(projectStore);
     const saveWorktable = vi.spyOn(projectStore, "saveWorktable");
@@ -109,10 +110,71 @@ describe("ProjectWriteCoordinator", () => {
     expect(placed.ok).toBe(true);
     if (!placed.ok) return;
     expect((await coordinator.saveWorktable(placed.value)).ok).toBe(false);
+    expect(report).toHaveBeenCalledWith({ name: "write-failure", projectId, scope: "workspace", workspaceRevision: 0, errorKind: "quota-exceeded" });
     expect((await coordinator.saveWorktable(workspace.worktableDraft)).ok).toBe(false);
     expect((await coordinator.retry())).toBe(true);
     const saved = await projectStore.loadWorkspace(projectId);
     expect(saved.ok).toBe(true);
     if (saved.ok) expect(saved.value.worktableDraft.entryOrder).toEqual([photoId]);
+  });
+
+  it("isolates failed sequence writes and retries only the latest draft for that sequence", async () => {
+    const { projectStore, photoSource } = await fixture();
+    const coordinator = createProjectWriteCoordinator({ projectStore, photoSource }, projectId);
+    await coordinator.load();
+    const createSequence = async (key: "a" | "b") => {
+      const sequenceId = `isolated-sequence-${key}` as SequenceDocument["id"];
+      const versionId = `isolated-version-${key}` as VersionId;
+      const itemId = `isolated-item-${key}` as SequenceItemId;
+      const items = [{ id: itemId, kind: "blank" as const }];
+      const readingUnits = [{ id: `isolated-unit-${key}` as SequenceDocument["readingUnits"][number]["id"], kind: "blank" as const, itemId }];
+      const sequence: SequenceDocument = {
+        id: sequenceId,
+        projectId,
+        name: `Sequence ${key.toUpperCase()}`,
+        items,
+        segments: [],
+        readingUnits,
+        currentVersionId: versionId,
+        revision: 0 as SequenceDocument["revision"],
+        createdAt: "2026-09-01T00:00:00.000Z",
+        updatedAt: "2026-09-01T00:00:00.000Z",
+      };
+      const initialVersion: SequenceVersion = {
+        id: versionId,
+        projectId,
+        sequenceId,
+        name: `Initial · Sequence ${key.toUpperCase()}`,
+        itemCount: 1,
+        items,
+        segments: [],
+        readingUnits,
+        createdAt: sequence.createdAt,
+      };
+      const created = await coordinator.createSequenceBundle({
+        sequence,
+        initialVersion,
+        pile: { x: key === "a" ? 10 : 240, y: 10, width: 211, height: 142 },
+      });
+      expect(created.ok).toBe(true);
+      return sequence;
+    };
+    const sequenceA = await createSequence("a");
+    const sequenceB = await createSequence("b");
+    const originalSaveSequence = projectStore.saveSequence.bind(projectStore);
+    vi.spyOn(projectStore, "saveSequence")
+      .mockImplementationOnce(async () => err({ kind: "quota-exceeded" }))
+      .mockImplementation(originalSaveSequence);
+
+    expect((await coordinator.saveSequenceDraft({ ...sequenceA, name: "A failed draft" })).ok).toBe(false);
+    expect((await coordinator.saveSequenceDraft({ ...sequenceA, name: "A latest draft" })).ok).toBe(false);
+    expect((await coordinator.saveSequenceDraft({ ...sequenceB, name: "B independent draft" })).ok).toBe(true);
+    expect(await coordinator.retrySequence(sequenceB.id)).toBe(false);
+    expect(await coordinator.retrySequence(sequenceA.id)).toBe(true);
+
+    const savedA = await coordinator.loadSequence(sequenceA.id);
+    const savedB = await coordinator.loadSequence(sequenceB.id);
+    expect(savedA.ok && savedA.value.name).toBe("A latest draft");
+    expect(savedB.ok && savedB.value.name).toBe("B independent draft");
   });
 });

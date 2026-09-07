@@ -1,9 +1,9 @@
+import { lazy, Suspense } from "react";
 import { AppHeader } from "./AppHeader";
 import { ContactSheetPage } from "./ContactSheetPage";
 import type { AppDependencies } from "./dependencies";
 import { HomePage } from "./HomePage";
 import { ProjectPage } from "./ProjectPage";
-import { SequenceComparePage, SequencePage, VersionComparePage } from "./SequencePage";
 import { TablePage } from "./TablePage";
 import { TableHeader } from "./TableHeader";
 import { useAppRoute } from "./router";
@@ -11,6 +11,10 @@ import { useAppNavigationState } from "./useAppNavigationState";
 import { ProjectWorkspaceProvider } from "./useProjectWorkspace";
 
 export { VirtualPhotoGrid } from "./VirtualPhotoGrid";
+
+const SequencePage = lazy(() => import("./SequencePage").then((module) => ({ default: module.SequencePage })));
+const SequenceComparePage = lazy(() => import("./SequenceComparePages").then((module) => ({ default: module.SequenceComparePage })));
+const VersionComparePage = lazy(() => import("./SequenceComparePages").then((module) => ({ default: module.VersionComparePage })));
 
 interface AppProps {
   readonly dependencies: AppDependencies;
@@ -27,9 +31,11 @@ export function M1App({ dependencies }: AppProps) {
       {route.name === "project" && <ProjectPage dependencies={dependencies} projectId={route.projectId} navigate={navigate} />}
       {route.name === "contact-sheet" && <ContactSheetPage dependencies={dependencies} projectId={route.projectId} sourceId={route.sourceId} navigate={navigate} />}
       {route.name === "table" && <TablePage dependencies={dependencies} projectId={route.projectId} navigate={navigate} />}
-      {route.name === "sequence" && <SequencePage dependencies={dependencies} projectId={route.projectId} sequenceId={route.sequenceId} openVersionId={route.openVersionId} navigate={navigate} />}
-      {route.name === "sequence-compare" && <SequenceComparePage dependencies={dependencies} projectId={route.projectId} leftSequenceId={route.leftSequenceId} rightSequenceId={route.rightSequenceId} navigate={navigate} />}
-      {route.name === "version-compare" && <VersionComparePage dependencies={dependencies} projectId={route.projectId} leftVersionId={route.leftVersionId} rightVersionId={route.rightVersionId} navigate={navigate} />}
+      <Suspense fallback={<main className="page centered-state"><div className="loading-mark" /><p>Loading workspace…</p></main>}>
+        {route.name === "sequence" && <SequencePage dependencies={dependencies} projectId={route.projectId} sequenceId={route.sequenceId} openVersionId={route.openVersionId} navigate={navigate} />}
+        {route.name === "sequence-compare" && <SequenceComparePage dependencies={dependencies} projectId={route.projectId} leftSequenceId={route.leftSequenceId} rightSequenceId={route.rightSequenceId} navigate={navigate} />}
+        {route.name === "version-compare" && <VersionComparePage dependencies={dependencies} projectId={route.projectId} leftVersionId={route.leftVersionId} rightVersionId={route.rightVersionId} navigate={navigate} />}
+      </Suspense>
     </ProjectWorkspaceProvider>
   ) : (
     <HomePage dependencies={dependencies} navigate={navigate} />

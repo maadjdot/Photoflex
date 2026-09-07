@@ -12,8 +12,8 @@ import type { SequenceDocument, SequenceSummary } from "./sequence";
 import type { SequenceVersion, VersionSummary } from "./versioning";
 import type { PhotoState, WorktableDraft, WorktableViewport } from "./worktable";
 
-export const INDEXED_DB_SCHEMA_VERSION = 8 as const;
-export const WORKSPACE_SCHEMA_VERSION = 6 as const;
+export const INDEXED_DB_SCHEMA_VERSION = 9 as const;
+export const WORKSPACE_SCHEMA_VERSION = 7 as const;
 
 export type SourceStatus =
   | "loading"
@@ -41,6 +41,8 @@ export interface SourceRecord {
 export interface SourceRuntimeState {
   readonly sourceId: SourceId;
   readonly status: SourceStatus;
+  /** Monotonically increases whenever a new scan starts. Missing on legacy persisted states. */
+  readonly scanRevision?: number;
   readonly discoveredCount: number;
   readonly indexedCount: number;
   readonly skippedCount: number;
@@ -136,6 +138,8 @@ export interface ProjectWorkspace {
   readonly createdAt: string;
   readonly updatedAt: string;
   readonly lastOpenedAt: string;
+  /** Persisted before cross-adapter cleanup so deletion can resume after restart. */
+  readonly deletionPendingAt?: string;
   readonly coverPhotoId?: PhotoId;
   readonly resumeContext?: ResumeContext;
 }

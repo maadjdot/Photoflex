@@ -1,53 +1,31 @@
-# PhotoFlex Sequence MVP
+# PhotoFlex MVP
 
-当前目录是 PhotoFlex M1：可创建和打开 Project，选择多个本地 JPEG Source，扫描并分页浏览照片，
-预览大图，并把照片加入持久化 Project Pool。Sequence、Compare、排版、导出和账号仍不在本轮范围内。
+PhotoFlex 是本地优先的摄影工作流原型，包含 Home、Project、Contact Sheet、Table、Sequence、Named Version 与 Compare。项目结构保存在 IndexedDB；用户选择的原片目录保持只读，预览 URL 采用显式 lease 并在视图卸载时释放。
 
-在 PowerShell 中执行：
+## 本地运行
 
 ```powershell
-cd D:\project\Photoflex\MVP_Sequence\photoflex-MVP
 corepack pnpm install
-corepack pnpm fixture:generate
+corepack pnpm dev
 ```
 
-网站打开方式：
-
-1. 在 PowerShell 中执行：
-
-   ```powershell
-   cd D:\project\Photoflex\MVP_Sequence\photoflex-MVP
-   .\node_modules\.bin\vite.cmd --host 127.0.0.1
-   ```
-
-2. 在本机浏览器中打开 `http://127.0.0.1:5173/`。
-3. 如果终端显示了其他 Local 地址，以终端输出的地址为准。
-4. 停止网站服务可在运行命令的终端按 `Ctrl + C`。
-
-如果要让同一局域网中的其他设备访问，在 PowerShell 中改用：
-
-```powershell
-cd D:\project\Photoflex\MVP_Sequence\photoflex-MVP
-.\node_modules\.bin\vite.cmd --host 0.0.0.0
-```
-
-然后运行 `ipconfig`，找到当前 Wi-Fi 或以太网适配器的 IPv4 地址，
-在其他设备的浏览器打开 `http://你的IPv4地址:5173/`，例如 `http://192.168.1.20:5173/`。
-
-构建后也可以使用本地预览服务打开：
+默认地址为 `http://127.0.0.1:5173/`。生产构建与本地预览：
 
 ```powershell
 corepack pnpm build
 corepack pnpm preview
 ```
 
-然后访问 `http://127.0.0.1:4173/`。
-
-质量检查（当前只覆盖 M1 核心路径）：
+## 质量检查
 
 ```powershell
 corepack pnpm test
 corepack pnpm typecheck
 corepack pnpm build
 corepack pnpm test:e2e
+corepack pnpm bench
 ```
+
+`test:e2e` 同时使用本机 Chrome 与 Edge。`bench` 覆盖 500 项 Sequence、10,000 张 Table 和 200×500 完整版本快照；结果是本机趋势基线，不作为固定 CI 时间阈值。当前数据见 [质量与性能基线](./docs/QUALITY_BASELINE.md)。
+
+架构与持久化约束见 [系统架构方案](./docs/PhotoFlex%20MVP%20系统架构方案.md) 和 [ADR-002](./docs/ADR-002-本地持久化并发事务与迁移.md)。

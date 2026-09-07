@@ -5,7 +5,7 @@ import type { AppDependencies } from "./dependencies";
 import type { AppRoute } from "./router";
 import { InlineNotice, EmptyPanel, LoadingPage, ErrorPage, formatUpdated, now, shortId, sourceCounts, sourceErrorMessage, stateHasPhotos, totalIndexed, StatusDot, progressPercent } from "./AppPrimitives";
 import { NewProjectDialog } from "./ProjectDialog";
-import { deleteProjectWorkspace } from "./ProjectWorkspaceActions";
+import { deleteProjectWorkspace, projectDeletionErrorMessage } from "./ProjectWorkspaceActions";
 import { useSourceMonitor, stopSharedScan } from "./ProjectSourceMonitor";
 import { useProjectWorkspaceSession, workspaceSaveErrorMessage, type WorkspaceUpdate } from "./useProjectWorkspace";
 import { ProjectInfoPanel } from "./ProjectInfoPanel";
@@ -127,8 +127,9 @@ export function ProjectPage({
   const deleteProject = async () => {
     if (!window.confirm(`Delete project “${workspace.name}”? Original photos will not be deleted.`)) return;
     setDeletingProject(true);
-    if (!(await deleteProjectWorkspace(dependencies, workspace))) {
-      setNotice("项目删除失败，请重试。");
+    const deleted = await deleteProjectWorkspace(dependencies, workspace.projectId);
+    if (!deleted.ok) {
+      setNotice(projectDeletionErrorMessage(deleted.error));
       setDeletingProject(false);
       return;
     }

@@ -75,21 +75,28 @@ export function InlineTitle({ value, onSave }: { readonly value: string; readonl
   if (!editing) return <button className="editable-title" onClick={() => setEditing(true)}>{value}<span>✎</span></button>;
   return <input className="title-input" autoFocus value={draft} onChange={(event) => setDraft(event.target.value)} onBlur={() => { void onSave(draft); setEditing(false); }} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); void onSave(draft); setEditing(false); } if (event.key === "Escape") { setDraft(value); setEditing(false); } }} />;
 }
-export function useDialogKeyboard(ref: RefObject<HTMLElement | null>, onClose: () => void) {
+export function useDialogKeyboard(ref: RefObject<HTMLElement | null>, onClose: () => void, active = true) {
   const onCloseRef = useRef(onClose);
+  const openerRef = useRef<HTMLElement | null | undefined>(undefined);
+  const wasActiveRef = useRef(false);
+  if (active && !wasActiveRef.current) openerRef.current = typeof document !== "undefined" && document.activeElement instanceof HTMLElement ? document.activeElement : null;
+  wasActiveRef.current = active;
   onCloseRef.current = onClose;
   useEffect(() => {
-    const opener = document.activeElement as HTMLElement | null;
+    if (!active) return;
     const onKeyDown = (event: globalThis.KeyboardEvent) => {
+      const dialog = ref.current;
+      if (!dialog) return;
       if (event.key === "Escape") { event.preventDefault(); onCloseRef.current(); return; }
-      if (event.key !== "Tab" || !ref.current) return;
-      const focusable = [...ref.current.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])')];
+      if (event.key !== "Tab") return;
+      const focusable = [...dialog.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), a[href], [contenteditable="true"], [tabindex]:not([tabindex="-1"])')];
       if (!focusable.length) return;
       const first = focusable[0], last = focusable.at(-1)!;
+      if (!dialog.contains(document.activeElement)) { event.preventDefault(); (event.shiftKey ? last : first).focus(); return; }
       if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
       if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
     };
     window.addEventListener("keydown", onKeyDown);
-    return () => { window.removeEventListener("keydown", onKeyDown); opener?.focus(); };
-  }, [ref]);
+    return () => { window.removeEventListener("keydown", onKeyDown); openerRef.current?.focus(); };
+  }, [active, ref]);
 }

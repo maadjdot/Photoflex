@@ -116,14 +116,15 @@ describe("TablePage", () => {
     await waitFor(() => expect(window.location.hash).toBe(`#/projects/${projectId}/sources/${sourceId}`));
   });
 
-  it("选中操作栏保留 Link、Undo、Redo 与直接可见的 Front 操作，Clear 仅清除选择", async () => {
+  it("选中操作栏保持单行、使用精简文案且不显示 Clear", async () => {
     const dependencies = await createFixture();
     render(<App dependencies={dependencies} />);
     const stage = await screen.findByLabelText("Photo worktable");
     fireEvent.keyDown(stage, { key: "a", ctrlKey: true });
     const toolbar = within(screen.getByRole("group", { name: "Table selection actions" }));
-    expect(toolbar.getByText("2 selected")).toBeTruthy();
-    expect(toolbar.getByRole("button", { name: "Create Sequence" })).toBeTruthy();
+    expect(toolbar.getByText("2 photos")).toBeTruthy();
+    expect(toolbar.getByRole("button", { name: "Create Sequence" }).textContent).toContain("Sequence");
+    expect(toolbar.queryByRole("button", { name: "Clear" })).toBeNull();
     fireEvent.click(toolbar.getByRole("button", { name: "Link" }));
     expect(toolbar.getByRole("button", { name: "Unlink" })).toBeTruthy();
     expect(stage.querySelectorAll(".worktable-links line")).toHaveLength(1);
@@ -138,11 +139,37 @@ describe("TablePage", () => {
     fireEvent.click(toolbar.getByRole("button", { name: "Ungroup" }));
     expect(toolbar.queryByText("More")).toBeNull();
     fireEvent.click(toolbar.getByRole("button", { name: "Front" }));
-    expect(toolbar.getByText("2 selected")).toBeTruthy();
-    fireEvent.click(toolbar.getByRole("button", { name: "Clear" }));
-    expect(screen.queryByRole("group", { name: "Table selection actions" })).toBeNull();
+    expect(toolbar.getByText("2 photos")).toBeTruthy();
     expect(screen.getByLabelText("A.jpg")).toBeTruthy();
     expect(screen.getByLabelText("B.jpg")).toBeTruthy();
+  });
+
+  it("创建 Sequence 时按 Table 的从左到右、从上到下空间顺序排列", async () => {
+    const dependencies = await createFixture();
+    const loaded = await dependencies.projectStore.loadWorkspace(projectId);
+    if (!loaded.ok) throw new Error("fixture workspace not loaded");
+    const positioned = {
+      ...loaded.value,
+      worktableDraft: {
+        ...loaded.value.worktableDraft,
+        placements: {
+          ...loaded.value.worktableDraft.placements,
+          [photoA]: { ...loaded.value.worktableDraft.placements[photoA], x: 420, y: 310 },
+          [photoB]: { ...loaded.value.worktableDraft.placements[photoB], x: 70, y: 50 },
+        },
+      },
+    };
+    const saved = await dependencies.projectStore.saveWorkspace(positioned, loaded.value.revision);
+    if (!saved.ok) throw new Error("fixture positions not saved");
+
+    render(<App dependencies={dependencies} />);
+    const stage = await screen.findByLabelText("Photo worktable");
+    fireEvent.keyDown(stage, { key: "a", ctrlKey: true });
+    fireEvent.click(screen.getByRole("button", { name: "Create Sequence" }));
+
+    const dialog = await screen.findByRole("dialog", { name: "Create Sequence pile" });
+    expect(within(dialog).getByAltText("Order 1: B.jpg")).toBeTruthy();
+    expect(within(dialog).getByAltText("Order 2: A.jpg")).toBeTruthy();
   });
 
   it("单选组内照片即可解除分组和链接，并可撤销", async () => {
@@ -151,10 +178,10 @@ describe("TablePage", () => {
     fireEvent.keyDown(stage, { key: "a", ctrlKey: true });
     fireEvent.keyDown(stage, { key: "g" });
     fireEvent.keyDown(stage, { key: "l" });
-    fireEvent.click(screen.getByRole("button", { name: "Clear" }));
+    fireEvent.keyDown(stage, { key: "Escape" });
     fireEvent.pointerDown(screen.getByLabelText("A.jpg"), { pointerId: 31, button: 0, clientX: 100, clientY: 100 });
     fireEvent.pointerUp(stage, { pointerId: 31, clientX: 100, clientY: 100 });
-    expect(screen.getByText("1 selected")).toBeTruthy();
+    expect(screen.getByText("1 photo")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Leave Group" })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Unlink" }));
     expect(stage.querySelectorAll(".worktable-links line")).toHaveLength(0);
@@ -264,6 +291,28 @@ describe("TablePage", () => {
     await waitFor(() => expect(preview).toHaveBeenCalledWith(photoA));
   });
 
+  it("Table 不挂载远离视口的照片卡片", async () => {
+    const dependencies = await createFixture();
+    const loaded = await dependencies.projectStore.loadWorkspace(projectId);
+    if (!loaded.ok) throw new Error("fixture workspace not loaded");
+    const moved = {
+      ...loaded.value,
+      worktableDraft: {
+        ...loaded.value.worktableDraft,
+        placements: {
+          ...loaded.value.worktableDraft.placements,
+          [photoB]: { ...loaded.value.worktableDraft.placements[photoB], x: 5_000, y: 5_000 },
+        },
+      },
+    };
+    const saved = await dependencies.projectStore.saveWorkspace(moved, loaded.value.revision);
+    expect(saved.ok).toBe(true);
+
+    render(<App dependencies={dependencies} />);
+    expect(await screen.findByLabelText("A.jpg")).toBeTruthy();
+    await waitFor(() => expect(screen.queryByLabelText("B.jpg")).toBeNull());
+  });
+
   it("后台保存失败时保留编辑并显示具体原因", async () => {
     const dependencies = await createFixture();
     vi.spyOn(dependencies.projectStore, "saveWorktable").mockResolvedValue(err({ kind: "quota-exceeded" }));
@@ -285,8 +334,8 @@ describe("TablePage", () => {
 
     const pile = await screen.findByLabelText("Sequence pile Sequence 01");
     fireEvent.pointerDown(pile, { pointerId: 10, button: 0, clientX: 200, clientY: 150 });
-    fireEvent.click(within(screen.getByLabelText("Table 工具栏")).getByRole("button", { name: "Delete Sequence…" }));
-    fireEvent.click(screen.getByRole("button", { name: "Delete Sequence" }));
+    fireEvent.click(within(screen.getByLabelText("Table 工具栏")).getByRole("button", { name: "Delete Sequence" }));
+    fireEvent.click(within(screen.getByRole("dialog", { name: "Delete Sequence?" })).getByRole("button", { name: "Delete Sequence" }));
 
     await waitFor(async () => {
       const listed = await projectStore.listSequences(projectId);
@@ -329,6 +378,44 @@ describe("TablePage", () => {
       expect(saved.ok).toBe(true);
       if (saved.ok) expect(saved.value.items.map((item) => item.kind === "photo" ? item.photoId : "blank")).toEqual([photoA]);
     });
+  });
+
+  it("Add to Sequence 保存失败时保留弹窗与未持久化提示", async () => {
+    const { projectStore, photoSource, sequenceId } = await createPileFixture();
+    vi.spyOn(projectStore, "saveSequence").mockResolvedValue(err({ kind: "quota-exceeded" }));
+    render(<App dependencies={{ projectStore, photoSource }} />);
+
+    await screen.findByText("Sequence 01 · 1 photos");
+    fireEvent.pointerDown(screen.getByLabelText("B.jpg"), { pointerId: 22, button: 0, clientX: 320, clientY: 160 });
+    fireEvent.click(within(screen.getByRole("group", { name: "Table selection actions" })).getByRole("button", { name: "Add to Sequence" }));
+    const addButton = await screen.findByRole("button", { name: "Add photos" });
+    await waitFor(() => expect(addButton.hasAttribute("disabled")).toBe(false));
+    fireEvent.click(addButton);
+
+    expect(await screen.findByText("Sequence save failed. Your edit remains on screen.")).toBeTruthy();
+    expect(screen.getByRole("dialog", { name: "Add photos to Sequence" })).toBeTruthy();
+    const saved = await projectStore.loadSequence(sequenceId);
+    expect(saved.ok).toBe(true);
+    if (saved.ok) expect(saved.value.items).toHaveLength(1);
+  });
+
+  it("Add to Sequence 约束焦点、Escape 关闭并返回入口", async () => {
+    const { projectStore, photoSource } = await createPileFixture();
+    render(<App dependencies={{ projectStore, photoSource }} />);
+
+    await screen.findByText("Sequence 01 · 1 photos");
+    fireEvent.pointerDown(screen.getByLabelText("B.jpg"), { pointerId: 23, button: 0, clientX: 320, clientY: 160 });
+    const opener = within(screen.getByRole("group", { name: "Table selection actions" })).getByRole("button", { name: "Add to Sequence" });
+    opener.focus();
+    fireEvent.click(opener);
+    const dialog = await screen.findByRole("dialog", { name: "Add photos to Sequence" });
+    const addButton = within(dialog).getByRole("button", { name: "Add photos" });
+    addButton.focus();
+    fireEvent.keyDown(addButton, { key: "Tab" });
+    expect(document.activeElement).toBe(within(dialog).getByRole("button", { name: "Close" }));
+    fireEvent.keyDown(document.activeElement!, { key: "Escape" });
+    expect(screen.queryByRole("dialog", { name: "Add photos to Sequence" })).toBeNull();
+    expect(document.activeElement).toBe(opener);
   });
 
 });

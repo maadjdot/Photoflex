@@ -10,6 +10,7 @@ interface PhotoThumbProps {
   readonly resolution?: "thumbnail" | "table" | "sequence" | "read" | "full";
   /** Optional higher table tier to swap in after the 768px image is visible. */
   readonly progressiveTo?: DerivedPreviewMaxEdge;
+  readonly sourceRevision?: number;
 }
 
 export const PhotoThumb = memo(function PhotoThumb({
@@ -20,6 +21,7 @@ export const PhotoThumb = memo(function PhotoThumb({
   eager = false,
   resolution = "thumbnail",
   progressiveTo,
+  sourceRevision,
 }: PhotoThumbProps) {
   const [url, setUrl] = useState<string>();
   const upgradeRef = useRef<((maxEdge: DerivedPreviewMaxEdge) => void) | undefined>(undefined);
@@ -82,7 +84,7 @@ export const PhotoThumb = memo(function PhotoThumb({
       if (upgradeRef.current === request) upgradeRef.current = undefined;
       session.lease?.release();
     };
-  }, [onError, photoId, photoSource, resolution]);
+  }, [onError, photoId, photoSource, resolution, sourceRevision]);
 
   useEffect(() => {
     if (resolution === "table" && progressiveTo && progressiveTo > 768) upgradeRef.current?.(progressiveTo);

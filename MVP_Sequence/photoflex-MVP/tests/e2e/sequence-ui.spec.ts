@@ -7,7 +7,7 @@ test("M2 Sequence supports Reading Units, Segment, Overview, Read and one-save d
   await page.evaluate(async () => {
     const request = indexedDB.open("photoflex-mvp");
     const database = await new Promise<IDBDatabase>((resolve, reject) => { request.onsuccess = () => resolve(request.result); request.onerror = () => reject(request.error); });
-    const projectId = "sequence-visual-project", sequenceId = "sequence-visual", versionId = "version-sequence-visual";
+    const projectId = "sequence-visual-project", sequenceId = "sequence-visual", compareSequenceId = "sequence-compare", versionId = "version-sequence-visual", compareVersionId = "version-sequence-compare";
     const createdAt = "2026-09-01T06:00:00.000Z";
     const photos = [
       { id: "sequence-photo-1", width: 1200, height: 800 },
@@ -18,9 +18,11 @@ test("M2 Sequence supports Reading Units, Segment, Overview, Read and one-save d
     const items = photos.map((photo, index) => ({ id: `sequence-item-${index + 1}`, kind: "photo", photoId: photo.id }));
     const readingUnits = items.map((item, index) => ({ id: `sequence-unit-${index + 1}`, kind: "single", itemId: item.id }));
     const transaction = database.transaction(["projects", "sequences", "versions", "photo-index", "photo-thumbnails"], "readwrite");
-    transaction.objectStore("projects").put({ schemaVersion: 6, projectId, name: "Sequence Visual", memo: "", expectedPhotoCount: null, sources: [], photoStates: {}, worktableDraft: { projectId, entryOrder: [], placements: {}, groups: [], links: [], pileOrder: [sequenceId], pilePlacements: { [sequenceId]: { sequenceId, x: 40, y: 40, z: 1, width: 190, height: 118 } } }, sequenceIds: [sequenceId], versionIds: [versionId], revision: 0, createdAt, updatedAt: createdAt, lastOpenedAt: createdAt });
+    transaction.objectStore("projects").put({ schemaVersion: 7, projectId, name: "Sequence Visual", memo: "", expectedPhotoCount: null, sources: [], photoStates: {}, worktableDraft: { projectId, entryOrder: [], placements: {}, groups: [], links: [], pileOrder: [sequenceId, compareSequenceId], pilePlacements: { [sequenceId]: { sequenceId, x: 40, y: 40, z: 1, width: 190, height: 118 }, [compareSequenceId]: { sequenceId: compareSequenceId, x: 260, y: 40, z: 2, width: 190, height: 118 } } }, sequenceIds: [sequenceId, compareSequenceId], versionIds: [versionId, compareVersionId], revision: 0, createdAt, updatedAt: createdAt, lastOpenedAt: createdAt });
     transaction.objectStore("sequences").put({ id: sequenceId, projectId, name: "Street Edit", items, segments: [], readingUnits, currentVersionId: versionId, revision: 0, createdAt, updatedAt: createdAt });
+    transaction.objectStore("sequences").put({ id: compareSequenceId, projectId, name: "Alternate Edit", items: [...items].reverse(), segments: [], readingUnits: [...readingUnits].reverse(), currentVersionId: compareVersionId, revision: 0, createdAt, updatedAt: createdAt });
     transaction.objectStore("versions").put({ id: versionId, projectId, sequenceId, name: "Initial · Street Edit", itemCount: items.length, items, segments: [], readingUnits, createdAt });
+    transaction.objectStore("versions").put({ id: compareVersionId, projectId, sequenceId: compareSequenceId, name: "Initial · Alternate Edit", itemCount: items.length, items: [...items].reverse(), segments: [], readingUnits: [...readingUnits].reverse(), createdAt });
     for (const [index, photo] of photos.entries()) {
       transaction.objectStore("photo-index").put({ ...photo, sourceId: "missing-source", relativePath: `SEQ_${index + 1}.jpg` });
       const hue = 34 + index * 62;
@@ -38,6 +40,25 @@ test("M2 Sequence supports Reading Units, Segment, Overview, Read and one-save d
   await expect(page.getByRole("button", { name: "Undo" })).toHaveClass(/table-tool-button/);
   await expect(page.getByRole("button", { name: "Collapse Sequence Order" })).toBeVisible();
   await expect(page.locator(".sequence-card")).toHaveCount(4);
+  await expect(page.locator(".sequence-order-image > :first-child").first()).toBeVisible();
+  expect(await page.locator(".sequence-order-image > :first-child").first().evaluate((image) => getComputedStyle(image).objectFit)).toBe("cover");
+  expect(await page.locator(".sequence-order-badge", { hasText: "SINGLE" }).count()).toBe(0);
+
+  await page.getByRole("button", { name: "Compare", exact: true }).click();
+  const compareDialog = page.getByRole("dialog", { name: "Compare Sequences" });
+  await expect(compareDialog).toBeVisible();
+  expect(await compareDialog.evaluate((dialog) => getComputedStyle(dialog).borderRadius)).toBe("8px");
+  await expect(compareDialog.locator(".version-list > div")).toHaveCount(2);
+  await compareDialog.getByRole("button", { name: "Close" }).click();
+
+  await page.locator(".sequence-card").first().click();
+  await page.getByRole("button", { name: "Insert Blank After" }).click();
+  const blank = page.locator(".sequence-card .sequence-blank-page").first();
+  await expect(blank).toBeVisible();
+  expect(await blank.evaluate((element) => ({ background: getComputedStyle(element).backgroundColor, border: getComputedStyle(element).borderStyle }))).toEqual({ background: "rgb(255, 255, 255)", border: "solid" });
+  await blank.locator("..").click();
+  await page.getByRole("button", { name: "Remove Blank" }).click();
+  await expect(page.locator(".sequence-card")).toHaveCount(4);
 
   const deviceScale = await page.evaluate(() => window.devicePixelRatio);
   await page.locator(".sequence-rhythm-stage").hover();
@@ -51,7 +72,9 @@ test("M2 Sequence supports Reading Units, Segment, Overview, Read and one-save d
   await page.locator(".sequence-card").nth(1).click({ modifiers: ["Shift"] });
   await page.getByRole("button", { name: "Create Spread" }).click();
   await page.getByRole("button", { name: "Segment", exact: true }).click();
-  await expect(page.getByRole("dialog", { name: "Create Segment" })).toBeVisible();
+  const segmentDialog = page.getByRole("dialog", { name: "Create Segment" });
+  await expect(segmentDialog).toBeVisible();
+  expect(await segmentDialog.evaluate((dialog) => getComputedStyle(dialog).borderRadius)).toBe("8px");
   await page.getByLabel("Segment name").fill("Opening");
   await page.getByRole("button", { name: "Create", exact: true }).click();
   await expect(page.locator(".sequence-segment-header").getByText("Opening")).toBeVisible();
@@ -74,4 +97,8 @@ test("M2 Sequence supports Reading Units, Segment, Overview, Read and one-save d
   await page.mouse.move(last.x + last.width, last.y + last.height / 2, { steps: 4 });
   await page.mouse.up();
   await expect.poll(async () => page.evaluate(async () => { const request = indexedDB.open("photoflex-mvp"); const db = await new Promise<IDBDatabase>((resolve) => { request.onsuccess = () => resolve(request.result); }); const row = await new Promise<Record<string, unknown>>((resolve) => { const get = db.transaction("sequences", "readonly").objectStore("sequences").get("sequence-visual"); get.onsuccess = () => resolve(get.result); }); db.close(); return Number(row.revision); })).toBe(beforeRevision + 1);
+
+  await page.getByRole("button", { name: "Table", exact: true }).click();
+  await expect(page.locator(".sequence-strip-item > :first-child").first()).toBeVisible();
+  expect(await page.locator(".sequence-strip-item > :first-child").first().evaluate((image) => getComputedStyle(image).objectFit)).toBe("cover");
 });

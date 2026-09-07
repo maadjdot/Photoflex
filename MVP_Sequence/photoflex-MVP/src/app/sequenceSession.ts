@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useSyncExternalStore } from "react";
 import { err, ok, type ProjectId, type Result, type SequenceCommandError, type SequenceDocument, type SequenceEditCommand, type SequenceEditor, type SequenceId } from "../contracts";
 import { createSequenceEditor } from "../modules/sequence";
-import type { ProjectWriteCoordinator } from "./projectWriteCoordinator";
+import type { SequenceWritePort } from "./projectWriteCoordinator";
 
 export type SequenceSessionNotReadyError = { readonly kind: "sequence-not-ready" };
 export type SequenceSessionCommandError = SequenceCommandError | SequenceSessionNotReadyError;
@@ -27,7 +27,7 @@ export interface SequenceSessionController {
   undo(): boolean;
   redo(): boolean;
   replaceDraft(draft: ReturnType<SequenceEditor["snapshot"]>, notice?: string): void;
-  flush(): ReturnType<ProjectWriteCoordinator["flush"]>;
+  flush(): ReturnType<SequenceWritePort["flushSequence"]>;
   retry(): Promise<void>;
   dispose(): void;
 }
@@ -35,7 +35,7 @@ export interface SequenceSessionController {
 export class SequenceSessionControllerImpl implements SequenceSessionController {
   readonly projectId: ProjectId;
   readonly sequenceId: SequenceId;
-  private readonly coordinator: ProjectWriteCoordinator;
+  private readonly persistence: SequenceWritePort;
   private readonly listeners = new Set<() => void>();
   private snapshot: SequenceSessionSnapshot = { loading: true, canUndo: false, canRedo: false, saveState: "idle" };
   private editor?: SequenceEditor;
@@ -44,8 +44,8 @@ export class SequenceSessionControllerImpl implements SequenceSessionController 
   private editSeq = 0;
   private failedDraft?: SequenceDocument;
 
-  constructor(coordinator: ProjectWriteCoordinator, projectId: ProjectId, sequenceId: SequenceId) {
-    this.coordinator = coordinator;
+  constructor(persistence: SequenceWritePort, projectId: ProjectId, sequenceId: SequenceId) {
+    this.persistence = persistence;
     this.projectId = projectId;
     this.sequenceId = sequenceId;
     this.load = this.load.bind(this);
@@ -69,7 +69,7 @@ export class SequenceSessionControllerImpl implements SequenceSessionController 
     const generation = ++this.generation;
     this.active = true;
     this.setSnapshot({ loading: true, sequence: undefined, editor: undefined, canUndo: false, canRedo: false, saveState: "idle", error: undefined });
-    const result = await this.coordinator.loadSequence(this.sequenceId);
+    const result = await this.persistence.loadSequence(this.sequenceId);
     if (!this.active || generation !== this.generation) return;
     if (!result.ok) {
       this.setSnapshot({ ...this.snapshot, loading: false, error: "Sequence could not be loaded." });
@@ -109,7 +109,7 @@ export class SequenceSessionControllerImpl implements SequenceSessionController 
   }
 
   async flush() {
-    const result = await this.coordinator.flush();
+    const result = await this.persistence.flushSequence(this.sequenceId);
     return this.snapshot.saveState === "failed" && result.ok ? err({ kind: "writes-paused" as const }) : result;
   }
 
@@ -118,13 +118,12 @@ export class SequenceSessionControllerImpl implements SequenceSessionController 
     if (!failed || !this.active) return;
     this.setSnapshot({ ...this.snapshot, saveState: "saving", error: undefined });
     const requestSeq = this.editSeq;
-    const retried = await this.coordinator.retry();
+    const retried = await this.persistence.retrySequence(this.sequenceId);
     if (!this.active || requestSeq !== this.editSeq) return;
-    if (!retried) {
-      this.setSnapshot({ ...this.snapshot, saveState: "failed", error: "Draft save failed. Your current edit remains on screen." });
-      return;
-    }
-    const result = await this.coordinator.loadSequence(this.sequenceId);
+    const result = retried
+      ? await this.persistence.loadSequence(this.sequenceId)
+      : await this.persistence.saveSequenceDraft(failed).then((saved) => saved.ok ? ok(saved.value.sequence) : saved);
+    if (!this.active || requestSeq !== this.editSeq) return;
     if (!result.ok) {
       this.setSnapshot({ ...this.snapshot, saveState: "failed", error: "Draft save failed. Your current edit remains on screen." });
       return;
@@ -143,7 +142,7 @@ export class SequenceSessionControllerImpl implements SequenceSessionController 
     this.editSeq += 1;
     const requestSeq = this.editSeq;
     this.setSnapshot({ ...this.snapshotFor(sequence, "saving"), error: undefined });
-    void this.coordinator.saveSequenceDraft(sequence).then((result) => {
+    void this.persistence.saveSequenceDraft(sequence).then((result) => {
       if (!this.active || requestSeq !== this.editSeq) return;
       if (!result.ok) {
         this.failedDraft = sequence;
@@ -173,8 +172,8 @@ export class SequenceSessionControllerImpl implements SequenceSessionController 
   }
 }
 
-export function useSequenceSession(coordinator: ProjectWriteCoordinator, projectId: ProjectId, sequenceId: SequenceId) {
-  const session = useMemo(() => new SequenceSessionControllerImpl(coordinator, projectId, sequenceId), [coordinator, projectId, sequenceId]);
+export function useSequenceSession(persistence: SequenceWritePort, projectId: ProjectId, sequenceId: SequenceId) {
+  const session = useMemo(() => new SequenceSessionControllerImpl(persistence, projectId, sequenceId), [persistence, projectId, sequenceId]);
   const snapshot = useSyncExternalStore(
     (listener) => session.subscribe(listener),
     () => session.getSnapshot(),

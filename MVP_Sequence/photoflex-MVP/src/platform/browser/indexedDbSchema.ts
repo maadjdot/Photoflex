@@ -2,6 +2,7 @@ import {
   err,
   INDEXED_DB_SCHEMA_VERSION,
   ok,
+  WORKSPACE_SCHEMA_VERSION,
   type Result,
   type StorageAccessError,
 } from "../../contracts";
@@ -107,7 +108,7 @@ export function migrateToV6(database: IDBDatabase, transaction: IDBTransaction):
   };
 }
 
-export function migrateToV7(transaction: IDBTransaction): void {
+export function migrateToV7(transaction: IDBTransaction, workspaceSchemaVersion: number = 6): void {
   const sequences = transaction.objectStore(STORE_NAMES.sequences);
   const versions = transaction.objectStore(STORE_NAMES.versions);
   const projects = transaction.objectStore(STORE_NAMES.projects);
@@ -115,7 +116,7 @@ export function migrateToV7(transaction: IDBTransaction): void {
   workspaceCursor.onsuccess = () => {
     const cursor = workspaceCursor.result;
     if (!cursor) return;
-    cursor.update({ ...(cursor.value as Record<string, unknown>), schemaVersion: 6 });
+    cursor.update({ ...(cursor.value as Record<string, unknown>), schemaVersion: workspaceSchemaVersion });
     cursor.continue();
   };
   const versionCursor = versions.openCursor();
@@ -153,7 +154,7 @@ export function migrateToV7(transaction: IDBTransaction): void {
     const projectRequest = projects.get(upgraded.projectId);
     projectRequest.onsuccess = () => {
       const workspace = projectRequest.result as Record<string, unknown> | undefined;
-      if (workspace) projects.put({ ...workspace, schemaVersion: 6, versionIds: [...new Set([...(Array.isArray(workspace.versionIds) ? workspace.versionIds : []), initial.id])] });
+      if (workspace) projects.put({ ...workspace, schemaVersion: workspaceSchemaVersion, versionIds: [...new Set([...(Array.isArray(workspace.versionIds) ? workspace.versionIds : []), initial.id])] });
       cursor.continue();
     };
   };
@@ -163,6 +164,17 @@ export function migrateToV8(database: IDBDatabase): void {
   if (!database.objectStoreNames.contains(STORE_NAMES.photoDerivedPreviews)) {
     database.createObjectStore(STORE_NAMES.photoDerivedPreviews, { keyPath: ["photoId", "maxEdge"] });
   }
+}
+
+export function migrateToV9(transaction: IDBTransaction): void {
+  const projects = transaction.objectStore(STORE_NAMES.projects);
+  const cursorRequest = projects.openCursor();
+  cursorRequest.onsuccess = () => {
+    const cursor = cursorRequest.result;
+    if (!cursor) return;
+    cursor.update({ ...(cursor.value as Record<string, unknown>), schemaVersion: 7 });
+    cursor.continue();
+  };
 }
 
 export function openPhotoFlexDatabase(
@@ -214,8 +226,9 @@ export function openPhotoFlexDatabase(
           if (migrationFrom < 3) migrateToV3(request.transaction!);
           // v6 performs the complete row normalization in one cursor pass.
           if (migrationFrom < 6) migrateToV6(request.result, request.transaction!);
-          else if (migrationFrom < 7) migrateToV7(request.transaction!);
+          else if (migrationFrom < 7) migrateToV7(request.transaction!, WORKSPACE_SCHEMA_VERSION);
           if (migrationFrom < 8) migrateToV8(request.result);
+          if (migrationFrom >= 7 && migrationFrom < 9) migrateToV9(request.transaction!);
         } catch {
           migrationFailed = true;
           request.transaction?.abort();

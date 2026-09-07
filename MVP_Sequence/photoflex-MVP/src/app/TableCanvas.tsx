@@ -109,6 +109,14 @@ export const TableCanvas = forwardRef<TableCanvasHandle, TableCanvasProps>(funct
     () => new Set<PhotoId>([...retainedPhotoIds, ...visiblePhotoIds]),
     [retainedPhotoIds, visiblePhotoIds],
   );
+  const renderedPhotoIds = useMemo(
+    () => new Set<PhotoId>([...mountedPhotoIds, ...selectedPhotoIds]),
+    [mountedPhotoIds, selectedPhotoIds],
+  );
+  const summaryById = useMemo(
+    () => new Map(summaries.map((summary) => [summary.id, summary])),
+    [summaries],
+  );
 
   const setViewport = useCallback((next: WorktableViewport) => {
     viewportRef.current = next;
@@ -322,7 +330,7 @@ export const TableCanvas = forwardRef<TableCanvasHandle, TableCanvasProps>(funct
           const box = groupBounds(draft, group.photoIds);
           return <div key={group.id} className="worktable-group-frame" style={{ left: box.left, top: box.top, width: box.width, height: box.height }}><span>{group.name} · {group.photoIds.length} photos</span></div>;
         })}
-        {draft.entryOrder.map((id) => {
+        {draft.entryOrder.filter((id) => renderedPhotoIds.has(id)).map((id) => {
           const item = draft.placements[id];
           const chosen = selected.has(id);
           const dragging = chosen && preview.kind === "photo";
@@ -349,7 +357,7 @@ export const TableCanvas = forwardRef<TableCanvasHandle, TableCanvasProps>(funct
         })}
         {draft.pileOrder.map((id) => {
           const pile = draft.pilePlacements[id];
-          const summary = summaries.find((item) => item.id === id);
+          const summary = summaryById.get(id);
           const chosen = selectedPiles.has(id);
           const dragging = chosen && preview.kind === "pile";
           const delta = chosen && preview.kind === "pile" ? preview.dragDelta : { x: 0, y: 0 };

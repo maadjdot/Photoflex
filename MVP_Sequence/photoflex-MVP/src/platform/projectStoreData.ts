@@ -186,6 +186,7 @@ export function isWorkspace(value: unknown): value is ProjectWorkspace {
     typeof workspace.createdAt === "string" &&
     typeof workspace.updatedAt === "string" &&
     typeof workspace.lastOpenedAt === "string" &&
+    (workspace.deletionPendingAt === undefined || typeof workspace.deletionPendingAt === "string") &&
     (workspace.coverPhotoId === undefined || typeof workspace.coverPhotoId === "string") &&
     isResumeContext(workspace.resumeContext)
   );

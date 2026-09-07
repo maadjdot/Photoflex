@@ -33,6 +33,7 @@ import {
   clone,
   createBackup,
   createWorkspace,
+  isSequenceDocument,
   isWorkspace,
   toProjectSummary,
   toVersionSummary,
@@ -263,8 +264,11 @@ export class IndexedDbProjectStore implements ProjectStore {
     const opened = await this.database;
     if (!opened.ok) return opened;
     try {
-      const sequence = await requestValue<SequenceDocument | undefined>(opened.value.transaction(STORE_NAMES.sequences, "readonly").objectStore(STORE_NAMES.sequences).get(sequenceId));
-      return sequence ? ok(clone(sequence)) : err({ kind: "not-found", entity: "sequence", id: sequenceId });
+      const sequence = await requestValue<unknown>(opened.value.transaction(STORE_NAMES.sequences, "readonly").objectStore(STORE_NAMES.sequences).get(sequenceId));
+      if (sequence === undefined) return err({ kind: "not-found", entity: "sequence", id: sequenceId });
+      return isSequenceDocument(sequence)
+        ? ok(clone(sequence))
+        : err({ kind: "corrupt-data", entityId: sequenceId });
     } catch { return err({ kind: "unavailable", retryable: true }); }
   }
 

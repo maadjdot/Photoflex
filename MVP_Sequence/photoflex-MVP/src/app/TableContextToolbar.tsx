@@ -106,11 +106,10 @@ export interface TableContextToolbarProps {
   readonly onCompareSequences: (sequenceIds: readonly [SequenceId, SequenceId]) => void;
   readonly onRemovePiles: (sequenceIds: readonly SequenceId[]) => void;
   readonly onRemovePhotos: (photoIds: readonly PhotoId[]) => void;
-  readonly onClearSelection: () => void;
 }
 
 /** Both command surfaces emit the same intents as before; the canvas owns selection. */
-export function TableContextToolbar({ draft, actions, canAddToSequence, onExecute, onRequestSequence, onAddToSequence, onPreview, onComparePhotos, onCompareSequences, onRemovePiles, onRemovePhotos, onClearSelection }: TableContextToolbarProps) {
+export function TableContextToolbar({ draft, actions, canAddToSequence, onExecute, onRequestSequence, onAddToSequence, onPreview, onComparePhotos, onCompareSequences, onRemovePiles, onRemovePhotos }: TableContextToolbarProps) {
   const { photoIds, pileIds, selectedGroup: group, memberGroup, selectedLink } = actions;
   const compare = () => {
     if (actions.compareKind === "sequences") onCompareSequences([pileIds[0], pileIds[1]]);
@@ -125,21 +124,20 @@ export function TableContextToolbar({ draft, actions, canAddToSequence, onExecut
     </>}
     <TableToolButton icon={compareIcon} label="Compare" title={actions.compareDisabledReason} disabled={!actions.canCompare} onClick={compare} />
     {photoIds.length > 0 && <>
-      <TableToolButton icon={addToSequenceIcon} label="Add to Sequence" disabled={!canAddToSequence} onClick={onAddToSequence} />
-      <TableToolButton icon={sequenceIcon} label="Create Sequence" onClick={() => onRequestSequence(photoIds)} />
+      <TableToolButton icon={addToSequenceIcon} label="Add to Sequence" text="Add" disabled={!canAddToSequence} onClick={onAddToSequence} />
+      <TableToolButton icon={sequenceIcon} label="Create Sequence" text="Sequence" onClick={() => onRequestSequence(photoIds)} />
     </>}
-    <TableToolButton className={pileIds.length ? "is-danger" : ""} icon={removeIcon} label={pileIds.length ? pileIds.length > 1 ? "Delete Sequences…" : "Delete Sequence…" : "Remove from Table"} disabled={!actions.canRemove} onClick={() => pileIds.length ? onRemovePiles(pileIds) : onRemovePhotos(photoIds)} />
+    <TableToolButton className={pileIds.length ? "is-danger" : ""} icon={removeIcon} label={pileIds.length ? pileIds.length > 1 ? "Delete Sequences" : "Delete Sequence" : "Remove from Table"} text={pileIds.length ? "Delete" : "Remove"} disabled={!actions.canRemove} onClick={() => pileIds.length ? onRemovePiles(pileIds) : onRemovePhotos(photoIds)} />
     {photoIds.length > 0 && <>
-      {memberGroup && <TableToolButton icon={leaveGroupIcon} label="Leave Group" title="Remove only this photo from its group" onClick={() => onExecute({ type: "remove-from-group", photoId: photoIds[0] })} />}
-      {actions.canJoinGroup && <label className="table-tool-select"><img src={addToGroupIcon} alt="" /><select aria-label="Add to Group" value="" onChange={(event) => { if (event.target.value) onExecute({ type: "add-to-group", groupId: event.target.value, photoId: photoIds[0] }); }}><option value="">Add to Group ▾</option>{draft.groups.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>}
+      {memberGroup && <TableToolButton icon={leaveGroupIcon} label="Leave Group" text="Leave" title="Remove only this photo from its group" onClick={() => onExecute({ type: "remove-from-group", photoId: photoIds[0] })} />}
+      {actions.canJoinGroup && <label className="table-tool-select"><img src={addToGroupIcon} alt="" /><select aria-label="Add to Group" value="" onChange={(event) => { if (event.target.value) onExecute({ type: "add-to-group", groupId: event.target.value, photoId: photoIds[0] }); }}><option value="">Add Group ▾</option>{draft.groups.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>}
       {!selectedLink && actions.matchingLinks.length > 1 && <label className="table-tool-select"><img src={linkIcon} alt="" /><select aria-label="Unlink relation" value="" onChange={(event) => { if (event.target.value) onExecute({ type: "remove-link", linkId: event.target.value }); }}><option value="">Unlink… ▾</option>{actions.matchingLinks.map((item) => <option key={item.id} value={item.id}>{item.name} · {item.photoIds.length} photos</option>)}</select></label>}
     </>}
     <TableToolButton icon={frontIcon} label="Front" disabled={!actions.canBringToFront} onClick={() => onExecute(pileIds.length ? { type: "bring-sequence-piles-to-front", sequenceIds: pileIds } : { type: "bring-to-front", photoIds })} />
-    <span className="table-selection-summary">{pileIds.length ? `${pileIds.length} piles selected` : `${photoIds.length} selected`}</span>
-    <button type="button" className="table-clear-selection" onClick={onClearSelection}>Clear</button>
+    <span className="table-selection-summary">{pileIds.length ? `${pileIds.length} sequence${pileIds.length === 1 ? "" : "s"}` : `${photoIds.length} photo${photoIds.length === 1 ? "" : "s"}`}</span>
   </div></div>;
 }
 
-function TableToolButton({ icon, label, iconOnly = false, className = "", title, ...props }: { icon: string; label: string; iconOnly?: boolean } & Omit<ButtonHTMLAttributes<HTMLButtonElement>, "children">) {
-  return <button type="button" className={`table-tool-button${iconOnly ? " is-icon-only" : ""}${className ? ` ${className}` : ""}`} aria-label={label} title={title ?? (iconOnly ? label : undefined)} {...props}><img src={icon} alt="" />{!iconOnly && <span>{label}</span>}</button>;
+function TableToolButton({ icon, label, text = label, iconOnly = false, className = "", title, ...props }: { icon: string; label: string; text?: string; iconOnly?: boolean } & Omit<ButtonHTMLAttributes<HTMLButtonElement>, "children">) {
+  return <button type="button" className={`table-tool-button${iconOnly ? " is-icon-only" : ""}${className ? ` ${className}` : ""}`} aria-label={label} title={title ?? (iconOnly ? label : undefined)} {...props}><img src={icon} alt="" />{!iconOnly && <span>{text}</span>}</button>;
 }

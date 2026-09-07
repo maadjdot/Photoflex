@@ -11,6 +11,7 @@ import { PROJECT_ID, PROJECT_INPUT, VERSION } from "../helpers/fixtures";
 interface StorePair {
   readonly first: ProjectStore;
   readonly second: ProjectStore;
+  corruptSequence(sequenceId: SequenceId): Promise<void>;
   dispose(): Promise<void>;
 }
 
@@ -32,6 +33,9 @@ const implementations: ReadonlyArray<{
       return {
         first: new MemoryProjectStore(database),
         second: new MemoryProjectStore(database),
+        async corruptSequence(sequenceId) {
+          database.sequences.set(sequenceId, { id: sequenceId, projectId: PROJECT_ID, name: "Broken", items: null } as unknown as SequenceDocument);
+        },
         async dispose() {},
       };
     },
@@ -45,6 +49,22 @@ const implementations: ReadonlyArray<{
       return {
         first,
         second,
+        async corruptSequence(sequenceId) {
+          await first.loadWorkspace(PROJECT_ID);
+          const opened = await new Promise<IDBDatabase>((resolve, reject) => {
+            const request = indexedDB.open(databaseName);
+            request.onsuccess = () => resolve(request.result);
+            request.onerror = () => reject(request.error);
+          });
+          const transaction = opened.transaction("sequences", "readwrite");
+          transaction.objectStore("sequences").put({ id: sequenceId, projectId: PROJECT_ID, name: "Broken", items: null });
+          await new Promise<void>((resolve, reject) => {
+            transaction.oncomplete = () => resolve();
+            transaction.onabort = () => reject(transaction.error);
+            transaction.onerror = () => reject(transaction.error);
+          });
+          opened.close();
+        },
         async dispose() {
           await first.close();
           await second.close();
@@ -171,6 +191,17 @@ for (const implementation of implementations) {
       if (!latest.ok) throw new Error("删除后工作区未读取");
       const recreated = await stores.first.createSequence(PROJECT_ID, latest.value.revision, { ...sequence, currentVersionId: "version-delete-2" as VersionId }, { ...version, id: "version-delete-2" as VersionId }, table);
       expect(recreated.ok).toBe(true);
+    });
+
+    it("拒绝把损坏的 Sequence 记录返回给调用方", async () => {
+      await stores.first.createProject(PROJECT_INPUT);
+      const sequenceId = "corrupt-sequence" as SequenceId;
+      await stores.corruptSequence(sequenceId);
+
+      expect(await stores.first.loadSequence(sequenceId)).toEqual({
+        ok: false,
+        error: { kind: "corrupt-data", entityId: sequenceId },
+      });
     });
   });
 }

@@ -20,7 +20,7 @@ test("M2.1 Contact Sheet 提供 Place on Table，并移除 Pool 栏", async ({ p
     const transaction = database.transaction(storeNames, "readwrite");
     storeNames.forEach((name) => transaction.objectStore(name).clear());
     transaction.objectStore("projects").put({
-      schemaVersion: 6,
+      schemaVersion: 7,
       projectId,
       name: projectName,
       memo: "",
@@ -190,7 +190,11 @@ test("M2.1 Contact Sheet 提供 Place on Table，并移除 Pool 栏", async ({ p
   await expect(finalCards).toHaveCount(3);
   await finalCards.nth(0).click();
   await finalCards.nth(1).click({ modifiers: ["Control"] });
-  await expect(page.getByRole("group", { name: "Table selection actions" })).toBeVisible();
+  const selectionToolbar = page.getByRole("group", { name: "Table selection actions" });
+  await expect(selectionToolbar).toBeVisible();
+  expect(await selectionToolbar.evaluate((element) => getComputedStyle(element).flexWrap)).toBe("nowrap");
+  await expect(selectionToolbar.getByRole("button", { name: "Clear" })).toHaveCount(0);
+  await expect(selectionToolbar.getByRole("button", { name: "Create Sequence" })).toHaveText("Sequence");
   const finalSourcePhotos = page.locator(".table-source-photo");
   await expect(finalSourcePhotos.nth(3)).toBeVisible();
   await finalSourcePhotos.nth(3).click();

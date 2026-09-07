@@ -1,12 +1,13 @@
 // @vitest-environment jsdom
 
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { PhotoId, PhotoRef, ProjectId, SourceId } from "../contracts";
+import { ok, type PhotoId, type PhotoRef, type ProjectId, type SourceId } from "../contracts";
 import { MemoryPhotoSource } from "../platform/memory/MemoryPhotoSource";
 import { MemoryProjectStore } from "../platform/memory/MemoryProjectStore";
 import { App } from "./App";
 import { VirtualPhotoGrid } from "./M1App";
+import { startSharedScan } from "./ProjectSourceMonitor";
 
 class TestResizeObserver {
   observe() {}
@@ -311,5 +312,85 @@ describe("VirtualPhotoGrid", () => {
     act(() => { dialog.dispatchEvent(wheel); });
     expect(wheel.defaultPrevented).toBe(true);
     expect(screen.getByText("116%")).toBeTruthy();
+  });
+
+  it("从 Table preview 移除当前唯一照片时关闭预览且页面保持可用", async () => {
+    vi.stubGlobal("ResizeObserver", TestResizeObserver);
+    const projectId = "project-table-preview-remove" as ProjectId;
+    const sourceId = "source-table-preview-remove" as SourceId;
+    const photo: PhotoRef = {
+      id: "table-preview-photo" as PhotoId,
+      sourceId,
+      relativePath: "remove-me.jpg",
+      width: 1200,
+      height: 800,
+    };
+    const projectStore = new MemoryProjectStore();
+    await projectStore.createProject({
+      id: projectId,
+      name: "Table preview remove",
+      createdAt: "2026-09-07T00:00:00.000Z",
+      initialSource: { id: sourceId, displayName: "Photos", createdAt: "2026-09-07T00:00:00.000Z" },
+    });
+    const photoSource = new MemoryPhotoSource([{
+      grant: { sourceId, displayName: "Photos", status: "ready", restored: false },
+      photos: [photo],
+      previewUrls: { [photo.id]: "memory:remove-me" } as Record<PhotoId, string>,
+    }]);
+    window.location.hash = `#/projects/${projectId}/sources/${sourceId}`;
+
+    render(<App dependencies={{ projectStore, photoSource }} />);
+    fireEvent.click(await screen.findByLabelText(/remove-me\.jpg，未选择/));
+    fireEvent.click(screen.getByRole("button", { name: "Place on Table" }));
+    const tablePreview = screen.getByLabelText("Table preview");
+    fireEvent.click(await within(tablePreview).findByRole("button", { name: /remove-me\.jpg/ }));
+    expect(await screen.findByRole("dialog", { name: "Full Size Preview" })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Remove from Table" }));
+
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Full Size Preview" })).toBeNull());
+    expect(within(tablePreview).getByText("Place selected photographs here, then arrange them on Table.")).toBeTruthy();
+  });
+
+  it("照片数量不变的重扫也会刷新 Contact Sheet 元数据和缩略图", async () => {
+    vi.stubGlobal("ResizeObserver", TestResizeObserver);
+    const projectId = "project-same-count-rescan" as ProjectId;
+    const sourceId = "source-same-count-rescan" as SourceId;
+    const photoId = "same-count-photo" as PhotoId;
+    const before: PhotoRef = { id: photoId, sourceId, relativePath: "before.jpg", width: 1200, height: 800, fileLastModified: 1 };
+    const after: PhotoRef = { ...before, relativePath: "after.jpg", fileLastModified: 2 };
+    const projectStore = new MemoryProjectStore();
+    await projectStore.createProject({
+      id: projectId,
+      name: "Same count rescan",
+      createdAt: "2026-09-07T00:00:00.000Z",
+      initialSource: { id: sourceId, displayName: "Photos", createdAt: "2026-09-07T00:00:00.000Z" },
+    });
+    const photoSource = new MemoryPhotoSource([{
+      grant: { sourceId, displayName: "Photos", status: "ready", restored: false },
+      photos: [before],
+      previewUrls: { [photoId]: "memory:before" } as Record<PhotoId, string>,
+    }]);
+    let refreshed = false;
+    let scanAttempts = 0;
+    vi.spyOn(photoSource, "listPhotos").mockImplementation(async () => ok({ items: [refreshed ? after : before], nextCursor: null, issues: [] }));
+    vi.spyOn(photoSource, "thumbnail").mockImplementation(async () => ok({ url: refreshed ? "memory:after" : "memory:before", release() {} }));
+    vi.spyOn(photoSource, "scan").mockImplementation(async function* () {
+      scanAttempts += 1;
+      yield ok({ kind: "progress", state: { sourceId, status: "loading", discoveredCount: 1, indexedCount: 0, skippedCount: 0, failedCount: 0, scanRevision: scanAttempts } });
+      if (scanAttempts === 2) refreshed = true;
+      yield ok({ kind: "completed", state: { sourceId, status: "ready", discoveredCount: 1, indexedCount: 1, skippedCount: 0, failedCount: 0, scanRevision: scanAttempts } });
+    });
+    window.location.hash = `#/projects/${projectId}/sources/${sourceId}`;
+
+    const view = render(<App dependencies={{ projectStore, photoSource }} />);
+    expect(await screen.findByLabelText(/before\.jpg，未选择/)).toBeTruthy();
+    await waitFor(() => expect(view.container.querySelector<HTMLImageElement>('img[src="memory:before"]')).toBeTruthy());
+    await waitFor(() => expect(scanAttempts).toBe(1));
+
+    startSharedScan(photoSource, sourceId);
+
+    expect(await screen.findByLabelText(/after\.jpg，未选择/)).toBeTruthy();
+    await waitFor(() => expect(view.container.querySelector<HTMLImageElement>('img[src="memory:after"]')).toBeTruthy());
   });
 });

@@ -32,6 +32,7 @@ import {
   clone,
   createBackup,
   createWorkspace,
+  isSequenceDocument,
   isWorkspace,
   toProjectSummary,
   toVersionSummary,
@@ -263,7 +264,10 @@ export class MemoryProjectStore implements ProjectStore {
   async loadSequence(sequenceId: SequenceId): Promise<Result<SequenceDocument, LoadError>> {
     if (this.options.unavailable) return err({ kind: "unavailable", retryable: true });
     const sequence = this.database.sequences.get(sequenceId);
-    return sequence ? ok(clone(sequence)) : err({ kind: "not-found", entity: "sequence", id: sequenceId });
+    if (!sequence) return err({ kind: "not-found", entity: "sequence", id: sequenceId });
+    return isSequenceDocument(sequence)
+      ? ok(clone(sequence))
+      : err({ kind: "corrupt-data", entityId: sequenceId });
   }
 
   async saveSequence(

@@ -94,6 +94,7 @@ const transactionResult = (transaction: IDBTransaction): Promise<void> =>
 const initialState = (sourceId: SourceId, status: SourceRuntimeState["status"]): SourceRuntimeState => ({
   sourceId,
   status,
+  scanRevision: 0,
   discoveredCount: 0,
   indexedCount: 0,
   skippedCount: 0,
@@ -289,9 +290,11 @@ export class BrowserPhotoSource implements PhotoSource {
 
     const existing = await this.readSourcePhotos(opened.value, sourceId);
     const byPath = new Map(existing.map((photo) => [photo.relativePath, photo]));
+    const previousState = this.states.get(sourceId) ?? initialState(sourceId, "ready");
     let state: SourceRuntimeState = {
-      ...(this.states.get(sourceId) ?? initialState(sourceId, "ready")),
+      ...previousState,
       status: "loading" as const,
+      scanRevision: (previousState.scanRevision ?? 0) + 1,
       discoveredCount: 0,
       indexedCount: 0,
       skippedCount: 0,

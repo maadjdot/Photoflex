@@ -21,6 +21,7 @@ import type { AppDependencies } from "./dependencies";
 import { createWorktableEditor } from "../modules/worktable";
 
 export type CoordinatorPausedError = { readonly kind: "writes-paused" };
+export type ProjectWriteScope = { readonly kind: "workspace" } | { readonly kind: "sequence"; readonly sequenceId: SequenceId };
 export type CoordinatorWorkspaceError = SaveError | { readonly kind: "workspace-not-ready" } | CoordinatorPausedError;
 export type CoordinatorWorkspaceResult = Result<ProjectWorkspace, CoordinatorWorkspaceError | CoordinatorPausedError>;
 export type WorktableUpdate = WorktableDraft | ((current: WorktableDraft) => WorktableDraft);
@@ -53,7 +54,15 @@ export interface SequenceWriteResult {
   readonly worktableDraft?: WorktableDraft;
 }
 
-export interface ProjectWriteCoordinator {
+/** Persistence capabilities required by one Sequence editing session. */
+export interface SequenceWritePort {
+  loadSequence(sequenceId: SequenceId): ReturnType<AppDependencies["projectStore"]["loadSequence"]>;
+  saveSequenceDraft(sequence: SequenceDocument): Promise<Result<SequenceWriteResult, LoadError | SequenceWriteError | CoordinatorPausedError>>;
+  retrySequence(sequenceId: SequenceId): Promise<boolean>;
+  flushSequence(sequenceId: SequenceId): Promise<Result<ProjectWorkspace, CoordinatorWorkspaceError | CoordinatorPausedError>>;
+}
+
+export interface ProjectWriteCoordinator extends SequenceWritePort {
   readonly projectId: ProjectId;
   getSnapshot(): ProjectWriteSnapshot;
   subscribe(listener: () => void): () => void;
@@ -66,15 +75,13 @@ export interface ProjectWriteCoordinator {
   createSequenceBundle(input: CreateSequenceBundleInput): Promise<Result<SequenceWriteResult, SequenceWriteError | WorktableCommandError | CoordinatorWorkspaceError | CoordinatorPausedError>>;
   deleteSequences(sequenceIds: readonly SequenceId[], worktableDraft: WorktableDraft): Promise<Result<ProjectWorkspace, CoordinatorWorkspaceError | CoordinatorPausedError>>;
   listSequences(): ReturnType<AppDependencies["projectStore"]["listSequences"]>;
-  loadSequence(sequenceId: SequenceId): ReturnType<AppDependencies["projectStore"]["loadSequence"]>;
   loadVersion(versionId: SequenceVersion["id"]): ReturnType<AppDependencies["projectStore"]["loadVersion"]>;
   listVersions(): ReturnType<AppDependencies["projectStore"]["listVersions"]>;
-  saveSequenceDraft(sequence: SequenceDocument): Promise<Result<SequenceWriteResult, LoadError | SequenceWriteError | CoordinatorPausedError>>;
   editSequence<EditError>(
     sequenceId: SequenceId,
     update: (current: SequenceDocument) => SequenceDocument | Result<SequenceDocument, EditError>,
   ): Promise<Result<SequenceWriteResult, LoadError | SequenceWriteError | EditError | CoordinatorPausedError>>;
-  retry(): Promise<boolean>;
+  retry(scope?: ProjectWriteScope): Promise<boolean>;
   flush(): Promise<Result<ProjectWorkspace, CoordinatorWorkspaceError | CoordinatorPausedError>>;
 }
 
@@ -92,10 +99,10 @@ export class ProjectWriteCoordinatorImpl implements ProjectWriteCoordinator {
   private loadGeneration = 0;
   private active = true;
   private pendingWrites = 0;
-  private paused = false;
-  private retryTask?: () => Promise<unknown>;
+  private readonly pausedScopes = new Set<string>();
+  private readonly retryTasks = new Map<string, { readonly scope: ProjectWriteScope; readonly run: () => Promise<unknown> }>();
   private latestWorktableDraft?: WorktableDraft;
-  private latestSequenceDraft?: SequenceDocument;
+  private readonly latestSequenceDrafts = new Map<SequenceId, SequenceDocument>();
 
   constructor(dependencies: AppDependencies, projectId: ProjectId) {
     this.dependencies = dependencies;
@@ -112,6 +119,8 @@ export class ProjectWriteCoordinatorImpl implements ProjectWriteCoordinator {
     this.listVersions = this.listVersions.bind(this);
     this.saveSequenceDraft = this.saveSequenceDraft.bind(this);
     this.editSequence = this.editSequence.bind(this);
+    this.retrySequence = this.retrySequence.bind(this);
+    this.flushSequence = this.flushSequence.bind(this);
     this.flush = this.flush.bind(this);
   }
 
@@ -132,8 +141,9 @@ export class ProjectWriteCoordinatorImpl implements ProjectWriteCoordinator {
     const generation = ++this.loadGeneration;
     this.active = true;
     this.workspace = undefined;
-    this.paused = false;
-    this.retryTask = undefined;
+    this.pausedScopes.clear();
+    this.retryTasks.clear();
+    this.latestSequenceDrafts.clear();
     this.updateSnapshot({ loading: true, workspace: undefined, error: undefined, saving: false, writeState: "idle" });
     const result = await this.dependencies.projectStore.loadWorkspace(this.projectId);
     if (!this.active || generation !== this.loadGeneration) return;
@@ -277,8 +287,12 @@ export class ProjectWriteCoordinatorImpl implements ProjectWriteCoordinator {
   }
 
   saveSequenceDraft(sequence: SequenceDocument): Promise<Result<SequenceWriteResult, LoadError | SequenceWriteError | CoordinatorPausedError>> {
-    this.latestSequenceDraft = sequence;
-    return this.enqueue(() => this.performSequenceSave(sequence), () => this.performSequenceSave(this.latestSequenceDraft ?? sequence));
+    this.latestSequenceDrafts.set(sequence.id, sequence);
+    return this.enqueue(
+      () => this.performSequenceSave(sequence),
+      () => this.performSequenceSave(this.latestSequenceDrafts.get(sequence.id) ?? sequence),
+      { kind: "sequence", sequenceId: sequence.id },
+    );
   }
 
   private async performSequenceSave(sequence: SequenceDocument): Promise<Result<SequenceWriteResult, LoadError | SequenceWriteError | CoordinatorPausedError>> {
@@ -304,23 +318,37 @@ export class ProjectWriteCoordinatorImpl implements ProjectWriteCoordinator {
       const result = await this.dependencies.projectStore.saveSequence(document, loaded.value.revision);
       if (!result.ok) return result;
       return ok({ sequence: { ...document, revision: result.value.revision }, summary: result.value.summary });
-    });
+    }, undefined, { kind: "sequence", sequenceId });
   }
 
-  async retry(): Promise<boolean> {
-    const task = this.retryTask;
-    if (!task) return false;
-    this.retryTask = undefined;
-    this.paused = false;
-    const result = await this.enqueue(task);
+  async retry(scope?: ProjectWriteScope): Promise<boolean> {
+    const retryTask = scope ? this.retryTasks.get(writeScopeKey(scope)) : lastMapValue(this.retryTasks);
+    if (!retryTask) return false;
+    const scopeKey = writeScopeKey(retryTask.scope);
+    this.retryTasks.delete(scopeKey);
+    this.pausedScopes.delete(scopeKey);
+    this.refreshWriteSnapshot();
+    const result = await this.enqueue(retryTask.run, retryTask.run, retryTask.scope);
     return !isResult(result) || result.ok;
   }
 
+  retrySequence(sequenceId: SequenceId) {
+    return this.retry({ kind: "sequence", sequenceId });
+  }
+
   flush(): Promise<CoordinatorWorkspaceResult> {
+    return this.flushScope({ kind: "workspace" });
+  }
+
+  flushSequence(sequenceId: SequenceId): Promise<CoordinatorWorkspaceResult> {
+    return this.flushScope({ kind: "sequence", sequenceId });
+  }
+
+  private flushScope(scope: ProjectWriteScope): Promise<CoordinatorWorkspaceResult> {
     return this.enqueue(async () => {
       const current = this.currentWorkspace();
       return current ? ok(current) : err({ kind: "workspace-not-ready" });
-    });
+    }, undefined, scope);
   }
 
   private currentWorkspace() {
@@ -330,7 +358,13 @@ export class ProjectWriteCoordinatorImpl implements ProjectWriteCoordinator {
   private commitWorkspace(workspace: ProjectWorkspace) {
     if (!this.active) return;
     this.workspace = workspace;
-      this.updateSnapshot({ workspace, loading: false, error: undefined, saving: false, writeState: this.paused ? "failed" : "idle" });
+    this.updateSnapshot({
+      workspace,
+      loading: false,
+      error: undefined,
+      saving: this.pendingWrites > 0,
+      writeState: this.workspaceWriteState(),
+    });
   }
 
   private updateSnapshot(next: ProjectWriteSnapshot) {
@@ -338,30 +372,65 @@ export class ProjectWriteCoordinatorImpl implements ProjectWriteCoordinator {
     this.listeners.forEach((listener) => listener());
   }
 
-  private enqueue<T>(task: () => Promise<T>, retryTask: () => Promise<unknown> = task): Promise<T> {
+  private enqueue<T>(
+    task: () => Promise<T>,
+    retryTask: (() => Promise<unknown>) | undefined = task,
+    scope: ProjectWriteScope = { kind: "workspace" },
+  ): Promise<T> {
+    const scopeKey = writeScopeKey(scope);
     this.pendingWrites += 1;
-    this.updateSnapshot({ ...this.snapshot, saving: true, writeState: "saving" });
-    if (this.paused) {
+    this.refreshWriteSnapshot();
+    if (this.pausedScopes.has(scopeKey)) {
       this.pendingWrites = Math.max(0, this.pendingWrites - 1);
-      this.updateSnapshot({ ...this.snapshot, saving: this.pendingWrites > 0, writeState: "failed" });
+      this.refreshWriteSnapshot();
       return Promise.resolve(err({ kind: "writes-paused" } as const) as T);
     }
-    const run = () => this.paused ? Promise.resolve(err({ kind: "writes-paused" } as const) as T) : task();
+    const run = async () => {
+      if (this.pausedScopes.has(scopeKey)) return err({ kind: "writes-paused" } as const) as T;
+      const result = await task();
+      if (isResult(result) && !result.ok && shouldPause(result.error)) {
+        this.pausedScopes.add(scopeKey);
+        this.retryTasks.set(scopeKey, { scope, run: retryTask });
+        this.reportWriteFailure(scope, result.error);
+      }
+      return result;
+    };
     const pending = this.queue.then(run, run);
     this.queue = pending.then(() => undefined, () => undefined);
-    void pending.then((result) => {
-      if (isResult(result) && !result.ok && shouldPause(result.error)) {
-        this.paused = true;
-        this.retryTask = retryTask;
-        this.updateSnapshot({ ...this.snapshot, saving: this.pendingWrites > 1, writeState: "failed" });
-      }
+    void pending.then(() => {
       this.pendingWrites = Math.max(0, this.pendingWrites - 1);
-      this.updateSnapshot({ ...this.snapshot, saving: this.pendingWrites > 0, writeState: this.paused ? "failed" : this.pendingWrites > 0 ? "saving" : "idle" });
+      this.refreshWriteSnapshot();
     }, () => {
       this.pendingWrites = Math.max(0, this.pendingWrites - 1);
-      this.updateSnapshot({ ...this.snapshot, saving: this.pendingWrites > 0, writeState: this.paused ? "failed" : this.pendingWrites > 0 ? "saving" : "idle" });
+      this.refreshWriteSnapshot();
     });
     return pending;
+  }
+
+  private refreshWriteSnapshot() {
+    this.updateSnapshot({
+      ...this.snapshot,
+      saving: this.pendingWrites > 0,
+      writeState: this.workspaceWriteState(),
+    });
+  }
+
+  private workspaceWriteState(): ProjectWriteSnapshot["writeState"] {
+    if (this.pausedScopes.has(writeScopeKey({ kind: "workspace" }))) return "failed";
+    return this.pendingWrites > 0 ? "saving" : "idle";
+  }
+
+  private reportWriteFailure(scope: ProjectWriteScope, error: unknown) {
+    const errorKind = error && typeof error === "object" && "kind" in error ? String(error.kind) : "unknown";
+    const sequenceRevision = scope.kind === "sequence" ? this.latestSequenceDrafts.get(scope.sequenceId)?.revision : undefined;
+    this.dependencies.diagnostics?.report({
+      name: "write-failure",
+      projectId: this.projectId,
+      scope: writeScopeKey(scope),
+      workspaceRevision: this.workspace?.revision,
+      ...(sequenceRevision === undefined ? {} : { sequenceRevision }),
+      errorKind,
+    });
   }
 }
 
@@ -372,6 +441,16 @@ function isResult<T>(value: T | Result<T, unknown>): value is Result<T, unknown>
 function shouldPause(error: unknown): boolean {
   if (!error || typeof error !== "object" || !("kind" in error)) return false;
   return ["conflict", "sequence-conflict", "quota-exceeded", "unavailable", "unsupported-storage-schema", "migration-failed", "not-found"].includes(String(error.kind));
+}
+
+function writeScopeKey(scope: ProjectWriteScope) {
+  return scope.kind === "workspace" ? "workspace" : `sequence:${scope.sequenceId}`;
+}
+
+function lastMapValue<K, V>(values: Map<K, V>): V | undefined {
+  let last: V | undefined;
+  values.forEach((value) => { last = value; });
+  return last;
 }
 
 export function createProjectWriteCoordinator(dependencies: AppDependencies, projectId: ProjectId) {

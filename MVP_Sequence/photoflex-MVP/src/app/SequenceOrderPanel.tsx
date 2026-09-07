@@ -8,11 +8,11 @@ import { calculateSequenceStripVirtualRange, sequenceStripInsertionIndex, TABLE_
 import type { AppDependencies } from "./dependencies";
 import type { AppRoute } from "./router";
 import { PhotoThumb } from "./PhotoThumb";
-import type { ProjectWriteCoordinator } from "./projectWriteCoordinator";
+import type { SequenceWritePort } from "./projectWriteCoordinator";
 import { useSequenceSession } from "./sequenceSession";
 
 interface SequenceOrderPanelProps {
-  readonly coordinator: ProjectWriteCoordinator;
+  readonly persistence: SequenceWritePort;
   readonly dependencies: AppDependencies;
   readonly projectId: ProjectId;
   readonly sequenceId?: SequenceId;
@@ -36,8 +36,8 @@ function EmptySequenceOrderPanel() {
   return <section className={`sequence-strip${collapsed ? " is-collapsed" : " is-empty"}`} aria-label="Sequence Order"><header><button className="sequence-strip-heading" aria-label={collapsed ? "Expand Sequence Order" : "Collapse Sequence Order"} onClick={() => setCollapsed((value) => !value)}><strong>Sequence Order</strong><img src={chevronIcon} alt="" /></button><span>Select one Sequence Pile</span></header></section>;
 }
 
-function ActiveSequenceOrderPanel({ coordinator, dependencies, projectId, sequenceId, navigate, onPhotoError, onNotice, onItemCountChange }: SequenceOrderPanelProps & { readonly sequenceId: SequenceId }) {
-  const sequenceSession = useSequenceSession(coordinator, projectId, sequenceId);
+function ActiveSequenceOrderPanel({ persistence, dependencies, projectId, sequenceId, navigate, onPhotoError, onNotice, onItemCountChange }: SequenceOrderPanelProps & { readonly sequenceId: SequenceId }) {
+  const sequenceSession = useSequenceSession(persistence, projectId, sequenceId);
   const { sequence, execute } = sequenceSession;
   const [collapsed, setCollapsed] = useState(false);
   const [dragId, setDragId] = useState<SequenceItemId>();

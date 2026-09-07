@@ -31,6 +31,7 @@ export class MemoryPhotoSource implements PhotoSource {
       this.states.set(fixture.grant.sourceId, {
         sourceId: fixture.grant.sourceId,
         status: fixture.grant.status,
+        scanRevision: 0,
         discoveredCount: photos.length,
         indexedCount: photos.length,
         skippedCount: 0,
@@ -54,7 +55,7 @@ export class MemoryPhotoSource implements PhotoSource {
   }
 
   async removeSource(sourceId: SourceId): Promise<Result<RemovedSourceData, SourceError>> {
-    if (!this.states.has(sourceId)) return err({ kind: "source-not-found", sourceId });
+    if (!this.states.has(sourceId)) return ok({ photoIds: [] });
     const fixture = this.fixtures.find(({ grant }) => grant.sourceId === sourceId);
     this.states.delete(sourceId);
     this.removedSourceIds.add(sourceId);
@@ -74,6 +75,7 @@ export class MemoryPhotoSource implements PhotoSource {
     const state = {
       sourceId,
       status: "loading" as const,
+      scanRevision: (this.states.get(sourceId)?.scanRevision ?? 0) + 1,
       discoveredCount: photos.length,
       indexedCount: 0,
       skippedCount: 0,
