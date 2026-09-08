@@ -22,6 +22,7 @@ import { useProjectWorkspaceSession } from "./useProjectWorkspace";
 import { useSequenceSession } from "./sequenceSession";
 import { useSequenceReorderDrag } from "./useSequenceReorderDrag";
 import { SequenceReadMode, warmSequenceReadAt } from "./SequenceReadMode";
+import { SequencePdfExportButton } from "./SequencePdfExportButton";
 
 const ZOOM_LEVELS = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2] as const;
 interface SegmentDialog { mode: "create" | "rename"; value: string; segmentId?: SequenceSegmentId }
@@ -317,6 +318,7 @@ export function SequencePage({ dependencies, projectId, sequenceId, openVersionI
         <SequenceToolButton icon={redoIcon} label="Redo" disabled={!canRedo} onClick={() => history("redo")} />
         <SequenceToolButton icon={segmentIcon} label="Segment" disabled={!orderedSelection.length} onClick={openSegmentDialog} />
         <SequenceToolButton icon={previewIcon} label="Read" disabled={!sequence.readingUnits.length} onPointerEnter={() => warmReadAt(orderedSelection[0] ? readUnitForItem(orderedSelection[0].id) : 0)} onFocus={() => warmReadAt(orderedSelection[0] ? readUnitForItem(orderedSelection[0].id) : 0)} onClick={() => openRead(orderedSelection[0] ? readUnitForItem(orderedSelection[0].id) : 0)} />
+        <SequencePdfExportButton key={sequence.id} sequence={sequence} photoSource={dependencies.photoSource} />
         <SequenceToolButton icon={fitIcon} label="Fit Sequence" onClick={fitSequence} />
         <SequenceToolButton icon={sequenceIcon} label="Create New Sequence" disabled={!sequenceChanged || saveState === "saving"} onClick={requestNewSequence} />
         <SequenceToolButton className="sequence-compare-button" icon={compareIcon} label="Compare" disabled={!workspace || tableSequences.length < 2} onClick={openSequenceCompareDialog} />
@@ -349,7 +351,7 @@ export function SequencePage({ dependencies, projectId, sequenceId, openVersionI
 }
 
 function SequenceToolButton({ icon, label, className = "", ...props }: { icon: string; label: string } & Omit<ButtonHTMLAttributes<HTMLButtonElement>, "children">) {
-  return <button className={`table-tool-button sequence-tool-button${className ? ` ${className}` : ""}`} {...props}><img src={icon} alt="" /><span>{label}</span></button>;
+  return <button aria-label={label} title={label} className={`table-tool-button sequence-tool-button${className ? ` ${className}` : ""}`} {...props}><img src={icon} alt="" /><span>{label}</span></button>;
 }
 
 function SequenceCard({ item, index, visible, selected, dropBefore, segment, dependencies, missing, onPointerDown, onPointerMove, onPointerUp, onPointerCancel, onDoubleClick, onPhotoError }: { item: SequenceItem; index: number; visible: boolean; selected: boolean; dropBefore: boolean; segment?: SequenceSegment; dependencies: AppDependencies; missing: boolean; onPointerDown: (event: ReactPointerEvent<HTMLElement>) => void; onPointerMove: (event: ReactPointerEvent<HTMLElement>) => void; onPointerUp: (event: ReactPointerEvent<HTMLElement>) => void; onPointerCancel: () => void; onDoubleClick: () => void; onPhotoError: (id: PhotoId) => void }) {

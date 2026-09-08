@@ -29,3 +29,5 @@ corepack pnpm bench
 `test:e2e` 同时使用本机 Chrome 与 Edge。`bench` 覆盖 500 项 Sequence、10,000 张 Table 和 200×500 完整版本快照；结果是本机趋势基线，不作为固定 CI 时间阈值。当前数据见 [质量与性能基线](./docs/QUALITY_BASELINE.md)。
 
 架构与持久化约束见 [系统架构方案](./docs/PhotoFlex%20MVP%20系统架构方案.md) 和 [ADR-002](./docs/ADR-002-本地持久化并发事务与迁移.md)。
+
+Sequence 页面可从 Read 旁的 `Export PDF` 导出白底照片阅读稿，保留双页和空白页；模块划分与输出规则见 [Sequence PDF 导出](./docs/Sequence_PDF_Export.md)。

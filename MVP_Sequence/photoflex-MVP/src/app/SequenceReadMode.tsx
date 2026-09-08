@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { PhotoId, PhotoState, ReadingUnit, SequenceDocument, SequenceItem, SequenceItemId } from "../contracts";
-import { createSequenceLookup, type SequenceLookup } from "../modules/sequence";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import type { PhotoId, PhotoState, ReadingUnit, SequenceDocument, SequenceItem } from "../contracts";
+import { createSequenceLookup, readingPaperLayout, readingUnitItemIds as unitItemIds, READING_PHOTO_INSET, type SequenceLookup } from "../modules/sequence";
 import { PhotoThumb } from "./PhotoThumb";
 import { useDialogKeyboard } from "./AppPrimitives";
 import type { AppDependencies } from "./dependencies";
@@ -31,6 +31,12 @@ export function SequenceReadMode({ sequence, initialIndex, photoSource, pinned, 
   const [index, setIndex] = useState(Math.max(0, Math.min(sequence.readingUnits.length - 1, initialIndex)));
   const [background, setBackground] = useState<"dark" | "light">("dark");
   const [controls, setControls] = useState(true);
+  const [viewport, setViewport] = useState({ width: window.innerWidth, height: window.innerHeight });
+  useEffect(() => {
+    const resize = () => setViewport({ width: window.innerWidth, height: window.innerHeight });
+    window.addEventListener("resize", resize);
+    return () => window.removeEventListener("resize", resize);
+  }, []);
   const timer = useRef<number | undefined>(undefined);
   const rootRef = useRef<HTMLElement>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
@@ -81,17 +87,15 @@ export function SequenceReadMode({ sequence, initialIndex, photoSource, pinned, 
   const unit = sequence.readingUnits[index];
   if (!unit) return null;
   const items = unitItemIds(unit).map((id) => lookup.itemById.get(id)).filter((item): item is SequenceItem => Boolean(item));
+  const layout = readingPaperLayout(viewport, items.length);
+  const paperStyle = { width: layout.width, height: layout.height, gap: layout.gap, "--reading-photo-size": `${(1 - READING_PHOTO_INSET * 2) * 100}%` } as CSSProperties;
   return <section ref={rootRef} className={`sequence-read is-${background}${controls ? " has-controls" : ""}`} role="dialog" aria-modal="true" aria-label={`Read ${sequence.name}`} onMouseMove={reveal}>
-    <div className="sequence-read-pages">{items.map((item) => <article key={item.id} className="sequence-read-page">{item.kind === "photo" ? <PhotoThumb resolution="read" eager photoSource={photoSource} photoId={item.photoId} alt="Sequence reading photograph" onError={onPhotoError} /> : null}{controls && item.kind === "photo" && <button className="sequence-read-pin" onClick={() => onTogglePin(item.photoId)}>{pinned[item.photoId]?.pinned ? "Unpin" : "Pin"}</button>}</article>)}</div>
+    <div className="sequence-read-pages" style={paperStyle}>{items.map((item) => <article key={item.id} className="sequence-read-page">{item.kind === "photo" ? <PhotoThumb resolution="read" eager photoSource={photoSource} photoId={item.photoId} alt="Sequence reading photograph" onError={onPhotoError} /> : null}{controls && item.kind === "photo" && <button className="sequence-read-pin" onClick={() => onTogglePin(item.photoId)}>{pinned[item.photoId]?.pinned ? "Unpin" : "Pin"}</button>}</article>)}</div>
     <button className="sequence-read-zone is-left" disabled={index === 0} aria-label="Previous Reading Unit" onClick={() => setIndex((value) => Math.max(0, value - 1))} />
     <button className="sequence-read-zone is-right" disabled={index === sequence.readingUnits.length - 1} aria-label="Next Reading Unit" onClick={() => setIndex((value) => Math.min(sequence.readingUnits.length - 1, value + 1))} />
     <header><button ref={closeRef} onClick={onClose}>Close</button><strong>{sequence.name}</strong><button onClick={() => setBackground((value) => value === "dark" ? "light" : "dark")}>{background === "dark" ? "White background" : "Dark background"}</button></header>
     <footer>{pageLabel(sequence, unit, lookup)} · {index + 1} / {sequence.readingUnits.length}</footer>
   </section>;
-}
-
-function unitItemIds(unit: ReadingUnit): readonly SequenceItemId[] {
-  return unit.kind === "spread" ? [unit.leftItemId, unit.rightItemId] : [unit.itemId];
 }
 
 function pageLabel(sequence: SequenceDocument, unit: ReadingUnit, lookup: SequenceLookup): string {
