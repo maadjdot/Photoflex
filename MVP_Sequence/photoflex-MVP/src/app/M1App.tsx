@@ -43,7 +43,7 @@ export function M1App({ dependencies }: AppProps) {
 
   return (
     <div className={`app-shell${usesTableChrome ? " is-table" : ""}`}>
-      {route.name !== "table" && <AppHeader dependencies={dependencies} route={route} projectId={currentProjectId} contactSourceId={contactSourceId} lastSequenceId={lastSequenceId} navigate={navigate} variant={usesTableChrome ? "table" : "default"} />}
+      {route.name !== "table" && route.name !== "sequence" && <AppHeader dependencies={dependencies} route={route} projectId={currentProjectId} contactSourceId={contactSourceId} lastSequenceId={lastSequenceId} navigate={navigate} variant={usesTableChrome ? "table" : "default"} />}
       {projectContent}
     </div>
   );

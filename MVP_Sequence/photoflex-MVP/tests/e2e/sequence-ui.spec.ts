@@ -34,7 +34,13 @@ test("M2 Sequence supports Reading Units, Segment, Overview, Read and one-save d
   });
 
   await page.goto("/#/projects/sequence-visual-project/sequences/sequence-visual");
-  await expect(page.getByRole("button", { name: "Sequence", exact: true })).toHaveClass(/is-active/);
+  await expect(page.locator('.topnav')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Login' })).toHaveCount(0);
+  await expect(page.locator('.topbar').getByRole('button', { name: 'Export PDF' })).toBeVisible();
+  await expect(page.locator('.sequence-toolbar nav button')).toHaveText(['Undo', 'Redo', 'Read', 'Compare', 'Create New Sequence']);
+  await expect(page.getByText('All changes saved')).toHaveCount(0);
+  expect(await page.locator('.sequence-order').evaluate(el => el.getBoundingClientRect().height)).toBeCloseTo(183.35, 1);
+  expect(await page.locator('.sequence-order-image').first().evaluate(el => el.getBoundingClientRect().width)).toBeCloseTo(121.6, 1);
   await expect(page.locator(".topbar")).toHaveClass(/is-table/);
   await expect(page.locator(".project-context-name")).toHaveText("Sequence Visual");
   await expect(page.getByRole("button", { name: "Undo" })).toHaveClass(/table-tool-button/);
@@ -44,6 +50,7 @@ test("M2 Sequence supports Reading Units, Segment, Overview, Read and one-save d
   expect(await page.locator(".sequence-order-image > :first-child").first().evaluate((image) => getComputedStyle(image).objectFit)).toBe("cover");
   expect(await page.locator(".sequence-order-badge", { hasText: "SINGLE" }).count()).toBe(0);
 
+  await page.screenshot({ path: "design-output/Sequence/sequence-ui-updated.png", fullPage: true });
   await page.getByRole("button", { name: "Compare", exact: true }).click();
   const compareDialog = page.getByRole("dialog", { name: "Compare Sequences" });
   await expect(compareDialog).toBeVisible();
@@ -98,7 +105,8 @@ test("M2 Sequence supports Reading Units, Segment, Overview, Read and one-save d
   await page.mouse.up();
   await expect.poll(async () => page.evaluate(async () => { const request = indexedDB.open("photoflex-mvp"); const db = await new Promise<IDBDatabase>((resolve) => { request.onsuccess = () => resolve(request.result); }); const row = await new Promise<Record<string, unknown>>((resolve) => { const get = db.transaction("sequences", "readonly").objectStore("sequences").get("sequence-visual"); get.onsuccess = () => resolve(get.result); }); db.close(); return Number(row.revision); })).toBe(beforeRevision + 1);
 
-  await page.getByRole("button", { name: "Table", exact: true }).click();
+  await page.getByRole("button", { name: "Back to Table", exact: true }).click();
+  await page.getByRole("article", { name: "Sequence pile Street Edit", exact: true }).click();
   await expect(page.locator(".sequence-strip-item > :first-child").first()).toBeVisible();
   expect(await page.locator(".sequence-strip-item > :first-child").first().evaluate((image) => getComputedStyle(image).objectFit)).toBe("cover");
 });
