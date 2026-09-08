@@ -1,3 +1,4 @@
+import { stopSharedScan } from "./ProjectSourceMonitor";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { PhotoId, PhotoRef, ProjectId, SequenceId, SequenceSummary, SourceError, SourceId, SourceRecord, WorktableDraft, WorktableEditCommand } from "../contracts";
 import type { AppDependencies } from "./dependencies";
@@ -36,6 +37,8 @@ export function TablePage({ dependencies, projectId, navigate }: { dependencies:
   const [addToSequenceId, setAddToSequenceId] = useState<SequenceId>();
   const [sequenceRefreshKey, setSequenceRefreshKey] = useState(0);
   const [confirmationDragId, setConfirmationDragId] = useState<PhotoId>();
+  const [addingSource, setAddingSource] = useState(false);
+  const [sequenceHidden, setSequenceHidden] = useState(true);
   const [sourcePanelMode, setSourcePanelMode] = useState<"compact" | "expanded" | "closed">("compact");
   const canvasRef = useRef<TableCanvasHandle>(null);
   const createSequenceDialogRef = useRef<HTMLElement>(null);
@@ -158,11 +161,14 @@ export function TablePage({ dependencies, projectId, navigate }: { dependencies:
   const writeSnapshot = coordinator.getSnapshot();
   const firstSource = workspace.sources.find((source) => !source.removedAt);
   const addSource = async () => {
+    setAddingSource(true);
+    try {
     const result = await dependencies.photoSource.chooseFolder(workspace.sources.map((source) => source.id));
     if (!result.ok) { if (result.error.kind !== "cancelled") setNotice("Photo source could not be added."); return; }
     const source: SourceRecord = { id: result.value.sourceId, displayName: result.value.displayName, createdAt: new Date().toISOString() };
     const saved = await save((current) => ({ ...current, sources: current.sources.some((item) => item.id === source.id) ? current.sources.map((item) => item.id === source.id ? { ...item, removedAt: undefined } : item) : [...current.sources, source], updatedAt: new Date().toISOString() }));
     if (!saved.ok) setNotice(workspaceSaveErrorMessage(saved.error));
+    } finally { setAddingSource(false); }
   };
   const openContactSheet = (sourceId: SourceId) => { void coordinator.flush().then((result) => { if (result.ok) navigate({ name: "contact-sheet", projectId, sourceId }); else setNotice(workspaceSaveErrorMessage(result.error)); }); };
   const reconnectSource = async (sourceId: SourceId) => {
@@ -171,8 +177,13 @@ export function TablePage({ dependencies, projectId, navigate }: { dependencies:
     const saved = await save((current) => ({ ...current, sources: current.sources.map((source) => source.id === sourceId ? { ...source, removedAt: undefined } : source), updatedAt: new Date().toISOString() }));
     if (!saved.ok) setNotice(workspaceSaveErrorMessage(saved.error));
   };
-  const projectPanel = <section className="table-source-project-details"><small>PROJECT DETAILS</small><h2>{workspace.name}</h2><label>Name<input defaultValue={workspace.name} onBlur={(event) => { const name = event.currentTarget.value.trim(); if (name && name !== workspace.name) void save((current) => ({ ...current, name, updatedAt: new Date().toISOString() })); }} /></label><label>Memo<textarea defaultValue={workspace.memo} onBlur={(event) => { const memo = event.currentTarget.value; void save((current) => ({ ...current, memo, updatedAt: new Date().toISOString() })); }} /></label><button type="button" className="table-source-add" onClick={() => void addSource()}>＋ Add Source</button></section>;
-  const sourceBrowser = <SourceBrowser dependencies={dependencies} projectId={projectId} workspace={workspace} onPlacePhotos={placeSourcePhotos} onOpenPhoto={setPreviewPhotoId} onAddSource={() => void addSource()} onOpenProjectDetails={() => {}} projectPanel={projectPanel} onOpenContactSheet={openContactSheet} onReconnectSource={(sourceId) => void reconnectSource(sourceId)} onPhotoError={onPhotoError} onPanelModeChange={setSourcePanelMode} />;
+  const removeSource = async (sourceId: SourceId) => {
+    const saved = await save((current) => ({ ...current, sources: current.sources.map((source) => source.id === sourceId ? { ...source, removedAt: new Date().toISOString() } : source), updatedAt: new Date().toISOString() }));
+    if (!saved.ok) { setNotice(workspaceSaveErrorMessage(saved.error)); return false; }
+    stopSharedScan(dependencies.photoSource, sourceId);
+    return true;
+  };
+  const sourceBrowser = <SourceBrowser addingSource={addingSource} onRemoveSource={removeSource} dependencies={dependencies} projectId={projectId} workspace={workspace} onPlacePhotos={placeSourcePhotos} onOpenPhoto={setPreviewPhotoId} onAddSource={() => void addSource()} onOpenContactSheet={openContactSheet} onReconnectSource={(sourceId) => void reconnectSource(sourceId)} onPhotoError={onPhotoError} onPanelModeChange={setSourcePanelMode} />;
 
   return <main className="table-page page">
     {notice && <p className="table-notice" role="status">{notice}</p>}
@@ -185,6 +196,7 @@ export function TablePage({ dependencies, projectId, navigate }: { dependencies:
       summaries={summaries}
       initialViewport={tableLifecycle.initialViewport}
       onViewportChange={tableLifecycle.onViewportChange}
+      onSelectPile={(id) => { setActiveSequenceId(id); setSequenceHidden(false); }}
       onOpenPhoto={setPreviewPhotoId}
       onOpenSequence={(sequenceId) => navigate({ name: "sequence", projectId, sequenceId })}
       onRequestSequence={requestSequence}
@@ -200,12 +212,11 @@ export function TablePage({ dependencies, projectId, navigate }: { dependencies:
     />
     <TableFloatingToolbar storageKey={`photoflex:table-toolbar:${projectId}`} actions={actions} canUndo={tableSession.canUndo} canRedo={tableSession.canRedo} onUndo={() => history("undo")} onRedo={() => history("redo")} onExecute={execute} />
     <TableContextToolbar draft={draft} actions={actions} canAddToSequence={Boolean(photoIds.length && summaries.length)} onExecute={execute} onRequestSequence={requestSequence} onAddToSequence={() => { setAddToSequenceId(summaries[0]?.id); setAddToSequenceOpen(true); }} onPreview={setPreviewPhotoId} onComparePhotos={setComparePhotoIds} onCompareSequences={(ids) => navigate({ name: "sequence-compare", projectId, leftSequenceId: ids[0], rightSequenceId: ids[1] })} onRemovePiles={(ids) => setDeleteConfirmation(ids)} onRemovePhotos={(ids) => execute({ type: "remove", photoIds: ids })} />
-    <span className="table-canvas-summary">{draft.entryOrder.length} photos · {draft.groups.length} groups · {draft.pileOrder.length} piles</span>
     </div>
     {confirmation && <section ref={createSequenceDialogRef} className="sequence-confirmation sequence-pile-confirmation" role="dialog" aria-modal="true" aria-label="Create Sequence pile"><header><h2>Create Sequence</h2><button type="button" aria-label="Close Create Sequence" onClick={() => setConfirmation(undefined)}>×</button></header><label><span>SEQUENCE NAME</span><input autoFocus value={confirmation.name} onChange={(event) => setConfirmation({ ...confirmation, name: event.target.value })} onKeyDown={(event) => event.key === "Enter" && void createPile()} /></label><div className="sequence-confirmation-order">{confirmation.photoIds.map((id, index) => <button key={id} draggable onDragStart={() => setConfirmationDragId(id)} onDragOver={(event) => event.preventDefault()} onDrop={() => { if (confirmationDragId) setConfirmation({ ...confirmation, photoIds: movePhoto(confirmation.photoIds, confirmationDragId, index) }); setConfirmationDragId(undefined); }}><PhotoThumb photoSource={dependencies.photoSource} photoId={id} alt={`Order ${index + 1}: ${draft.placements[id]?.filename ?? id}`} onError={onPhotoError} /><span>{index + 1}</span></button>)}</div><div><button onClick={() => setConfirmation(undefined)}>Cancel</button><button className="button button-primary" onClick={() => void createPile()}>Create Pile</button></div></section>}
     {addToSequenceOpen && <TableSequenceAddDialog persistence={coordinator} listSequences={listSequences} projectId={projectId} photoIds={photoIds} summaries={summaries} initialSequenceId={addToSequenceId} onClose={() => setAddToSequenceOpen(false)} onSummariesChange={setSummaries} onSequenceChanged={(sequenceId) => { setActiveSequenceId(sequenceId); setSequenceRefreshKey((value) => value + 1); }} onNotice={setNotice} />}
     {deleteConfirmation && <section ref={deleteSequenceDialogRef} className="delete-sequence-dialog" role="dialog" aria-modal="true" aria-labelledby="delete-sequence-title"><h2 id="delete-sequence-title">Delete {deleteConfirmation.length > 1 ? "Sequences" : "Sequence"}?</h2><p>This will permanently delete {deleteConfirmation.map((id) => summaryById.get(id)?.name ?? "Missing Sequence").join(", ")} and its {deleteConfirmation.reduce((count, id) => count + (summaryById.get(id)?.itemCount ?? 0), 0)} photo references and versions. This cannot be undone.</p><footer><button type="button" autoFocus disabled={deleteBusy} onClick={() => setDeleteConfirmation(undefined)}>Cancel</button><button type="button" className="button-danger" disabled={deleteBusy} onClick={() => void confirmRemoveSelectedPiles(deleteConfirmation)}>{deleteBusy ? "Deleting…" : "Delete Sequence"}</button></footer></section>}
-    <SequenceOrderPanel persistence={coordinator} dependencies={dependencies} projectId={projectId} sequenceId={activeSequenceId} refreshKey={sequenceRefreshKey} navigate={navigate} onPhotoError={onPhotoError} onNotice={setNotice} onItemCountChange={(sequenceId, itemCount) => setSummaries((items) => items.map((item) => item.id === sequenceId ? { ...item, itemCount } : item))} />
+    <div className="table-sequence-panel-host" hidden={sequenceHidden}><SequenceOrderPanel onHide={() => setSequenceHidden(true)} persistence={coordinator} dependencies={dependencies} projectId={projectId} sequenceId={activeSequenceId} refreshKey={sequenceRefreshKey} navigate={navigate} onPhotoError={onPhotoError} onNotice={setNotice} onItemCountChange={(sequenceId, itemCount) => setSummaries((items) => items.map((item) => item.id === sequenceId ? { ...item, itemCount } : item))} /></div>
     </TableWorkspace>
     {previewPhotoId && draft.placements[previewPhotoId] && <TablePhotoPreview photoId={previewPhotoId} filename={draft.placements[previewPhotoId].filename} photoSource={dependencies.photoSource} onClose={() => setPreviewPhotoId(undefined)} onError={onPhotoError} />}
     {comparePhotoIds && <TablePhotoCompare ids={comparePhotoIds} draft={draft} photoSource={dependencies.photoSource} onClose={() => setComparePhotoIds(undefined)} />}

@@ -1,4 +1,4 @@
-/* Table navigation and command surfaces; Source and filmstrip retain their geometry. */
+/* Table navigation and command surfaces. */
 .app-shell.is-table { --topbar-height: 44px; font-family: "Inter", "Microsoft YaHei", "PingFang SC", sans-serif; }
 .topbar.is-table { grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); gap: 16px; padding: 0 16px; border-color: #d4d2cc; color: #1a1917; font-family: inherit; }
 .topbar.is-table .brand { flex-shrink: 0; color: #1a1917; font-family: inherit; font-size: 14px; font-weight: 700; letter-spacing: -.35px; }

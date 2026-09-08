@@ -1,3 +1,4 @@
+import { TableHeaderControl } from "./TableHeaderControl";
 import {
   forwardRef,
   useCallback,
@@ -9,7 +10,6 @@ import {
   useState,
   type KeyboardEvent,
 } from "react";
-import fitIcon from "../assets/icons/table-fit.svg";
 import minusIcon from "../assets/icons/table-minus.svg";
 import plusIcon from "../assets/icons/table-plus.svg";
 import type {
@@ -65,6 +65,7 @@ interface TableCanvasProps {
   readonly onOpenSequence: (sequenceId: SequenceId) => void;
   readonly onRequestSequence: (photoIds: readonly PhotoId[]) => void;
   readonly onDropPhotos: (photoIds: readonly PhotoId[], point: WorktablePoint) => void;
+  readonly onSelectPile?: (sequenceId: SequenceId) => void;
   readonly onRemovePiles: (sequenceIds: readonly SequenceId[]) => void;
   readonly onPhotoError: (photoId: PhotoId, error: SourceError) => void;
   readonly missingPhotoIds: ReadonlySet<PhotoId>;
@@ -368,7 +369,7 @@ export const TableCanvas = forwardRef<TableCanvasHandle, TableCanvasProps>(funct
               aria-label={`Sequence pile ${summary?.name ?? "Missing Sequence"}`}
               className={`sequence-pile${chosen ? " is-selected" : ""}${dragging ? " is-dragging" : ""}`}
               style={{ width: pile.width * scale, height: pile.height * scale, zIndex: pile.z, transform: `translate3d(${pile.x + delta.x - (pile.width * (scale - 1)) / 2}px,${pile.y + delta.y - (pile.height * (scale - 1)) / 2}px,0)` }}
-              onPointerDown={(event) => gestures.onPilePointerDown(event, id)}
+              onPointerDown={(event) => { if (event.button === 0 && !interactionDisabled) props.onSelectPile?.(id); gestures.onPilePointerDown(event, id); }}
               onDoubleClick={(event) => { event.stopPropagation(); onOpenSequence(id); }}
             >
               <header><strong>{summary?.name ?? "Missing Sequence"}</strong><span>{summary?.itemCount ?? 0}</span></header>
@@ -388,12 +389,11 @@ export const TableCanvas = forwardRef<TableCanvasHandle, TableCanvasProps>(funct
           <button className="button button-primary" onClick={emptyAction.onClick}>{emptyAction.label}</button>
         </section>
       )}
-      <div className="worktable-canvas-controls" aria-label="Canvas controls">
-        <button className="table-tool-button" onClick={fit}><img src={fitIcon} alt="" /><span>Fit</span></button>
+      <TableHeaderControl><div className="worktable-canvas-controls" aria-label="Canvas controls">
         <button className="table-tool-icon-button" aria-label="Zoom out" onClick={() => zoom(viewport.zoom - .25)}><img src={minusIcon} alt="" /></button>
-        <span className="table-zoom-label">{Math.round(viewport.zoom * 100)}%</span>
+        <button className="table-zoom-label" aria-label="Fit" title="Fit photos to canvas" onClick={fit}>{Math.round(viewport.zoom * 100)}%</button>
         <button className="table-tool-icon-button" aria-label="Zoom in" onClick={() => zoom(viewport.zoom + .25)}><img src={plusIcon} alt="" /></button>
-      </div>
+      </div></TableHeaderControl>
     </div>
   );
 });

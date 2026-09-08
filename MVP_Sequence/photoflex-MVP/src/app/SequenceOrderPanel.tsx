@@ -12,6 +12,7 @@ import type { SequenceWritePort } from "./projectWriteCoordinator";
 import { useSequenceSession } from "./sequenceSession";
 
 interface SequenceOrderPanelProps {
+  readonly onHide?: () => void;
   readonly persistence: SequenceWritePort;
   readonly dependencies: AppDependencies;
   readonly projectId: ProjectId;
@@ -28,15 +29,15 @@ export function SequenceOrderPanel(props: SequenceOrderPanelProps) {
   const { sequenceId } = props;
   return sequenceId
     ? <ActiveSequenceOrderPanel key={`${sequenceId}:${props.refreshKey ?? 0}`} {...props} sequenceId={sequenceId} />
-    : <EmptySequenceOrderPanel />;
+    : <EmptySequenceOrderPanel onHide={props.onHide} />;
 }
 
-function EmptySequenceOrderPanel() {
+function EmptySequenceOrderPanel({ onHide }: { onHide?: () => void }) {
   const [collapsed, setCollapsed] = useState(false);
-  return <section className={`sequence-strip${collapsed ? " is-collapsed" : " is-empty"}`} aria-label="Sequence Order"><header><button className="sequence-strip-heading" aria-label={collapsed ? "Expand Sequence Order" : "Collapse Sequence Order"} onClick={() => setCollapsed((value) => !value)}><strong>Sequence Order</strong><img src={chevronIcon} alt="" /></button><span>Select one Sequence Pile</span></header></section>;
+  return <section className={`sequence-strip${collapsed ? " is-collapsed" : " is-empty"}`} aria-label="Sequence Order"><header><button className="sequence-strip-heading" aria-label={collapsed ? "Expand Sequence Order" : "Collapse Sequence Order"} onClick={() => onHide ? onHide() : setCollapsed((value) => !value)}><strong>Sequence Order</strong><img src={chevronIcon} alt="" /></button><span>Select one Sequence Pile</span></header></section>;
 }
 
-function ActiveSequenceOrderPanel({ persistence, dependencies, projectId, sequenceId, navigate, onPhotoError, onNotice, onItemCountChange }: SequenceOrderPanelProps & { readonly sequenceId: SequenceId }) {
+function ActiveSequenceOrderPanel({ persistence, dependencies, projectId, sequenceId, navigate, onPhotoError, onNotice, onItemCountChange, onHide }: SequenceOrderPanelProps & { readonly sequenceId: SequenceId }) {
   const sequenceSession = useSequenceSession(persistence, projectId, sequenceId);
   const { sequence, execute } = sequenceSession;
   const [collapsed, setCollapsed] = useState(false);
@@ -92,9 +93,9 @@ function ActiveSequenceOrderPanel({ persistence, dependencies, projectId, sequen
 
   return <section className={`sequence-strip${collapsed ? " is-collapsed" : ""}${sequence ? "" : " is-empty"}`} aria-label="Sequence Order">
     <header>
-      <button className="sequence-strip-heading" aria-label={collapsed ? "Expand Sequence Order" : "Collapse Sequence Order"} onClick={() => setCollapsed((value) => !value)}><strong>Sequence Order</strong><img className={collapsed ? "is-collapsed" : ""} src={chevronIcon} alt="" /></button>
+      <button className="sequence-strip-heading" aria-label={collapsed ? "Expand Sequence Order" : "Collapse Sequence Order"} onClick={() => onHide ? onHide() : setCollapsed((value) => !value)}><strong>Sequence Order</strong><img className={collapsed ? "is-collapsed" : ""} src={chevronIcon} alt="" /></button>
       <span className="sequence-strip-meta"><img src={sequenceIcon} alt="" />{sequence ? `${sequence.name} · ${sequence.items.filter((item) => item.kind === "photo").length} photos` : "Select one Sequence Pile"}</span>
-      {sequence && <><small>Drag to reorder</small><button className="sequence-strip-open" disabled={sequenceSession.saveState !== "idle"} onClick={openSequence}><img src={openIcon} alt="" />Open Sequence <span aria-hidden="true">→</span></button></>}
+      {sequence && <><button className="sequence-strip-open" disabled={sequenceSession.saveState !== "idle"} onClick={openSequence}><img src={openIcon} alt="" />Open Sequence <span aria-hidden="true">→</span></button></>}
     </header>
     {sequenceSession.error && <p className="sequence-strip-error" role="alert">{sequenceSession.error} <button type="button" onClick={() => void sequenceSession.retry()}>Retry</button></p>}
     {!collapsed && sequence && <div ref={viewportRef} className="sequence-strip-items" onScroll={(event) => setSize({ width: event.currentTarget.clientWidth, scrollLeft: event.currentTarget.scrollLeft })} onDragOver={(event) => { if (!dragId || !viewportRef.current) return; event.preventDefault(); setDropIndex(sequenceStripInsertionIndex(event.clientX, viewportRef.current.getBoundingClientRect().left, viewportRef.current.scrollLeft, sequence.items.length, 16, TABLE_SEQUENCE_STRIP_ITEM_WIDTH, TABLE_SEQUENCE_STRIP_ITEM_GAP)); }} onDrop={(event) => { event.preventDefault(); if (dropIndex !== undefined) move(dropIndex); }}>

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { PhotoId, ProjectId, ProjectWorkspace, SourceId } from "../contracts";
 import { MemoryPhotoSource } from "../platform/memory/MemoryPhotoSource";
@@ -29,6 +29,27 @@ describe("SourceBrowser", () => {
     expect((await screen.findByRole("status")).textContent).toContain("Loading photos…");
     expect(screen.queryByText("No photos match this view.")).toBeNull();
     finishLoading?.({ ok: true, value: { items: [], nextCursor: null, issues: [] } });
+  });
+
+  it("keeps loading visible when the list is empty but the folder scan is still running", async () => {
+    const projectStore = new MemoryProjectStore();
+    const created = await projectStore.createProject({ id: projectId, name: "Sources", createdAt: "2026-09-01T00:00:00.000Z" });
+    if (!created.ok) throw new Error("project fixture failed");
+    const photoSource = new MemoryPhotoSource([{ grant: { sourceId, displayName: "Selects", status: "loading", restored: true }, photos: [] }]);
+    let finishScan!: () => void;
+    const pending = new Promise<void>((resolve) => { finishScan = resolve; });
+    vi.spyOn(photoSource, "scan").mockImplementation(async function* () {
+      await pending;
+      yield { ok: true as const, value: { kind: "completed" as const, state: { sourceId, status: "empty" as const, indexedCount: 0, discoveredCount: 0, skippedCount: 0, failedCount: 0 } } };
+    });
+    const list = vi.spyOn(photoSource, "listPhotos");
+    render(<SourceBrowser dependencies={{ projectStore, photoSource }} projectId={projectId} workspace={{ ...created.value, sources: [{ id: sourceId, displayName: "Selects", createdAt: created.value.createdAt }] }} onPlacePhotos={vi.fn()} onOpenPhoto={() => {}} onAddSource={() => {}} onPhotoError={() => {}} />);
+    await waitFor(() => expect(list).toHaveBeenCalled());
+    expect(screen.getByRole("status").textContent).toContain("Loading photos…");
+    expect(screen.queryByText("No photos match this view.")).toBeNull();
+    await act(async () => finishScan());
+    await screen.findByText("No photos match this view.");
+    expect(screen.queryByRole("status")).toBeNull();
   });
 
   it("aggregates source photos, filters them and submits selected photos through one callback", async () => {

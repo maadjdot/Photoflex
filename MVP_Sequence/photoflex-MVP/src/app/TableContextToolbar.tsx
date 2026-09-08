@@ -1,3 +1,4 @@
+import { TableHeaderControl } from "./TableHeaderControl";
 import { useEffect, useLayoutEffect, useRef, useState, type ButtonHTMLAttributes, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent } from "react";
 import addToGroupIcon from "../assets/icons/table-add-to-group.svg";
 import addToSequenceIcon from "../assets/icons/table-add-to-sequence.svg";
@@ -76,15 +77,13 @@ export function TableFloatingToolbar({ storageKey = "photoflex:table-toolbar", a
     if (event.key === "End") { event.preventDefault(); setTop(Number.MAX_SAFE_INTEGER); }
   };
   const style = { top: `${top}px` } as CSSProperties;
-  return <div ref={toolbarRef} className="table-floating-toolbar" role="group" aria-label="Table arrangement tools" style={style}>
+  return <><TableHeaderControl><div className="table-history-controls" role="group" aria-label="History"><TableToolButton icon={undoIcon} label="Undo" disabled={!canUndo} onClick={onUndo} /><TableToolButton icon={redoIcon} label="Redo" disabled={!canRedo} onClick={onRedo} /></div></TableHeaderControl><div ref={toolbarRef} className="table-floating-toolbar" role="group" aria-label="Table arrangement tools" style={style}>
     <button type="button" className="table-floating-drag-handle" aria-label="Move toolbar vertically" title="Drag to move toolbar" onPointerDown={onDragStart} onPointerMove={onDragMove} onPointerUp={onDragEnd} onPointerCancel={onDragEnd} onKeyDown={onDragKeyDown}><span aria-hidden="true" /></button>
-    <TableToolButton iconOnly icon={undoIcon} label="Undo" disabled={!canUndo} onClick={onUndo} />
-    <TableToolButton iconOnly icon={redoIcon} label="Redo" disabled={!canRedo} onClick={onRedo} />
-    <span className="table-floating-divider" />
-    <TableToolButton iconOnly icon={gridIcon} label="Grid" disabled={!actions.canArrange} onClick={() => arrange({ type: "arrange", photoIds: actions.photoIds, layout: { type: "grid" } })} />
-    <TableToolButton iconOnly icon={rowIcon} label="Row" disabled={!actions.canArrange} onClick={() => arrange({ type: "arrange", photoIds: actions.photoIds, layout: { type: "row" } })} />
-    <label className={`table-floating-align${actions.canArrange ? "" : " is-disabled"}`} title="Align selection"><img src={alignIcon} alt="" /><select aria-label="Align selection" value="" disabled={!actions.canArrange} onChange={(event) => { const edge = event.target.value as WorktableAlignment; if (edge) arrange({ type: "arrange", photoIds: actions.photoIds, layout: { type: "align", edge } }); }}><option value="">Align</option><option value="left">Left</option><option value="center-x">Center</option><option value="right">Right</option><option value="top">Top</option><option value="center-y">Middle</option><option value="bottom">Bottom</option></select></label>
-  </div>;
+    <TableToolButton icon={gridIcon} label="Grid" disabled={!actions.canArrange} onClick={() => arrange({ type: "arrange", photoIds: actions.photoIds, layout: { type: "grid" } })} />
+    <TableToolButton icon={rowIcon} label="Row" disabled={!actions.canArrange} onClick={() => arrange({ type: "arrange", photoIds: actions.photoIds, layout: { type: "row" } })} />
+    <label className={`table-floating-align${actions.canArrange ? "" : " is-disabled"}`} title="Align selection"><img src={alignIcon} alt="" /><span>Align</span><select aria-label="Align selection" value="" disabled={!actions.canArrange} onChange={(event) => { const edge = event.target.value as WorktableAlignment; if (edge) arrange({ type: "arrange", photoIds: actions.photoIds, layout: { type: "align", edge } }); }}><option value="">Align</option><option value="left">Left</option><option value="center-x">Center</option><option value="right">Right</option><option value="top">Top</option><option value="center-y">Middle</option><option value="bottom">Bottom</option></select></label>
+    <TableToolButton icon={groupIcon} label={actions.selectedGroup ? "Ungroup selection" : "Group selection"} text={actions.selectedGroup ? "Ungroup" : "Group"} disabled={!actions.selectedGroup && !actions.canGroup} onClick={() => actions.selectedGroup ? onExecute({ type: "remove-group", groupId: actions.selectedGroup.id }) : onExecute({ type: "create-group", photoIds: actions.photoIds })} />
+  </div></>;
 }
 
 function readToolbarTop(storageKey: string): number {

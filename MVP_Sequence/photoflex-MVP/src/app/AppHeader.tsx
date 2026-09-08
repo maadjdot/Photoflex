@@ -32,9 +32,9 @@ export function AppHeader({ dependencies, route, projectId, contactSourceId, las
   const label = projectLabel ?? projectName ?? projectId;
   return <header className={`topbar${variant === "table" ? " is-table" : ""}`}>
     {variant === "table" ? <div className="table-header-project">{brand}{projectId && <><span className="table-header-slash" aria-hidden="true">/</span><span className="project-context-name" title={label}>{label}</span></>}</div> : <>{brand}{projectId && <span className="project-context-name" title={label}>{label}</span>}</>}
-    <nav className="topnav" aria-label="主导航">
+    {route.name !== "table" && <nav className="topnav" aria-label="主导航">
       {(!projectId || variant === "table") && <NavButton active={route.name === "home"} onClick={() => navigate({ name: "home" })}>Home</NavButton>}
-      <NavButton active={route.name === "table" || route.name === "project" || route.name === "contact-sheet"} disabled={!projectId} onClick={() => projectId && navigate({ name: "table", projectId })}>Table</NavButton>
+      <NavButton active={route.name === "project" || route.name === "contact-sheet"} disabled={!projectId} onClick={() => projectId && navigate({ name: "table", projectId })}>Table</NavButton>
       <NavButton active={route.name === "sequence" || route.name === "sequence-compare" || route.name === "version-compare"} disabled={!projectId} title="Open the last Sequence" onClick={() => {
         if (!projectId) return;
         void Promise.all([dependencies.projectStore.listSequences(projectId), dependencies.projectStore.loadWorkspace(projectId)]).then(([sequences, workspace]) => {
@@ -45,7 +45,7 @@ export function AppHeader({ dependencies, route, projectId, contactSourceId, las
           navigate(target ? { name: "sequence", projectId, sequenceId: target.id } : { name: "table", projectId });
         });
       }}>Sequence</NavButton>
-    </nav>
+    </nav>}
     {actions ?? <button className="login-button" aria-label="登录（M1 占位）">Login</button>}
   </header>;
 }

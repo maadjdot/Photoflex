@@ -87,20 +87,20 @@ describe("TablePage", () => {
     render(<App dependencies={dependencies} />);
 
     expect(await screen.findByLabelText("Photo worktable")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Table" }).className).toContain("is-active");
+    expect(screen.queryByRole("navigation", { name: "主导航" })).toBeNull();
+    expect(screen.getByRole("button", { name: "返回 Home" }).textContent).toBe("Photoflex");
     const cardA = screen.getByLabelText("A.jpg");
     expect(cardA).toBeTruthy();
     expect(screen.getByLabelText("B.jpg")).toBeTruthy();
     expect(screen.queryByText("A.jpg")).toBeNull();
     const toolbar = within(screen.getByLabelText("Table 工具栏"));
     expect(toolbar.queryByRole("button", { name: "Contact Sheet" })).toBeNull();
-    expect(within(screen.getByLabelText("主导航").closest("header")!).getByText("Table Project")).toBeTruthy();
+    expect(within(screen.getByRole("button", { name: "返回 Home" }).closest("header")!).getByText("Table Project")).toBeTruthy();
     expect(toolbar.queryByRole("button", { name: "Preview" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Hand" })).toBeNull();
     expect(screen.queryByRole("group", { name: "Table selection actions" })).toBeNull();
     expect(screen.getByRole("group", { name: "Table arrangement tools" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Move toolbar vertically" })).toBeTruthy();
-    expect(within(screen.getByLabelText("主导航")).getByRole("button", { name: "Home" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: /登录/ })).toBeNull();
     expect(screen.queryByText(/Juxtapose/)).toBeNull();
 
@@ -109,8 +109,6 @@ describe("TablePage", () => {
     expect(screen.getByRole("dialog", { name: "Preview A.jpg" }).querySelector(".table-preview-image-wrap")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Close preview" }));
 
-    const mainNavigation = screen.getByLabelText("主导航");
-    expect(within(mainNavigation).queryByRole("button", { name: "Photos" })).toBeNull();
     const contactSheet = screen.getByRole("button", { name: /Contact Sheet/ });
     fireEvent.click(contactSheet);
     await waitFor(() => expect(window.location.hash).toBe(`#/projects/${projectId}/sources/${sourceId}`));
@@ -197,21 +195,49 @@ describe("TablePage", () => {
     expect(stage.querySelectorAll(".worktable-links line")).toHaveLength(0);
   });
 
-  it("快捷键弹窗支持焦点约束、Escape 关闭并返回入口", async () => {
-    render(<App dependencies={await createFixture()} />);
+  it("removes and reconnects a source without deleting existing photo references", async () => {
+    const dependencies = await createPileFixture();
+    render(<App dependencies={dependencies} />);
     await screen.findByLabelText("Photo worktable");
-    const opener = screen.getByRole("button", { name: "Shortcuts" });
-    opener.focus();
-    fireEvent.click(opener);
-    const dialog = screen.getByRole("dialog", { name: "Table shortcuts" });
-    const close = within(dialog).getByRole("button", { name: "Close shortcuts" });
-    expect(document.activeElement).toBe(close);
-    fireEvent.keyDown(close, { key: "Tab" });
-    expect(document.activeElement).toBe(close);
-    expect(within(dialog).getByText("Right-drag or scroll")).toBeTruthy();
-    fireEvent.keyDown(close, { key: "Escape" });
-    expect(screen.queryByRole("dialog")).toBeNull();
-    expect(document.activeElement).toBe(opener);
+    fireEvent.click(screen.getByRole("button", { name: "Manage photo sources" }));
+    const manager = screen.getByRole("dialog", { name: "Manage photo sources" });
+    fireEvent.click(within(manager).getByRole("button", { name: "Remove source" }));
+    await within(manager).findByRole("button", { name: "Reconnect" });
+    const removed = await dependencies.projectStore.loadWorkspace(projectId);
+    if (!removed.ok) throw new Error("missing workspace");
+    expect(removed.value.sources[0].removedAt).toBeTruthy();
+    expect(removed.value.worktableDraft.entryOrder).toContain(photoA);
+    expect(removed.value.sequenceIds).toContain(dependencies.sequenceId);
+    expect((await dependencies.photoSource.getPhoto(photoA)).ok).toBe(true);
+    fireEvent.click(within(manager).getByRole("button", { name: "Reconnect" }));
+    await within(manager).findByRole("button", { name: "Remove source" });
+    const restored = await dependencies.projectStore.loadWorkspace(projectId);
+    expect(restored.ok && restored.value.sources[0].removedAt).toBeUndefined();
+  });
+
+  it("keeps header controls together and restores fully hidden panels", async () => {
+    render(<App dependencies={await createPileFixture()} />);
+    await screen.findByLabelText("Photo worktable");
+    const header = screen.getByRole("button", { name: "返回 Home" }).closest("header")!;
+    for (const name of ["Undo", "Redo", "Zoom in", "Zoom out", "Hide Photo Sources"]) {
+      expect(within(header).getByRole("button", { name })).toBeTruthy();
+    }
+    expect(screen.queryByRole("button", { name: "Shortcuts" })).toBeNull();
+    fireEvent.click(within(header).getByRole("button", { name: "Hide Photo Sources" }));
+    expect(screen.queryByRole("complementary", { name: "Photo Sources" })).toBeNull();
+    fireEvent.click(within(header).getByRole("button", { name: "Open Photo Sources" }));
+    expect(screen.getByRole("complementary", { name: "Photo Sources" })).toBeTruthy();
+    expect(screen.queryByRole("region", { name: "Sequence Order" })).toBeNull();
+    const pile = screen.getByLabelText("Sequence pile Sequence 01");
+    fireEvent.pointerDown(pile, { button: 0 });
+    fireEvent.pointerUp(pile, { button: 0 });
+    expect(screen.getByRole("region", { name: "Sequence Order" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Collapse Sequence Order" }));
+    expect(screen.queryByRole("region", { name: "Sequence Order" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Show Sequence Order" })).toBeNull();
+    fireEvent.pointerDown(pile, { button: 0 });
+    fireEvent.pointerUp(pile, { button: 0 });
+    expect(screen.getByRole("region", { name: "Sequence Order" })).toBeTruthy();
   });
 
   it("一次拖拽只提交一次桌面写入且不改变 Sequence", async () => {
@@ -356,6 +382,9 @@ describe("TablePage", () => {
     const { projectStore, photoSource, sequenceId } = await createPileFixture();
     render(<App dependencies={{ projectStore, photoSource }} />);
 
+    const pile = await screen.findByLabelText("Sequence pile Sequence 01");
+    fireEvent.pointerDown(pile, { button: 0 });
+    fireEvent.pointerUp(pile, { button: 0 });
     await screen.findByText("Sequence 01 · 1 photos");
     const strip = screen.getByLabelText("Sequence Order");
     expect(within(strip).queryByText("A.jpg")).toBeNull();

@@ -66,6 +66,7 @@ export function ProjectPage({
 }) {
   const { workspace, save, updateResumeContext, loading, error } = useProjectWorkspaceSession(dependencies, projectId);
   const [notice, setNotice] = useState<string>();
+  const [addingSource, setAddingSource] = useState(false);
   const [deletingProject, setDeletingProject] = useState(false);
   const { states, startScan } = useSourceMonitor(
     dependencies.photoSource,
@@ -97,6 +98,9 @@ export function ProjectPage({
     void persist((current) => ({ ...current, memo: value, updatedAt: now() }));
   };
   const addSource = async () => {
+    if (addingSource) return;
+    setAddingSource(true);
+    try {
     const result = await dependencies.photoSource.chooseFolder(workspace.sources.map((source) => source.id));
     if (!result.ok) {
       if (result.error.kind !== "cancelled") setNotice(sourceErrorMessage(result.error.kind));
@@ -111,6 +115,7 @@ export function ProjectPage({
       return { ...current, sources, updatedAt: now() };
     });
     if (saved) startScan(source.id);
+    } finally { setAddingSource(false); }
   };
   const removeSource = async (source: SourceRecord) => {
     if (!window.confirm(`Remove source “${source.displayName}” (${shortId(source.id)})? Original files will not be deleted.`)) return;
@@ -140,6 +145,7 @@ export function ProjectPage({
     <main className="workspace-layout page">
       <ProjectRail dependencies={dependencies} currentProjectId={projectId} currentPhotoCount={totalIndexed(states)} navigate={navigate} />
       <ProjectInfoPanel workspace={workspace} photoSource={dependencies.photoSource} deleting={deletingProject} onUpdateName={updateName} onUpdateMemo={updateMemo} onDelete={() => void deleteProject()} onAddSource={() => void addSource()}>
+        {addingSource && <div className="source-loading-status" role="status"><span className="loading-mark" aria-hidden="true" />Connecting photo folder…</div>}
         {notice && <InlineNotice message={notice} />}
         <div className="section-heading"><span>PHOTO SOURCES</span><span>{workspace.sources.filter((source) => !source.removedAt).length} connected folders</span></div>
         <section className="source-list" aria-label="照片来源">

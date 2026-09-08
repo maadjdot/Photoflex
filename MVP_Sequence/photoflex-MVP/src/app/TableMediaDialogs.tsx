@@ -93,6 +93,6 @@ export function TablePhotoCompare({
 
   return <div ref={dialogRef} className="compare-backdrop" role="dialog" aria-modal="true" aria-label="Compare two photos">
     <header><span>COMPARE</span><button onClick={() => setOrder([order[1], order[0]])}>Swap</button><button ref={closeButtonRef} onClick={onClose} aria-label="Close compare">×</button></header>
-    <div className="compare-images">{order.map((id, index) => <figure key={id}><span>{index ? "B" : "A"}</span>{urls[index] ? <img src={urls[index]} alt={draft.placements[id].filename} /> : <div className="preview-placeholder">Preview unavailable</div>}</figure>)}</div>
+    <div className="compare-images">{order.map((id, index) => <figure key={id}>{urls[index] ? <img src={urls[index]} alt={draft.placements[id].filename} /> : <div className="preview-placeholder">Preview unavailable</div>}</figure>)}</div>
   </div>;
 }

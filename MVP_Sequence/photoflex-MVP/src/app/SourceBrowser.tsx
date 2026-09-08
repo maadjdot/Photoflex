@@ -1,3 +1,4 @@
+import { TableHeaderControl } from "./TableHeaderControl";
 import { Component, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ErrorInfo, type MouseEvent as ReactMouseEvent, type ReactNode, type UIEvent } from "react";
 import type { PhotoId, PhotoRef, ProjectId, ProjectWorkspace, SourceError, SourceId, SourceRuntimeState } from "../contracts";
 import type { AppDependencies } from "./dependencies";
@@ -6,11 +7,13 @@ import { useSourceMonitor } from "./ProjectSourceMonitor";
 import { PhotoThumb } from "./PhotoThumb";
 import { calculateContactSheetVirtualGrid } from "../modules/contactSheet/contactSheetVirtualizer";
 import chevronIcon from "../assets/icons/table-chevron-down.svg";
-import gridIcon from "../assets/icons/table-grid.svg";
+import sourcesIcon from "../assets/icons/table-sources.svg";
+import expandIcon from "../assets/icons/table-expand.svg";
+import contactIcon from "../assets/icons/table-contact-sheet.svg";
+import manageIcon from "../assets/icons/table-manage-sources.svg";
 import plusIcon from "../assets/icons/table-plus.svg";
 
 type SourceSelection = SourceId | "all";
-type SourceFilter = "all" | "not-on-table" | "on-table";
 type SourcePanelMode = "compact" | "expanded" | "closed";
 
 export interface SourceBrowserProps {
@@ -20,8 +23,8 @@ export interface SourceBrowserProps {
   readonly onPlacePhotos: (photos: readonly PhotoRef[]) => Promise<boolean>;
   readonly onOpenPhoto: (photoId: PhotoId) => void;
   readonly onAddSource: () => void;
-  readonly onOpenProjectDetails?: () => void;
-  readonly projectPanel?: ReactNode;
+  readonly addingSource?: boolean;
+  readonly onRemoveSource?: (sourceId: SourceId) => Promise<boolean>;
   readonly onOpenContactSheet?: (sourceId: SourceId) => void;
   readonly onReconnectSource?: (sourceId: SourceId) => void;
   readonly onPhotoError: (photoId: PhotoId, error: SourceError) => void;
@@ -29,17 +32,19 @@ export interface SourceBrowserProps {
 }
 
 /** Photo Sources browser for Table. It owns only source browsing and pending selection. */
-export function SourceBrowser({ dependencies, workspace, onPlacePhotos, onOpenPhoto, onAddSource, onOpenProjectDetails, projectPanel, onOpenContactSheet, onReconnectSource, onPhotoError, onPanelModeChange }: SourceBrowserProps) {
+export function SourceBrowser({ dependencies, workspace, onPlacePhotos, onOpenPhoto, onAddSource, addingSource = false, onRemoveSource, onOpenContactSheet, onReconnectSource, onPhotoError, onPanelModeChange }: SourceBrowserProps) {
   const sources = workspace.sources;
   const connectedSources = useMemo(() => sources.filter((source) => !source.removedAt), [sources]);
   const uiStorageKey = `photoflex:table-sources:${workspace.projectId}`;
   const storedState = useMemo(() => readPanelState(uiStorageKey, sources), [sources, uiStorageKey]);
   const [mode, setMode] = useState<SourcePanelMode>(storedState.mode);
   const [lastOpenMode, setLastOpenMode] = useState<"compact" | "expanded">(storedState.lastOpenMode);
-  const [view, setView] = useState<"sources" | "project">("sources");
+  const [managing, setManaging] = useState(false);
+  const [removing, setRemoving] = useState<SourceId>();
+  const manageRef = useRef<HTMLDivElement>(null);
+  useDialogKeyboard(manageRef, () => setManaging(false), managing);
   const [contactPickerOpen, setContactPickerOpen] = useState(false);
   const [sourceId, setSourceId] = useState<SourceSelection>(storedState.sourceId);
-  const [filter, setFilter] = useState<SourceFilter>(storedState.filter);
   const [photos, setPhotos] = useState<readonly PhotoRef[]>([]);
   const [selected, setSelected] = useState<ReadonlySet<PhotoId>>(new Set());
   const [loading, setLoading] = useState(false);
@@ -57,11 +62,11 @@ export function SourceBrowser({ dependencies, workspace, onPlacePhotos, onOpenPh
 
   useEffect(() => {
     try {
-      window.sessionStorage.setItem(uiStorageKey, JSON.stringify({ mode, lastOpenMode, sourceId, filter }));
+      window.sessionStorage.setItem(uiStorageKey, JSON.stringify({ mode, lastOpenMode, sourceId }));
     } catch {
       // UI context is disposable; storage availability must not affect the project session.
     }
-  }, [filter, lastOpenMode, mode, sourceId, uiStorageKey]);
+  }, [lastOpenMode, mode, sourceId, uiStorageKey]);
   useEffect(() => { if (mode !== "closed") setLastOpenMode(mode); }, [mode]);
   useEffect(() => onPanelModeChange?.(mode), [mode, onPanelModeChange]);
 
@@ -108,17 +113,16 @@ export function SourceBrowser({ dependencies, workspace, onPlacePhotos, onOpenPh
     return () => { generationRef.current += 1; };
   }, [connectedSources, dependencies.photoSource, sourceId, sourceLoadSignal]);
 
-  const visiblePhotos = useMemo(() => {
-    return photos.filter((photo) => {
-      if (filter === "not-on-table" && tableIds.has(photo.id)) return false;
-      if (filter === "on-table" && !tableIds.has(photo.id)) return false;
-      return true;
-    });
-  }, [filter, photos, tableIds]);
+  const visiblePhotos = photos;
   const selectedVisible = useMemo(() => visiblePhotos.filter((photo) => selected.has(photo.id)), [selected, visiblePhotos]);
   const currentCount = sourceId === "all"
     ? connectedSources.reduce((total, source) => total + (states[source.id]?.indexedCount ?? 0), 0)
     : Math.max(states[sourceId]?.indexedCount ?? 0, photos.length);
+
+  const displayedSources = connectedSources.filter((source) => sourceId === "all" || source.id === sourceId);
+  const scanning = displayedSources.some((source) => stateNeedsScan(states[source.id]));
+  const sourceBusy = addingSource || loading || scanning;
+  const problemSources = displayedSources.filter((source) => ["error", "offline", "permission-lost"].includes(states[source.id]?.status ?? ""));
 
   const toggle = (photoId: PhotoId) => setSelected((current) => {
     if (tableIds.has(photoId)) return current;
@@ -133,33 +137,29 @@ export function SourceBrowser({ dependencies, workspace, onPlacePhotos, onOpenPh
     if (placed) setSelected(new Set());
   };
 
-  if (mode === "closed") return <aside className="table-source-browser is-closed" aria-label="Photo Sources"><button type="button" aria-label="Open Photo Sources" className="table-source-open" onClick={() => setMode(lastOpenMode)}><img src={chevronIcon} alt="" aria-hidden="true" /><span>Photo Sources</span></button></aside>;
+  const sourceToggle = <TableHeaderControl><button type="button" aria-label={mode === "closed" ? "Open Photo Sources" : "Hide Photo Sources"} aria-pressed={mode !== "closed"} className="table-source-toggle" onClick={() => setMode(mode === "closed" ? lastOpenMode : "closed")}><img src={sourcesIcon} alt="" /><span>Photo Sources</span></button></TableHeaderControl>;
+  if (mode === "closed") return sourceToggle;
 
-  return <aside className={`table-source-browser is-${mode}`} aria-label="Photo Sources">
+  return <>{sourceToggle}<aside className={`table-source-browser is-${mode}`} aria-label="Photo Sources">
     <header className="table-source-browser-header">
       <strong>Photo Sources</strong>
-      <div className="table-source-header-actions"><button type="button" className="table-source-header-icon" aria-label="Add Source" title="Add Source" onClick={onAddSource}><img src={plusIcon} alt="" /></button><button type="button" title={mode === "compact" ? "Expand Photo Sources" : "Use compact Photo Sources"} aria-label={mode === "compact" ? "Expand Photo Sources" : "Use compact Photo Sources"} className="table-source-header-icon" onClick={() => setMode(mode === "compact" ? "expanded" : "compact")}><img src={gridIcon} alt="" /></button><button type="button" className="table-source-header-icon table-source-collapse" aria-label="Collapse Photo Sources" title="Collapse Photo Sources" onClick={() => setMode("closed")}><img src={chevronIcon} alt="" /></button></div>
+      <div className="table-source-header-actions">{onRemoveSource && <button type="button" className="table-source-header-icon" aria-label="Manage photo sources" title="Manage photo sources" onClick={() => setManaging(true)}><img src={manageIcon} alt="" /></button>}<button type="button" className="table-source-header-icon" aria-label="Add Source" title="Add Source" disabled={addingSource} onClick={onAddSource}><img src={plusIcon} alt="" /></button><button type="button" title={mode === "compact" ? "Expand Photo Sources" : "Use compact Photo Sources"} aria-label={mode === "compact" ? "Expand Photo Sources" : "Use compact Photo Sources"} className="table-source-header-icon" onClick={() => setMode(mode === "compact" ? "expanded" : "compact")}><img src={expandIcon} alt="" /></button><button type="button" className="table-source-header-icon table-source-collapse" aria-label="Collapse Photo Sources" title="Collapse Photo Sources" onClick={() => setMode("closed")}><img src={chevronIcon} alt="" /></button></div>
     </header>
-    {mode === "expanded" && <div className="table-source-project-row"><span><small>PROJECT</small><strong>{workspace.name}</strong></span>{onOpenProjectDetails && <button type="button" onClick={() => { setView("project"); onOpenProjectDetails(); }}>Project details →</button>}</div>}
     {mode === "expanded" && <nav className="table-source-directory" aria-label="Photo source directory"><button type="button" className={sourceId === "all" ? "is-active" : ""} onClick={() => setSourceId("all")}><span>▣ All Sources</span><small>{connectedSources.reduce((total, source) => total + (states[source.id]?.indexedCount ?? 0), 0)}</small></button>{sources.map((source) => <button key={source.id} type="button" className={`${sourceId === source.id ? "is-active " : ""}${source.removedAt ? "is-disconnected" : ""}`} onClick={() => source.removedAt ? onReconnectSource?.(source.id) : setSourceId(source.id)}><span>▣ {source.displayName}</span><small>{source.removedAt ? "Reconnect" : states[source.id]?.indexedCount ?? 0}</small></button>)}</nav>}
     <div className="table-source-browser-content">
-    {view === "project" && projectPanel ? <div className="table-source-project-panel">{projectPanel}<button type="button" className="table-source-back" onClick={() => setView("sources")}>← Back to Photo Sources</button></div> : <>
-    {mode === "compact" && <div className="table-source-selector-row">
+    <div className="table-source-selector-row">
       <label><select aria-label="Select photo source" value={sourceId} onChange={(event) => setSourceId(event.target.value as SourceSelection)}>
           <option value="all">All Sources</option>
           {sources.map((source) => <option key={source.id} value={source.id} disabled={Boolean(source.removedAt)}>{source.displayName}{source.removedAt ? " (Disconnected)" : ""}</option>)}
         </select></label>
-    </div>}
-    <div className="table-source-title-row"><div>{mode === "expanded" && <strong>{sourceId === "all" ? "All Sources" : sources.find((source) => source.id === sourceId)?.displayName ?? "Disconnected source"}</strong>}<small>{currentCount} photos · {visiblePhotos.filter((photo) => tableIds.has(photo.id)).length} on Table</small></div>{onOpenContactSheet && <button type="button" className="table-source-contact" onClick={() => sourceId === "all" ? setContactPickerOpen(true) : onOpenContactSheet(sourceId)}><span aria-hidden="true">▦</span><span className="table-source-contact-label">Contact Sheet</span></button>}</div>
-    <div className="table-source-tabs" role="group" aria-label="Photo source filter">
-      <button type="button" aria-pressed={filter === "all"} className={filter === "all" ? "is-active" : ""} onClick={() => setFilter("all")}>All</button>
-      <button type="button" aria-pressed={filter === "not-on-table"} className={filter === "not-on-table" ? "is-active" : ""} onClick={() => setFilter("not-on-table")}>Not on Table</button>
-      <button type="button" aria-pressed={filter === "on-table"} className={filter === "on-table" ? "is-active" : ""} onClick={() => setFilter("on-table")}>On Table</button>
+    {onOpenContactSheet && <><button type="button" className="table-source-contact" onClick={() => sourceId === "all" ? setContactPickerOpen(true) : onOpenContactSheet(sourceId)}><img src={contactIcon} alt="" /><span className="table-source-contact-label">Contact Sheet</span></button></>}
     </div>
+    {sourceBusy && <div className="source-loading-status" role="status" aria-live="polite"><span className="loading-mark" aria-hidden="true" /><span>{addingSource ? "Connecting photo folder…" : `Loading photos… ${currentCount} found`}</span></div>}
+    {problemSources.map((source) => <p className="table-source-notice" role="alert" key={source.id}>{source.displayName}: {states[source.id]?.errorMessage ?? "Source unavailable."} <button type="button" onClick={() => states[source.id]?.status === "error" ? startScan(source.id) : onReconnectSource?.(source.id)}>{states[source.id]?.status === "error" ? "Retry" : "Reconnect"}</button></p>)}
     {notice && <p className="table-source-notice" role="status">{notice}</p>}
     <SourcePhotoGrid
       photos={visiblePhotos}
-      loading={loading || (filter === "all" && currentCount > 0 && visiblePhotos.length === 0)}
+      loading={sourceBusy}
       selected={selected}
       tableIds={tableIds}
       photoSource={dependencies.photoSource}
@@ -168,18 +168,18 @@ export function SourceBrowser({ dependencies, workspace, onPlacePhotos, onOpenPh
       onOpen={(photo) => tableIds.has(photo.id) ? onOpenPhoto(photo.id) : setPreviewPhoto(photo)}
       onPhotoError={onPhotoError}
       onDragStart={(event, photo) => event.dataTransfer.setData("application/x-photoflex-photo", selected.has(photo.id) ? eligibleSelected.map((item) => item.id).join(",") : photo.id)}
-      resetKey={`${sourceId}:${filter}`}
+      resetKey={sourceId}
       mode={mode}
     />
-    </>}
-    {view === "sources" && selected.size > 0 && <footer className="table-source-footer">
+    {selected.size > 0 && <footer className="table-source-footer">
       <span>{selected.size ? `${eligibleSelected.length ? eligibleSelected.length : selected.size} selected${selected.size > selectedVisible.length ? ` · ${selected.size - selectedVisible.length} hidden` : ""}` : "Select photos to add to the table"}</span>
       {selected.size > 0 && <><button type="button" className="table-source-clear" onClick={() => setSelected(new Set())}>Clear</button><button type="button" className="button button-primary" disabled={!eligibleSelected.length} onClick={() => void placeSelected()}>Add {eligibleSelected.length} to Table</button></>}
     </footer>}
     </div>
+    {managing && <div className="source-manager-backdrop"><div ref={manageRef} className="source-manager" role="dialog" aria-modal="true" aria-label="Manage photo sources"><header><strong>Photo Sources</strong><button type="button" aria-label="Close source manager" onClick={() => setManaging(false)}>×</button></header><p>Remove a folder from this project. Original files and existing Table / Sequence photos are kept.</p>{sources.map((source) => <div className="source-manager-row" key={source.id}><span>{source.displayName}</span>{source.removedAt ? <button type="button" onClick={() => onReconnectSource?.(source.id)}>Reconnect</button> : <button type="button" disabled={Boolean(removing)} onClick={async () => { setRemoving(source.id); try { await onRemoveSource?.(source.id); } finally { setRemoving(undefined); } }}>{removing === source.id ? "Removing…" : "Remove source"}</button>}</div>)}</div></div>}
     {previewPhoto && <SourcePreview photo={previewPhoto} photoSource={dependencies.photoSource} onClose={() => setPreviewPhoto(undefined)} onError={onPhotoError} />}
     {contactPickerOpen && <div ref={contactDialogRef} className="source-contact-picker" role="dialog" aria-modal="true" aria-label="Choose Contact Sheet source"><strong>Choose a source</strong>{connectedSources.map((source) => <button key={source.id} type="button" onClick={() => { setContactPickerOpen(false); onOpenContactSheet?.(source.id); }}>{source.displayName}</button>)}<button type="button" onClick={() => setContactPickerOpen(false)}>Cancel</button></div>}
-  </aside>;
+  </aside></>;
 }
 
 function SourcePhotoGrid({ photos, loading, selected, tableIds, photoSource, sourceStates, onToggle, onOpen, onPhotoError, onDragStart, resetKey, mode }: {
@@ -277,7 +277,7 @@ function SourcePhotoGrid({ photos, loading, selected, tableIds, photoSource, sou
         </button>;
       })}
     </div>
-    {loading && !photos.length && <div className="table-source-loading" role="status" aria-live="polite"><span className="table-source-loading-mark" aria-hidden="true" /><strong>Loading photos…</strong><span>This source is connected. Photos have not finished loading yet.</span></div>}
+
     {!loading && !photos.length && <p className="table-source-empty">No photos match this view.</p>}
   </div></LocalGridErrorBoundary>;
 }
@@ -314,10 +314,10 @@ function SourcePreview({ photo, photoSource, onClose, onError }: { readonly phot
   return <div ref={dialogRef} className="table-preview-backdrop" role="dialog" aria-modal="true" aria-label={`Preview ${photo.relativePath}`} onPointerDown={onClose}><section className="table-preview-dialog" onPointerDown={(event) => event.stopPropagation()}><header><span>{photo.relativePath}</span><button ref={closeButtonRef} onClick={onClose} aria-label="Close preview">×</button></header><div className="table-preview-image-wrap">{url ? <img src={url} alt={photo.relativePath} /> : <div className="preview-placeholder">Preview unavailable</div>}</div></section></div>;
 }
 
-function readPanelState(key: string, sources: readonly { readonly id: SourceId }[]): { mode: SourcePanelMode; lastOpenMode: "compact" | "expanded"; sourceId: SourceSelection; filter: SourceFilter } {
-  const fallback = { mode: "compact" as const, lastOpenMode: "compact" as const, sourceId: sources[0]?.id ?? "all" as SourceSelection, filter: "all" as const };
+function readPanelState(key: string, sources: readonly { readonly id: SourceId }[]): { mode: SourcePanelMode; lastOpenMode: "compact" | "expanded"; sourceId: SourceSelection } {
+  const fallback = { mode: "compact" as const, lastOpenMode: "compact" as const, sourceId: sources[0]?.id ?? "all" as SourceSelection };
   try {
-    const value = JSON.parse(window.sessionStorage.getItem(key) ?? "null") as { mode?: unknown; lastOpenMode?: unknown; sourceId?: unknown; filter?: unknown } | null;
+    const value = JSON.parse(window.sessionStorage.getItem(key) ?? "null") as { mode?: unknown; lastOpenMode?: unknown; sourceId?: unknown } | null;
     const sourceId: SourceSelection = value?.sourceId === "all" || (typeof value?.sourceId === "string" && sources.some((source) => source.id === value.sourceId))
       ? value.sourceId as SourceSelection
       : fallback.sourceId;
@@ -325,7 +325,6 @@ function readPanelState(key: string, sources: readonly { readonly id: SourceId }
       mode: value?.mode === "compact" || value?.mode === "expanded" || value?.mode === "closed" ? value.mode : fallback.mode,
       lastOpenMode: value?.lastOpenMode === "expanded" ? "expanded" : fallback.lastOpenMode,
       sourceId,
-      filter: value?.filter === "not-on-table" || value?.filter === "on-table" ? value.filter : fallback.filter,
     };
   } catch {
     return fallback;
