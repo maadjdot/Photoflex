@@ -1,3 +1,4 @@
+import memoIcon from "../assets/icons/table-memo.svg";
 import { TableHeaderControl } from "./TableHeaderControl";
 import { useEffect, useLayoutEffect, useRef, useState, type ButtonHTMLAttributes, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent } from "react";
 import addToGroupIcon from "../assets/icons/table-add-to-group.svg";
@@ -15,11 +16,13 @@ import removeIcon from "../assets/icons/table-remove.svg";
 import rowIcon from "../assets/icons/table-row.svg";
 import sequenceIcon from "../assets/icons/table-sequence.svg";
 import undoIcon from "../assets/icons/table-undo.svg";
-import type { PhotoId, SequenceId, WorktableAlignment, WorktableDraft, WorktableEditCommand } from "../contracts";
+import type { PhotoId, SequenceId, WorktableAlignment, WorktableDraft, WorktableEditCommand, WorktableMemo } from "../contracts";
 import type { TableActionState } from "./tableActionPolicy";
 
 interface TableFloatingToolbarProps {
   readonly storageKey?: string;
+  readonly onAddMemo?: () => void;
+  readonly selectedMemo?: WorktableMemo;
   readonly actions: TableActionState;
   readonly canUndo: boolean;
   readonly canRedo: boolean;
@@ -28,7 +31,7 @@ interface TableFloatingToolbarProps {
   readonly onExecute: (command: WorktableEditCommand) => void;
 }
 
-export function TableFloatingToolbar({ storageKey = "photoflex:table-toolbar", actions, canUndo, canRedo, onUndo, onRedo, onExecute }: TableFloatingToolbarProps) {
+export function TableFloatingToolbar({ storageKey = "photoflex:table-toolbar", actions, canUndo, canRedo, onUndo, onRedo, onExecute, onAddMemo, selectedMemo }: TableFloatingToolbarProps) {
   const toolbarRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<{ pointerId: number; offsetY: number } | undefined>(undefined);
   const [top, setTop] = useState(() => readToolbarTop(storageKey));
@@ -51,6 +54,7 @@ export function TableFloatingToolbar({ storageKey = "photoflex:table-toolbar", a
     if (typeof ResizeObserver !== "function") return;
     const observer = new ResizeObserver(keepInCanvas);
     observer.observe(parent);
+    if (toolbarRef.current) observer.observe(toolbarRef.current);
     return () => observer.disconnect();
   }, []);
   const onDragStart = (event: ReactPointerEvent<HTMLButtonElement>) => {
@@ -79,6 +83,8 @@ export function TableFloatingToolbar({ storageKey = "photoflex:table-toolbar", a
   const style = { top: `${top}px` } as CSSProperties;
   return <><TableHeaderControl><div className="table-history-controls" role="group" aria-label="History"><TableToolButton icon={undoIcon} label="Undo" disabled={!canUndo} onClick={onUndo} /><TableToolButton icon={redoIcon} label="Redo" disabled={!canRedo} onClick={onRedo} /></div></TableHeaderControl><div ref={toolbarRef} className="table-floating-toolbar" role="group" aria-label="Table arrangement tools" style={style}>
     <button type="button" className="table-floating-drag-handle" aria-label="Move toolbar vertically" title="Drag to move toolbar" onPointerDown={onDragStart} onPointerMove={onDragMove} onPointerUp={onDragEnd} onPointerCancel={onDragEnd} onKeyDown={onDragKeyDown}><span aria-hidden="true" /></button>
+    {onAddMemo && <TableToolButton icon={memoIcon} label="Add memo" text="Memo" onClick={onAddMemo} />}
+    {selectedMemo && <div className="memo-toolbar-controls"><label>Size<input type="number" aria-label="Memo font size" min={10} max={72} value={selectedMemo.fontSize} onChange={(event) => { const size = Number(event.target.value); if (size >= 10 && size <= 72) onExecute({ type: "update-memo", memoId: selectedMemo.id, changes: { fontSize: size } }); }} /></label><TableToolButton icon={linkIcon} label="Link memo to selected photos" text="Link" disabled={!actions.photoIds.length} onClick={() => onExecute({ type: "update-memo", memoId: selectedMemo.id, changes: { photoIds: [...new Set([...selectedMemo.photoIds, ...actions.photoIds])] } })} />{selectedMemo.photoIds.length > 0 && <button type="button" className="memo-unlink" onClick={() => onExecute({ type: "update-memo", memoId: selectedMemo.id, changes: { photoIds: [] } })}>Unlink</button>}</div>}
     <TableToolButton icon={gridIcon} label="Grid" disabled={!actions.canArrange} onClick={() => arrange({ type: "arrange", photoIds: actions.photoIds, layout: { type: "grid" } })} />
     <TableToolButton icon={rowIcon} label="Row" disabled={!actions.canArrange} onClick={() => arrange({ type: "arrange", photoIds: actions.photoIds, layout: { type: "row" } })} />
     <label className={`table-floating-align${actions.canArrange ? "" : " is-disabled"}`} title="Align selection"><img src={alignIcon} alt="" /><span>Align</span><select aria-label="Align selection" value="" disabled={!actions.canArrange} onChange={(event) => { const edge = event.target.value as WorktableAlignment; if (edge) arrange({ type: "arrange", photoIds: actions.photoIds, layout: { type: "align", edge } }); }}><option value="">Align</option><option value="left">Left</option><option value="center-x">Center</option><option value="right">Right</option><option value="top">Top</option><option value="center-y">Middle</option><option value="bottom">Bottom</option></select></label>

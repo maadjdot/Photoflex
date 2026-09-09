@@ -37,6 +37,7 @@ export function TablePage({ dependencies, projectId, navigate }: { dependencies:
   const [addToSequenceId, setAddToSequenceId] = useState<SequenceId>();
   const [sequenceRefreshKey, setSequenceRefreshKey] = useState(0);
   const [confirmationDragId, setConfirmationDragId] = useState<PhotoId>();
+  const [selectedMemoId, setSelectedMemoId] = useState<string>();
   const [addingSource, setAddingSource] = useState(false);
   const [sequenceHidden, setSequenceHidden] = useState(true);
   const [sourcePanelMode, setSourcePanelMode] = useState<"compact" | "expanded" | "closed">("compact");
@@ -177,6 +178,13 @@ export function TablePage({ dependencies, projectId, navigate }: { dependencies:
     const saved = await save((current) => ({ ...current, sources: current.sources.map((source) => source.id === sourceId ? { ...source, removedAt: undefined } : source), updatedAt: new Date().toISOString() }));
     if (!saved.ok) setNotice(workspaceSaveErrorMessage(saved.error));
   };
+  const selectedMemo = draft.memos?.find((memo) => memo.id === selectedMemoId);
+  const addMemo = () => {
+    const center = canvasRef.current?.getViewportCenter() ?? { x: 200, y: 160 };
+    const id = crypto.randomUUID();
+    execute({ type: "create-memo", memo: { id, text: "", x: center.x - 130, y: center.y - 90, width: 260, height: 180, fontSize: 16, photoIds: [] } });
+    setSelectedMemoId(id);
+  };
   const removeSource = async (sourceId: SourceId) => {
     const saved = await save((current) => ({ ...current, sources: current.sources.map((source) => source.id === sourceId ? { ...source, removedAt: new Date().toISOString() } : source), updatedAt: new Date().toISOString() }));
     if (!saved.ok) { setNotice(workspaceSaveErrorMessage(saved.error)); return false; }
@@ -196,7 +204,9 @@ export function TablePage({ dependencies, projectId, navigate }: { dependencies:
       summaries={summaries}
       initialViewport={tableLifecycle.initialViewport}
       onViewportChange={tableLifecycle.onViewportChange}
-      onSelectPile={(id) => { setActiveSequenceId(id); setSequenceHidden(false); }}
+      selectedMemoId={selectedMemoId}
+      onSelectMemo={setSelectedMemoId}
+      onSelectPile={(id) => { setSelectedMemoId(undefined); setActiveSequenceId(id); setSequenceHidden(false); }}
       onOpenPhoto={setPreviewPhotoId}
       onOpenSequence={(sequenceId) => navigate({ name: "sequence", projectId, sequenceId })}
       onRequestSequence={requestSequence}
@@ -210,7 +220,7 @@ export function TablePage({ dependencies, projectId, navigate }: { dependencies:
         onClick: () => firstSource ? navigate({ name: "contact-sheet", projectId, sourceId: firstSource.id }) : navigate({ name: "project", projectId }),
       }}
     />
-    <TableFloatingToolbar storageKey={`photoflex:table-toolbar:${projectId}`} actions={actions} canUndo={tableSession.canUndo} canRedo={tableSession.canRedo} onUndo={() => history("undo")} onRedo={() => history("redo")} onExecute={execute} />
+    <TableFloatingToolbar onAddMemo={addMemo} selectedMemo={selectedMemo} storageKey={`photoflex:table-toolbar:${projectId}`} actions={actions} canUndo={tableSession.canUndo} canRedo={tableSession.canRedo} onUndo={() => history("undo")} onRedo={() => history("redo")} onExecute={execute} />
     <TableContextToolbar draft={draft} actions={actions} canAddToSequence={Boolean(photoIds.length && summaries.length)} onExecute={execute} onRequestSequence={requestSequence} onAddToSequence={() => { setAddToSequenceId(summaries[0]?.id); setAddToSequenceOpen(true); }} onPreview={setPreviewPhotoId} onComparePhotos={setComparePhotoIds} onCompareSequences={(ids) => navigate({ name: "sequence-compare", projectId, leftSequenceId: ids[0], rightSequenceId: ids[1] })} onRemovePiles={(ids) => setDeleteConfirmation(ids)} onRemovePhotos={(ids) => execute({ type: "remove", photoIds: ids })} />
     </div>
     {confirmation && <section ref={createSequenceDialogRef} className="sequence-confirmation sequence-pile-confirmation" role="dialog" aria-modal="true" aria-label="Create Sequence pile"><header><h2>Create Sequence</h2><button type="button" aria-label="Close Create Sequence" onClick={() => setConfirmation(undefined)}>×</button></header><label><span>SEQUENCE NAME</span><input autoFocus value={confirmation.name} onChange={(event) => setConfirmation({ ...confirmation, name: event.target.value })} onKeyDown={(event) => event.key === "Enter" && void createPile()} /></label><div className="sequence-confirmation-order">{confirmation.photoIds.map((id, index) => <button key={id} draggable onDragStart={() => setConfirmationDragId(id)} onDragOver={(event) => event.preventDefault()} onDrop={() => { if (confirmationDragId) setConfirmation({ ...confirmation, photoIds: movePhoto(confirmation.photoIds, confirmationDragId, index) }); setConfirmationDragId(undefined); }}><PhotoThumb photoSource={dependencies.photoSource} photoId={id} alt={`Order ${index + 1}: ${draft.placements[id]?.filename ?? id}`} onError={onPhotoError} /><span>{index + 1}</span></button>)}</div><div><button onClick={() => setConfirmation(undefined)}>Cancel</button><button className="button button-primary" onClick={() => void createPile()}>Create Pile</button></div></section>}

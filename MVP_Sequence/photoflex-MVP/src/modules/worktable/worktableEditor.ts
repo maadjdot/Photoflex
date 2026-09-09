@@ -5,6 +5,7 @@ import {
   type Result,
   type WorktableCommandError,
   type WorktableDraft,
+  type WorktableMemo,
   type WorktableEditCommand,
   type WorktableEditor,
   type WorktableLayout,
@@ -118,6 +119,7 @@ function applyCommand(
   draft: WorktableDraft,
   command: WorktableEditCommand,
 ): Result<WorktableDraft, WorktableCommandError> {
+  if (command.type === "create-memo" || command.type === "update-memo" || command.type === "remove-memo") return editMemo(draft, command);
   if (command.type === "place") return place(draft, command);
   if (command.type === "remove-group") return removeGroup(draft, command.groupId);
   if (command.type === "remove-link") return removeLink(draft, command.linkId);
@@ -137,6 +139,22 @@ function applyCommand(
   if (command.type === "create-link") return createLink(draft, command.photoIds);
   if (command.type === "bring-to-front") return bringToFront(draft, command.photoIds);
   return remove(draft, command.photoIds);
+}
+
+function editMemo(draft: WorktableDraft, command: Extract<WorktableEditCommand, { type: "create-memo" | "update-memo" | "remove-memo" }>): Result<WorktableDraft, WorktableCommandError> {
+  const memos = draft.memos ?? [];
+  if (command.type === "remove-memo") {
+    if (!memos.some((memo) => memo.id === command.memoId)) return err({ kind: "invalid-relation" });
+    return ok({ ...draft, memos: memos.filter((memo) => memo.id !== command.memoId) });
+  }
+  const previous = command.type === "update-memo" ? memos.find((memo) => memo.id === command.memoId) : undefined;
+  if (command.type === "update-memo" && !previous) return err({ kind: "invalid-relation" });
+  const memo: WorktableMemo = command.type === "create-memo" ? command.memo : { ...previous!, ...command.changes };
+  if (!memo.id || (command.type === "create-memo" && memos.some((item) => item.id === memo.id))) return err({ kind: "invalid-relation" });
+  if (![memo.x, memo.y, memo.width, memo.height, memo.fontSize].every(Number.isFinite) || memo.width < 120 || memo.height < 80 || memo.fontSize < 10 || memo.fontSize > 72) return err({ kind: "invalid-coordinate" });
+  if (typeof memo.text !== "string" || new Set(memo.photoIds).size !== memo.photoIds.length || memo.photoIds.some((id) => !draft.placements[id])) return err({ kind: "invalid-relation" });
+  const next = { ...memo, photoIds: [...memo.photoIds] };
+  return ok({ ...draft, memos: command.type === "create-memo" ? [...memos, next] : memos.map((item) => item.id === next.id ? next : item) });
 }
 
 function createGroup(
@@ -419,6 +437,7 @@ function remove(
   photoIds.forEach((photoId) => delete placements[photoId]);
   return ok({
     ...draft,
+    memos: draft.memos?.map((memo) => ({ ...memo, photoIds: memo.photoIds.filter((id) => !removed.has(id)) })),
     entryOrder: draft.entryOrder.filter((photoId) => !removed.has(photoId)),
     placements,
     groups: draft.groups.flatMap((group) => {
@@ -543,6 +562,7 @@ function copyDraft(draft: WorktableDraft): WorktableDraft {
   ) as Record<SequenceId, WorktableSequencePilePlacement>;
   return {
     ...draft,
+    ...(draft.memos ? { memos: draft.memos.map((memo) => ({ ...memo, photoIds: [...memo.photoIds] })) } : {}),
     entryOrder: [...draft.entryOrder],
     placements,
     groups: draft.groups.map((group) => ({ ...group, photoIds: [...group.photoIds] })),

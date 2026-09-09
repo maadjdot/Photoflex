@@ -136,6 +136,13 @@ export function isWorkspace(value: unknown): value is ProjectWorkspace {
         && new Set(value.photoIds).size === value.photoIds.length
         && value.photoIds.every((photoId) => typeof photoId === "string" && table.entryOrder.some((entryId) => entryId === photoId));
     };
+    if (table.memos !== undefined) {
+      if (!Array.isArray(table.memos) || new Set(table.memos.map((memo) => memo?.id)).size !== table.memos.length) return false;
+      if (!table.memos.every((memo) => memo && typeof memo.id === "string" && memo.id.length > 0 && typeof memo.text === "string"
+        && [memo.x, memo.y, memo.width, memo.height, memo.fontSize].every((value) => typeof value === "number" && Number.isFinite(value))
+        && memo.width >= 120 && memo.height >= 80 && memo.fontSize >= 10 && memo.fontSize <= 72
+        && Array.isArray(memo.photoIds) && new Set(memo.photoIds).size === memo.photoIds.length && memo.photoIds.every((id: unknown) => typeof id === "string" && table.entryOrder.includes(id as PhotoId)))) return false;
+    }
     if (!Array.isArray(table.groups) || !table.groups.every((group) => isRelation(group, 2))) return false;
     if (!Array.isArray(table.links) || !table.links.every((link) => isRelation(link, 2, 6))) return false;
     if (!Array.isArray(table.pileOrder) || new Set(table.pileOrder).size !== table.pileOrder.length) return false;

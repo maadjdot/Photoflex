@@ -1,3 +1,4 @@
+import { TableMemos } from "./TableMemos";
 import { TableHeaderControl } from "./TableHeaderControl";
 import {
   forwardRef,
@@ -65,6 +66,8 @@ interface TableCanvasProps {
   readonly onOpenSequence: (sequenceId: SequenceId) => void;
   readonly onRequestSequence: (photoIds: readonly PhotoId[]) => void;
   readonly onDropPhotos: (photoIds: readonly PhotoId[], point: WorktablePoint) => void;
+  readonly selectedMemoId?: string;
+  readonly onSelectMemo?: (id: string | undefined) => void;
   readonly onSelectPile?: (sequenceId: SequenceId) => void;
   readonly onRemovePiles: (sequenceIds: readonly SequenceId[]) => void;
   readonly onPhotoError: (photoId: PhotoId, error: SourceError) => void;
@@ -207,6 +210,7 @@ export const TableCanvas = forwardRef<TableCanvasHandle, TableCanvasProps>(funct
     const stage = stageRef.current;
     if (!stage) return;
     const onWheel = (event: WheelEvent) => {
+      if (!event.ctrlKey && !event.metaKey && (event.target as HTMLElement).closest(".table-memo textarea")) return;
       event.preventDefault();
       if (event.ctrlKey || event.metaKey) {
         setViewport(zoomAroundScreenPoint(
@@ -233,6 +237,7 @@ export const TableCanvas = forwardRef<TableCanvasHandle, TableCanvasProps>(funct
     const cards = [
       ...draft.entryOrder.map((id) => draft.placements[id]),
       ...draft.pileOrder.map((id) => draft.pilePlacements[id]),
+      ...(draft.memos ?? []),
     ];
     if (!cards.length) return setViewport(initialViewport);
     const minX = Math.min(...cards.map((item) => item.x));
@@ -299,7 +304,7 @@ export const TableCanvas = forwardRef<TableCanvasHandle, TableCanvasProps>(funct
       className="worktable-stage"
       tabIndex={0}
       aria-label="Photo worktable"
-      onPointerDown={gestures.onStagePointerDown}
+      onPointerDown={(event) => { if (event.target === event.currentTarget || (event.target as HTMLElement).classList.contains("worktable-world")) props.onSelectMemo?.(undefined); gestures.onStagePointerDown(event); }}
       onPointerMove={gestures.onStagePointerMove}
       onPointerUp={(event) => gestures.finishGesture(event)}
       onPointerCancel={(event) => gestures.finishGesture(event, true)}
@@ -320,6 +325,7 @@ export const TableCanvas = forwardRef<TableCanvasHandle, TableCanvasProps>(funct
       onKeyDown={onKeyDown}
     >
       <div className="worktable-world" style={{ transform: `translate3d(${viewport.originX}px,${viewport.originY}px,0) scale(${viewport.zoom})` }}>
+        <TableMemos draft={draft} zoom={viewport.zoom} selectedId={props.selectedMemoId} onSelect={(id) => props.onSelectMemo?.(id)} onExecute={session.execute} disabled={interactionDisabled} />
         <svg className="worktable-links">
           {draft.links.flatMap((link) => link.photoIds.slice(1).map((id, index) => {
             const left = draft.placements[link.photoIds[index]];
@@ -381,7 +387,7 @@ export const TableCanvas = forwardRef<TableCanvasHandle, TableCanvasProps>(funct
         })}
       </div>
       {preview.marquee && <div className="worktable-marquee" style={preview.marquee} />}
-      {!draft.entryOrder.length && !draft.pileOrder.length && (
+      {!draft.entryOrder.length && !draft.pileOrder.length && !draft.memos?.length && (
         <section className="worktable-empty">
           <span>EMPTY TABLE</span>
           <h1>Bring photographs here to think with them.</h1>

@@ -860,3 +860,18 @@ h1, h2, p { margin-top: 0; }
 .source-manager button:disabled { opacity: .5; }
 .source-manager header button { border: 0; font-size: 20px; }
 @media (prefers-reduced-motion: reduce) { .source-loading-status .loading-mark { animation: none; } }
+
+.table-memo { position: absolute; z-index: 5; display: flex; flex-direction: column; min-width: 120px; min-height: 80px; border: 1px solid #d4d2cc; border-radius: 5px; background: #fff; color: #1a1917; box-shadow: 0 3px 12px rgb(26 25 23 / 8%); pointer-events: auto; }
+.table-memo.is-selected { outline: 1px solid #1a1917; }
+.table-memo header { display: flex; justify-content: space-between; height: 28px; flex-shrink: 0; }
+.table-memo header button { border: 0; background: transparent; color: #777; padding: 2px 8px; }
+.memo-drag { flex: 1; text-align: left; cursor: grab; touch-action: none; }
+.memo-delete { font-size: 18px; }
+.table-memo textarea { flex: 1; min-height: 0; width: 100%; padding: 0 16px 16px; border: 0; outline: 0; resize: none; background: #fff; color: inherit; font-family: "Inter", sans-serif; line-height: 1.5; cursor: text; }
+.memo-resize { position: absolute; right: 1px; bottom: 1px; width: 18px; height: 18px; padding: 0; border: 0; background: linear-gradient(135deg, transparent 55%, #999 56%, #999 61%, transparent 62%, transparent 73%, #999 74%, #999 79%, transparent 80%); cursor: nwse-resize; touch-action: none; }
+.memo-links { position: absolute; inset: 0; width: 1px; height: 1px; overflow: visible; pointer-events: none; }
+.memo-links line { stroke: #888; stroke-width: 1.5; stroke-dasharray: 5 4; }
+.memo-toolbar-controls { display: grid; gap: 4px; border-block: 1px solid #d4d2cc; padding-block: 6px; }
+.memo-toolbar-controls label { display: grid; gap: 3px; text-align: center; font-size: 10px; }
+.memo-toolbar-controls input { width: 48px; min-width: 0; border: 1px solid #d4d2cc; border-radius: 4px; padding: 4px; color: #1a1917; font: 11px "Inter", sans-serif; }
+.memo-unlink { border: 0; border-radius: 4px; background: #f0efeb; padding: 5px 0; font: 10px "Inter", sans-serif; }

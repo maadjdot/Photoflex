@@ -82,6 +82,33 @@ describe("TablePage", () => {
 
   afterEach(() => cleanup());
 
+  it("creates, formats, links and restores a saved memo", async () => {
+    const dependencies = await createFixture();
+    const view = render(<App dependencies={dependencies} />);
+    await screen.findByLabelText("Photo worktable");
+    fireEvent.click(screen.getByRole("button", { name: "Add memo" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Memo text" }), { target: { value: "Light and shadow" } });
+    fireEvent.change(screen.getByRole("spinbutton", { name: "Memo font size" }), { target: { value: "24" } });
+    const card = screen.getByLabelText("A.jpg");
+    fireEvent.pointerDown(card, { button: 0 });
+    fireEvent.pointerUp(card, { button: 0 });
+    fireEvent.click(screen.getByRole("button", { name: "Link memo to selected photos" }));
+    await waitFor(async () => {
+      const result = await dependencies.projectStore.loadWorkspace(projectId);
+      expect(result.ok && result.value.worktableDraft.memos?.[0]).toMatchObject({ text: "Light and shadow", fontSize: 24, photoIds: [photoA] });
+    });
+    view.unmount();
+    render(<App dependencies={dependencies} />);
+    const text = await screen.findByRole("textbox", { name: "Memo text" });
+    expect((text as HTMLTextAreaElement).value).toBe("Light and shadow");
+    expect(text.style.fontSize).toBe("24px");
+    expect(document.querySelectorAll(".memo-links line")).toHaveLength(1);
+    fireEvent.click(screen.getByRole("button", { name: "Delete memo" }));
+    expect(screen.queryByRole("textbox", { name: "Memo text" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Undo" }));
+    expect((screen.getByRole("textbox", { name: "Memo text" }) as HTMLTextAreaElement).value).toBe("Light and shadow");
+  });
+
   it("渲染独立 Table 路由与基础工具栏", async () => {
     const dependencies = await createFixture();
     render(<App dependencies={dependencies} />);

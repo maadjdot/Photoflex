@@ -12,6 +12,25 @@ const seed = (id: string, width = 196, height = 146): WorktablePlacementSeed => 
 });
 
 describe("WorktableEditor", () => {
+  it("preserves memos across edits and undo, and cleans photo links on removal", () => {
+    const editor = createWorktableEditor(createEmptyWorktable(projectId));
+    editor.execute({ type: "place", items: [seed("a")] });
+    const memo = { id: "memo-1", text: "First thought", x: -40, y: 20, width: 260, height: 180, fontSize: 16, photoIds: [photoId("a")] };
+    expect(editor.execute({ type: "create-memo", memo }).ok).toBe(true);
+    editor.execute({ type: "update-memo", memoId: memo.id, changes: { width: 420, height: 100, fontSize: 24, text: "Revised" } });
+    expect(editor.snapshot().memos?.[0]).toMatchObject({ width: 420, height: 100, fontSize: 24, text: "Revised" });
+    expect(editor.undo().memos?.[0]).toEqual(memo);
+    editor.redo();
+    editor.execute({ type: "remove", photoIds: [photoId("a")] });
+    expect(editor.snapshot().memos?.[0].photoIds).toEqual([]);
+    expect(editor.undo().memos?.[0].photoIds).toEqual([photoId("a")]);
+    expect(editor.execute({ type: "update-memo", memoId: memo.id, changes: { width: NaN } }).ok).toBe(false);
+    expect(editor.execute({ type: "update-memo", memoId: memo.id, changes: { photoIds: [photoId("missing")] } }).ok).toBe(false);
+    editor.execute({ type: "remove-memo", memoId: memo.id });
+    expect(editor.snapshot().memos).toEqual([]);
+    expect(editor.undo().memos).toHaveLength(1);
+  });
+
   it("places only new photos and keeps entry order stable", () => {
     const editor = createWorktableEditor(createEmptyWorktable(projectId));
     expect(editor.execute({ type: "place", items: [seed("a"), seed("b")] }).ok).toBe(true);

@@ -40,7 +40,18 @@ export interface WorktableSequencePilePlacement extends WorktablePoint {
   readonly height: number;
 }
 
+export interface WorktableMemo extends WorktablePoint {
+  readonly id: string;
+  readonly text: string;
+  readonly width: number;
+  readonly height: number;
+  readonly fontSize: number;
+  readonly photoIds: readonly PhotoId[];
+}
+
 export interface WorktableDraft {
+  /** Optional for projects saved before Table memos were introduced. */
+  readonly memos?: readonly WorktableMemo[];
   readonly projectId: ProjectId;
   readonly entryOrder: readonly PhotoId[];
   readonly placements: Readonly<Record<PhotoId, WorktablePlacement>>;
@@ -71,6 +82,9 @@ export type WorktableLayout =
   | { readonly type: "align"; readonly edge: WorktableAlignment };
 
 export type WorktableEditCommand =
+  | { readonly type: "create-memo"; readonly memo: WorktableMemo }
+  | { readonly type: "update-memo"; readonly memoId: string; readonly changes: Partial<Omit<WorktableMemo, "id">> }
+  | { readonly type: "remove-memo"; readonly memoId: string }
   | {
       readonly type: "place";
       readonly items: readonly WorktablePlacementSeed[];
