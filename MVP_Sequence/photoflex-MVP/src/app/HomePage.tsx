@@ -8,6 +8,10 @@ import { NewProjectDialog } from "./ProjectDialog";
 import { deleteProjectWorkspace, projectDeletionErrorMessage, resumePendingProjectDeletions } from "./ProjectWorkspaceActions";
 import { createHomeGallery, type HomeGalleryPhoto } from "./homeGallery";
 
+interface GalleryPhoto extends HomeGalleryPhoto {
+  readonly isPortrait: boolean;
+}
+
 export function HomePage({
   dependencies,
   navigate,
@@ -21,7 +25,7 @@ export function HomePage({
   const [showDialog, setShowDialog] = useState(false);
   const [deletingProjectId, setDeletingProjectId] = useState<ProjectId>();
   const [selectedProjectId, setSelectedProjectId] = useState<ProjectId>();
-  const [gallery, setGallery] = useState<{ projectId: ProjectId; rows: HomeGalleryPhoto[][] }>();
+  const [gallery, setGallery] = useState<{ projectId: ProjectId; rows: GalleryPhoto[][] }>();
 
   useEffect(() => {
     let active = true;
@@ -48,13 +52,27 @@ export function HomePage({
   useEffect(() => {
     if (!activeProjectId) return;
     let active = true;
-    void dependencies.projectStore.loadWorkspace(activeProjectId).then((result) => {
+    void dependencies.projectStore.loadWorkspace(activeProjectId).then(async (result) => {
       if (!active) return;
       if (!result.ok) setError("项目照片暂时无法读取，请重试。");
-      setGallery({ projectId: activeProjectId, rows: result.ok ? createHomeGallery(result.value.worktableDraft.entryOrder) : [] });
+      if (!result.ok) {
+        setGallery({ projectId: activeProjectId, rows: [] });
+        return;
+      }
+      const workspace = result.value;
+      const rows = await Promise.all(createHomeGallery(workspace.worktableDraft.entryOrder).map((row) =>
+        Promise.all(row.map(async (item) => {
+          const photo = await dependencies.photoSource.getPhoto(item.photoId);
+          const fallback = workspace.worktableDraft.placements[item.photoId];
+          const width = photo.ok ? photo.value.width : fallback?.width ?? 1;
+          const height = photo.ok ? photo.value.height : fallback?.height ?? 1;
+          return { ...item, isPortrait: height > width };
+        })),
+      ));
+      if (active) setGallery({ projectId: activeProjectId, rows });
     });
     return () => { active = false; };
-  }, [activeProjectId, dependencies.projectStore]);
+  }, [activeProjectId, dependencies.photoSource, dependencies.projectStore]);
 
   const deleteProject = async (project: ProjectSummary) => {
     if (!window.confirm(`Delete project “${project.name}”? Original photos will not be deleted.`)) return;
@@ -116,11 +134,11 @@ export function HomePage({
                 {rows.map((row, rowIndex) => (
                   <div className="home-gallery-row" key={rowIndex}>
                     <div className="home-gallery-strip">
-                    {row.map(({ photoId, column }) => (
+                    {row.map(({ photoId, column, isPortrait }) => (
                       <button
                         key={photoId}
                         type="button"
-                        className="home-gallery-photo"
+                        className={`home-gallery-photo${isPortrait ? " is-portrait" : ""}`}
                         style={{ gridColumn: column }}
                         data-project-id={selectedProject.id}
                         data-photo-id={photoId}

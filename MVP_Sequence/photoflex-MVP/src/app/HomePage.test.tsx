@@ -20,7 +20,7 @@ it("shows only the selected Table's photos, keeps the layout stable during rende
     const saved = await projectStore.saveWorktable(id, {
       ...created.value.worktableDraft,
       entryOrder,
-      placements: Object.fromEntries(entryOrder.map((photoId) => [photoId, { photoId, x: 0, y: 0, z: 1, width: 150, height: 100, filename: `${photoId}.jpg` }])),
+      placements: Object.fromEntries(entryOrder.map((photoId) => [photoId, { photoId, x: 0, y: 0, z: 1, width: 100, height: 150, filename: `${photoId}.jpg` }])),
     }, created.value.revision);
     if (!saved.ok) throw new Error("Fixture save failed");
   }
@@ -30,6 +30,7 @@ it("shows only the selected Table's photos, keeps the layout stable during rende
   const coast = await screen.findByLabelText("Coast photos");
   expect(coast.querySelectorAll(".home-gallery-photo").length).toBeGreaterThanOrEqual(9);
   expect(coast.querySelectorAll(".home-gallery-photo").length).toBeLessThanOrEqual(15);
+  expect([...coast.querySelectorAll(".home-gallery-photo")].every((photo) => photo.classList.contains("is-portrait"))).toBe(true);
   expect([...coast.querySelectorAll<HTMLElement>(".home-gallery-photo")].every((photo) => photo.dataset.photoId?.startsWith("Coast-"))).toBe(true);
   const composition = () => [...coast.querySelectorAll<HTMLElement>(".home-gallery-photo")].map((photo) => ({ id: photo.dataset.photoId, style: photo.getAttribute("style") }));
   const before = composition();

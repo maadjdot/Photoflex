@@ -115,12 +115,13 @@ h1, h2, p { margin-top: 0; }
 .home-project-delete:disabled { opacity: .35; }
 .home-project-stage { position: relative; display: flex; flex-direction: column; flex: 1; min-width: 0; min-height: 0; overflow: hidden; }
 .home-project-feature { display: flex; flex: 1; width: 100%; min-width: 0; min-height: 0; flex-direction: column; }
-.home-gallery { display: grid; flex: 1; grid-template-rows: repeat(3, minmax(0, 1fr)); row-gap: 20px; min-height: 0; padding: 32px clamp(24px, 3.3vw, 48px) clamp(24px, 6vh, 64px); }
+.home-gallery { display: grid; flex: 1; grid-template-rows: repeat(3, minmax(0, 1fr)); row-gap: 30px; min-height: 0; padding: 32px clamp(24px, 4.8vw, 52px) clamp(24px, 6vh, 40px); }
 .home-gallery-row { container-type: size; min-width: 0; min-height: 0; }
-.home-gallery-strip { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); grid-auto-rows: max-content; align-items: end; align-content: center; gap: clamp(6px, .7vw, 12px); width: 100%; height: 100%; }
+.home-gallery-strip { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); grid-auto-rows: max-content; align-items: end; align-content: center; gap: clamp(6px, .5vw, 12px); width: 100%; height: 100%; }
 .home-gallery-row:first-child .home-gallery-strip { align-content: start; }
 .home-gallery-row:last-child .home-gallery-strip { align-content: end; }
-.home-gallery-photo { display: flex; align-items: flex-end; justify-content: center; width: 100%; height: clamp(65px, calc(17vh - 15px), 155px); min-width: 0; min-height: 0; padding: 0 7.5px; border: 0; background: transparent; }
+.home-gallery-photo { display: flex; align-items: flex-end; justify-content: center; width: 100%; height: clamp(65px, calc(18vh - 20px), 150px); min-width: 0; min-height: 0; padding: 0 1px; border: 0; background: transparent; }
+.home-gallery-photo.is-portrait { height: clamp(90px, calc(22vh - 15px), 200px); }
 .home-gallery-photo img { display: block; width: 100%; height: 100%; min-width: 0; min-height: 0; object-fit: contain; object-position: center bottom; transition: opacity .2s ease; }
 .home-gallery-photo:hover img { opacity: .8; }
 .home-gallery-photo .thumb-placeholder { width: 100%; height: 65%; background: #f5f5f5; }
@@ -130,7 +131,6 @@ h1, h2, p { margin-top: 0; }
 .home-project-feature-copy > span { color: #aaa; font-size: 12px; font-weight: 400; white-space: nowrap; }
 .home-project-index-skeleton { display: grid; gap: 14px; padding: 7px 24px; }
 .home-project-index-skeleton span { width: 70%; height: 12px; background: linear-gradient(110deg, #f3f3f3 35%, #e8e8e8 50%, #f3f3f3 65%); background-size: 200% 100%; animation: shimmer 1.4s infinite; }
-
 .modal-backdrop { position: fixed; inset: 0; z-index: 20; display: grid; place-items: center; padding: 24px; background: rgb(28 24 20 / 24%); }
 .modal { position: relative; width: min(666px, calc(100vw - 48px)); min-height: min(591px, calc(100vh - 48px)); max-height: calc(100vh - 48px); overflow: auto; padding: 36px 40px 32px; border: 0; border-radius: 15px; background: var(--paper); }
 .modal-close { position: absolute; top: 30px; right: 39px; z-index: 1; border: 0; background: transparent; font-size: 28px; }
