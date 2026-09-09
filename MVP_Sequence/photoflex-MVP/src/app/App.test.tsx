@@ -30,6 +30,8 @@ describe("M1 app", () => {
     expect(screen.getAllByRole("button", { name: /New project/i }).length).toBeGreaterThan(0);
     expect(screen.getByRole("button", { name: "Create a project" })).toBeTruthy();
     expect(screen.getByRole("banner").classList.contains("is-table")).toBe(true);
+    expect(screen.getByRole("banner").classList.contains("is-home")).toBe(true);
+    expect(screen.queryByRole("navigation", { name: "主导航" })).toBeNull();
   });
 
   it("创建项目时要求名称与照片文件夹", async () => {

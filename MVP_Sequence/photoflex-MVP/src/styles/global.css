@@ -60,6 +60,7 @@ h1, h2, p { margin-top: 0; }
 .nav-button.is-active { border-color: var(--red); color: var(--ink); font-weight: 700; }
 .nav-button:disabled { color: var(--muted); opacity: 1; }
 .login-button { justify-self: end; width: 86px; height: 34px; border: 0; background: transparent; font-size: 16px; }
+.topbar.is-home { grid-template-columns: minmax(0, 1fr) auto; border-bottom: 0; }
 
 .page { padding: 0; }
 .home-page { display: flex; height: calc(100vh - var(--topbar-height)); min-height: 520px; overflow: hidden; background: #fff; color: #0c0c0c; font-family: "Inter", Arial, "Helvetica Neue", sans-serif; }
@@ -103,27 +104,32 @@ h1, h2, p { margin-top: 0; }
 .home-project-index { display: flex; flex: 0 0 280px; flex-direction: column; min-width: 0; overflow-y: auto; background: #fff; }
 .home-project-index-list { margin: 0; padding: 0 0 24px; list-style: none; }
 .home-project-index-item { position: relative; display: flex; align-items: center; min-width: 0; padding: 7px 24px 7px 0; }
+.home-project-index-item + .home-project-index-item { margin-top: 10px; }
 .home-project-index-item::before { content: ""; position: absolute; top: 0; bottom: 0; left: 0; width: 2px; background: #0c0c0c; opacity: 0; transition: opacity .2s ease; }
 .home-project-index-item.is-active::before { opacity: 1; }
-.home-project-select { display: block; flex: 1; min-width: 0; padding: 0 0 0 24px; overflow: hidden; border: 0; background: transparent; color: #aaa; font-family: "Courier Prime", "Courier New", monospace; font-size: 13px; font-weight: 400; line-height: 1.5; text-align: left; text-overflow: ellipsis; transition: color .2s ease; }
+.home-project-select { display: block; flex: 1; min-width: 0; padding: 0 0 0 24px; border: 0; background: transparent; color: #aaa; font-family: "Courier Prime", "Courier New", monospace; font-size: 14px; font-weight: 400; line-height: 1.5; text-align: left; white-space: normal; overflow-wrap: anywhere; transition: color .2s ease; }
 .home-project-index-item:hover .home-project-select, .home-project-select:focus-visible, .home-project-index-item.is-active .home-project-select { color: #0c0c0c; }
 .home-project-delete { flex: 0 0 auto; padding: 0 4px; border: 0; background: transparent; color: #ccc; font-size: 16px; line-height: 1; opacity: 0; pointer-events: none; transition: color .15s ease, opacity .15s ease; }
 .home-project-index-item:hover .home-project-delete, .home-project-index-item:focus-within .home-project-delete { opacity: 1; pointer-events: auto; }
 .home-project-delete:hover { color: #0c0c0c; }
 .home-project-delete:disabled { opacity: .35; }
-.home-project-stage { position: relative; flex: 1; min-width: 0; min-height: 0; overflow: hidden; }
-.home-project-feature { display: flex; width: 100%; height: 100%; min-width: 0; min-height: 0; flex-direction: column; }
-.home-project-feature-media { display: flex; flex: 1; align-items: center; justify-content: center; width: 100%; min-height: 0; overflow: hidden; padding: 32px 48px 0; border: 0; background: transparent; }
-.home-project-feature-media .project-cover { display: flex; align-items: center; justify-content: center; width: 100%; height: 100%; min-width: 0; min-height: 0; overflow: hidden; border: 0; background: transparent; pointer-events: none; }
-.home-project-feature-media.has-photo .project-cover { width: 95%; height: 95%; transform: translateX(-50px); }
-.home-project-feature-media .project-cover img { display: block; width: 100%; height: 100%; min-width: 0; min-height: 0; max-width: 100%; max-height: 100%; object-fit: contain; object-position: center; transition: opacity .3s ease; }
-.home-project-feature-media .project-cover .thumb-placeholder { background: transparent; }
+.home-project-stage { position: relative; display: flex; flex-direction: column; flex: 1; min-width: 0; min-height: 0; overflow: hidden; }
+.home-project-feature { display: flex; flex: 1; width: 100%; min-width: 0; min-height: 0; flex-direction: column; }
+.home-gallery { display: grid; flex: 1; grid-template-rows: repeat(3, minmax(0, 1fr)); row-gap: 20px; min-height: 0; padding: 32px clamp(24px, 3.3vw, 48px) clamp(24px, 6vh, 64px); }
+.home-gallery-row { container-type: size; min-width: 0; min-height: 0; }
+.home-gallery-strip { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); grid-auto-rows: max-content; align-items: end; align-content: center; gap: clamp(6px, .7vw, 12px); width: 100%; height: 100%; }
+.home-gallery-row:first-child .home-gallery-strip { align-content: start; }
+.home-gallery-row:last-child .home-gallery-strip { align-content: end; }
+.home-gallery-photo { display: flex; align-items: flex-end; justify-content: center; width: 100%; height: clamp(65px, calc(17vh - 15px), 155px); min-width: 0; min-height: 0; padding: 0 7.5px; border: 0; background: transparent; }
+.home-gallery-photo img { display: block; width: 100%; height: 100%; min-width: 0; min-height: 0; object-fit: contain; object-position: center bottom; transition: opacity .2s ease; }
+.home-gallery-photo:hover img { opacity: .8; }
+.home-gallery-photo .thumb-placeholder { width: 100%; height: 65%; background: #f5f5f5; }
+.home-gallery-loading, .home-gallery-empty { display: flex; flex: 1; flex-direction: column; align-items: center; justify-content: center; color: #aaa; font-size: 13px; }
+.home-gallery-empty { transform: translate(-80px, -50px); }
 .home-project-feature-copy { display: flex; flex: 0 0 auto; align-items: baseline; justify-content: flex-end; gap: 24px; padding: 12px 48px 16px; }
 .home-project-feature-copy > span { color: #aaa; font-size: 12px; font-weight: 400; white-space: nowrap; }
-.home-no-photo, .home-cover-loading { display: grid; place-items: center; width: 100%; height: 100%; color: #aaa; font-family: "Courier Prime", "Courier New", monospace; font-size: 13px; }
 .home-project-index-skeleton { display: grid; gap: 14px; padding: 7px 24px; }
 .home-project-index-skeleton span { width: 70%; height: 12px; background: linear-gradient(110deg, #f3f3f3 35%, #e8e8e8 50%, #f3f3f3 65%); background-size: 200% 100%; animation: shimmer 1.4s infinite; }
-.home-feature-skeleton { position: absolute; inset: 32px 48px 48px; background: linear-gradient(110deg, #f6f6f6 35%, #ededed 50%, #f6f6f6 65%); background-size: 200% 100%; animation: shimmer 1.4s infinite; }
 
 .modal-backdrop { position: fixed; inset: 0; z-index: 20; display: grid; place-items: center; padding: 24px; background: rgb(28 24 20 / 24%); }
 .modal { position: relative; width: min(666px, calc(100vw - 48px)); min-height: min(591px, calc(100vh - 48px)); max-height: calc(100vh - 48px); overflow: auto; padding: 36px 40px 32px; border: 0; border-radius: 15px; background: var(--paper); }

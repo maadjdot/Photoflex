@@ -1,11 +1,12 @@
-import { useEffect, useMemo, useState } from "react";
-import type { PhotoId, ProjectId, ProjectSummary } from "../contracts";
+import { useEffect, useState } from "react";
+import type { ProjectId, ProjectSummary } from "../contracts";
 import { PhotoThumb } from "./PhotoThumb";
 import type { AppDependencies } from "./dependencies";
 import type { AppRoute } from "./router";
 import { formatUpdated, InlineError, EmptyPanel } from "./AppPrimitives";
 import { NewProjectDialog } from "./ProjectDialog";
 import { deleteProjectWorkspace, projectDeletionErrorMessage, resumePendingProjectDeletions } from "./ProjectWorkspaceActions";
+import { createHomeGallery, type HomeGalleryPhoto } from "./homeGallery";
 
 export function HomePage({
   dependencies,
@@ -20,34 +21,40 @@ export function HomePage({
   const [showDialog, setShowDialog] = useState(false);
   const [deletingProjectId, setDeletingProjectId] = useState<ProjectId>();
   const [selectedProjectId, setSelectedProjectId] = useState<ProjectId>();
-  const [coverPhotoIds, setCoverPhotoIds] = useState<Record<string, PhotoId | null>>({});
+  const [gallery, setGallery] = useState<{ projectId: ProjectId; rows: HomeGalleryPhoto[][] }>();
 
   useEffect(() => {
     let active = true;
     void dependencies.projectStore.listProjects().then(async (result) => {
       if (!active) return;
-      setLoading(false);
       if (result.ok) {
         const recovery = await resumePendingProjectDeletions(dependencies, result.value);
         if (!active) return;
         if (recovery.failures.length) setError(projectDeletionErrorMessage(recovery.failures[0].error));
         setProjects(recovery.projects);
-        setCoverPhotoIds({});
-        void Promise.all(recovery.projects.map(async (project) => [project.id, await resolveHomeCoverPhoto(dependencies, project.id)] as const)).then((covers) => {
-          if (!active) return;
-          setCoverPhotoIds(Object.fromEntries(covers));
-        });
       }
       else setError("项目列表暂时无法读取，请重试。");
+      setLoading(false);
     });
     return () => {
       active = false;
     };
   }, [dependencies.projectStore]);
 
-  const filtered = useMemo(() => projects, [projects]);
+  const selectedProject = projects.find((project) => project.id === selectedProjectId) ?? projects[0];
+  const activeProjectId = selectedProject?.id;
+  const rows = gallery?.projectId === activeProjectId ? gallery?.rows : undefined;
 
-  const selectedProject = filtered.find((project) => project.id === selectedProjectId) ?? filtered[0];
+  useEffect(() => {
+    if (!activeProjectId) return;
+    let active = true;
+    void dependencies.projectStore.loadWorkspace(activeProjectId).then((result) => {
+      if (!active) return;
+      if (!result.ok) setError("项目照片暂时无法读取，请重试。");
+      setGallery({ projectId: activeProjectId, rows: result.ok ? createHomeGallery(result.value.worktableDraft.entryOrder) : [] });
+    });
+    return () => { active = false; };
+  }, [activeProjectId, dependencies.projectStore]);
 
   const deleteProject = async (project: ProjectSummary) => {
     if (!window.confirm(`Delete project “${project.name}”? Original photos will not be deleted.`)) return;
@@ -75,7 +82,7 @@ export function HomePage({
           </div>
         ) : (
           <ul className="home-project-index-list">
-            {filtered.map((project) => (
+            {projects.map((project) => (
               <li key={project.id} className={`home-project-index-item${project.id === selectedProject?.id ? " is-active" : ""}`}>
                 <button
                   type="button"
@@ -101,19 +108,38 @@ export function HomePage({
       <section className="home-project-stage">
         {error && <InlineError message={error} onRetry={() => window.location.reload()} />}
         {loading ? (
-          <div className="home-feature-skeleton" aria-hidden="true" />
-        ) : filtered.length && selectedProject ? (
+          <div className="home-gallery-loading" role="status">Loading photos…</div>
+        ) : selectedProject ? (
           <article className="home-project-feature">
-            <button
-              className={`home-project-feature-media${coverPhotoIds[selectedProject.id] ? " has-photo" : ""}`}
-              data-project-id={selectedProject.id}
-              onClick={() => navigate({ name: "table", projectId: selectedProject.id })}
-              aria-label={`打开项目 ${selectedProject.name}`}
-            >
-              <div className="project-cover">
-                <ProjectCover project={selectedProject} dependencies={dependencies} photoId={coverPhotoIds[selectedProject.id]} />
+            {!rows ? <div className="home-gallery-loading" role="status">Loading photos…</div> : rows.length ? (
+              <div className="home-gallery" aria-label={`${selectedProject.name} photos`}>
+                {rows.map((row, rowIndex) => (
+                  <div className="home-gallery-row" key={rowIndex}>
+                    <div className="home-gallery-strip">
+                    {row.map(({ photoId, column }) => (
+                      <button
+                        key={photoId}
+                        type="button"
+                        className="home-gallery-photo"
+                        style={{ gridColumn: column }}
+                        data-project-id={selectedProject.id}
+                        data-photo-id={photoId}
+                        onClick={() => navigate({ name: "table", projectId: selectedProject.id })}
+                        aria-label={`Open ${selectedProject.name} Table — photo ${photoId}`}
+                      >
+                        <PhotoThumb photoSource={dependencies.photoSource} photoId={photoId} alt={`${selectedProject.name} photograph`} eager />
+                      </button>
+                    ))}
+                    </div>
+                  </div>
+                ))}
               </div>
-            </button>
+            ) : (
+              <div className="home-gallery-empty">
+                <p>No photos on this Table yet</p>
+                <button className="button button-secondary" onClick={() => navigate({ name: "table", projectId: selectedProject.id })} aria-label={`打开项目 ${selectedProject.name}`}>Open Table</button>
+              </div>
+            )}
             <div className="home-project-feature-copy">
               <span>Updated {formatUpdated(selectedProject.updatedAt)}</span>
             </div>
@@ -134,24 +160,4 @@ export function HomePage({
       )}
     </main>
   );
-}
-
-async function resolveHomeCoverPhoto(dependencies: AppDependencies, projectId: ProjectId): Promise<PhotoId | null> {
-  const sequences = await dependencies.projectStore.listSequences(projectId);
-  if (sequences.ok) {
-    for (const summary of sequences.value) {
-      const sequence = await dependencies.projectStore.loadSequence(summary.id);
-      if (!sequence.ok) continue;
-      const firstPhoto = sequence.value.items.find((item) => item.kind === "photo");
-      if (firstPhoto?.kind === "photo") return firstPhoto.photoId;
-    }
-  }
-  const workspace = await dependencies.projectStore.loadWorkspace(projectId);
-  return workspace.ok ? workspace.value.worktableDraft.entryOrder[0] ?? null : null;
-}
-
-function ProjectCover({ project, dependencies, photoId }: { readonly project: ProjectSummary; readonly dependencies: AppDependencies; readonly photoId?: PhotoId | null }) {
-  if (photoId) return <PhotoThumb photoSource={dependencies.photoSource} photoId={photoId} alt={`${project.name} cover`} resolution="sequence" />;
-  if (photoId === null) return <div className="home-no-photo">No Photo</div>;
-  return <div className="home-cover-loading" aria-label={`${project.name} cover loading`}>Loading photo…</div>;
 }

@@ -30,10 +30,10 @@ export function AppHeader({ dependencies, route, projectId, contactSourceId, las
 
   const brand = <button className="brand" onClick={() => navigate({ name: "home" })} aria-label="返回 Home">Photoflex</button>;
   const label = projectLabel ?? projectName ?? projectId;
-  return <header className={`topbar${variant === "table" ? " is-table" : ""}`}>
+  return <header className={`topbar${variant === "table" ? " is-table" : ""}${route.name === "home" ? " is-home" : ""}`}>
     {variant === "table" ? <div className="table-header-project">{brand}{projectId && <><span className="table-header-slash" aria-hidden="true">/</span><span className="project-context-name" title={label}>{label}</span></>}</div> : <>{brand}{projectId && <span className="project-context-name" title={label}>{label}</span>}</>}
-    {route.name !== "table" && route.name !== "sequence" && <nav className="topnav" aria-label="主导航">
-      {(!projectId || variant === "table") && <NavButton active={route.name === "home"} onClick={() => navigate({ name: "home" })}>Home</NavButton>}
+    {route.name !== "home" && route.name !== "table" && route.name !== "sequence" && <nav className="topnav" aria-label="主导航">
+      {(!projectId || variant === "table") && <NavButton onClick={() => navigate({ name: "home" })}>Home</NavButton>}
       <NavButton active={route.name === "project" || route.name === "contact-sheet"} disabled={!projectId} onClick={() => projectId && navigate({ name: "table", projectId })}>Table</NavButton>
       <NavButton active={route.name === "sequence-compare" || route.name === "version-compare"} disabled={!projectId} title="Open the last Sequence" onClick={() => {
         if (!projectId) return;
