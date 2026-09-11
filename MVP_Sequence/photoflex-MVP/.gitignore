@@ -4,3 +4,5 @@ playwright-report/
 test-results/
 tests/fixtures/photos/*.jpg
 !tests/fixtures/photos/.gitkeep
+
+.vercel

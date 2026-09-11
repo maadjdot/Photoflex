@@ -12,6 +12,7 @@ import expandIcon from "../assets/icons/table-expand.svg";
 import contactIcon from "../assets/icons/table-contact-sheet.svg";
 import manageIcon from "../assets/icons/table-manage-sources.svg";
 import plusIcon from "../assets/icons/table-plus.svg";
+import { useLocale } from "./locale";
 
 type SourceSelection = SourceId | "all";
 type SourcePanelMode = "compact" | "expanded" | "closed";
@@ -33,6 +34,7 @@ export interface SourceBrowserProps {
 
 /** Photo Sources browser for Table. It owns only source browsing and pending selection. */
 export function SourceBrowser({ dependencies, workspace, onPlacePhotos, onOpenPhoto, onAddSource, addingSource = false, onRemoveSource, onOpenContactSheet, onReconnectSource, onPhotoError, onPanelModeChange }: SourceBrowserProps) {
+  const { locale, t } = useLocale();
   const sources = workspace.sources;
   const connectedSources = useMemo(() => sources.filter((source) => !source.removedAt), [sources]);
   const uiStorageKey = `photoflex:table-sources:${workspace.projectId}`;
@@ -92,7 +94,7 @@ export function SourceBrowser({ dependencies, workspace, onPlacePhotos, onOpenPh
           const page = await dependencies.photoSource.listPhotos(id, cursor, 200);
           if (generation !== generationRef.current) return sourcePhotos;
           if (!page.ok) {
-            setNotice("照片索引暂时无法读取。");
+            setNotice(t("source.indexReadFailed"));
             break;
           }
           sourcePhotos = mergeUniquePhotos(sourcePhotos, page.value.items);
@@ -111,7 +113,7 @@ export function SourceBrowser({ dependencies, workspace, onPlacePhotos, onOpenPh
       if (generation === generationRef.current) setLoading(false);
     });
     return () => { generationRef.current += 1; };
-  }, [connectedSources, dependencies.photoSource, sourceId, sourceLoadSignal]);
+  }, [connectedSources, dependencies.photoSource, sourceId, sourceLoadSignal, t]);
 
   const visiblePhotos = photos;
   const selectedVisible = useMemo(() => visiblePhotos.filter((photo) => selected.has(photo.id)), [selected, visiblePhotos]);
@@ -137,24 +139,24 @@ export function SourceBrowser({ dependencies, workspace, onPlacePhotos, onOpenPh
     if (placed) setSelected(new Set());
   };
 
-  const sourceToggle = <TableHeaderControl><button type="button" aria-label={mode === "closed" ? "Open Photo Sources" : "Hide Photo Sources"} aria-pressed={mode !== "closed"} className="table-source-toggle" onClick={() => setMode(mode === "closed" ? lastOpenMode : "closed")}><img src={sourcesIcon} alt="" /><span>Photo Sources</span></button></TableHeaderControl>;
+  const sourceToggle = <TableHeaderControl><button type="button" aria-label={mode === "closed" ? t("source.open") : t("source.hide")} aria-pressed={mode !== "closed"} className="table-source-toggle" onClick={() => setMode(mode === "closed" ? lastOpenMode : "closed")}><img src={sourcesIcon} alt="" /><span>{t("table.photoSources")}</span></button></TableHeaderControl>;
   if (mode === "closed") return sourceToggle;
 
-  return <>{sourceToggle}<aside className={`table-source-browser is-${mode}`} aria-label="Photo Sources">
+  return <>{sourceToggle}<aside className={`table-source-browser is-${mode}`} aria-label={t("table.photoSources")}>
     <header className="table-source-browser-header">
-      <strong>Photo Sources</strong>
-      <div className="table-source-header-actions">{onRemoveSource && <button type="button" className="table-source-header-icon" aria-label="Manage photo sources" title="Manage photo sources" onClick={() => setManaging(true)}><img src={manageIcon} alt="" /></button>}<button type="button" className="table-source-header-icon" aria-label="Add Source" title="Add Source" disabled={addingSource} onClick={onAddSource}><img src={plusIcon} alt="" /></button><button type="button" title={mode === "compact" ? "Expand Photo Sources" : "Use compact Photo Sources"} aria-label={mode === "compact" ? "Expand Photo Sources" : "Use compact Photo Sources"} className="table-source-header-icon" onClick={() => setMode(mode === "compact" ? "expanded" : "compact")}><img src={expandIcon} alt="" /></button><button type="button" className="table-source-header-icon table-source-collapse" aria-label="Collapse Photo Sources" title="Collapse Photo Sources" onClick={() => setMode("closed")}><img src={chevronIcon} alt="" /></button></div>
+      <strong>{t("table.photoSources")}</strong>
+      <div className="table-source-header-actions">{onRemoveSource && <button type="button" className="table-source-header-icon" aria-label={t("source.manage")} title={t("source.manage")} onClick={() => setManaging(true)}><img src={manageIcon} alt="" /></button>}<button type="button" className="table-source-header-icon" aria-label={t("project.addSource")} title={t("project.addSource")} disabled={addingSource} onClick={onAddSource}><img src={plusIcon} alt="" /></button><button type="button" title={mode === "compact" ? t("source.expand") : t("source.compact")} aria-label={mode === "compact" ? t("source.expand") : t("source.compact")} className="table-source-header-icon" onClick={() => setMode(mode === "compact" ? "expanded" : "compact")}><img src={expandIcon} alt="" /></button><button type="button" className="table-source-header-icon table-source-collapse" aria-label={t("source.collapse")} title={t("source.collapse")} onClick={() => setMode("closed")}><img src={chevronIcon} alt="" /></button></div>
     </header>
-    {mode === "expanded" && <nav className="table-source-directory" aria-label="Photo source directory"><button type="button" className={sourceId === "all" ? "is-active" : ""} onClick={() => setSourceId("all")}><span>▣ All Sources</span><small>{connectedSources.reduce((total, source) => total + (states[source.id]?.indexedCount ?? 0), 0)}</small></button>{sources.map((source) => <button key={source.id} type="button" className={`${sourceId === source.id ? "is-active " : ""}${source.removedAt ? "is-disconnected" : ""}`} onClick={() => source.removedAt ? onReconnectSource?.(source.id) : setSourceId(source.id)}><span>▣ {source.displayName}</span><small>{source.removedAt ? "Reconnect" : states[source.id]?.indexedCount ?? 0}</small></button>)}</nav>}
+    {mode === "expanded" && <nav className="table-source-directory" aria-label={t("source.directory")}><button type="button" className={sourceId === "all" ? "is-active" : ""} onClick={() => setSourceId("all")}><span>▣ {t("source.all")}</span><small>{connectedSources.reduce((total, source) => total + (states[source.id]?.indexedCount ?? 0), 0)}</small></button>{sources.map((source) => <button key={source.id} type="button" className={`${sourceId === source.id ? "is-active " : ""}${source.removedAt ? "is-disconnected" : ""}`} onClick={() => source.removedAt ? onReconnectSource?.(source.id) : setSourceId(source.id)}><span>▣ {source.displayName}</span><small>{source.removedAt ? t("source.reconnect") : states[source.id]?.indexedCount ?? 0}</small></button>)}</nav>}
     <div className="table-source-browser-content">
     <div className="table-source-selector-row">
-      <label><select aria-label="Select photo source" value={sourceId} onChange={(event) => setSourceId(event.target.value as SourceSelection)}>
-          <option value="all">All Sources</option>
+      <label><select aria-label={t("source.select")} value={sourceId} onChange={(event) => setSourceId(event.target.value as SourceSelection)}>
+          <option value="all">{t("source.all")}</option>
           {sources.map((source) => <option key={source.id} value={source.id} disabled={Boolean(source.removedAt)}>{source.displayName}{source.removedAt ? " (Disconnected)" : ""}</option>)}
         </select></label>
-    {onOpenContactSheet && <><button type="button" className="table-source-contact" onClick={() => sourceId === "all" ? setContactPickerOpen(true) : onOpenContactSheet(sourceId)}><img src={contactIcon} alt="" /><span className="table-source-contact-label">Contact Sheet</span></button></>}
+    {onOpenContactSheet && <><button type="button" className="table-source-contact" onClick={() => sourceId === "all" ? setContactPickerOpen(true) : onOpenContactSheet(sourceId)}><img src={contactIcon} alt="" /><span className="table-source-contact-label">{t("source.contactSheet")}</span></button></>}
     </div>
-    {sourceBusy && <div className="source-loading-status" role="status" aria-live="polite"><span className="loading-mark" aria-hidden="true" /><span>{addingSource ? "Connecting photo folder…" : `Loading photos… ${currentCount} found`}</span></div>}
+    {sourceBusy && <div className="source-loading-status" role="status" aria-live="polite"><span className="loading-mark" aria-hidden="true" /><span>{addingSource ? t("project.connecting") : locale === "zh-CN" ? `正在加载照片… 已找到 ${currentCount} 张` : `Loading photos… ${currentCount} found`}</span></div>}
     {problemSources.map((source) => <p className="table-source-notice" role="alert" key={source.id}>{source.displayName}: {states[source.id]?.errorMessage ?? "Source unavailable."} <button type="button" onClick={() => states[source.id]?.status === "error" ? startScan(source.id) : onReconnectSource?.(source.id)}>{states[source.id]?.status === "error" ? "Retry" : "Reconnect"}</button></p>)}
     {notice && <p className="table-source-notice" role="status">{notice}</p>}
     <SourcePhotoGrid
@@ -172,13 +174,13 @@ export function SourceBrowser({ dependencies, workspace, onPlacePhotos, onOpenPh
       mode={mode}
     />
     {selected.size > 0 && <footer className="table-source-footer">
-      <span>{selected.size ? `${eligibleSelected.length ? eligibleSelected.length : selected.size} selected${selected.size > selectedVisible.length ? ` · ${selected.size - selectedVisible.length} hidden` : ""}` : "Select photos to add to the table"}</span>
-      {selected.size > 0 && <><button type="button" className="table-source-clear" onClick={() => setSelected(new Set())}>Clear</button><button type="button" className="button button-primary" disabled={!eligibleSelected.length} onClick={() => void placeSelected()}>Add {eligibleSelected.length} to Table</button></>}
+      <span>{t("common.selectedPhotos", { count: eligibleSelected.length || selected.size })}</span>
+      {selected.size > 0 && <><button type="button" className="table-source-clear" onClick={() => setSelected(new Set())}>{t("source.clear")}</button><button type="button" className="button button-primary" disabled={!eligibleSelected.length} onClick={() => void placeSelected()}>{t("source.addToTable")}</button></>}
     </footer>}
     </div>
-    {managing && <div className="source-manager-backdrop"><div ref={manageRef} className="source-manager" role="dialog" aria-modal="true" aria-label="Manage photo sources"><header><strong>Photo Sources</strong><button type="button" aria-label="Close source manager" onClick={() => setManaging(false)}>×</button></header><p>Remove a folder from this project. Original files and existing Table / Sequence photos are kept.</p>{sources.map((source) => <div className="source-manager-row" key={source.id}><span>{source.displayName}</span>{source.removedAt ? <button type="button" onClick={() => onReconnectSource?.(source.id)}>Reconnect</button> : <button type="button" disabled={Boolean(removing)} onClick={async () => { setRemoving(source.id); try { await onRemoveSource?.(source.id); } finally { setRemoving(undefined); } }}>{removing === source.id ? "Removing…" : "Remove source"}</button>}</div>)}</div></div>}
+    {managing && <div className="source-manager-backdrop"><div ref={manageRef} className="source-manager" role="dialog" aria-modal="true" aria-label={t("source.manage")}><header><strong>{t("table.photoSources")}</strong><button type="button" aria-label={t("table.closeSourceManager")} onClick={() => setManaging(false)}>×</button></header><p>{t("source.removeHelp")}</p>{sources.map((source) => <div className="source-manager-row" key={source.id}><span>{source.displayName}</span>{source.removedAt ? <button type="button" onClick={() => onReconnectSource?.(source.id)}>{t("source.reconnect")}</button> : <button type="button" disabled={Boolean(removing)} onClick={async () => { setRemoving(source.id); try { await onRemoveSource?.(source.id); } finally { setRemoving(undefined); } }}>{removing === source.id ? t("source.removing") : t("source.remove")}</button>}</div>)}</div></div>}
     {previewPhoto && <SourcePreview photo={previewPhoto} photoSource={dependencies.photoSource} onClose={() => setPreviewPhoto(undefined)} onError={onPhotoError} />}
-    {contactPickerOpen && <div ref={contactDialogRef} className="source-contact-picker" role="dialog" aria-modal="true" aria-label="Choose Contact Sheet source"><strong>Choose a source</strong>{connectedSources.map((source) => <button key={source.id} type="button" onClick={() => { setContactPickerOpen(false); onOpenContactSheet?.(source.id); }}>{source.displayName}</button>)}<button type="button" onClick={() => setContactPickerOpen(false)}>Cancel</button></div>}
+    {contactPickerOpen && <div ref={contactDialogRef} className="source-contact-picker" role="dialog" aria-modal="true" aria-label={t("source.choose")}><strong>{t("source.choose")}</strong>{connectedSources.map((source) => <button key={source.id} type="button" onClick={() => { setContactPickerOpen(false); onOpenContactSheet?.(source.id); }}>{source.displayName}</button>)}<button type="button" onClick={() => setContactPickerOpen(false)}>{t("common.cancel")}</button></div>}
   </aside></>;
 }
 
@@ -196,6 +198,7 @@ function SourcePhotoGrid({ photos, loading, selected, tableIds, photoSource, sou
   readonly resetKey: string;
   readonly mode: "compact" | "expanded";
 }) {
+  const { t } = useLocale();
   const viewportRef = useRef<HTMLDivElement>(null);
   const [layout, setLayout] = useState({ width: 0, height: 0, scrollTop: 0 });
   const [gridAttempt, setGridAttempt] = useState(0);
@@ -270,15 +273,15 @@ function SourcePhotoGrid({ photos, loading, selected, tableIds, photoSource, sou
         const row = Math.floor(index / grid.columns);
         const column = index % grid.columns;
         const style: CSSProperties = { top: row * grid.rowHeight, left: column * (grid.tileWidth + grid.gap), width: grid.tileWidth, height: grid.rowHeight - grid.rowGap };
-        return <button type="button" key={photo.id} className={`table-source-photo${selected.has(photo.id) ? " is-selected" : ""}`} style={style} onClick={(event) => onPhotoClick(event, photo.id)} onDoubleClick={() => onPhotoDoubleClick(photo)} aria-pressed={selected.has(photo.id)} title={`${photo.relativePath}${tableIds.has(photo.id) ? " · On Table" : " · Click to select · Double-click to preview"}`} draggable onDragStart={(event) => onDragStart(event, photo)} aria-label={`${photo.relativePath}${tableIds.has(photo.id) ? "，已在 Table" : ""}`}>
+        return <button type="button" key={photo.id} className={`table-source-photo${selected.has(photo.id) ? " is-selected" : ""}`} style={style} onClick={(event) => onPhotoClick(event, photo.id)} onDoubleClick={() => onPhotoDoubleClick(photo)} aria-pressed={selected.has(photo.id)} title={`${photo.relativePath}${tableIds.has(photo.id) ? ` · ${t("source.onTable")}` : ""}`} draggable onDragStart={(event) => onDragStart(event, photo)} aria-label={`${photo.relativePath}${tableIds.has(photo.id) ? ` · ${t("source.onTable")}` : ""}`}>
           <PhotoThumb photoSource={photoSource} photoId={photo.id} alt={photo.relativePath} sourceRevision={sourceStates[photo.sourceId]?.scanRevision} onError={onPhotoError} />
-          {tableIds.has(photo.id) && <span className="table-source-on-table" aria-hidden="true" title="On Table">✓</span>}
+          {tableIds.has(photo.id) && <span className="table-source-on-table" aria-hidden="true" title={t("source.onTable")}>✓</span>}
           {selected.has(photo.id) && <span className="table-source-check">✓</span>}
         </button>;
       })}
     </div>
 
-    {!loading && !photos.length && <p className="table-source-empty">No photos match this view.</p>}
+    {!loading && !photos.length && <p className="table-source-empty">{t("source.noMatch")}</p>}
   </div></LocalGridErrorBoundary>;
 }
 
@@ -293,6 +296,7 @@ class LocalGridErrorBoundary extends Component<{ readonly children: ReactNode; r
 }
 
 function SourcePreview({ photo, photoSource, onClose, onError }: { readonly photo: PhotoRef; readonly photoSource: AppDependencies["photoSource"]; readonly onClose: () => void; readonly onError: (photoId: PhotoId, error: SourceError) => void }) {
+  const { t } = useLocale();
   const [url, setUrl] = useState<string>();
   const dialogRef = useRef<HTMLDivElement>(null);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
@@ -311,7 +315,7 @@ function SourcePreview({ photo, photoSource, onClose, onError }: { readonly phot
   useEffect(() => {
     closeButtonRef.current?.focus();
   }, []);
-  return <div ref={dialogRef} className="table-preview-backdrop" role="dialog" aria-modal="true" aria-label={`Preview ${photo.relativePath}`} onPointerDown={onClose}><section className="table-preview-dialog" onPointerDown={(event) => event.stopPropagation()}><header><span>{photo.relativePath}</span><button ref={closeButtonRef} onClick={onClose} aria-label="Close preview">×</button></header><div className="table-preview-image-wrap">{url ? <img src={url} alt={photo.relativePath} /> : <div className="preview-placeholder">Preview unavailable</div>}</div></section></div>;
+  return <div ref={dialogRef} className="table-preview-backdrop" role="dialog" aria-modal="true" aria-label={`${t("table.preview")} ${photo.relativePath}`} onPointerDown={onClose}><section className="table-preview-dialog" onPointerDown={(event) => event.stopPropagation()}><header><span>{photo.relativePath}</span><button ref={closeButtonRef} onClick={onClose} aria-label={t("table.closePreview")}>×</button></header><div className="table-preview-image-wrap">{url ? <img src={url} alt={photo.relativePath} /> : <div className="preview-placeholder">{t("table.previewUnavailable")}</div>}</div></section></div>;
 }
 
 function readPanelState(key: string, sources: readonly { readonly id: SourceId }[]): { mode: SourcePanelMode; lastOpenMode: "compact" | "expanded"; sourceId: SourceSelection } {

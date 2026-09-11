@@ -159,7 +159,7 @@ describe("VirtualPhotoGrid", () => {
 
     render(<App dependencies={{ projectStore, photoSource }} />);
 
-    expect(await screen.findByLabelText(/gone\.jpg，未选择，文件已移动或重命名/, {}, { timeout: 5000 })).toBeTruthy();
+    expect(await screen.findByLabelText(/gone\.jpg, Not selected, file moved or renamed/, {}, { timeout: 5000 })).toBeTruthy();
   });
 
   it("50,000 条元数据仍只挂载视口与 overscan 内的照片和 lease", async () => {
@@ -228,8 +228,8 @@ describe("VirtualPhotoGrid", () => {
 
     render(<App dependencies={{ projectStore, photoSource }} />);
 
-    expect(await screen.findByText("文件夹授权已失效，请重新连接。")).toBeTruthy();
-    expect(screen.getByLabelText("permission.jpg，未选择")).toBeTruthy();
+    expect(await screen.findByText("Folder access has expired. Reconnect the folder.")).toBeTruthy();
+    expect(screen.getByLabelText("permission.jpg, Not selected")).toBeTruthy();
     expect(screen.queryByText("MISSING")).toBeNull();
   });
 
@@ -262,7 +262,7 @@ describe("VirtualPhotoGrid", () => {
 
     expect(await screen.findByRole("heading", { name: "Raw Selects" })).toBeTruthy();
     expect(screen.getByPlaceholderText("Search Project")).toBeTruthy();
-    expect(screen.getByLabelText("Photos 缩放").textContent).toContain("75%");
+    expect(screen.getByLabelText("Canvas controls").textContent).toContain("75%");
     expect(document.querySelector(".topbar")?.classList.contains("is-table")).toBe(true);
   });
 
@@ -291,10 +291,10 @@ describe("VirtualPhotoGrid", () => {
     }]);
     window.location.hash = `#/projects/${projectId}/sources/${sourceId}`;
     const view = render(<App dependencies={{ projectStore, photoSource }} />);
-    const tile = await screen.findByLabelText(/portrait\.jpg，未选择/);
+    const tile = await screen.findByLabelText(/portrait\.jpg, Not selected/);
 
     fireEvent.doubleClick(tile);
-    const dialog = await screen.findByRole("dialog", { name: "Full Size Preview" });
+    const dialog = await screen.findByRole("dialog", { name: "Preview" });
     const image = await waitFor(() => {
       const element = view.container.querySelector<HTMLImageElement>(".preview-image-wrap img");
       expect(element).toBeTruthy();
@@ -340,16 +340,16 @@ describe("VirtualPhotoGrid", () => {
     window.location.hash = `#/projects/${projectId}/sources/${sourceId}`;
 
     render(<App dependencies={{ projectStore, photoSource }} />);
-    fireEvent.click(await screen.findByLabelText(/remove-me\.jpg，未选择/));
+    fireEvent.click(await screen.findByLabelText(/remove-me\.jpg, Not selected/));
     fireEvent.click(screen.getByRole("button", { name: "Place on Table" }));
-    const tablePreview = screen.getByLabelText("Table preview");
+    const tablePreview = screen.getByLabelText("Table Preview");
     fireEvent.click(await within(tablePreview).findByRole("button", { name: /remove-me\.jpg/ }));
-    expect(await screen.findByRole("dialog", { name: "Full Size Preview" })).toBeTruthy();
+    expect(await screen.findByRole("dialog", { name: "Preview" })).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "Remove from Table" }));
 
-    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Full Size Preview" })).toBeNull());
-    expect(within(tablePreview).getByText("Place selected photographs here, then arrange them on Table.")).toBeTruthy();
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Preview" })).toBeNull());
+    expect(within(tablePreview).getByText("Select photographs in Photo Sources, then choose Add to Table.")).toBeTruthy();
   });
 
   it("照片数量不变的重扫也会刷新 Contact Sheet 元数据和缩略图", async () => {
@@ -384,13 +384,13 @@ describe("VirtualPhotoGrid", () => {
     window.location.hash = `#/projects/${projectId}/sources/${sourceId}`;
 
     const view = render(<App dependencies={{ projectStore, photoSource }} />);
-    expect(await screen.findByLabelText(/before\.jpg，未选择/)).toBeTruthy();
+    expect(await screen.findByLabelText(/before\.jpg, Not selected/)).toBeTruthy();
     await waitFor(() => expect(view.container.querySelector<HTMLImageElement>('img[src="memory:before"]')).toBeTruthy());
     await waitFor(() => expect(scanAttempts).toBe(1));
 
     startSharedScan(photoSource, sourceId);
 
-    expect(await screen.findByLabelText(/after\.jpg，未选择/)).toBeTruthy();
+    expect(await screen.findByLabelText(/after\.jpg, Not selected/)).toBeTruthy();
     await waitFor(() => expect(view.container.querySelector<HTMLImageElement>('img[src="memory:after"]')).toBeTruthy());
   });
 });

@@ -28,6 +28,8 @@ const DEFAULT_CELL_WIDTH = DEFAULT_WORKTABLE_CARD_WIDTH + 40;
 const DEFAULT_CELL_HEIGHT = DEFAULT_WORKTABLE_CARD_HEIGHT + 72;
 const GROUP_GAP = 6;
 const GROUP_COLUMNS = 4;
+const PLACEMENT_CLEARANCE = 18;
+const PLACEMENT_SEARCH_STEP = 32;
 
 export function createEmptyWorktable(projectId: WorktableDraft["projectId"]): WorktableDraft {
   return { projectId, entryOrder: [], placements: {}, groups: [], links: [], pileOrder: [], pilePlacements: {} };
@@ -149,10 +151,14 @@ function editMemo(draft: WorktableDraft, command: Extract<WorktableEditCommand, 
   }
   const previous = command.type === "update-memo" ? memos.find((memo) => memo.id === command.memoId) : undefined;
   if (command.type === "update-memo" && !previous) return err({ kind: "invalid-relation" });
-  const memo: WorktableMemo = command.type === "create-memo" ? command.memo : { ...previous!, ...command.changes };
+  let memo: WorktableMemo = command.type === "create-memo" ? command.memo : { ...previous!, ...command.changes };
   if (!memo.id || (command.type === "create-memo" && memos.some((item) => item.id === memo.id))) return err({ kind: "invalid-relation" });
-  if (![memo.x, memo.y, memo.width, memo.height, memo.fontSize].every(Number.isFinite) || memo.width < 120 || memo.height < 80 || memo.fontSize < 10 || memo.fontSize > 72) return err({ kind: "invalid-coordinate" });
+  if (![memo.x, memo.y, memo.width, memo.height, memo.fontSize, ...(memo.z === undefined ? [] : [memo.z])].every(Number.isFinite) || memo.width < 120 || memo.height < 80 || memo.fontSize < 10 || memo.fontSize > 72) return err({ kind: "invalid-coordinate" });
   if (typeof memo.text !== "string" || new Set(memo.photoIds).size !== memo.photoIds.length || memo.photoIds.some((id) => !draft.placements[id])) return err({ kind: "invalid-relation" });
+  if (command.type === "create-memo") {
+    const [positioned] = moveRectsToOpenArea(draft, [memo]);
+    memo = { ...memo, x: positioned.x, y: positioned.y, z: maximumZ(draft) + 1 };
+  }
   const next = { ...memo, photoIds: [...memo.photoIds] };
   return ok({ ...draft, memos: command.type === "create-memo" ? [...memos, next] : memos.map((item) => item.id === next.id ? next : item) });
 }
@@ -324,13 +330,19 @@ function place(
   const entryOrder = [...draft.entryOrder];
   const maxZ = maximumZ(draft);
   const origin = command.at ?? DEFAULT_ORIGIN;
-
-  additions.forEach((item, offset) => {
-    const index = command.at ? offset : entryOrder.length;
-    placements[item.photoId] = {
+  const proposed = additions.map((item, offset) => {
+    const index = command.at ? offset : entryOrder.length + offset;
+    return {
       ...item,
       x: origin.x + (index % DEFAULT_COLUMNS) * DEFAULT_CELL_WIDTH,
       y: origin.y + Math.floor(index / DEFAULT_COLUMNS) * DEFAULT_CELL_HEIGHT,
+    };
+  });
+  const positioned = moveRectsToOpenArea(draft, proposed);
+
+  positioned.forEach((item, offset) => {
+    placements[item.photoId] = {
+      ...item,
       z: maxZ + offset + 1,
     };
     entryOrder.push(item.photoId);
@@ -542,7 +554,44 @@ function validateKnownPiles(draft: WorktableDraft, sequenceIds: readonly Sequenc
 }
 
 function maximumZ(draft: WorktableDraft): number {
-  return Math.max(-1, ...Object.values(draft.placements).map((item) => item.z), ...Object.values(draft.pilePlacements).map((item) => item.z));
+  const graphicZ = Math.max(-1, ...Object.values(draft.placements).map((item) => item.z), ...Object.values(draft.pilePlacements).map((item) => item.z));
+  return Math.max(graphicZ, ...(draft.memos ?? []).map((memo, index) => memo.z ?? graphicZ + index + 1));
+}
+
+interface WorktableRect { readonly x: number; readonly y: number; readonly width: number; readonly height: number }
+
+/** Keeps a newly-created batch near its requested point without covering existing Table material. */
+function moveRectsToOpenArea<T extends WorktableRect>(draft: WorktableDraft, rects: readonly T[]): T[] {
+  const occupied: WorktableRect[] = [
+    ...Object.values(draft.placements),
+    ...Object.values(draft.pilePlacements),
+    ...(draft.memos ?? []),
+  ];
+  const fits = (dx: number, dy: number) => rects.every((rect, index) => {
+    const shifted = { ...rect, x: rect.x + dx, y: rect.y + dy };
+    return occupied.every((item) => !rectsOverlap(shifted, item, PLACEMENT_CLEARANCE))
+      && rects.slice(0, index).every((item) => !rectsOverlap(shifted, { ...item, x: item.x + dx, y: item.y + dy }, PLACEMENT_CLEARANCE));
+  });
+  if (fits(0, 0)) return rects.map((rect) => ({ ...rect }));
+  for (let radius = 1; radius <= 32; radius += 1) {
+    const candidates: [number, number][] = [];
+    for (let y = -radius; y <= radius; y += 1) {
+      for (let x = -radius; x <= radius; x += 1) {
+        if (Math.max(Math.abs(x), Math.abs(y)) === radius) candidates.push([x * PLACEMENT_SEARCH_STEP, y * PLACEMENT_SEARCH_STEP]);
+      }
+    }
+    candidates.sort((left, right) => Math.hypot(...left) - Math.hypot(...right) || right[0] - left[0] || right[1] - left[1]);
+    const offset = candidates.find(([dx, dy]) => fits(dx, dy));
+    if (offset) return rects.map((rect) => ({ ...rect, x: rect.x + offset[0], y: rect.y + offset[1] }));
+  }
+  return rects.map((rect) => ({ ...rect }));
+}
+
+function rectsOverlap(left: WorktableRect, right: WorktableRect, gap = 0): boolean {
+  return left.x < right.x + right.width + gap
+    && left.x + left.width + gap > right.x
+    && left.y < right.y + right.height + gap
+    && left.y + left.height + gap > right.y;
 }
 
 function isPositiveFinite(value: number): boolean {

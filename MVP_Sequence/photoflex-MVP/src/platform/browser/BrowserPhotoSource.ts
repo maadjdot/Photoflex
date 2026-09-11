@@ -196,8 +196,32 @@ export class BrowserPhotoSource implements PhotoSource {
   async restoreFolder(sourceId: SourceId): Promise<Result<SourceGrant, SourceError>> {
     const opened = await this.database;
     if (!opened.ok) return err(toSourceError());
-    const handle = await this.loadHandle(sourceId, opened.value);
-    if (!handle) return err({ kind: "source-not-found", sourceId });
+    let handle = await this.loadHandle(sourceId, opened.value);
+    if (!handle) {
+      // Backups contain paths and stable photo references, never directory grants.
+      const projects = await requestValue<import("../../contracts").ProjectWorkspace[]>(opened.value.transaction(STORE_NAMES.projects, "readonly").objectStore(STORE_NAMES.projects).getAll());
+      if (!projects.some((p) => p.sources.some((s) => s.id === sourceId))) return err({ kind: "source-not-found", sourceId });
+      try {
+        handle = await this.picker();
+        const photos = await this.readSourcePhotos(opened.value, sourceId);
+        if (photos.length) {
+          let matched = false;
+          for (const photo of photos) {
+            try {
+              let directory = handle;
+              const parts = photo.relativePath.split("/");
+              for (const part of parts.slice(0, -1)) directory = await directory.getDirectoryHandle(part);
+              await directory.getFileHandle(parts.at(-1)!);
+              matched = true;
+              break;
+            } catch { /* A moved/deleted image must not prevent partial recovery. */ }
+          }
+          if (!matched) return err({ kind: "folder-mismatch", sourceId });
+        }
+      } catch (error) {
+        return err(error instanceof DOMException && error.name === "AbortError" ? { kind: "cancelled" } : { kind: "permission-denied", sourceId });
+      }
+    }
 
     const directory = handle as DirectoryHandleLike;
     let permission = await directory.queryPermission?.({ mode: "read" });
@@ -284,7 +308,10 @@ export class BrowserPhotoSource implements PhotoSource {
     }
     const handle = await this.loadHandle(sourceId, opened.value);
     if (!handle) {
-      yield err({ kind: "source-not-found", sourceId });
+      const photos = await this.readSourcePhotos(opened.value, sourceId);
+      const state = { ...initialState(sourceId, "offline"), indexedCount: photos.length };
+      this.states.set(sourceId, state);
+      yield ok({ kind: "completed", state });
       return;
     }
 
@@ -379,7 +406,12 @@ export class BrowserPhotoSource implements PhotoSource {
         .get(sourceId),
     ).catch(() => undefined);
     const storedState = grant?.state ?? cached;
-    if (!storedState) return err({ kind: "source-not-found", sourceId });
+    if (!storedState) {
+      const projects = await requestValue<import("../../contracts").ProjectWorkspace[]>(opened.value.transaction(STORE_NAMES.projects, "readonly").objectStore(STORE_NAMES.projects).getAll());
+      if (!projects.some((p) => p.sources.some((s) => s.id === sourceId))) return err({ kind: "source-not-found", sourceId });
+      const photos = await this.readSourcePhotos(opened.value, sourceId);
+      return ok({ ...initialState(sourceId, "offline"), indexedCount: photos.length });
+    }
     const handle = await this.loadHandle(sourceId, opened.value);
     if (handle) {
       const permission = await (handle as DirectoryHandleLike).queryPermission?.({ mode: "read" });

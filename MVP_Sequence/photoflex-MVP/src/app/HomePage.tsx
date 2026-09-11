@@ -7,6 +7,7 @@ import { formatUpdated, InlineError, EmptyPanel } from "./AppPrimitives";
 import { NewProjectDialog } from "./ProjectDialog";
 import { deleteProjectWorkspace, projectDeletionErrorMessage, resumePendingProjectDeletions } from "./ProjectWorkspaceActions";
 import { createHomeGallery, type HomeGalleryPhoto } from "./homeGallery";
+import { useLocale } from "./locale";
 
 interface GalleryPhoto extends HomeGalleryPhoto {
   readonly isPortrait: boolean;
@@ -19,6 +20,7 @@ export function HomePage({
   readonly dependencies: AppDependencies;
   readonly navigate: (route: AppRoute) => void;
 }) {
+  const { locale, t } = useLocale();
   const [projects, setProjects] = useState<readonly ProjectSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string>();
@@ -37,13 +39,13 @@ export function HomePage({
         if (recovery.failures.length) setError(projectDeletionErrorMessage(recovery.failures[0].error));
         setProjects(recovery.projects);
       }
-      else setError("项目列表暂时无法读取，请重试。");
+      else setError(t("home.projectListFailed"));
       setLoading(false);
     });
     return () => {
       active = false;
     };
-  }, [dependencies.projectStore]);
+  }, [dependencies, t]);
 
   const selectedProject = projects.find((project) => project.id === selectedProjectId) ?? projects[0];
   const activeProjectId = selectedProject?.id;
@@ -54,7 +56,7 @@ export function HomePage({
     let active = true;
     void dependencies.projectStore.loadWorkspace(activeProjectId).then(async (result) => {
       if (!active) return;
-      if (!result.ok) setError("项目照片暂时无法读取，请重试。");
+      if (!result.ok) setError(t("home.projectPhotosFailed"));
       if (!result.ok) {
         setGallery({ projectId: activeProjectId, rows: [] });
         return;
@@ -72,10 +74,10 @@ export function HomePage({
       if (active) setGallery({ projectId: activeProjectId, rows });
     });
     return () => { active = false; };
-  }, [activeProjectId, dependencies.photoSource, dependencies.projectStore]);
+  }, [activeProjectId, dependencies.photoSource, dependencies.projectStore, t]);
 
   const deleteProject = async (project: ProjectSummary) => {
-    if (!window.confirm(`Delete project “${project.name}”? Original photos will not be deleted.`)) return;
+    if (!window.confirm(t("home.deleteConfirm", { name: project.name }))) return;
     setDeletingProjectId(project.id);
     const deleted = await deleteProjectWorkspace(dependencies, project.id);
     if (!deleted.ok) {
@@ -89,13 +91,13 @@ export function HomePage({
 
   return (
     <main className="page home-page">
-      <aside className="home-project-index" aria-label="项目索引">
+      <aside className="home-project-index" aria-label={t("home.projectIndex")}>
         <section className={`page-intro home-intro${projects.length === 0 ? " is-empty" : ""}`}>
-          <h1 aria-label="Your Projects">Projects</h1>
-          <button className="home-new-project" aria-label="New project" onClick={() => setShowDialog(true)}>+</button>
+          <h1 aria-label={t("home.yourProjects")}>{t("home.projects")}</h1>
+          <button className="home-new-project" aria-label={t("home.newProject")} onClick={() => setShowDialog(true)}>+</button>
         </section>
         {loading ? (
-          <div className="home-project-index-skeleton" aria-label="项目加载中">
+          <div className="home-project-index-skeleton" aria-label={t("home.loadingProjects")}>
             {[1, 2, 3, 4].map((item) => <span key={item} />)}
           </div>
         ) : (
@@ -112,8 +114,8 @@ export function HomePage({
                 <button
                   type="button"
                   className="home-project-delete"
-                  title="Delete project"
-                  aria-label={`Delete project ${project.name}`}
+                  title={t("home.deleteProject")}
+                  aria-label={`${t("home.deleteProject")} ${project.name}`}
                   disabled={deletingProjectId === project.id}
                   onClick={() => void deleteProject(project)}
                 >×</button>
@@ -126,11 +128,11 @@ export function HomePage({
       <section className="home-project-stage">
         {error && <InlineError message={error} onRetry={() => window.location.reload()} />}
         {loading ? (
-          <div className="home-gallery-loading" role="status">Loading photos…</div>
+          <div className="home-gallery-loading" role="status">{t("home.loadingPhotos")}</div>
         ) : selectedProject ? (
           <article className="home-project-feature">
-            {!rows ? <div className="home-gallery-loading" role="status">Loading photos…</div> : rows.length ? (
-              <div className="home-gallery" aria-label={`${selectedProject.name} photos`}>
+            {!rows ? <div className="home-gallery-loading" role="status">{t("home.loadingPhotos")}</div> : rows.length ? (
+              <div className="home-gallery" aria-label={`${selectedProject.name} ${t("common.photos")}`}>
                 {rows.map((row, rowIndex) => (
                   <div className="home-gallery-row" key={rowIndex}>
                     <div className="home-gallery-strip">
@@ -143,9 +145,9 @@ export function HomePage({
                         data-project-id={selectedProject.id}
                         data-photo-id={photoId}
                         onClick={() => navigate({ name: "table", projectId: selectedProject.id })}
-                        aria-label={`Open ${selectedProject.name} Table — photo ${photoId}`}
+                        aria-label={`${t("home.openProject", { name: selectedProject.name })} — ${photoId}`}
                       >
-                        <PhotoThumb photoSource={dependencies.photoSource} photoId={photoId} alt={`${selectedProject.name} photograph`} eager />
+                        <PhotoThumb photoSource={dependencies.photoSource} photoId={photoId} alt={t("home.projectPhoto", { name: selectedProject.name })} eager />
                       </button>
                     ))}
                     </div>
@@ -154,17 +156,17 @@ export function HomePage({
               </div>
             ) : (
               <div className="home-gallery-empty">
-                <p>No photos on this Table yet</p>
-                <button className="button button-secondary" onClick={() => navigate({ name: "table", projectId: selectedProject.id })} aria-label={`打开项目 ${selectedProject.name}`}>Open Table</button>
+                <p>{t("home.noPhotos")}</p>
+                <button className="button button-secondary" onClick={() => navigate({ name: "table", projectId: selectedProject.id })} aria-label={t("home.openProject", { name: selectedProject.name })}>{t("home.openTable")}</button>
               </div>
             )}
             <div className="home-project-feature-copy">
-              <span>Updated {formatUpdated(selectedProject.updatedAt)}</span>
+              <span>{t("home.updatedAt", { time: formatUpdated(selectedProject.updatedAt, locale) })}</span>
             </div>
           </article>
         ) : (
-          <EmptyPanel eyebrow="NO PROJECTS YET" title="Begin your photo journey">
-            <button type="button" className="button button-primary home-empty-create" onClick={() => setShowDialog(true)}>Create a project</button>
+          <EmptyPanel eyebrow={t("home.noProjects")} title={t("home.beginJourney")}>
+            <button type="button" className="button button-primary home-empty-create" onClick={() => setShowDialog(true)}>{t("home.createProject")}</button>
           </EmptyPanel>
         )}
       </section>

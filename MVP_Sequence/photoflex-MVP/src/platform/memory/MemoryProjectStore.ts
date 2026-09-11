@@ -40,12 +40,15 @@ import {
   validateSequenceForProject,
 } from "../projectStoreData";
 import { toSequenceSummary } from "../../modules/sequence";
+import { prepareBackupImport } from "../projectBackup";
+import type { PhotoRef, PhotoId } from "../../contracts";
 
 export interface MemoryProjectDatabase {
   readonly projects: Map<ProjectId, ProjectWorkspace>;
   readonly versions: Map<VersionId, SequenceVersion>;
   readonly sequences: Map<SequenceId, SequenceDocument>;
   readonly corruptProjectIds: Set<ProjectId>;
+  readonly photos: Map<PhotoId, PhotoRef>;
 }
 
 export const createMemoryProjectDatabase = (): MemoryProjectDatabase => ({
@@ -53,6 +56,7 @@ export const createMemoryProjectDatabase = (): MemoryProjectDatabase => ({
   versions: new Map(),
   sequences: new Map(),
   corruptProjectIds: new Set(),
+  photos: new Map(),
 });
 
 interface MemoryProjectStoreOptions {
@@ -364,10 +368,21 @@ export class MemoryProjectStore implements ProjectStore {
       if (!loaded.ok) return loaded;
       sequences.push(loaded.value);
     }
-    return ok(new TextEncoder().encode(JSON.stringify(createBackup(workspace.value, versions, sequences))));
+    const sources = new Set(workspace.value.sources.map((s) => s.id));
+    const backup = { ...createBackup(workspace.value, versions, sequences), photoManifest: [...this.database.photos.values()].filter((p) => sources.has(p.sourceId)).map(({ id: photoId, ...p }) => ({ ...p, photoId })) };
+    return ok(new TextEncoder().encode(JSON.stringify(backup)));
   }
 
-  async importBackup(_bytes: Uint8Array): Promise<Result<ProjectId, BackupError>> {
-    return err({ kind: "unavailable", retryable: false });
+  async importBackup(bytes: Uint8Array): Promise<Result<ProjectId, BackupError>> {
+    const prepared = prepareBackupImport(bytes);
+    if (!prepared.ok) return prepared;
+    if (this.options.unavailable) return err({ kind: "unavailable", retryable: true });
+    if (this.options.quotaExceeded) return err({ kind: "quota-exceeded" });
+    const { backup, photos } = prepared.value;
+    this.database.projects.set(backup.project.projectId, clone(backup.project));
+    backup.sequences.forEach((s) => this.database.sequences.set(s.id, clone(s)));
+    backup.versions.forEach((v) => this.database.versions.set(v.id, clone(v)));
+    photos.forEach((p) => this.database.photos.set(p.id, clone(p)));
+    return ok(backup.project.projectId);
   }
 }

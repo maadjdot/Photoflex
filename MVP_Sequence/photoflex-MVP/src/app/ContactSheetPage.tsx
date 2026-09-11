@@ -9,6 +9,7 @@ import { useSourceMonitor } from "./ProjectSourceMonitor";
 import { TablePreviewPanel } from "./TablePreviewPanel";
 import { VirtualPhotoGrid } from "./VirtualPhotoGrid";
 import { PreviewOverlay } from "./PreviewOverlay";
+import { useLocale } from "./locale";
 
 export function ContactSheetPage({
   dependencies,
@@ -21,6 +22,7 @@ export function ContactSheetPage({
   readonly sourceId: SourceId;
   readonly navigate: (route: AppRoute) => void;
 }) {
+  const { locale, t } = useLocale();
   const { workspace, save, updateResumeContext, saveWorktable, loading, error } = useProjectWorkspaceSession(dependencies, projectId);
   const tableSession = useTableSession(projectId, async ({ draft }) => {
     const result = await saveWorktable(draft);
@@ -57,11 +59,11 @@ export function ContactSheetPage({
       return;
     }
     if (photoError.kind === "permission-lost") {
-      setNotice("文件夹授权已失效，请重新连接。");
+      setNotice(sourceErrorMessage(photoError.kind, locale));
       return;
     }
-    if (photoError.kind === "preview-unavailable") setNotice("照片预览生成失败。");
-  }, []);
+    if (photoError.kind === "preview-unavailable") setNotice(t("source.previewFailed"));
+  }, [locale, t]);
 
   useEffect(() => {
     if (!workspace || initializedTableRef.current === workspace.projectId) return;
@@ -101,12 +103,12 @@ export function ContactSheetPage({
         setMissingPhotoIds(new Set(page.value.issues.filter((issue) => issue.kind === "missing-file").map((issue) => issue.photoId)));
         setCursor(page.value.nextCursor);
       }
-      else setNotice("照片索引暂时无法读取，请重试。");
+      else setNotice(t("source.indexReadFailed"));
     })().finally(() => {
       if (initialPageLoadRef.current === requestId) initialPageLoadRef.current = 0;
     });
     return () => { active = false; };
-  }, [dependencies.photoSource, sourceId]);
+  }, [dependencies.photoSource, save, sourceId, t]);
 
   const loadMore = async () => {
     if (!cursor || loadingPage || initialPageLoadRef.current !== 0) return;
@@ -116,7 +118,7 @@ export function ContactSheetPage({
       setPhotos((current) => mergeUniquePhotos(current, page.value.items));
       setMissingPhotoIds((current) => new Set([...current, ...page.value.issues.filter((issue) => issue.kind === "missing-file").map((issue) => issue.photoId)]));
       setCursor(page.value.nextCursor);
-    }
+    } else setNotice(t("source.indexReadFailed"));
     setLoadingPage(false);
   };
 
@@ -153,11 +155,11 @@ export function ContactSheetPage({
         setCursor(page.value.nextCursor);
       } else {
         exhaustedAtIndexedCountRef.current = indexedCount;
-        setNotice("照片索引暂时无法读取，请重试。");
+        setNotice(t("source.indexReadFailed"));
       }
       setLoadingPage(false);
     });
-  }, [cursor, dependencies.photoSource, indexedCount, loadingPage, photos.length, sourceId]);
+  }, [cursor, dependencies.photoSource, indexedCount, loadingPage, photos.length, sourceId, t]);
 
   useEffect(() => {
     if (!anchorPhotoId) return;
@@ -168,7 +170,7 @@ export function ContactSheetPage({
   }, [anchorPhotoId, sourceId, updateResumeContext]);
 
   if (loading) return <LoadingPage />;
-  if (!workspace || !source) return <ErrorPage message={error ?? "Source 无法读取。"} />;
+  if (!workspace || !source) return <ErrorPage message={error ?? t("source.loadFailed")} />;
 
   const visiblePhotos = filter === "selected" ? photos.filter((photo) => selected.has(photo.id)) : photos;
   const tablePreviewIndex = tablePreviewPhotoId === undefined
@@ -197,10 +199,10 @@ export function ContactSheetPage({
     if (result.ok) {
       const added = result.value.draft.entryOrder.length - before;
       setSelected(new Set());
-      setNotice(`${added} photos placed on Table${requested.length - added ? ` · ${requested.length - added} already there` : ""}`);
+      setNotice(locale === "zh-CN" ? `已将 ${added} 张照片放上桌面${requested.length - added ? ` · ${requested.length - added} 张已在桌面` : ""}` : `${added} photos placed on Table${requested.length - added ? ` · ${requested.length - added} already there` : ""}`);
       return true;
     }
-    setNotice("Photos could not be placed on Table.");
+    setNotice(t("table.photosPlaceFailed"));
     return false;
   };
   const toggleTable = async (photoId: PhotoId) => {
@@ -217,30 +219,30 @@ export function ContactSheetPage({
   return (
     <main className={`workspace-layout contact-layout has-table-preview page${sourceCollapsed ? " is-source-collapsed" : ""}`}>
       <aside className="context-rail source-rail">
-        <button className="rail-collapse" onClick={() => setSourceCollapsed((value) => !value)} aria-label={sourceCollapsed ? "展开 Source 栏" : "收起 Source 栏"}>{sourceCollapsed ? "›" : "‹"}</button>
+        <button className="rail-collapse" onClick={() => setSourceCollapsed((value) => !value)} aria-label={sourceCollapsed ? t("source.expand") : t("source.collapse")}>{sourceCollapsed ? "›" : "‹"}</button>
         {!sourceCollapsed && <>
           <label className="source-search">
             <span aria-hidden="true">⌕</span>
-            <span className="sr-only">Search sources</span>
-            <input value={sourceSearch} onChange={(event) => setSourceSearch(event.target.value)} placeholder="Search Project" />
+            <span className="sr-only">{t("source.search")}</span>
+            <input value={sourceSearch} onChange={(event) => setSourceSearch(event.target.value)} placeholder={t("source.searchProject")} />
           </label>
-          <div className="source-nav-list">{visibleSources.map((item) => <button className={`source-nav-item${item.id === sourceId ? " is-active" : ""}`} key={item.id} onClick={() => navigate({ name: "contact-sheet", projectId, sourceId: item.id })}><strong>{item.displayName.toUpperCase()}</strong><span>{item.id === sourceId ? Math.max(states[item.id]?.indexedCount ?? 0, photos.length) : (states[item.id]?.indexedCount ?? 0)} photos</span></button>)}</div>
-          <div className="rail-updated"><span>UPDATED</span><time>{formatUpdated(workspace.updatedAt)}</time></div>
+          <div className="source-nav-list">{visibleSources.map((item) => <button className={`source-nav-item${item.id === sourceId ? " is-active" : ""}`} key={item.id} onClick={() => navigate({ name: "contact-sheet", projectId, sourceId: item.id })}><strong>{item.displayName.toUpperCase()}</strong><span>{t("common.photoCount", { count: item.id === sourceId ? Math.max(states[item.id]?.indexedCount ?? 0, photos.length) : (states[item.id]?.indexedCount ?? 0) })}</span></button>)}</div>
+          <div className="rail-updated"><span>{t("status.updated")}</span><time>{formatUpdated(workspace.updatedAt, locale)}</time></div>
         </>}
       </aside>
       <section className="workspace-main contact-main">
         <div className="workspace-heading contact-heading">
           <h1>{source.displayName}</h1>
-          <div className="sheet-zoom" aria-label="Photos 缩放">
-            <button onClick={() => setGridZoom((value) => Math.max(50, value - 25))} disabled={gridZoom === 50} aria-label="缩小照片">−</button>
+          <div className="sheet-zoom" aria-label={t("table.controls")}>
+            <button onClick={() => setGridZoom((value) => Math.max(50, value - 25))} disabled={gridZoom === 50} aria-label={t("table.zoomOut")}>−</button>
             <span>{gridZoom}%</span>
-            <button onClick={() => setGridZoom((value) => Math.min(125, value + 25))} disabled={gridZoom === 125} aria-label="放大照片">＋</button>
+            <button onClick={() => setGridZoom((value) => Math.min(125, value + 25))} disabled={gridZoom === 125} aria-label={t("table.zoomIn")}>＋</button>
           </div>
         </div>
-        <div className="sheet-toolbar"><div className="filter-tabs"><button className={filter === "all" ? "is-active" : ""} onClick={() => setFilter("all")}>All {Math.max(states[sourceId]?.indexedCount ?? 0, photos.length)}</button><button className={filter === "selected" ? "is-active" : ""} onClick={() => setFilter("selected")}>Selected {selected.size}</button></div><div className="toolbar-actions"><button className="button button-secondary" onClick={() => setSelected(new Set(visiblePhotos.map((photo) => photo.id)))}>Select all</button><button className="button button-secondary" onClick={() => setSelected((current) => new Set(visiblePhotos.filter((photo) => !current.has(photo.id)).map((photo) => photo.id)))}>Invert</button><button className="button button-primary" disabled={!selected.size} onClick={() => void placeOnTable([...selected])}>Place on Table</button></div></div>
+        <div className="sheet-toolbar"><div className="filter-tabs"><button className={filter === "all" ? "is-active" : ""} onClick={() => setFilter("all")}>{t("source.all")} {Math.max(states[sourceId]?.indexedCount ?? 0, photos.length)}</button><button className={filter === "selected" ? "is-active" : ""} onClick={() => setFilter("selected")}>{t("common.selectedPhotos", { count: selected.size })}</button></div><div className="toolbar-actions"><button className="button button-secondary" onClick={() => setSelected(new Set(visiblePhotos.map((photo) => photo.id)))}>{t("source.selectAll")}</button><button className="button button-secondary" onClick={() => setSelected((current) => new Set(visiblePhotos.filter((photo) => !current.has(photo.id)).map((photo) => photo.id)))}>{t("source.invert")}</button><button className="button button-primary" disabled={!selected.size} onClick={() => void placeOnTable([...selected])}>{t("table.placeOnTable")}</button></div></div>
         {notice && <InlineNotice message={notice} />}
-        {visiblePhotos.length ? <VirtualPhotoGrid photos={visiblePhotos} selected={selected} tableIds={tableDraft.entryOrder} missingIds={missingPhotoIds} zoom={gridZoom} sourceRevision={sourceRevision} initialAnchorPhotoId={workspace.resumeContext?.sourceId === sourceId ? workspace.resumeContext.anchorPhotoId : undefined} onAnchorChange={setAnchorPhotoId} onToggle={toggleSelection} onOpen={(index) => setPreviewIndex(index)} onNearEnd={() => void loadMore()} onPhotoSourceError={handlePhotoSourceError} photoSource={dependencies.photoSource} /> : <EmptyPanel title={filter === "selected" ? "No selected photos" : "No supported JPEG files"} detail={filter === "selected" ? "Select photos in All to continue." : "This folder has no readable .jpg or .jpeg files."} />}
-        {loadingPage && <p className="loading-line">Loading more photos…</p>}
+        {visiblePhotos.length ? <VirtualPhotoGrid photos={visiblePhotos} selected={selected} tableIds={tableDraft.entryOrder} missingIds={missingPhotoIds} zoom={gridZoom} sourceRevision={sourceRevision} initialAnchorPhotoId={workspace.resumeContext?.sourceId === sourceId ? workspace.resumeContext.anchorPhotoId : undefined} onAnchorChange={setAnchorPhotoId} onToggle={toggleSelection} onOpen={(index) => setPreviewIndex(index)} onNearEnd={() => void loadMore()} onPhotoSourceError={handlePhotoSourceError} photoSource={dependencies.photoSource} /> : <EmptyPanel title={filter === "selected" ? t("source.noSelected") : t("source.noSupportedJpeg")} detail={filter === "selected" ? t("source.selectInAll") : t("source.noReadableJpeg")} />}
+        {loadingPage && <p className="loading-line">{t("source.loadingMore")}</p>}
       </section>
       <TablePreviewPanel
         draft={tableDraft}

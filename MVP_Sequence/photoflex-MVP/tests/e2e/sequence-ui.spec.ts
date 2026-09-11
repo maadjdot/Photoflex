@@ -36,8 +36,14 @@ test("M2 Sequence supports Reading Units, Segment, Overview, Read and one-save d
   await page.goto("/#/projects/sequence-visual-project/sequences/sequence-visual");
   await expect(page.locator('.topnav')).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Login' })).toHaveCount(0);
-  await expect(page.locator('.topbar').getByRole('button', { name: 'Export PDF' })).toBeVisible();
-  await expect(page.locator('.sequence-toolbar nav button')).toHaveText(['Undo', 'Redo', 'Read', 'Compare', 'Create New Sequence']);
+  await expect(page.getByRole('group', { name: 'Language' })).toHaveCount(0);
+  const canvasControls = page.locator('.sequence-canvas-controls');
+  await expect(canvasControls.getByRole('button', { name: 'Export PDF' })).toBeVisible();
+  const controlsBox = await canvasControls.boundingBox();
+  const workspaceBox = await page.locator('.sequence-workspace').boundingBox();
+  expect(controlsBox!.x).toBeGreaterThan(workspaceBox!.x + workspaceBox!.width * .7);
+  expect(controlsBox!.x + controlsBox!.width).toBeLessThanOrEqual(workspaceBox!.x + workspaceBox!.width);
+  await expect(page.locator('.sequence-toolbar nav button')).toHaveText(['Undo', 'Redo', 'Read', 'Compare', 'Duplicate New Sequence']);
   await expect(page.getByText('All changes saved')).toHaveCount(0);
   expect(await page.locator('.sequence-order').evaluate(el => el.getBoundingClientRect().height)).toBeCloseTo(183.35, 1);
   expect(await page.locator('.sequence-order-image').first().evaluate(el => el.getBoundingClientRect().width)).toBeCloseTo(121.6, 1);
@@ -56,7 +62,7 @@ test("M2 Sequence supports Reading Units, Segment, Overview, Read and one-save d
   await expect(compareDialog).toBeVisible();
   expect(await compareDialog.evaluate((dialog) => getComputedStyle(dialog).borderRadius)).toBe("8px");
   await expect(compareDialog.locator(".version-list > div")).toHaveCount(2);
-  await compareDialog.getByRole("button", { name: "Close" }).click();
+  await compareDialog.getByRole("button", { name: "Close", exact: true }).click();
 
   await page.locator(".sequence-card").first().click();
   await page.getByRole("button", { name: "Insert Blank After" }).click();

@@ -1,5 +1,6 @@
 import { memo, useEffect, useRef, useState } from "react";
 import type { DerivedPreviewMaxEdge, PhotoId, PhotoSource, PreviewLease, SourceError } from "../contracts";
+import { useLocale } from "./locale";
 
 interface PhotoThumbProps {
   readonly photoSource: PhotoSource;
@@ -23,6 +24,7 @@ export const PhotoThumb = memo(function PhotoThumb({
   progressiveTo,
   sourceRevision,
 }: PhotoThumbProps) {
+  const { t } = useLocale();
   const [url, setUrl] = useState<string>();
   const upgradeRef = useRef<((maxEdge: DerivedPreviewMaxEdge) => void) | undefined>(undefined);
   useEffect(() => {
@@ -100,6 +102,6 @@ export const PhotoThumb = memo(function PhotoThumb({
       draggable={false}
     />
   ) : (
-    <div className="thumb-placeholder" aria-label={`${alt} 缩略图加载中`} />
+    <div className="thumb-placeholder" aria-label={t("common.thumbnailLoading", { name: alt })} />
   );
 });

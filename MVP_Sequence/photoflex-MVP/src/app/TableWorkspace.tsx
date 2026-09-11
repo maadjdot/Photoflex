@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent, type ReactNode } from "react";
+import { useLocale } from "./locale";
 
 interface TableWorkspaceProps {
   readonly children: ReactNode;
@@ -9,6 +10,7 @@ interface TableWorkspaceProps {
 
 /** Stable Table layout seam: the page supplies content, this module owns the workspace columns. */
 export function TableWorkspace({ children, sidebar, sidebarMode = "compact", storageKey = "photoflex:table-sidebar" }: TableWorkspaceProps) {
+  const { t } = useLocale();
   const [width, setWidth] = useState(() => readWidth(storageKey, sidebarMode));
   const dragRef = useRef<{ clientX: number; width: number } | undefined>(undefined);
   const limits = sidebarMode === "expanded" ? { min: 560, max: 880 } : { min: 280, max: 420 };
@@ -41,7 +43,7 @@ export function TableWorkspace({ children, sidebar, sidebarMode = "compact", sto
     if (event.key === "End") { event.preventDefault(); setWidth(limits.max); }
   };
   const style = { "--table-sidebar-width": `${width}px` } as CSSProperties;
-  return <div className={`table-workspace-body is-sidebar-${sidebarMode}`} style={style}><div className="table-workspace-main">{children}</div><button type="button" className="table-sidebar-resizer" role="separator" aria-orientation="vertical" aria-label="Resize Photo Sources" aria-valuemin={limits.min} aria-valuemax={limits.max} aria-valuenow={width} tabIndex={sidebarMode === "closed" ? -1 : 0} onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={stopResize} onPointerCancel={stopResize} onKeyDown={onKeyDown}><span aria-hidden="true">⋮</span></button>{sidebar}</div>;
+  return <div className={`table-workspace-body is-sidebar-${sidebarMode}`} style={style}><div className="table-workspace-main">{children}</div><button type="button" className="table-sidebar-resizer" role="separator" aria-orientation="vertical" aria-label={t("common.resizePhotoSources")} aria-valuemin={limits.min} aria-valuemax={limits.max} aria-valuenow={width} tabIndex={sidebarMode === "closed" ? -1 : 0} onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={stopResize} onPointerCancel={stopResize} onKeyDown={onKeyDown}><span aria-hidden="true">⋮</span></button>{sidebar}</div>;
 }
 
 function readWidth(storageKey: string, mode: TableWorkspaceProps["sidebarMode"]): number {

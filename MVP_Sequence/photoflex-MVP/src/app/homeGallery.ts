@@ -5,25 +5,18 @@ export interface HomeGalleryPhoto {
   readonly column: number;
 }
 
-/** Seven slots keep the reference's spacing; empty slots are part of the composition. */
+/** Seven slots keep the reference's spacing; each populated row holds 3–6 photos. */
 export function createHomeGallery(photoIds: readonly PhotoId[], random = Math.random): HomeGalleryPhoto[][] {
   const photos = shuffle([...new Set(photoIds)], random);
   if (!photos.length) return [];
   const total = Math.min(15, photos.length);
-  const rowCount = Math.min(3, Math.max(1, Math.floor(total / 3)));
-  const counts = Array<number>(rowCount).fill(Math.min(3, total));
-  if (total >= 9) {
-    let available = total;
-    for (let row = 0; row < rowCount; row += 1) {
-      const maximum = Math.min(5, available - (rowCount - row - 1) * 3);
-      counts[row] = 3 + Math.floor(random() * (maximum - 2));
-      available -= counts[row];
-    }
-  }
-  let remaining = total < 9 ? total - counts.reduce((sum, count) => sum + count, 0) : 0;
+  const rowCount = total < 3 ? 1 : Math.min(3, Math.ceil(total / 6));
+  const counts = Array<number>(rowCount).fill(total < 3 ? total : 3);
+  let remaining = total - counts.reduce((sum, count) => sum + count, 0);
   while (remaining > 0) {
-    const available = counts.map((count, index) => count < 5 ? index : -1).filter((index) => index >= 0);
-    counts[available[Math.floor(random() * available.length)]] += 1;
+    const available = counts.map((count, index) => count < 6 ? index : -1).filter((index) => index >= 0);
+    const index = available[Math.floor(random() * available.length)];
+    counts[index] += 1;
     remaining -= 1;
   }
   let offset = 0;

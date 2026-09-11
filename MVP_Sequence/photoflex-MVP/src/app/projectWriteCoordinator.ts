@@ -16,6 +16,9 @@ import {
   type WorktableCommandError,
   type WorktableDraft,
   type WorktablePoint,
+  type SequenceRevision,
+  type ProjectBackupV1,
+  type BackupError,
 } from "../contracts";
 import type { AppDependencies } from "./dependencies";
 import { createWorktableEditor } from "../modules/worktable";
@@ -83,6 +86,10 @@ export interface ProjectWriteCoordinator extends SequenceWritePort {
   ): Promise<Result<SequenceWriteResult, LoadError | SequenceWriteError | EditError | CoordinatorPausedError>>;
   retry(scope?: ProjectWriteScope): Promise<boolean>;
   flush(): Promise<Result<ProjectWorkspace, CoordinatorWorkspaceError | CoordinatorPausedError>>;
+  flushAll(): Promise<CoordinatorWorkspaceResult>;
+  hasUnsavedWork(): boolean;
+  exportRecoveryBackup(): Promise<Result<Uint8Array, LoadError>>;
+  restoreRecoveryCopy(): Promise<Result<ProjectId, LoadError | BackupError>>;
 }
 
 /**
@@ -103,6 +110,8 @@ export class ProjectWriteCoordinatorImpl implements ProjectWriteCoordinator {
   private readonly retryTasks = new Map<string, { readonly scope: ProjectWriteScope; readonly run: () => Promise<unknown> }>();
   private latestWorktableDraft?: WorktableDraft;
   private readonly latestSequenceDrafts = new Map<SequenceId, SequenceDocument>();
+  private readonly acknowledgedSequenceRevisions = new Map<SequenceId, SequenceRevision>();
+  private draftGeneration = 0;
 
   constructor(dependencies: AppDependencies, projectId: ProjectId) {
     this.dependencies = dependencies;
@@ -138,6 +147,9 @@ export class ProjectWriteCoordinatorImpl implements ProjectWriteCoordinator {
   }
 
   async load() {
+    await this.queue;
+    // A refresh must never erase the only copy of a failed draft or its retry.
+    if (this.pausedScopes.size) return;
     const generation = ++this.loadGeneration;
     this.active = true;
     this.workspace = undefined;
@@ -184,6 +196,7 @@ export class ProjectWriteCoordinatorImpl implements ProjectWriteCoordinator {
   }
 
   saveWorktable(update: WorktableUpdate): Promise<CoordinatorWorkspaceResult> {
+    this.draftGeneration += 1;
     const current = this.currentWorkspace();
     const draft = current && (typeof update === "function" ? update(current.worktableDraft) : update);
     if (draft && (!current || !sameWorktableDraft(draft, current.worktableDraft))) this.latestWorktableDraft = draft;
@@ -198,6 +211,7 @@ export class ProjectWriteCoordinatorImpl implements ProjectWriteCoordinator {
     if (!result.ok) return result;
     const saved = { ...current, worktableDraft: draft, updatedAt: new Date().toISOString(), revision: result.value.revision };
     this.commitWorkspace(saved);
+    if (this.latestWorktableDraft === draft) this.latestWorktableDraft = undefined;
     return ok(saved);
   }
 
@@ -274,8 +288,10 @@ export class ProjectWriteCoordinatorImpl implements ProjectWriteCoordinator {
     return this.dependencies.projectStore.listSequences(this.projectId);
   }
 
-  loadSequence(sequenceId: SequenceId) {
-    return this.dependencies.projectStore.loadSequence(sequenceId);
+  async loadSequence(sequenceId: SequenceId) {
+    await this.queue;
+    const result = await this.dependencies.projectStore.loadSequence(sequenceId);
+    return result;
   }
 
   loadVersion(versionId: SequenceVersion["id"]) {
@@ -287,6 +303,7 @@ export class ProjectWriteCoordinatorImpl implements ProjectWriteCoordinator {
   }
 
   saveSequenceDraft(sequence: SequenceDocument): Promise<Result<SequenceWriteResult, LoadError | SequenceWriteError | CoordinatorPausedError>> {
+    this.draftGeneration += 1;
     this.latestSequenceDrafts.set(sequence.id, sequence);
     return this.enqueue(
       () => this.performSequenceSave(sequence),
@@ -296,11 +313,14 @@ export class ProjectWriteCoordinatorImpl implements ProjectWriteCoordinator {
   }
 
   private async performSequenceSave(sequence: SequenceDocument): Promise<Result<SequenceWriteResult, LoadError | SequenceWriteError | CoordinatorPausedError>> {
-    const loaded = await this.dependencies.projectStore.loadSequence(sequence.id);
-    if (!loaded.ok) return loaded;
-    const next = { ...sequence, revision: loaded.value.revision, updatedAt: new Date().toISOString() };
-    const result = await this.dependencies.projectStore.saveSequence(next, loaded.value.revision);
+    // Only advance through this coordinator's successful writes. Reading the
+    // latest database revision here would legitimize an external overwrite.
+    const revision = Math.max(sequence.revision, this.acknowledgedSequenceRevisions.get(sequence.id) ?? sequence.revision) as SequenceRevision;
+    const next = { ...sequence, revision, updatedAt: new Date().toISOString() };
+    const result = await this.dependencies.projectStore.saveSequence(next, revision);
     if (!result.ok) return result;
+    this.acknowledgedSequenceRevisions.set(sequence.id, result.value.revision);
+    if (this.latestSequenceDrafts.get(sequence.id) === sequence) this.latestSequenceDrafts.delete(sequence.id);
     return ok({ sequence: { ...next, revision: result.value.revision }, summary: result.value.summary });
   }
 
@@ -317,6 +337,7 @@ export class ProjectWriteCoordinatorImpl implements ProjectWriteCoordinator {
       const document = { ...next.value, revision: loaded.value.revision, updatedAt: new Date().toISOString() };
       const result = await this.dependencies.projectStore.saveSequence(document, loaded.value.revision);
       if (!result.ok) return result;
+      this.acknowledgedSequenceRevisions.set(sequenceId, result.value.revision);
       return ok({ sequence: { ...document, revision: result.value.revision }, summary: result.value.summary });
     }, undefined, { kind: "sequence", sequenceId });
   }
@@ -338,6 +359,46 @@ export class ProjectWriteCoordinatorImpl implements ProjectWriteCoordinator {
 
   flush(): Promise<CoordinatorWorkspaceResult> {
     return this.flushScope({ kind: "workspace" });
+  }
+
+  hasUnsavedWork() { return this.pendingWrites > 0 || this.pausedScopes.size > 0 || this.latestSequenceDrafts.size > 0 || Boolean(this.latestWorktableDraft); }
+
+  async flushAll(): Promise<CoordinatorWorkspaceResult> {
+    let pending;
+    do { pending = this.queue; await pending; } while (pending !== this.queue);
+    if (this.hasUnsavedWork()) return err({ kind: "writes-paused" });
+    const current = this.currentWorkspace();
+    return current ? ok(current) : err({ kind: "workspace-not-ready" });
+  }
+
+  async exportRecoveryBackup(): Promise<Result<Uint8Array, LoadError>> {
+    await this.queue;
+    const exported = await this.dependencies.projectStore.exportBackup(this.projectId);
+    if (!exported.ok) return exported;
+    const backup = JSON.parse(new TextDecoder().decode(exported.value)) as ProjectBackupV1;
+    const recovery = {
+      ...backup,
+      project: { ...backup.project, ...(this.latestWorktableDraft ? { worktableDraft: this.latestWorktableDraft } : {}) },
+      sequences: backup.sequences.map((sequence) => this.latestSequenceDrafts.get(sequence.id) ?? sequence),
+    };
+    return ok(new TextEncoder().encode(JSON.stringify(recovery)));
+  }
+
+  async restoreRecoveryCopy(): Promise<Result<ProjectId, LoadError | BackupError>> {
+    const generation = this.draftGeneration;
+    const exported = await this.exportRecoveryBackup();
+    if (!exported.ok) return exported;
+    const imported = await this.dependencies.projectStore.importBackup(exported.value);
+    // Edits made while a slow import is running still need their own recovery.
+    if (generation !== this.draftGeneration) return err({ kind: "unavailable", retryable: true });
+    if (imported.ok) {
+      this.pausedScopes.clear();
+      this.retryTasks.clear();
+      this.latestSequenceDrafts.clear();
+      this.latestWorktableDraft = undefined;
+      this.refreshWriteSnapshot();
+    }
+    return imported;
   }
 
   flushSequence(sequenceId: SequenceId): Promise<CoordinatorWorkspaceResult> {

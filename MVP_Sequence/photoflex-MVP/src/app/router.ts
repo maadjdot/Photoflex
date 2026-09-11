@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { ProjectId, SequenceId, SourceId, VersionId } from "../contracts";
 
 export type AppRoute =
@@ -72,18 +72,36 @@ function safeDecode(value: string): string | undefined {
   }
 }
 
-export function useAppRoute(): [AppRoute, (route: AppRoute) => void] {
+export function useAppRoute(beforeNavigate?: () => Promise<boolean>): [AppRoute, (route: AppRoute) => void] {
   const [route, setRoute] = useState<AppRoute>(() => readRoute());
+  const routeRef = useRef(route);
+  const guardRef = useRef(beforeNavigate);
+  guardRef.current = beforeNavigate;
+  const requestId = useRef(0);
+  const navigate = async (next: AppRoute, fromHistory = false) => {
+    const id = ++requestId.current;
+    if (guardRef.current && !await guardRef.current()) {
+      if (fromHistory && id === requestId.current) window.history.replaceState(null, "", routeToHash(routeRef.current));
+      return;
+    }
+    if (id !== requestId.current) return;
+    routeRef.current = next;
+    setRoute(next);
+    const hash = routeToHash(next);
+    if (!fromHistory && window.location.hash !== hash) window.location.hash = hash;
+  };
+  const navigateRef = useRef(navigate);
+  navigateRef.current = navigate;
   useEffect(() => {
-    const onHashChange = () => setRoute(readRoute());
+    const onHashChange = () => {
+      const next = readRoute();
+      if (routeToHash(next) === routeToHash(routeRef.current)) return;
+      // Browser Back and direct hash changes use the same save barrier as buttons.
+      void navigateRef.current(next, true);
+    };
     window.addEventListener("hashchange", onHashChange);
     return () => window.removeEventListener("hashchange", onHashChange);
   }, []);
 
-  const navigate = (next: AppRoute) => {
-    const hash = routeToHash(next);
-    if (window.location.hash === hash) setRoute(next);
-    else window.location.hash = hash;
-  };
-  return [route, navigate];
+  return [route, (next) => { void navigate(next); }];
 }

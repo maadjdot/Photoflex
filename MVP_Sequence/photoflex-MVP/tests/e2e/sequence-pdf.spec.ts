@@ -43,8 +43,11 @@ test("exports Read photos, spreads, blanks and repeated photos in order", async 
       const rects = [...toolbar.querySelectorAll("button, select")].map((element) => element.getBoundingClientRect()).filter((rect) => rect.width > 0);
       return rects.map(({ left, right }) => ({ left, right }));
     });
+    const canvasControls = await page.locator(".sequence-canvas-controls").boundingBox();
     await page.screenshot({ path: testInfo.outputPath(`toolbar-${width}.png`) });
     expect(boxes.filter((box) => box.left < 0 || box.right > width), `Toolbar overflow at ${width}px`).toEqual([]);
+    expect(canvasControls!.x).toBeGreaterThanOrEqual(0);
+    expect(canvasControls!.x + canvasControls!.width).toBeLessThanOrEqual(width);
   }
   await page.setViewportSize({ width: 1440, height: 1024 });
   await page.getByRole("button", { name: "Read", exact: true }).click();
@@ -68,5 +71,9 @@ test("exports Read photos, spreads, blanks and repeated photos in order", async 
   expect(pages.every((p) => Math.abs(p.getHeight() - 599.04) < 0.01)).toBe(true);
   const images = pages.map((p) => p.node.Resources()?.lookup(PDFName.of("XObject"), PDFDict)?.keys().length ?? 0);
   expect(images).toEqual([1, 2, 0, 1]);
-  await expect(page.getByRole("status").filter({ hasText: "PDF download started." })).toBeVisible();
+  const exportStatus = page.getByRole("status").filter({ hasText: "PDF download started." });
+  await expect(exportStatus).toBeVisible();
+  const statusPanel = page.locator(".sequence-export-status");
+  expect(await statusPanel.evaluate((panel) => ({ height: panel.getBoundingClientRect().height, fontSize: getComputedStyle(panel).fontSize }))).toEqual({ height: 36, fontSize: "11px" });
+  expect(await exportButton.evaluate((button) => getComputedStyle(button).fontSize)).toBe("11px");
 });

@@ -27,8 +27,8 @@ export function workspaceSaveErrorMessage(error: WorkspaceSaveError): string {
 
 const ProjectWorkspaceContext = createContext<ProjectWriteCoordinator | undefined>(undefined);
 
-export function ProjectWorkspaceProvider({ dependencies, projectId, children }: { readonly dependencies: AppDependencies; readonly projectId: ProjectId; readonly children: ReactNode }) {
-  const coordinator = useMemo(() => createProjectWriteCoordinator(dependencies, projectId), [dependencies, projectId]);
+export function ProjectWorkspaceProvider({ dependencies, projectId, children, coordinator: provided }: { readonly dependencies: AppDependencies; readonly projectId: ProjectId; readonly children: ReactNode; readonly coordinator?: ProjectWriteCoordinator }) {
+  const coordinator = useMemo(() => provided ?? createProjectWriteCoordinator(dependencies, projectId), [dependencies, projectId, provided]);
   useEffect(() => {
     void coordinator.load();
     return () => coordinator.dispose();

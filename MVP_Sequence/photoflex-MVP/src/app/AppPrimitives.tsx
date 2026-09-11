@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import { routeToHash } from "./router";
 import type { CreateProjectError, PhotoRef, SourceError, SourceId, SourceRuntimeState } from "../contracts";
+import { useLocale } from "./locale";
+import type { Locale } from "./localeDictionary";
 export const now = () => new Date().toISOString();
 
 export function stateNeedsScan(state?: SourceRuntimeState) {
@@ -16,27 +18,45 @@ export function progressPercent(state?: SourceRuntimeState) {
   if (!state?.discoveredCount) return 0;
   return Math.min(100, Math.round((state.indexedCount / state.discoveredCount) * 100));
 }
-export function sourceCounts(state?: SourceRuntimeState) {
-  if (!state) return "正在读取…";
+export function sourceCounts(state?: SourceRuntimeState, locale: Locale = "en") {
+  if (!state) return locale === "zh-CN" ? "正在读取…" : "Reading…";
+  if (locale === "zh-CN") return state.status === "loading"
+    ? `已索引 ${state.indexedCount} · 已发现 ${state.discoveredCount} · ${progressPercent(state)}%`
+    : `已索引 ${state.indexedCount}${state.failedCount ? ` · ${state.failedCount} 个失败` : ""}${state.skippedCount ? ` · ${state.skippedCount} 个已跳过` : ""}`;
   if (state.status === "loading") return `${state.indexedCount} indexed · ${state.discoveredCount} discovered · ${progressPercent(state)}%`;
   return `${state.indexedCount} indexed${state.failedCount ? ` · ${state.failedCount} failed` : ""}${state.skippedCount ? ` · ${state.skippedCount} skipped` : ""}`;
 }
-export function statusLabel(status: SourceRuntimeState["status"]) { return status.replace("permission-lost", "permission lost").toUpperCase(); }
+export function statusLabel(status: SourceRuntimeState["status"], locale: Locale = "en") {
+  if (locale === "zh-CN") return ({ loading: "正在加载", ready: "已就绪", partial: "部分可用", empty: "空文件夹", error: "错误", offline: "未连接", "permission-lost": "授权已失效" } as Record<string, string>)[status] ?? status;
+  return status.replace("permission-lost", "permission lost").toUpperCase();
+}
 export function shortId(id: string) { return id.replace(/-/g, "").slice(0, 4).toUpperCase(); }
 export function worktableDisplaySize(width: number, height: number) {
   const longest = Math.max(1, width, height);
   const scale = 235 / longest;
   return { width: Math.max(72, Math.round(width * scale)), height: Math.max(72, Math.round(height * scale)) };
 }
-export function sourceErrorMessage(kind: SourceError["kind"]) {
-  if (kind === "permission-denied") return "文件夹访问被拒绝。";
-  if (kind === "permission-lost") return "文件夹授权已失效，请重新连接。";
-  return "文件夹暂时无法读取，请重试。";
+export function sourceErrorMessage(kind: SourceError["kind"], locale: Locale = "en") {
+  if (locale === "zh-CN") {
+    if (kind === "folder-mismatch") return "该文件夹与此项目不匹配，请选择原始照片文件夹。";
+    if (kind === "permission-denied") return "文件夹访问被拒绝。";
+    if (kind === "permission-lost") return "文件夹授权已失效，请重新连接。";
+    return "文件夹暂时无法读取，请重试。";
+  }
+  if (kind === "folder-mismatch") return "This folder does not contain the backed-up photo paths. Choose the original photo folder.";
+  if (kind === "permission-denied") return "Folder access was denied.";
+  if (kind === "permission-lost") return "Folder access has expired. Reconnect the folder.";
+  return "The folder could not be read. Try again.";
 }
-export function createErrorMessage(kind: CreateProjectError["kind"]) {
-  if (kind === "project-id-exists") return "项目已存在，请重试。";
-  if (kind === "quota-exceeded") return "浏览器存储空间不足。";
-  return "项目创建失败，已保留当前输入。";
+export function createErrorMessage(kind: CreateProjectError["kind"], locale: Locale = "en") {
+  if (locale === "zh-CN") {
+    if (kind === "project-id-exists") return "项目已存在，请重试。";
+    if (kind === "quota-exceeded") return "浏览器存储空间不足。";
+    return "项目创建失败，已保留当前输入。";
+  }
+  if (kind === "project-id-exists") return "That project already exists. Try again.";
+  if (kind === "quota-exceeded") return "Browser storage is full.";
+  return "The project could not be created. Your entries have been kept.";
 }
 export function mergeUniquePhotos(current: readonly PhotoRef[], additions: readonly PhotoRef[]): PhotoRef[] {
   const knownIds = new Set(current.map((photo) => photo.id));
@@ -47,26 +67,28 @@ export function mergeUniquePhotos(current: readonly PhotoRef[], additions: reado
   });
   return uniqueAdditions.length ? [...current, ...uniqueAdditions] : [...current];
 }
-export function formatUpdated(value?: string) {
+export function formatUpdated(value?: string, locale: Locale = "en") {
   if (!value) return "—";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "—";
-  const time = date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-  return date.toDateString() === new Date().toDateString() ? `Today, ${time}` : date.toLocaleDateString();
+  const localeTag = locale === "zh-CN" ? "zh-CN" : "en";
+  const time = date.toLocaleTimeString(localeTag, { hour: "2-digit", minute: "2-digit" });
+  return date.toDateString() === new Date().toDateString() ? (locale === "zh-CN" ? `今天 ${time}` : `Today, ${time}`) : date.toLocaleDateString(localeTag);
 }
 export function StatusDot({ status }: { readonly status: SourceRuntimeState["status"] }) { return <span className="status-dot" aria-hidden="true" data-status={status} />; }
 export function InlineNotice({ message }: { readonly message: string }) { return <p className="inline-notice" role="status">{message}</p>; }
-export function InlineError({ message, onRetry }: { readonly message: string; readonly onRetry: () => void }) { return <div className="inline-error" role="alert"><span>{message}</span><button className="text-button" onClick={onRetry}>Retry</button></div>; }
-export function EmptyPanel({ eyebrow = "NO CONTENT YET", title, detail, children }: { readonly eyebrow?: string; readonly title: string; readonly detail?: string; readonly children?: ReactNode }) { return <section className="empty-panel"><p className="eyebrow">{eyebrow}</p><h2>{title}</h2>{detail && <p>{detail}</p>}{children && <div className="empty-actions">{children}</div>}</section>; }
-export function LoadingPage() { return <main className="page centered-state"><div className="loading-mark" /><p>Loading workspace…</p></main>; }
-export function ErrorPage({ message }: { readonly message: string }) { return <main className="page centered-state"><p className="eyebrow">RECOVERY</p><h1>{message}</h1><a href={routeToHash({ name: "home" })}>Return to Home</a></main>; }
+export function InlineError({ message, onRetry }: { readonly message: string; readonly onRetry: () => void }) { const { t } = useLocale(); return <div className="inline-error" role="alert"><span>{message}</span><button className="text-button" onClick={onRetry}>{t("common.retry")}</button></div>; }
+export function EmptyPanel({ eyebrow, title, detail, children }: { readonly eyebrow?: string; readonly title: string; readonly detail?: string; readonly children?: ReactNode }) { const { locale } = useLocale(); return <section className="empty-panel"><p className="eyebrow">{eyebrow ?? (locale === "zh-CN" ? "暂无内容" : "NO CONTENT YET")}</p><h2>{title}</h2>{detail && <p>{detail}</p>}{children && <div className="empty-actions">{children}</div>}</section>; }
+export function LoadingPage() { const { t } = useLocale(); return <main className="page centered-state"><div className="loading-mark" /><p>{t("status.loadingWorkspace")}</p></main>; }
+export function ErrorPage({ message }: { readonly message: string }) { const { t } = useLocale(); return <main className="page centered-state"><p className="eyebrow">{t("status.recovery")}</p><h1>{message}</h1><a href={routeToHash({ name: "home" })}>{t("status.returnHome")}</a></main>; }
 export function MemoCard({ value, onChange }: { readonly value: string; readonly onChange: (value: string) => void }) {
+  const { t } = useLocale();
   const [draft, setDraft] = useState(value);
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
   useEffect(() => setDraft(value), [value]);
   useEffect(() => { const timer = window.setTimeout(() => { if (draft !== value) onChangeRef.current(draft); }, 500); return () => window.clearTimeout(timer); }, [draft, value]);
-  return <section className="memo-card"><p className="eyebrow">PROJECT MEMO</p><textarea value={draft} onChange={(event) => setDraft(event.target.value)} placeholder="记录这个项目的方向、问题或下一步。" rows={5} /></section>;
+  return <section className="memo-card"><p className="eyebrow">{t("project.memo")}</p><textarea value={draft} onChange={(event) => setDraft(event.target.value)} placeholder={t("project.memoPlaceholder")} rows={5} /></section>;
 }
 export function InlineTitle({ value, onSave }: { readonly value: string; readonly onSave: (value: string) => Promise<void> }) {
   const [editing, setEditing] = useState(false);

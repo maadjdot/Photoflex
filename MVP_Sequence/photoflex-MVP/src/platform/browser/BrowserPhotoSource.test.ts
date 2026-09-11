@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it } from "vitest";
 import type { SourceId } from "../../contracts";
 import { BrowserPhotoSource } from "./BrowserPhotoSource";
+import { IndexedDbProjectStore } from "./IndexedDbProjectStore";
+import { backupBytes } from "../../../tests/helpers/projectBackup";
 
 const databases: BrowserPhotoSource[] = [];
 
@@ -74,6 +76,27 @@ async function scanToEnd(source: BrowserPhotoSource, sourceId: SourceId) {
 }
 
 describe("BrowserPhotoSource", () => {
+  it("reconnects an imported folder without changing restored photo IDs and rejects an unrelated folder", async () => {
+    const databaseName = `restore-folder-${crypto.randomUUID()}`;
+    const store = IndexedDbProjectStore.open({ databaseName });
+    const imported = await store.importBackup(backupBytes());
+    if (!imported.ok) throw Error(JSON.stringify(imported));
+    const workspace = await store.loadWorkspace(imported.value);
+    if (!workspace.ok) throw Error("project missing");
+    const sourceId = workspace.value.sources[0].id;
+    let directory = createDirectory("wrong", "Unrelated", ["other.jpg"]);
+    const source = new BrowserPhotoSource({ databaseName, picker: async () => directory.handle });
+    databases.push(source);
+    expect(await source.getSourceState(sourceId)).toMatchObject({ ok: true, value: { status: "offline", indexedCount: 2 } });
+    expect(await source.restoreFolder(sourceId)).toMatchObject({ ok: false, error: { kind: "folder-mismatch" } });
+    directory = createDirectory("right", "Photos", ["one.jpg", "two.jpg"]);
+    expect(await source.restoreFolder(sourceId)).toMatchObject({ ok: true, value: { sourceId } });
+    await scanToEnd(source, sourceId);
+    const page = await source.listPhotos(sourceId);
+    expect(page.ok && page.value.items.map((p) => p.id)).toEqual(workspace.value.worktableDraft.entryOrder);
+    expect(page.ok && page.value.items.map((p) => p.relativePath)).toEqual(["one.jpg", "two.jpg"]);
+    await store.close();
+  });
   it("按相对路径稳定排列分页照片", async () => {
     const directory = createDirectory("ordered", "Ordered", ["Z.JPG", "A.JPG", "M.JPG"]);
     const source = new BrowserPhotoSource({

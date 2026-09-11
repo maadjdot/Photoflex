@@ -2,6 +2,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import type { ProjectId, SequenceId, SourceId } from "../contracts";
 import type { AppDependencies } from "./dependencies";
 import type { AppRoute } from "./router";
+import { LanguageSwitcher, useLocale } from "./locale";
 
 export function AppHeader({ dependencies, route, projectId, contactSourceId, lastSequenceId, navigate, variant = "default", projectLabel, actions }: {
   readonly dependencies: AppDependencies;
@@ -15,6 +16,7 @@ export function AppHeader({ dependencies, route, projectId, contactSourceId, las
   readonly actions?: ReactNode;
 }) {
   const [projectName, setProjectName] = useState<string>();
+  const { t } = useLocale();
 
   useEffect(() => {
     let active = true;
@@ -28,14 +30,14 @@ export function AppHeader({ dependencies, route, projectId, contactSourceId, las
     return () => { active = false; };
   }, [dependencies.projectStore, projectId, projectLabel]);
 
-  const brand = <button className="brand" onClick={() => navigate({ name: "home" })} aria-label="返回 Home">Photoflex</button>;
+  const brand = <button className="brand" onClick={() => navigate({ name: "home" })} aria-label={t("app.backHome")}>Photoflex</button>;
   const label = projectLabel ?? projectName ?? projectId;
   return <header className={`topbar${variant === "table" ? " is-table" : ""}${route.name === "home" ? " is-home" : ""}`}>
     {variant === "table" ? <div className="table-header-project">{brand}{projectId && <><span className="table-header-slash" aria-hidden="true">/</span><span className="project-context-name" title={label}>{label}</span></>}</div> : <>{brand}{projectId && <span className="project-context-name" title={label}>{label}</span>}</>}
-    {route.name !== "home" && route.name !== "table" && route.name !== "sequence" && <nav className="topnav" aria-label="主导航">
-      {(!projectId || variant === "table") && <NavButton onClick={() => navigate({ name: "home" })}>Home</NavButton>}
-      <NavButton active={route.name === "project" || route.name === "contact-sheet"} disabled={!projectId} onClick={() => projectId && navigate({ name: "table", projectId })}>Table</NavButton>
-      <NavButton active={route.name === "sequence-compare" || route.name === "version-compare"} disabled={!projectId} title="Open the last Sequence" onClick={() => {
+    {route.name !== "home" && route.name !== "table" && route.name !== "sequence" && <nav className="topnav" aria-label={t("nav.main")}>
+      {(!projectId || variant === "table") && <NavButton onClick={() => navigate({ name: "home" })}>{t("nav.home")}</NavButton>}
+      <NavButton active={route.name === "project" || route.name === "contact-sheet"} disabled={!projectId} onClick={() => projectId && navigate({ name: "table", projectId })}>{t("nav.table")}</NavButton>
+      <NavButton active={route.name === "sequence-compare" || route.name === "version-compare"} disabled={!projectId} title={t("nav.openLastSequence")} onClick={() => {
         if (!projectId) return;
         void Promise.all([dependencies.projectStore.listSequences(projectId), dependencies.projectStore.loadWorkspace(projectId)]).then(([sequences, workspace]) => {
           const available = sequences.ok ? sequences.value : [];
@@ -44,9 +46,12 @@ export function AppHeader({ dependencies, route, projectId, contactSourceId, las
           const target = resumed ?? available[0];
           navigate(target ? { name: "sequence", projectId, sequenceId: target.id } : { name: "table", projectId });
         });
-      }}>Sequence</NavButton>
+      }}>{t("nav.sequence")}</NavButton>
     </nav>}
-    {actions ?? <button className="login-button" aria-label="登录（M1 占位）">Login</button>}
+    <div className={route.name === "home" ? "home-header-actions" : "topbar-actions"}>
+      {route.name === "home" && <LanguageSwitcher />}
+      {actions ?? <button className="login-button" aria-label={t("nav.login")}>{t("nav.login")}</button>}
+    </div>
   </header>;
 }
 

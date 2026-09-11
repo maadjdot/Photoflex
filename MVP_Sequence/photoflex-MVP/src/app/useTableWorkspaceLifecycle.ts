@@ -55,7 +55,7 @@ export function useTableWorkspaceLifecycle({
     viewportRef.current = DEFAULT_TABLE_VIEWPORT;
     setInitialViewport(DEFAULT_TABLE_VIEWPORT);
     void coordinator.flush()
-      .then(() => coordinator.load())
+      .then((result) => { if (result.ok || result.error.kind === "workspace-not-ready") return coordinator.load(); onError(workspaceSaveErrorMessage(result.error)); })
       .then(() => {
         if (reloadRequestedRef.current === projectId) setRefreshedProjectId(projectId);
       });

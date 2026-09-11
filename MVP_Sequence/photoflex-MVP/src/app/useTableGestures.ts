@@ -113,6 +113,19 @@ export function useTableGestures(options: TableGestureOptions) {
     });
   };
 
+  const onGroupPointerDown = (event: ReactPointerEvent<HTMLElement>, ids: readonly PhotoId[]) => {
+    if (disabled || event.button !== 0 || !stageRef.current || !ids.length) return;
+    event.preventDefault();
+    event.stopPropagation();
+    selectPhotos(ids);
+    beginDrag(event, {
+      kind: "photo",
+      pointerId: event.pointerId,
+      start: screenToWorld({ x: event.clientX, y: event.clientY }, stageRef.current.getBoundingClientRect(), viewportRef.current),
+      ids,
+    });
+  };
+
   const onPilePointerDown = (event: ReactPointerEvent<HTMLElement>, id: SequenceId) => {
     if (disabled) return;
     event.preventDefault();
@@ -281,6 +294,7 @@ export function useTableGestures(options: TableGestureOptions) {
       marquee,
     } satisfies TableGesturePreview,
     onPhotoPointerDown,
+    onGroupPointerDown,
     onPilePointerDown,
     onPhotoResizePointerDown,
     onPileResizePointerDown,

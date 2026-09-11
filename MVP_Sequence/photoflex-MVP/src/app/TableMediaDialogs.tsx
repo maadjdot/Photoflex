@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { PhotoId, PhotoSource, SourceError, WorktableDraft } from "../contracts";
 import { useDialogKeyboard } from "./AppPrimitives";
+import { useLocale } from "./locale";
 
 export function TablePhotoPreview({
   photoId,
@@ -15,6 +16,7 @@ export function TablePhotoPreview({
   readonly onClose: () => void;
   readonly onError: (id: PhotoId, error: SourceError) => void;
 }) {
+  const { t } = useLocale();
   const [url, setUrl] = useState<string>();
   const dialogRef = useRef<HTMLDivElement>(null);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
@@ -47,8 +49,8 @@ export function TablePhotoPreview({
 
   return <div ref={dialogRef} className="table-preview-backdrop" role="dialog" aria-modal="true" aria-label={`Preview ${filename}`} onPointerDown={onClose}>
     <section className="table-preview-dialog" onPointerDown={(event) => event.stopPropagation()}>
-      <header><span>{filename}</span><button ref={closeButtonRef} onClick={onClose} aria-label="Close preview">×</button></header>
-      <div className="table-preview-image-wrap">{url ? <img src={url} alt={filename} /> : <div className="preview-placeholder">Preview unavailable</div>}</div>
+      <header><span>{filename}</span><button ref={closeButtonRef} onClick={onClose} aria-label={t("table.closePreview")}>×</button></header>
+      <div className="table-preview-image-wrap">{url ? <img src={url} alt={filename} /> : <div className="preview-placeholder">{t("table.previewUnavailable")}</div>}</div>
     </section>
   </div>;
 }
@@ -64,6 +66,7 @@ export function TablePhotoCompare({
   readonly photoSource: PhotoSource;
   readonly onClose: () => void;
 }) {
+  const { t } = useLocale();
   const [order, setOrder] = useState(ids);
   const [urls, setUrls] = useState<readonly string[]>([]);
   const dialogRef = useRef<HTMLDivElement>(null);
@@ -91,8 +94,8 @@ export function TablePhotoCompare({
     closeButtonRef.current?.focus();
   }, []);
 
-  return <div ref={dialogRef} className="compare-backdrop" role="dialog" aria-modal="true" aria-label="Compare two photos">
-    <header><span>COMPARE</span><button onClick={() => setOrder([order[1], order[0]])}>Swap</button><button ref={closeButtonRef} onClick={onClose} aria-label="Close compare">×</button></header>
-    <div className="compare-images">{order.map((id, index) => <figure key={id}>{urls[index] ? <img src={urls[index]} alt={draft.placements[id].filename} /> : <div className="preview-placeholder">Preview unavailable</div>}</figure>)}</div>
+  return <div ref={dialogRef} className="compare-backdrop" role="dialog" aria-modal="true" aria-label={t("table.compareTwo")}>
+    <header><span>{t("table.compare")}</span><button onClick={() => setOrder([order[1], order[0]])}>{t("table.swap")}</button><button ref={closeButtonRef} onClick={onClose} aria-label={t("table.closeCompare")}>×</button></header>
+    <div className="compare-images">{order.map((id, index) => <figure key={id}>{urls[index] ? <img src={urls[index]} alt={draft.placements[id].filename} /> : <div className="preview-placeholder">{t("table.previewUnavailable")}</div>}</figure>)}</div>
   </div>;
 }

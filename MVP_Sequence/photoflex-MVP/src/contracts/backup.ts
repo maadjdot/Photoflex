@@ -18,6 +18,10 @@ export interface ProjectBackupV1 {
     readonly sourceId: SourceId;
     readonly photoId: PhotoId;
     readonly relativePath: string;
+    readonly width?: number;
+    readonly height?: number;
+    readonly fileSize?: number;
+    readonly fileLastModified?: number;
   }>;
 }
 

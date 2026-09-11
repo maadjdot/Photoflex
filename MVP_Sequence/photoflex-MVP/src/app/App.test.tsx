@@ -58,7 +58,7 @@ describe("M1 app", () => {
     if (!created.ok) throw new Error("project fixture not created");
     render(<App dependencies={{ projectStore, photoSource: new MemoryPhotoSource() }} />);
 
-    fireEvent.click(await screen.findByRole("button", { name: "打开项目 Default Table" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Open project Default Table" }));
     expect(await screen.findByLabelText("Photo worktable")).toBeTruthy();
     expect(window.location.hash).toBe(`#/projects/${projectId}/table`);
   });
@@ -83,7 +83,7 @@ describe("M1 app", () => {
       />,
     );
 
-    await screen.findByRole("button", { name: "打开项目 Drag Project" });
+    await screen.findByRole("button", { name: "Open project Drag Project" });
     fireEvent.click(screen.getByRole("button", { name: "Delete project Drag Project" }));
 
     await waitFor(async () => {

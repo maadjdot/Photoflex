@@ -17,9 +17,10 @@ describe("WorktableEditor", () => {
     editor.execute({ type: "place", items: [seed("a")] });
     const memo = { id: "memo-1", text: "First thought", x: -40, y: 20, width: 260, height: 180, fontSize: 16, photoIds: [photoId("a")] };
     expect(editor.execute({ type: "create-memo", memo }).ok).toBe(true);
+    const createdMemo = editor.snapshot().memos?.[0];
     editor.execute({ type: "update-memo", memoId: memo.id, changes: { width: 420, height: 100, fontSize: 24, text: "Revised" } });
     expect(editor.snapshot().memos?.[0]).toMatchObject({ width: 420, height: 100, fontSize: 24, text: "Revised" });
-    expect(editor.undo().memos?.[0]).toEqual(memo);
+    expect(editor.undo().memos?.[0]).toEqual(createdMemo);
     editor.redo();
     editor.execute({ type: "remove", photoIds: [photoId("a")] });
     expect(editor.snapshot().memos?.[0].photoIds).toEqual([]);
@@ -39,6 +40,27 @@ describe("WorktableEditor", () => {
     if (!repeated.ok) return;
     expect(repeated.value.entryOrder).toEqual(["a", "b", "c"]);
     expect(repeated.value.placements[photoId("b")].x).toBe(339);
+  });
+
+  it("places newly created photos and memos above existing content without covering it", () => {
+    const editor = createWorktableEditor(createEmptyWorktable(projectId));
+    const first = editor.execute({ type: "place", items: [seed("a")], at: { x: 100, y: 100 } });
+    expect(first.ok).toBe(true);
+    const memoResult = editor.execute({ type: "create-memo", memo: { id: "memo-top", text: "", x: 100, y: 100, width: 260, height: 180, fontSize: 16, photoIds: [] } });
+    expect(memoResult.ok).toBe(true);
+    if (!memoResult.ok) return;
+    const memo = memoResult.value.memos?.[0];
+    const photoA = memoResult.value.placements[photoId("a")];
+    expect(memo?.z).toBeGreaterThan(photoA.z);
+    expect(overlaps(memo!, photoA)).toBe(false);
+
+    const second = editor.execute({ type: "place", items: [seed("b")], at: { x: memo!.x, y: memo!.y } });
+    expect(second.ok).toBe(true);
+    if (!second.ok) return;
+    const photoB = second.value.placements[photoId("b")];
+    expect(photoB.z).toBeGreaterThan(memo!.z!);
+    expect(overlaps(photoB, memo!)).toBe(false);
+    expect(overlaps(photoB, photoA)).toBe(false);
   });
 
   it("rejects duplicate request ids without changing history", () => {
@@ -200,3 +222,7 @@ describe("WorktableEditor", () => {
     expect(removed.ok && removed.value.entryOrder).toEqual(["a"]);
   });
 });
+
+function overlaps(left: { x: number; y: number; width: number; height: number }, right: { x: number; y: number; width: number; height: number }) {
+  return left.x < right.x + right.width && left.x + left.width > right.x && left.y < right.y + right.height && left.y + left.height > right.y;
+}

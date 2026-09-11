@@ -1,6 +1,7 @@
 import type { PhotoId, SourceError, WorktableDraft } from "../contracts";
 import { PhotoThumb } from "./PhotoThumb";
 import type { AppDependencies } from "./dependencies";
+import { useLocale } from "./locale";
 
 export function TablePreviewPanel({
   draft,
@@ -15,11 +16,12 @@ export function TablePreviewPanel({
   readonly onOpenTable: () => void;
   readonly onPhotoSourceError: (photoId: PhotoId, error: SourceError) => void;
 }) {
+  const { t } = useLocale();
   return (
-    <aside className="table-preview-panel" aria-label="Table preview">
+    <aside className="table-preview-panel" aria-label={`${t("nav.table")} ${t("table.preview")}`}>
       <header className="table-preview-heading">
-        <span><small>TABLE</small><strong>{draft.entryOrder.length} photos</strong></span>
-        <button onClick={onOpenTable}>Open</button>
+        <span><small>{t("nav.table")}</small><strong>{t("common.photoCount", { count: draft.entryOrder.length })}</strong></span>
+        <button onClick={onOpenTable}>{t("common.open")}</button>
       </header>
       {draft.entryOrder.length ? (
         <div className="table-preview-list">
@@ -33,7 +35,7 @@ export function TablePreviewPanel({
             );
           })}
         </div>
-      ) : <p className="table-preview-empty">Place selected photographs here, then arrange them on Table.</p>}
+      ) : <p className="table-preview-empty">{t("table.emptyDetail")}</p>}
     </aside>
   );
 }

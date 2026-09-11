@@ -3,6 +3,7 @@ import type { PhotoId, PhotoRef, SourceError } from "../contracts";
 import { calculateContactSheetVirtualGrid, type ContactSheetVirtualGrid } from "../modules/contactSheet/contactSheetVirtualizer";
 import { PhotoThumb } from "./PhotoThumb";
 import type { AppDependencies } from "./dependencies";
+import { useLocale } from "./locale";
 
 export function VirtualPhotoGrid({ photos, selected, tableIds, missingIds, zoom = 75, sourceRevision, initialAnchorPhotoId, onAnchorChange, onToggle, onOpen, onNearEnd, onPhotoSourceError, photoSource }: { readonly photos: readonly PhotoRef[]; readonly selected: ReadonlySet<PhotoId>; readonly tableIds: readonly PhotoId[]; readonly missingIds: ReadonlySet<PhotoId>; readonly zoom?: number; readonly sourceRevision?: number; readonly initialAnchorPhotoId?: PhotoId; readonly onAnchorChange: (photoId: PhotoId | undefined) => void; readonly onToggle: (photoId: PhotoId, index: number, event?: ReactMouseEvent<HTMLElement>) => void; readonly onOpen: (index: number) => void; readonly onNearEnd: () => void; readonly onPhotoSourceError: (photoId: PhotoId, error: SourceError) => void; readonly photoSource: AppDependencies["photoSource"]; }) {
   const viewportRef = useRef<HTMLDivElement>(null);
@@ -126,6 +127,7 @@ function sameVirtualGrid(left: ContactSheetVirtualGrid, right: ContactSheetVirtu
 
 
 function PhotoTile({ photoSource, photo, sourceRevision, selected, inTable, missing, index, columns, style, onToggle, onOpen, onMoveFocus, onPhotoSourceError }: { readonly photoSource: AppDependencies["photoSource"]; readonly photo: PhotoRef; readonly sourceRevision?: number; readonly selected: boolean; readonly inTable: boolean; readonly missing: boolean; readonly index: number; readonly columns: number; readonly style: CSSProperties; readonly onToggle: (event?: ReactMouseEvent<HTMLElement>) => void; readonly onOpen: () => void; readonly onMoveFocus: (index: number, delta: number) => void; readonly onPhotoSourceError: (photoId: PhotoId, error: SourceError) => void; }) {
+  const { locale, t } = useLocale();
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.key === " ") { event.preventDefault(); onToggle(); }
     if (event.key === "Enter") { event.preventDefault(); onOpen(); }
@@ -134,7 +136,9 @@ function PhotoTile({ photoSource, photo, sourceRevision, selected, inTable, miss
     if (event.key === "ArrowUp") { event.preventDefault(); onMoveFocus(index, -columns); }
     if (event.key === "ArrowDown") { event.preventDefault(); onMoveFocus(index, columns); }
   };
-  const stateLabel = `${selected ? "已选择" : "未选择"}${inTable ? "，已在 Table" : ""}${missing ? "，文件已移动或重命名" : ""}`;
+  const stateLabel = locale === "zh-CN"
+    ? `${selected ? "已选择" : "未选择"}${inTable ? "，已在桌面" : ""}${missing ? "，文件已移动或重命名" : ""}`
+    : `${selected ? "Selected" : "Not selected"}${inTable ? ", on Table" : ""}${missing ? ", file moved or renamed" : ""}`;
 
   return (
     <article
@@ -147,18 +151,18 @@ function PhotoTile({ photoSource, photo, sourceRevision, selected, inTable, miss
       onDoubleClick={onOpen}
       draggable
       onDragStart={(event) => event.dataTransfer.setData("application/x-photoflex-photo", photo.id)}
-      aria-label={`${photo.relativePath}，${stateLabel}`}
+      aria-label={`${photo.relativePath}${locale === "zh-CN" ? "，" : ", "}${stateLabel}`}
     >
       <div className="photo-image-wrap">
         <PhotoThumb photoSource={photoSource} photoId={photo.id} alt={photo.relativePath} sourceRevision={sourceRevision} onError={onPhotoSourceError} />
-        {inTable && <span className="table-mark">ON TABLE</span>}
-        {missing && <span className="missing-mark">MISSING</span>}
+        {inTable && <span className="table-mark">{t("source.onTable")}</span>}
+        {missing && <span className="missing-mark">{t("status.missing")}</span>}
         {selected && <span className="check-mark">✓</span>}
       </div>
       <div className="photo-meta">
         <strong>{photo.relativePath.split("/").at(-1)}</strong>
         <button className="view-button" onClick={(event) => { event.stopPropagation(); onOpen(); }}>
-          View
+          {t("table.preview")}
         </button>
       </div>
     </article>

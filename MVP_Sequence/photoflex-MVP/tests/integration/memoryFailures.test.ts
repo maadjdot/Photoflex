@@ -18,6 +18,7 @@ describe("MemoryProjectStore 失败模式", () => {
 
     const corruptDatabase = {
       projects: new Map(),
+      photos: new Map(),
       versions: new Map(),
       sequences: new Map(),
       corruptProjectIds: new Set([PROJECT_ID]),

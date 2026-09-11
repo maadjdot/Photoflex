@@ -18,6 +18,7 @@ import type { AppDependencies } from "./dependencies";
 import { PhotoThumb } from "./PhotoThumb";
 import type { AppRoute } from "./router";
 import { useProjectWorkspaceSession } from "./useProjectWorkspace";
+import { useLocale } from "./locale";
 
 export function SequenceComparePage({
   dependencies,
@@ -32,6 +33,7 @@ export function SequenceComparePage({
   readonly rightSequenceId: SequenceId;
   readonly navigate: (route: AppRoute) => void;
 }) {
+  const { locale, t } = useLocale();
   const [left, setLeft] = useState<SequenceDocument>();
   const [right, setRight] = useState<SequenceDocument>();
   const [availableSequences, setAvailableSequences] = useState<readonly SequenceSummary[]>([]);
@@ -43,7 +45,7 @@ export function SequenceComparePage({
     void Promise.all([loadSequence(leftSequenceId), loadSequence(rightSequenceId), listSequences()]).then(([a, b, all]) => {
       if (!live) return;
       if (!a.ok || !b.ok) {
-        setError("Sequences could not be compared.");
+        setError(locale === "zh-CN" ? "无法对比这些序列。" : "Sequences could not be compared.");
         return;
       }
       setLeft(a.value);
@@ -55,7 +57,7 @@ export function SequenceComparePage({
 
   const diff = useMemo(() => left && right ? compareSequences(left, right) : undefined, [left, right]);
   if (!left || !right || !diff) {
-    return <main className="page centered-state">{error ? <h1>{error}</h1> : <><div className="loading-mark" /><p>Comparing Sequences…</p></>}</main>;
+    return <main className="page centered-state">{error ? <h1>{error}</h1> : <><div className="loading-mark" /><p>{locale === "zh-CN" ? "正在对比序列…" : "Comparing Sequences…"}</p></>}</main>;
   }
   const leftOnly = new Set(diff.leftOnly);
   const rightOnly = new Set(diff.rightOnly);
@@ -69,16 +71,16 @@ export function SequenceComparePage({
 
   return <main className="sequence-compare-page page">
     <header>
-      <button onClick={() => navigate({ name: "table", projectId })}>← Table</button>
-      <strong>SEQUENCE COMPARE</strong>
+      <button onClick={() => navigate({ name: "table", projectId })}>← {t("nav.table")}</button>
+      <strong>{t("sequence.compareSequences")}</strong>
       <div className="version-compare-pickers">
         <label>A <select value={left.id} onChange={(event) => choose("left", event.target.value)}>{availableSequences.map((sequence) => <option key={sequence.id} value={sequence.id}>{sequence.name}</option>)}</select></label>
         <label>B <select value={right.id} onChange={(event) => choose("right", event.target.value)}>{availableSequences.map((sequence) => <option key={sequence.id} value={sequence.id}>{sequence.name}</option>)}</select></label>
       </div>
       <div className="version-compare-actions">
-        <CompareToolButton icon={swapIcon} label="Swap Sides" onClick={() => navigate({ name: "sequence-compare", projectId, leftSequenceId: right.id, rightSequenceId: left.id })} />
-        <CompareToolButton icon={previewIcon} label="Read A" onClick={() => navigate({ name: "sequence", projectId, sequenceId: left.id })} />
-        <CompareToolButton icon={previewIcon} label="Read B" onClick={() => navigate({ name: "sequence", projectId, sequenceId: right.id })} />
+        <CompareToolButton icon={swapIcon} label={locale === "zh-CN" ? "交换两侧" : "Swap Sides"} onClick={() => navigate({ name: "sequence-compare", projectId, leftSequenceId: right.id, rightSequenceId: left.id })} />
+        <CompareToolButton icon={previewIcon} label={`${t("sequence.read")} A`} onClick={() => navigate({ name: "sequence", projectId, sequenceId: left.id })} />
+        <CompareToolButton icon={previewIcon} label={`${t("sequence.read")} B`} onClick={() => navigate({ name: "sequence", projectId, sequenceId: right.id })} />
       </div>
       <span>Read-only · {diff.leftOnly.length} only A · {diff.rightOnly.length} only B · {moved.size} moved</span>
     </header>
@@ -102,6 +104,7 @@ export function VersionComparePage({
   readonly rightVersionId: VersionId;
   readonly navigate: (route: AppRoute) => void;
 }) {
+  const { locale, t } = useLocale();
   const [left, setLeft] = useState<SequenceVersion>();
   const [right, setRight] = useState<SequenceVersion>();
   const [availableVersions, setAvailableVersions] = useState<readonly VersionSummary[]>([]);
@@ -113,7 +116,7 @@ export function VersionComparePage({
     void Promise.all([loadVersion(leftVersionId), loadVersion(rightVersionId), listVersions()]).then(([a, b, all]) => {
       if (!live) return;
       if (!a.ok || !b.ok) {
-        setError("Versions could not be compared.");
+        setError(locale === "zh-CN" ? "无法对比这些版本。" : "Versions could not be compared.");
         return;
       }
       setLeft(a.value);
@@ -125,7 +128,7 @@ export function VersionComparePage({
 
   const diff = useMemo(() => left && right ? compareVersions(left, right) : undefined, [left, right]);
   if (!left || !right || !diff?.ok) {
-    return <main className="page centered-state">{error ? <h1>{error}</h1> : <><div className="loading-mark" /><p>Comparing versions…</p></>}</main>;
+    return <main className="page centered-state">{error ? <h1>{error}</h1> : <><div className="loading-mark" /><p>{locale === "zh-CN" ? "正在对比版本…" : "Comparing versions…"}</p></>}</main>;
   }
   const moved = new Set(diff.value.moved.map((item) => item.itemId));
   const added = new Set(diff.value.added);
@@ -139,16 +142,16 @@ export function VersionComparePage({
 
   return <main className="sequence-compare-page page">
     <header>
-      <button onClick={() => navigate({ name: "table", projectId })}>← Table</button>
-      <strong>VERSION COMPARE</strong>
+      <button onClick={() => navigate({ name: "table", projectId })}>← {t("nav.table")}</button>
+      <strong>{locale === "zh-CN" ? "版本对比" : "VERSION COMPARE"}</strong>
       <div className="version-compare-pickers">
         <label>A <select value={left.id} onChange={(event) => choose("left", event.target.value)}>{availableVersions.map((version) => <option key={version.id} value={version.id}>{version.name}</option>)}</select></label>
         <label>B <select value={right.id} onChange={(event) => choose("right", event.target.value)}>{availableVersions.map((version) => <option key={version.id} value={version.id}>{version.name}</option>)}</select></label>
       </div>
       <div className="version-compare-actions">
-        <CompareToolButton icon={swapIcon} label="Swap Sides" onClick={() => navigate({ name: "version-compare", projectId, leftVersionId: right.id, rightVersionId: left.id })} />
-        <CompareToolButton icon={previewIcon} label="Read A" onClick={() => navigate({ name: "sequence", projectId, sequenceId: left.sequenceId, openVersionId: left.id })} />
-        <CompareToolButton icon={previewIcon} label="Read B" onClick={() => navigate({ name: "sequence", projectId, sequenceId: right.sequenceId, openVersionId: right.id })} />
+        <CompareToolButton icon={swapIcon} label={locale === "zh-CN" ? "交换两侧" : "Swap Sides"} onClick={() => navigate({ name: "version-compare", projectId, leftVersionId: right.id, rightVersionId: left.id })} />
+        <CompareToolButton icon={previewIcon} label={`${t("sequence.read")} A`} onClick={() => navigate({ name: "sequence", projectId, sequenceId: left.sequenceId, openVersionId: left.id })} />
+        <CompareToolButton icon={previewIcon} label={`${t("sequence.read")} B`} onClick={() => navigate({ name: "sequence", projectId, sequenceId: right.sequenceId, openVersionId: right.id })} />
       </div>
       <span>{diff.value.added.length} added · {diff.value.removed.length} removed · {diff.value.moved.length} moved · {diff.value.readingUnitChanged.length} unit · {diff.value.segmentChanged.length} segment</span>
     </header>
@@ -164,9 +167,11 @@ function CompareToolButton({ icon, label, className = "", ...props }: { icon: st
 }
 
 function VersionLane({ label, version, added, removed, moved, dependencies }: { label: string; version: SequenceVersion; added: ReadonlySet<SequenceItemId>; removed: ReadonlySet<SequenceItemId>; moved: ReadonlySet<SequenceItemId>; dependencies: AppDependencies }) {
-  return <section className="sequence-compare-lane"><header><b>{label}</b><strong>{version.name}</strong><span>{version.items.length} items</span></header><div>{version.items.map((item, index) => <article key={item.id} className={added.has(item.id) ? "is-only" : removed.has(item.id) ? "is-only" : moved.has(item.id) ? "is-moved" : "is-shared"}>{item.kind === "photo" ? <PhotoThumb photoSource={dependencies.photoSource} photoId={item.photoId} alt={`${version.name} ${index + 1}`} /> : <div className="sequence-blank-page">BLANK</div>}<span>{index + 1}</span><small>{added.has(item.id) ? "ADDED" : removed.has(item.id) ? "REMOVED" : moved.has(item.id) ? "MOVED" : "UNCHANGED"}</small></article>)}</div></section>;
+  const { locale, t } = useLocale();
+  return <section className="sequence-compare-lane"><header><b>{label}</b><strong>{version.name}</strong><span>{t("common.itemCount", { count: version.items.length })}</span></header><div>{version.items.map((item, index) => <article key={item.id} className={added.has(item.id) ? "is-only" : removed.has(item.id) ? "is-only" : moved.has(item.id) ? "is-moved" : "is-shared"}>{item.kind === "photo" ? <PhotoThumb photoSource={dependencies.photoSource} photoId={item.photoId} alt={`${version.name} ${index + 1}`} /> : <div className="sequence-blank-page">{t("sequence.blank")}</div>}<span>{index + 1}</span><small>{locale === "zh-CN" ? (added.has(item.id) ? "新增" : removed.has(item.id) ? "移除" : moved.has(item.id) ? "移动" : "未变化") : (added.has(item.id) ? "ADDED" : removed.has(item.id) ? "REMOVED" : moved.has(item.id) ? "MOVED" : "UNCHANGED")}</small></article>)}</div></section>;
 }
 
 function SequenceLane({ label, sequence, only, moved, dependencies }: { label: string; sequence: SequenceDocument; only: ReadonlySet<PhotoId>; moved: ReadonlySet<PhotoId>; dependencies: AppDependencies }) {
-  return <section className="sequence-compare-lane"><header><b>{label}</b><strong>{sequence.name}</strong><span>{sequence.items.length} items</span></header><div>{sequence.items.map((item, index) => <article key={item.id} className={item.kind === "blank" ? "is-blank" : only.has(item.photoId) ? "is-only" : moved.has(item.photoId) ? "is-moved" : "is-shared"}>{item.kind === "photo" ? <PhotoThumb photoSource={dependencies.photoSource} photoId={item.photoId} alt={`${sequence.name} ${index + 1}`} /> : <div className="sequence-blank-page">BLANK</div>}<span>{index + 1}</span><small>{item.kind === "blank" ? "BLANK" : only.has(item.photoId) ? `ONLY ${label}` : moved.has(item.photoId) ? "MOVED" : "SHARED"}</small></article>)}</div></section>;
+  const { locale, t } = useLocale();
+  return <section className="sequence-compare-lane"><header><b>{label}</b><strong>{sequence.name}</strong><span>{t("common.itemCount", { count: sequence.items.length })}</span></header><div>{sequence.items.map((item, index) => <article key={item.id} className={item.kind === "blank" ? "is-blank" : only.has(item.photoId) ? "is-only" : moved.has(item.photoId) ? "is-moved" : "is-shared"}>{item.kind === "photo" ? <PhotoThumb photoSource={dependencies.photoSource} photoId={item.photoId} alt={`${sequence.name} ${index + 1}`} /> : <div className="sequence-blank-page">{t("sequence.blank")}</div>}<span>{index + 1}</span><small>{locale === "zh-CN" ? (item.kind === "blank" ? "空白页" : only.has(item.photoId) ? `仅 ${label}` : moved.has(item.photoId) ? "移动" : "共有") : (item.kind === "blank" ? "BLANK" : only.has(item.photoId) ? `ONLY ${label}` : moved.has(item.photoId) ? "MOVED" : "SHARED")}</small></article>)}</div></section>;
 }

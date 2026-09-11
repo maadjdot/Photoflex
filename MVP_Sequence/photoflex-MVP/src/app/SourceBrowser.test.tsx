@@ -72,7 +72,7 @@ describe("SourceBrowser", () => {
     fireEvent.click(screen.getByRole("button", { name: "Expand Photo Sources" }));
     expect(screen.getByRole("navigation", { name: "Photo source directory" })).toBeTruthy();
     fireEvent.click(await screen.findByRole("button", { name: "A.jpg" }));
-    fireEvent.click(await screen.findByRole("button", { name: "Add 1 to Table" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Add to Table" }));
     await waitFor(() => expect(onPlacePhotos).toHaveBeenCalledWith([photos[0]]));
   });
 });

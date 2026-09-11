@@ -10,6 +10,7 @@ import type { AppRoute } from "./router";
 import { PhotoThumb } from "./PhotoThumb";
 import type { SequenceWritePort } from "./projectWriteCoordinator";
 import { useSequenceSession } from "./sequenceSession";
+import { useLocale } from "./locale";
 
 interface SequenceOrderPanelProps {
   readonly onHide?: () => void;
@@ -33,11 +34,13 @@ export function SequenceOrderPanel(props: SequenceOrderPanelProps) {
 }
 
 function EmptySequenceOrderPanel({ onHide }: { onHide?: () => void }) {
+  const { t } = useLocale();
   const [collapsed, setCollapsed] = useState(false);
-  return <section className={`sequence-strip${collapsed ? " is-collapsed" : " is-empty"}`} aria-label="Sequence Order"><header><button className="sequence-strip-heading" aria-label={collapsed ? "Expand Sequence Order" : "Collapse Sequence Order"} onClick={() => onHide ? onHide() : setCollapsed((value) => !value)}><strong>Sequence Order</strong><img src={chevronIcon} alt="" /></button><span>Select one Sequence Pile</span></header></section>;
+  return <section className={`sequence-strip${collapsed ? " is-collapsed" : " is-empty"}`} aria-label={t("sequence.order")}><header><button className="sequence-strip-heading" aria-label={collapsed ? t("sequence.expandOrder") : t("sequence.collapseOrder")} onClick={() => onHide ? onHide() : setCollapsed((value) => !value)}><strong>{t("sequence.order")}</strong><img src={chevronIcon} alt="" /></button><span>{t("sequence.selectPile")}</span></header></section>;
 }
 
 function ActiveSequenceOrderPanel({ persistence, dependencies, projectId, sequenceId, navigate, onPhotoError, onNotice, onItemCountChange, onHide }: SequenceOrderPanelProps & { readonly sequenceId: SequenceId }) {
+  const { t } = useLocale();
   const sequenceSession = useSequenceSession(persistence, projectId, sequenceId);
   const { sequence, execute } = sequenceSession;
   const [collapsed, setCollapsed] = useState(false);
@@ -77,40 +80,40 @@ function ActiveSequenceOrderPanel({ persistence, dependencies, projectId, sequen
   const move = (to: number) => {
     if (!dragId || !sequence) return;
     const result = execute({ type: "move", itemIds: [dragId], to });
-    if (!result.ok) onNotice("Sequence item could not be moved.");
+    if (!result.ok) onNotice(t("sequence.moveItemFailed"));
     setDragId(undefined);
     setDropIndex(undefined);
   };
   const openSequence = () => {
-    void sequenceSession.flush().then((result) => { if (result.ok) navigate({ name: "sequence", projectId, sequenceId }); else onNotice("Sequence changes could not be saved. Retry before opening."); });
+    void sequenceSession.flush().then((result) => { if (result.ok) navigate({ name: "sequence", projectId, sequenceId }); else onNotice(t("sequence.saveBeforeOpenFailed")); });
   };
   const removeItem = (itemId: SequenceItemId) => {
     const result = execute({ type: "remove", itemIds: [itemId] });
-    if (!result.ok) { onNotice("Sequence item could not be removed."); return; }
+    if (!result.ok) { onNotice(t("sequence.removeItemFailed")); return; }
     onItemCountChange?.(sequenceId, result.value.items.length);
-    onNotice("Removed 1 item from Sequence.");
+    onNotice(t("sequence.removedOne"));
   };
 
-  return <section className={`sequence-strip${collapsed ? " is-collapsed" : ""}${sequence ? "" : " is-empty"}`} aria-label="Sequence Order">
+  return <section className={`sequence-strip${collapsed ? " is-collapsed" : ""}${sequence ? "" : " is-empty"}`} aria-label={t("sequence.order")}>
     <header>
-      <button className="sequence-strip-heading" aria-label={collapsed ? "Expand Sequence Order" : "Collapse Sequence Order"} onClick={() => onHide ? onHide() : setCollapsed((value) => !value)}><strong>Sequence Order</strong><img className={collapsed ? "is-collapsed" : ""} src={chevronIcon} alt="" /></button>
-      <span className="sequence-strip-meta"><img src={sequenceIcon} alt="" />{sequence ? `${sequence.name} · ${sequence.items.filter((item) => item.kind === "photo").length} photos` : "Select one Sequence Pile"}</span>
-      {sequence && <><button className="sequence-strip-open" disabled={sequenceSession.saveState !== "idle"} onClick={openSequence}><img src={openIcon} alt="" />Open Sequence <span aria-hidden="true">→</span></button></>}
+      <button className="sequence-strip-heading" aria-label={collapsed ? t("sequence.expandOrder") : t("sequence.collapseOrder")} onClick={() => onHide ? onHide() : setCollapsed((value) => !value)}><strong>{t("sequence.order")}</strong><img className={collapsed ? "is-collapsed" : ""} src={chevronIcon} alt="" /></button>
+      <span className="sequence-strip-meta"><img src={sequenceIcon} alt="" />{sequence ? `${sequence.name} · ${t("common.photoCount", { count: sequence.items.filter((item) => item.kind === "photo").length })}` : t("sequence.selectPile")}</span>
+      {sequence && <><button className="sequence-strip-open" disabled={sequenceSession.saveState !== "idle"} onClick={openSequence}><img src={openIcon} alt="" />{t("sequence.open")} <span aria-hidden="true">→</span></button></>}
     </header>
-    {sequenceSession.error && <p className="sequence-strip-error" role="alert">{sequenceSession.error} <button type="button" onClick={() => void sequenceSession.retry()}>Retry</button></p>}
+    {sequenceSession.error && <p className="sequence-strip-error" role="alert">{sequenceSession.error} <button type="button" onClick={() => void sequenceSession.retry()}>{t("common.retry")}</button></p>}
     {!collapsed && sequence && <div ref={viewportRef} className="sequence-strip-items" onScroll={(event) => setSize({ width: event.currentTarget.clientWidth, scrollLeft: event.currentTarget.scrollLeft })} onDragOver={(event) => { if (!dragId || !viewportRef.current) return; event.preventDefault(); setDropIndex(sequenceStripInsertionIndex(event.clientX, viewportRef.current.getBoundingClientRect().left, viewportRef.current.scrollLeft, sequence.items.length, 16, TABLE_SEQUENCE_STRIP_ITEM_WIDTH, TABLE_SEQUENCE_STRIP_ITEM_GAP)); }} onDrop={(event) => { event.preventDefault(); if (dropIndex !== undefined) move(dropIndex); }}>
       <div className="sequence-strip-track" style={{ width: range.totalWidth }}>
         {sequence.items.slice(range.startIndex, range.endIndex).map((item, offset) => {
           const index = range.startIndex + offset;
           return <div key={item.id} className="sequence-strip-slot" style={{ left: index * range.itemStride }}>
             <button ref={(element) => { if (element) itemRefs.current.set(item.id, element); else itemRefs.current.delete(item.id); }} className={`sequence-strip-item${dragId === item.id ? " is-dragging" : ""}${dropIndex === index ? " is-drop-target" : ""}`} disabled={sequenceSession.saveState !== "idle"} draggable={sequenceSession.saveState === "idle"} onDragStart={() => { setDragId(item.id); setDropIndex(index); }} onDragOver={(event) => { event.preventDefault(); setDropIndex(index); }} onDrop={(event) => { event.stopPropagation(); move(index); }} onDragEnd={() => { setDragId(undefined); setDropIndex(undefined); }} onKeyDown={(event) => { if (event.key === "Home") { event.preventDefault(); move(0); } else if (event.key === "End") { event.preventDefault(); move(sequence.items.length); } else if (event.key === "ArrowLeft" || event.key === "ArrowRight") { event.preventDefault(); if (event.altKey) move(Math.max(0, Math.min(sequence.items.length, index + (event.key === "ArrowLeft" ? -1 : 2)))); else { const next = Math.max(0, Math.min(sequence.items.length - 1, index + (event.key === "ArrowLeft" ? -1 : 1))); itemRefs.current.get(sequence.items[next]?.id)?.focus(); } } else if (event.key === "Escape") { setDragId(undefined); setDropIndex(undefined); } }}>
-              {item.kind === "photo" ? <PhotoThumb photoSource={dependencies.photoSource} photoId={item.photoId} alt={`Sequence ${index + 1}`} onError={onPhotoError} /> : <span className="sequence-blank-thumb">Blank</span>}
+              {item.kind === "photo" ? <PhotoThumb photoSource={dependencies.photoSource} photoId={item.photoId} alt={`${t("nav.sequence")} ${index + 1}`} onError={onPhotoError} /> : <span className="sequence-blank-thumb">{t("sequence.blank")}</span>}
               <span className="sequence-strip-index">{String(index + 1).padStart(2, "0")}</span>
             </button>
-            <button type="button" className="sequence-strip-remove" aria-label={`Remove item ${index + 1} from Sequence`} title="Remove from Sequence" disabled={sequenceSession.saveState !== "idle"} onClick={() => removeItem(item.id)}><img src={removeIcon} alt="" /></button>
+            <button type="button" className="sequence-strip-remove" aria-label={t("sequence.removeItem", { index: index + 1 })} title={t("sequence.removeFrom")} disabled={sequenceSession.saveState !== "idle"} onClick={() => removeItem(item.id)}><img src={removeIcon} alt="" /></button>
           </div>;
         })}
-        {dropIndex === sequence.items.length && dragId && <span className="sequence-strip-end-drop" style={{ left: range.totalWidth - range.itemStride + TABLE_SEQUENCE_STRIP_ITEM_WIDTH }} aria-label="Drop at end" />}
+        {dropIndex === sequence.items.length && dragId && <span className="sequence-strip-end-drop" style={{ left: range.totalWidth - range.itemStride + TABLE_SEQUENCE_STRIP_ITEM_WIDTH }} aria-label={t("sequence.dropAtEnd")} />}
       </div>
     </div>}
   </section>;

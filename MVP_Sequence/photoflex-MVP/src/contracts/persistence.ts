@@ -87,6 +87,7 @@ export type SourceScanEvent =
   | { readonly kind: "completed"; readonly state: SourceRuntimeState };
 
 export type SourceError =
+  | { readonly kind: "folder-mismatch"; readonly sourceId: SourceId }
   | { readonly kind: "cancelled" }
   | { readonly kind: "permission-denied"; readonly sourceId?: SourceId }
   | { readonly kind: "permission-lost"; readonly sourceId: SourceId }

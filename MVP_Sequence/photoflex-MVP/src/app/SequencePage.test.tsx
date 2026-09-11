@@ -12,7 +12,7 @@ afterEach(() => {
   window.location.hash = "#/";
 });
 
-it("keeps Create New Sequence disabled after switching to another unchanged Sequence", async () => {
+it("allows duplicating an unchanged Sequence after switching", async () => {
   const projectStore = new MemoryProjectStore();
   const projectId = "sequence-switch-project" as ProjectId;
   const created = await projectStore.createProject({ id: projectId, name: "Sequence switch", createdAt: "2026-09-07T00:00:00.000Z" });
@@ -29,13 +29,13 @@ it("keeps Create New Sequence disabled after switching to another unchanged Sequ
 
   render(<App dependencies={{ projectStore, photoSource: new MemoryPhotoSource() }} />);
   const picker = await screen.findByRole("combobox", { name: "Sequence" });
-  const createButton = screen.getByRole("button", { name: "Create New Sequence" }) as HTMLButtonElement;
-  await waitFor(() => expect(createButton.disabled).toBe(true));
+  const duplicateButton = screen.getByRole("button", { name: "Duplicate New Sequence" }) as HTMLButtonElement;
+  await waitFor(() => expect(duplicateButton.disabled).toBe(false));
 
   fireEvent.change(picker, { target: { value: second.sequence.id } });
 
   await waitFor(() => expect((screen.getByRole("combobox", { name: "Sequence" }) as HTMLSelectElement).value).toBe(second.sequence.id));
-  expect((screen.getByRole("button", { name: "Create New Sequence" }) as HTMLButtonElement).disabled).toBe(true);
+  expect((screen.getByRole("button", { name: "Duplicate New Sequence" }) as HTMLButtonElement).disabled).toBe(false);
 });
 
 it("opens Read as a keyboard-navigable modal and restores focus when it closes", async () => {

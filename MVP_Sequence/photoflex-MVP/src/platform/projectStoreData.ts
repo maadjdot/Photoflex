@@ -139,7 +139,7 @@ export function isWorkspace(value: unknown): value is ProjectWorkspace {
     if (table.memos !== undefined) {
       if (!Array.isArray(table.memos) || new Set(table.memos.map((memo) => memo?.id)).size !== table.memos.length) return false;
       if (!table.memos.every((memo) => memo && typeof memo.id === "string" && memo.id.length > 0 && typeof memo.text === "string"
-        && [memo.x, memo.y, memo.width, memo.height, memo.fontSize].every((value) => typeof value === "number" && Number.isFinite(value))
+        && [memo.x, memo.y, memo.width, memo.height, memo.fontSize, ...(memo.z === undefined ? [] : [memo.z])].every((value) => typeof value === "number" && Number.isFinite(value))
         && memo.width >= 120 && memo.height >= 80 && memo.fontSize >= 10 && memo.fontSize <= 72
         && Array.isArray(memo.photoIds) && new Set(memo.photoIds).size === memo.photoIds.length && memo.photoIds.every((id: unknown) => typeof id === "string" && table.entryOrder.includes(id as PhotoId)))) return false;
     }

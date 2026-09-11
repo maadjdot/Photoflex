@@ -42,6 +42,8 @@ export interface WorktableSequencePilePlacement extends WorktablePoint {
 
 export interface WorktableMemo extends WorktablePoint {
   readonly id: string;
+  /** Shared Table stacking order. Optional for projects saved before memo layering. */
+  readonly z?: number;
   readonly text: string;
   readonly width: number;
   readonly height: number;

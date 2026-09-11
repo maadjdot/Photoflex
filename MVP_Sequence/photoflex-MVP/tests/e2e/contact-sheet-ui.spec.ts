@@ -89,12 +89,15 @@ test("M2.1 Contact Sheet 提供 Place on Table，并移除 Pool 栏", async ({ p
   await page.getByRole("button", { name: "Table", exact: true }).click();
   await expect(page).toHaveURL(new RegExp(`#\\/projects\\/${projectId}\\/table$`));
   await expect(page.locator(".worktable-card")).toHaveCount(2);
-  await expect(page.getByRole("button", { name: "Group" })).toHaveCount(0);
+  await expect(page.getByRole("group", { name: "Table selection actions" })).toHaveCount(0);
   await expect(page.getByRole("complementary", { name: "Photo Sources" })).toBeVisible();
   const sourcePhoto = page.getByRole("button", { name: "PF_2403.jpg" });
   await expect(sourcePhoto).toBeVisible();
   await sourcePhoto.click();
-  await page.getByRole("button", { name: "Add 1 to Table" }).click();
+  const addToTable = page.getByRole("button", { name: "Add to Table" });
+  await expect(addToTable).toHaveText("Add to Table");
+  expect(await addToTable.evaluate((button) => ({ height: button.getBoundingClientRect().height, fontSize: getComputedStyle(button).fontSize }))).toEqual({ height: 26, fontSize: "9px" });
+  await addToTable.click();
   await expect(page.locator(".worktable-card")).toHaveCount(3);
 
   const firstCard = page.locator(".worktable-card").first();
@@ -114,14 +117,14 @@ test("M2.1 Contact Sheet 提供 Place on Table，并移除 Pool 栏", async ({ p
   await page.screenshot({ path: testInfo.outputPath("table.png"), fullPage: true });
 
   await page.goto("/");
-  await page.getByRole("button", { name: `打开项目 ${projectName}` }).click();
+  await page.getByRole("button", { name: `Open project ${projectName}` }).first().click();
   await expect(page).toHaveURL(new RegExp(`#\\/projects\\/${projectId}\\/table$`));
   const sourceBrowser = page.getByRole("complementary", { name: "Photo Sources" });
   await expect(sourceBrowser).toBeVisible();
   await sourceBrowser.getByRole("button", { name: "Collapse Photo Sources" }).click();
-  await expect(sourceBrowser).toHaveClass(/is-closed/);
-  await sourceBrowser.getByRole("button", { name: "Photo Sources" }).click();
-  await expect(sourceBrowser).not.toHaveClass(/is-closed/);
+  await expect(sourceBrowser).toHaveCount(0);
+  await page.getByRole("button", { name: "Open Photo Sources" }).click();
+  await expect(sourceBrowser).toBeVisible();
   const sourceCard = sourceBrowser.locator(".table-source-photo").first();
   await expect(sourceCard).toBeVisible();
   await expect.poll(() => sourceCard.locator(":scope > img, :scope > .thumb-placeholder").first().evaluate((image) => getComputedStyle(image).objectFit)).toBe("contain");
@@ -140,11 +143,11 @@ test("M2.1 Contact Sheet 提供 Place on Table，并移除 Pool 栏", async ({ p
     const sidebarBox = await responsiveSidebar.boundingBox();
     const resizer = page.getByRole("separator", { name: "Resize Photo Sources" });
     const resizerBox = await resizer.boundingBox();
-    expect(Math.round(sidebarBox?.width ?? 0)).toBe(560);
+    expect(Math.round(sidebarBox?.width ?? 0)).toBe(viewport.width === 1024 ? 560 : 548);
     expect(Math.round(resizerBox?.width ?? 0)).toBe(9);
     if (viewport.width === 1024) {
       expect(Math.round(mainBox?.width ?? 0)).toBe(viewport.width);
-      expect(Math.round(sidebarBox?.x ?? 0)).toBe(viewport.width - 560);
+      expect(Math.round(sidebarBox?.x ?? 0)).toBe(viewport.width - 560 - 12);
       if (!resizerBox) throw new Error("Photo Sources resizer is not visible");
       await page.mouse.move(resizerBox.x + resizerBox.width / 2, resizerBox.y + resizerBox.height / 2);
       await page.mouse.down();
@@ -162,24 +165,24 @@ test("M2.1 Contact Sheet 提供 Place on Table，并移除 Pool 栏", async ({ p
       const compactSidebarBox = await responsiveSidebar.boundingBox();
       expect(Math.round(compactMainBox?.width ?? 0)).toBe(viewport.width);
       expect(Math.round(compactSidebarBox?.width ?? 0)).toBe(280);
-      expect(Math.round(compactSidebarBox?.x ?? 0)).toBe(viewport.width - 280);
+      expect(Math.round(compactSidebarBox?.x ?? 0)).toBe(viewport.width - 280 - 12);
       await page.screenshot({ path: testInfo.outputPath("table-1024x800-compact.png"), fullPage: true });
       await responsiveSidebar.getByRole("button", { name: "Expand Photo Sources" }).click();
       await expect(responsiveSidebar).toHaveClass(/is-expanded/);
     } else {
-      expect(Math.round((mainBox?.width ?? 0) + (resizerBox?.width ?? 0) + (sidebarBox?.width ?? 0))).toBe(viewport.width);
+      expect(Math.round((mainBox?.width ?? 0) + (resizerBox?.width ?? 0) + (sidebarBox?.width ?? 0) + 12)).toBe(viewport.width);
     }
     if (viewport.width === 1280) {
       await responsiveSidebar.getByRole("button", { name: "Use compact Photo Sources" }).click();
       await expect(responsiveSidebar).toHaveClass(/is-compact/);
-      await expect.poll(async () => Math.round((await responsiveSidebar.boundingBox())?.width ?? 0)).toBe(280);
+      await expect.poll(async () => Math.round((await responsiveSidebar.boundingBox())?.width ?? 0)).toBe(268);
       await responsiveSidebar.getByRole("button", { name: "Collapse Photo Sources" }).click();
-      await expect(responsiveSidebar).toHaveClass(/is-closed/);
-      await expect.poll(async () => Math.round((await responsiveSidebar.boundingBox())?.width ?? 0)).toBe(32);
-      await responsiveSidebar.getByRole("button", { name: "Open Photo Sources" }).click();
+      await expect(responsiveSidebar).toHaveCount(0);
+      await page.getByRole("button", { name: "Open Photo Sources" }).click();
+      await expect(responsiveSidebar).toBeVisible();
       await responsiveSidebar.getByRole("button", { name: "Expand Photo Sources" }).click();
       await expect(responsiveSidebar).toHaveClass(/is-expanded/);
-      await expect.poll(async () => Math.round((await responsiveSidebar.boundingBox())?.width ?? 0)).toBe(560);
+      await expect.poll(async () => Math.round((await responsiveSidebar.boundingBox())?.width ?? 0)).toBe(548);
     }
     await page.screenshot({ path: testInfo.outputPath(`table-${viewport.width}x${viewport.height}.png`), fullPage: true });
   }
@@ -194,7 +197,6 @@ test("M2.1 Contact Sheet 提供 Place on Table，并移除 Pool 栏", async ({ p
   await expect(selectionToolbar).toBeVisible();
   expect(await selectionToolbar.evaluate((element) => getComputedStyle(element).flexWrap)).toBe("nowrap");
   await expect(selectionToolbar.getByRole("button", { name: "Clear" })).toHaveCount(0);
-  await expect(selectionToolbar.getByRole("button", { name: "Create Sequence" })).toHaveText("Sequence");
   const finalSourcePhotos = page.locator(".table-source-photo");
   await expect(finalSourcePhotos.nth(3)).toBeVisible();
   await finalSourcePhotos.nth(3).click();

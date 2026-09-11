@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import type { PhotoId, PhotoRef, ProjectWorkspace, SourceError } from "../contracts";
 import type { AppDependencies } from "./dependencies";
+import { useLocale } from "./locale";
 import { useDialogKeyboard, shortId } from "./AppPrimitives";
 
 export function PreviewOverlay({ photoIds, index, workspace, photoSource, onClose, onMove, onToggleTable, onPhotoSourceError }: { readonly photoIds: readonly PhotoId[]; readonly index: number; readonly workspace: ProjectWorkspace; readonly photoSource: AppDependencies["photoSource"]; readonly onClose: () => void; readonly onMove: (index: number) => void; readonly onToggleTable: (photoId: PhotoId) => Promise<void>; readonly onPhotoSourceError?: (photoId: PhotoId, error: SourceError) => void; }) {
+  const { locale, t } = useLocale();
   const photoId = photoIds[index];
   const [photo, setPhoto] = useState<PhotoRef>();
   const [url, setUrl] = useState<string>();
@@ -92,10 +94,10 @@ export function PreviewOverlay({ photoIds, index, workspace, photoSource, onClos
     ? Math.min(imageWrapSize.width / naturalSize.width, imageWrapSize.height / naturalSize.height)
     : undefined;
   return (
-    <div ref={dialogRef} className="preview-backdrop" role="dialog" aria-modal="true" aria-label="Full Size Preview">
+    <div ref={dialogRef} className="preview-backdrop" role="dialog" aria-modal="true" aria-label={t("table.preview")}>
       <div className="preview-top">
-        <span>PHOTO {String(index + 1).padStart(2, "0")} / {label}</span>
-        <button autoFocus onClick={onClose} aria-label="关闭预览">×</button>
+        <span>{locale === "zh-CN" ? "照片" : "PHOTO"} {String(index + 1).padStart(2, "0")} / {label}</span>
+        <button autoFocus onClick={onClose} aria-label={t("table.closePreview")}>×</button>
       </div>
       <button className="preview-arrow preview-arrow-left" onClick={() => onMove(Math.max(0, index - 1))} disabled={!index}>‹</button>
       <div ref={imageWrapRef} className="preview-image-wrap is-zoomed">
@@ -111,22 +113,22 @@ export function PreviewOverlay({ photoIds, index, workspace, photoSource, onClos
                 ? { width: `${naturalSize.width * fitScale * zoom}px`, height: `${naturalSize.height * fitScale * zoom}px` }
                 : { width: "100%", height: "100%", objectFit: "contain", objectPosition: "center" }}
             />
-          : <div className="preview-placeholder">Preview unavailable</div>}
+          : <div className="preview-placeholder">{t("table.previewUnavailable")}</div>}
       </div>
       <button className="preview-arrow preview-arrow-right" onClick={() => onMove(Math.min(photoIds.length - 1, index + 1))} disabled={index === photoIds.length - 1}>›</button>
       <div className="preview-bottom">
         <span>
           {String(index + 1).padStart(2, "0")} / {photoIds.length}
-          <small>← / → 下一张 · Space 适应画面 · Ctrl + 滚轮缩放 · Esc 返回</small>
+          <small>{locale === "zh-CN" ? "← / → 下一张 · 空格 适应画面 · Ctrl + 滚轮缩放 · Esc 返回" : "← / → Next · Space to fit · Ctrl + wheel to zoom · Esc to return"}</small>
         </span>
         <span className="preview-zoom-controls">
-          <button onClick={() => setZoom(1)} aria-pressed={zoom === 1}>Fit</button>
+          <button onClick={() => setZoom(1)} aria-pressed={zoom === 1}>{t("table.fit")}</button>
           <button onClick={() => setZoom((value) => Math.max(1, value / 1.25))} disabled={zoom <= 1}>−</button>
           <span>{Math.round(zoom * 100)}%</span>
           <button onClick={() => setZoom((value) => Math.min(4, value * 1.25))} disabled={zoom >= 4}>+</button>
         </span>
         <button className="button button-secondary" onClick={() => void onToggleTable(photoId)}>
-          {inTable ? "Remove from Table" : "Place on Table"}
+          {inTable ? t("table.remove") : t("table.placeOnTable")}
         </button>
       </div>
     </div>

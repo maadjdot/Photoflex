@@ -34,6 +34,7 @@ import type { AppDependencies } from "./dependencies";
 import { PhotoThumb } from "./PhotoThumb";
 import { deriveTableActions } from "./tableActionPolicy";
 import { useTableGestures } from "./useTableGestures";
+import { useLocale } from "./locale";
 
 const TABLE_IMAGE_RETENTION_MS = 20_000;
 const TABLE_RETAINED_IMAGE_LIMIT = 72;
@@ -77,6 +78,7 @@ interface TableCanvasProps {
 }
 
 export const TableCanvas = forwardRef<TableCanvasHandle, TableCanvasProps>(function TableCanvas(props, forwardedRef) {
+  const { t } = useLocale();
   const {
     session,
     photoSource,
@@ -303,7 +305,7 @@ export const TableCanvas = forwardRef<TableCanvasHandle, TableCanvasProps>(funct
       ref={stageRef}
       className="worktable-stage"
       tabIndex={0}
-      aria-label="Photo worktable"
+      aria-label={t("table.worktable")}
       onPointerDown={(event) => { if (event.target === event.currentTarget || (event.target as HTMLElement).classList.contains("worktable-world")) props.onSelectMemo?.(undefined); gestures.onStagePointerDown(event); }}
       onPointerMove={gestures.onStagePointerMove}
       onPointerUp={(event) => gestures.finishGesture(event)}
@@ -335,7 +337,7 @@ export const TableCanvas = forwardRef<TableCanvasHandle, TableCanvasProps>(funct
         </svg>
         {draft.groups.map((group) => {
           const box = groupBounds(draft, group.photoIds);
-          return <div key={group.id} className="worktable-group-frame" style={{ left: box.left, top: box.top, width: box.width, height: box.height }}><span>{group.name} · {group.photoIds.length} photos</span></div>;
+          return <div key={group.id} className="worktable-group-frame" style={{ left: box.left, top: box.top, width: box.width, height: box.height }}><span onPointerDown={(event) => gestures.onGroupPointerDown(event, group.photoIds)}>{group.name} · {t("common.photoCount", { count: group.photoIds.length })}</span></div>;
         })}
         {draft.entryOrder.filter((id) => renderedPhotoIds.has(id)).map((id) => {
           const item = draft.placements[id];
@@ -356,7 +358,7 @@ export const TableCanvas = forwardRef<TableCanvasHandle, TableCanvasProps>(funct
                 {mountedPhotoIds.has(id)
                   ? <PhotoThumb photoSource={photoSource} photoId={id} alt={item.filename} onError={onPhotoError} resolution="table" progressiveTo={visiblePhotoIds.has(id) ? tablePreviewEdge(viewport.zoom, chosen) : 768} />
                   : <div className="thumb-placeholder" aria-hidden="true" />}
-                {missingPhotoIds.has(id) && <span className="worktable-missing">MISSING</span>}
+                {missingPhotoIds.has(id) && <span className="worktable-missing">{t("status.missing")}</span>}
               </div>
               {chosen && selectedPhotoIds.length === 1 && <button aria-label="Resize photo" className="worktable-resize-handle" onPointerDown={(event) => gestures.onPhotoResizePointerDown(event, id)} />}
             </article>
@@ -380,7 +382,6 @@ export const TableCanvas = forwardRef<TableCanvasHandle, TableCanvasProps>(funct
             >
               <header><strong>{summary?.name ?? "Missing Sequence"}</strong><span>{summary?.itemCount ?? 0}</span></header>
               <div className="sequence-pile-thumbs">{summary?.previewPhotoIds.map((photoId, index) => <span key={`${photoId}-${index}`}><PhotoThumb photoSource={photoSource} photoId={photoId} alt="" onError={onPhotoError} /></span>)}</div>
-              <small>Double-click to open</small>
               {chosen && <button aria-label="Resize sequence pile" className="worktable-resize-handle sequence-pile-resize-handle" onPointerDown={(event) => gestures.onPileResizePointerDown(event, id)} />}
             </article>
           );
@@ -389,16 +390,16 @@ export const TableCanvas = forwardRef<TableCanvasHandle, TableCanvasProps>(funct
       {preview.marquee && <div className="worktable-marquee" style={preview.marquee} />}
       {!draft.entryOrder.length && !draft.pileOrder.length && !draft.memos?.length && (
         <section className="worktable-empty">
-          <span>EMPTY TABLE</span>
-          <h1>Bring photographs here to think with them.</h1>
-          <p>Select photographs in Photo Sources, then choose Add to Table.</p>
+          <span>{t("table.emptyLabel")}</span>
+          <h1>{t("table.empty")}</h1>
+          <p>{t("table.emptyDetail")}</p>
           <button className="button button-primary" onClick={emptyAction.onClick}>{emptyAction.label}</button>
         </section>
       )}
-      <TableHeaderControl><div className="worktable-canvas-controls" aria-label="Canvas controls">
-        <button className="table-tool-icon-button" aria-label="Zoom out" onClick={() => zoom(viewport.zoom - .25)}><img src={minusIcon} alt="" /></button>
-        <button className="table-zoom-label" aria-label="Fit" title="Fit photos to canvas" onClick={fit}>{Math.round(viewport.zoom * 100)}%</button>
-        <button className="table-tool-icon-button" aria-label="Zoom in" onClick={() => zoom(viewport.zoom + .25)}><img src={plusIcon} alt="" /></button>
+      <TableHeaderControl><div className="worktable-canvas-controls" aria-label={t("table.controls")}>
+        <button className="table-tool-icon-button" aria-label={t("table.zoomOut")} onClick={() => zoom(viewport.zoom - .25)}><img src={minusIcon} alt="" /></button>
+        <button className="table-zoom-label" aria-label={t("table.fit")} title={t("table.fitTitle")} onClick={fit}>{Math.round(viewport.zoom * 100)}%</button>
+        <button className="table-tool-icon-button" aria-label={t("table.zoomIn")} onClick={() => zoom(viewport.zoom + .25)}><img src={plusIcon} alt="" /></button>
       </div></TableHeaderControl>
     </div>
   );

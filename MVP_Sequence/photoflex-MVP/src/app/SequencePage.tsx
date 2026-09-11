@@ -23,12 +23,14 @@ import { useSequenceSession } from "./sequenceSession";
 import { useSequenceReorderDrag } from "./useSequenceReorderDrag";
 import { SequenceReadMode, warmSequenceReadAt } from "./SequenceReadMode";
 import { SequencePdfExportButton } from "./SequencePdfExportButton";
+import { useLocale } from "./locale";
 
 const ZOOM_LEVELS = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2] as const;
 interface SegmentDialog { mode: "create" | "rename"; value: string; segmentId?: SequenceSegmentId }
 interface SequenceDialog { value: string }
 
 export function SequencePage({ dependencies, projectId, sequenceId, openVersionId, navigate }: { dependencies: AppDependencies; projectId: ProjectId; sequenceId: SequenceId; openVersionId?: VersionId; navigate: (route: AppRoute) => void }) {
+  const { t } = useLocale();
   const [selected, setSelected] = useState<Set<SequenceItemId>>(new Set());
   const [anchor, setAnchor] = useState<SequenceItemId>();
   const [zoom, setZoom] = useState(1.25);
@@ -262,14 +264,13 @@ export function SequencePage({ dependencies, projectId, sequenceId, openVersionI
   const togglePin = useCallback((photoId: PhotoId) => { void saveWorkspace((current) => { const previous = current.photoStates[photoId] ?? { decision: "unreviewed" as const, pinned: false }; return { ...current, photoStates: { ...current.photoStates, [photoId]: { ...previous, pinned: !previous.pinned } }, updatedAt: new Date().toISOString() }; }); }, [saveWorkspace]);
   const onPhotoError = useCallback((photoId: PhotoId) => setMissing((current) => new Set(current).add(photoId)), []);
 
-  const sequenceChanged = useMemo(() => Boolean(sequence && baseline?.sequenceId === sequence.id && sequenceDraftKey(sequence) !== baseline.draftKey), [baseline, sequence]);
   const requestNewSequence = useCallback(() => {
-    if (!sequenceChanged || !sequence) return;
+    if (!sequence) return;
     const used = new Set(availableSequences.map((item) => item.name.toLocaleLowerCase()));
     let n = availableSequences.length + 1;
     while (used.has(`sequence ${String(n).padStart(2, "0")}`.toLocaleLowerCase())) n += 1;
     setNewSequenceDialog({ value: `Sequence ${String(n).padStart(2, "0")}` });
-  }, [availableSequences, sequence, sequenceChanged]);
+  }, [availableSequences, sequence]);
 
   const createNewSequence = useCallback(async () => {
     const current = sequence;
@@ -283,7 +284,8 @@ export function SequencePage({ dependencies, projectId, sequenceId, openVersionI
       content: { kind: "sequence", sequence: current },
     });
     const id = nextSequence.id;
-    await sequenceSession.flush();
+    const flushed = await sequenceSession.flush();
+    if (!flushed.ok) { setNotice("Your current draft could not be saved. Retry saving before creating another Sequence."); return; }
     const latest = coordinator.getSnapshot().workspace;
     if (!latest) { setNotice("Project data is still loading."); return; }
     const result = await createSequenceBundle({ sequence: nextSequence, initialVersion, pile: { x: 120 + latest.worktableDraft.pileOrder.length * 28, y: 120 + latest.worktableDraft.pileOrder.length * 28, width: 211, height: 142 } });
@@ -305,30 +307,32 @@ export function SequencePage({ dependencies, projectId, sequenceId, openVersionI
     navigate({ name: "sequence-compare", projectId, leftSequenceId, rightSequenceId });
   }, [navigate, projectId, selectedCompareSequenceIds]);
 
-  if (!sequence) return <main className="page centered-state">{notice ? <h1>{notice}</h1> : <><div className="loading-mark" /><p>Loading Sequence…</p></>}</main>;
+  if (!sequence) return <main className="page centered-state">{notice ? <h1>{notice}</h1> : <><div className="loading-mark" /><p>{t("sequence.loading")}</p></>}</main>;
   const context = contextActions(orderedSelection, sequenceLookup ?? createSequenceLookup(sequence)) ?? (orderedSelection.length ? { actions: [] } : undefined);
   return <>
     <AppHeader dependencies={dependencies} route={{ name: "sequence", projectId, sequenceId }} projectId={projectId} projectLabel={workspace?.name} navigate={navigate} variant="table" actions={<div className="sequence-header-actions">
-      <button className="table-tool-button sequence-back-button" onClick={() => navigate({ name: "table", projectId })}><span aria-hidden="true">←</span>Back to Table</button>
-      <div className="sequence-zoom"><button className="table-tool-icon-button" aria-label="Zoom out" onClick={() => changeZoom(-1, zoom, setZoom)}><img src={minusIcon} alt="" /></button><span className="table-zoom-label">{Math.round(zoom * 100)}%</span><button className="table-tool-icon-button" aria-label="Zoom in" onClick={() => changeZoom(1, zoom, setZoom)}><img src={plusIcon} alt="" /></button></div>
-      <SequencePdfExportButton key={sequence.id} sequence={sequence} photoSource={dependencies.photoSource} />
+      <button className="table-tool-button sequence-back-button" onClick={() => navigate({ name: "table", projectId })}><span aria-hidden="true">←</span>{t("nav.backToTable")}</button>
     </div>} />
     <main ref={workspaceRef} className="sequence-workspace page" style={{ "--sequence-order-height": stripCollapsed ? "32.3px" : "183.35px", gridTemplateRows: `38px minmax(0, 1fr) ${stripCollapsed ? "32.3px" : "183.35px"}` } as React.CSSProperties} tabIndex={-1} onKeyDown={onKeyDown}>
     <header className="sequence-toolbar">
-      <label className="sequence-name-picker"><span className="sr-only">Sequence</span><select value={sequence.id} onChange={(event) => navigate({ name: "sequence", projectId, sequenceId: event.target.value as SequenceId })}>{sequencePickerOptions.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
-      {saveState === "failed" && <button type="button" className="table-save-retry" onClick={() => void sequenceSession.retry()}>Changes not saved · Retry</button>}
+      <label className="sequence-name-picker"><span className="sr-only">{t("nav.sequence")}</span><select value={sequence.id} onChange={(event) => navigate({ name: "sequence", projectId, sequenceId: event.target.value as SequenceId })}>{sequencePickerOptions.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+      {saveState === "failed" && <button type="button" className="table-save-retry" onClick={() => void sequenceSession.retry()}>{t("status.changesNotSaved")}</button>}
       <nav>
-        <SequenceToolButton icon={undoIcon} label="Undo" disabled={!canUndo} onClick={() => history("undo")} />
-        <SequenceToolButton icon={redoIcon} label="Redo" disabled={!canRedo} onClick={() => history("redo")} />
-        <SequenceToolButton icon={previewIcon} label="Read" disabled={!sequence.readingUnits.length} onPointerEnter={() => warmReadAt(orderedSelection[0] ? readUnitForItem(orderedSelection[0].id) : 0)} onFocus={() => warmReadAt(orderedSelection[0] ? readUnitForItem(orderedSelection[0].id) : 0)} onClick={() => openRead(orderedSelection[0] ? readUnitForItem(orderedSelection[0].id) : 0)} />
-        <SequenceToolButton className="sequence-compare-button" icon={compareIcon} label="Compare" disabled={!workspace || tableSequences.length < 2} onClick={openSequenceCompareDialog} />
-        <SequenceToolButton icon={sequenceIcon} label="Create New Sequence" disabled={!sequenceChanged || saveState === "saving"} onClick={requestNewSequence} />
+        <SequenceToolButton icon={undoIcon} label={t("table.undo")} disabled={!canUndo} onClick={() => history("undo")} />
+        <SequenceToolButton icon={redoIcon} label={t("table.redo")} disabled={!canRedo} onClick={() => history("redo")} />
+        <SequenceToolButton icon={previewIcon} label={t("sequence.read")} disabled={!sequence.readingUnits.length} onPointerEnter={() => warmReadAt(orderedSelection[0] ? readUnitForItem(orderedSelection[0].id) : 0)} onFocus={() => warmReadAt(orderedSelection[0] ? readUnitForItem(orderedSelection[0].id) : 0)} onClick={() => openRead(orderedSelection[0] ? readUnitForItem(orderedSelection[0].id) : 0)} />
+        <SequenceToolButton className="sequence-compare-button" icon={compareIcon} label={t("table.compare")} disabled={!workspace || tableSequences.length < 2} onClick={openSequenceCompareDialog} />
+        <SequenceToolButton icon={sequenceIcon} label={t("sequence.duplicate")} disabled={saveState === "saving"} onClick={requestNewSequence} />
       </nav>
 
     </header>
+    <div className="sequence-canvas-controls">
+      <div className="sequence-zoom"><button className="table-tool-icon-button" aria-label={t("table.zoomOut")} onClick={() => changeZoom(-1, zoom, setZoom)}><img src={minusIcon} alt="" /></button><span className="table-zoom-label">{Math.round(zoom * 100)}%</span><button className="table-tool-icon-button" aria-label={t("table.zoomIn")} onClick={() => changeZoom(1, zoom, setZoom)}><img src={plusIcon} alt="" /></button></div>
+      <SequencePdfExportButton key={sequence.id} sequence={sequence} photoSource={dependencies.photoSource} />
+    </div>
     {notice && <div className="sequence-inline-notice"><span>{notice}</span><button onClick={() => setNotice(undefined)}>×</button></div>}
     {overview ? <OverviewGrid overviewElementRef={overviewRef} zoom={zoom} sequence={sequence} selected={selected} dependencies={dependencies} onWheel={onWheel} onOpen={(id) => { setOverview(false); setTimeout(() => document.querySelector<HTMLElement>(`[data-item-id="${CSS.escape(id)}"]`)?.scrollIntoView({ behavior: "smooth", inline: "center" }), 0); }} onPhotoError={onPhotoError} onPointerDown={(event, id) => beginDrag(event, id, "overview")} onPointerMove={moveDrag} onPointerUp={endDrag} onPointerCancel={cancelDrag} /> :
-      <section ref={stageRef} className="sequence-rhythm-stage" aria-label="Sequence rhythm editor" onPointerDown={(event) => { if (event.target === event.currentTarget) setSelected(new Set()); }} onWheel={onWheel}>
+      <section ref={stageRef} className="sequence-rhythm-stage" aria-label={t("sequence.editor")} onPointerDown={(event) => { if (event.target === event.currentTarget) setSelected(new Set()); }} onWheel={onWheel}>
         <div className="sequence-rhythm-track" style={{ "--sequence-zoom": zoom } as React.CSSProperties}>
           {renderSequenceFlow(sequence, sequenceLookup ?? createSequenceLookup(sequence), collapsedSegments, (segment) => <SegmentHeader key={`header-${segment.id}`} segment={segment} collapsed={collapsedSegments.has(segment.id)} onToggle={() => setCollapsedSegments((current) => toggleSet(current, segment.id))} onRename={() => setSegmentDialog({ mode: "rename", value: segment.name, segmentId: segment.id })} onUngroup={() => commit({ type: "ungroupSegment", segmentId: segment.id })} onPointerDown={(event) => beginDrag(event, segment.itemIds[0], "stage", segment.itemIds)} />, (item, index) => <SequenceCard key={item.id} item={item} index={index} visible={visibleStageIds.has(item.id)} selected={selected.has(item.id)} dropBefore={dropTarget === index} segment={sequenceLookup?.segmentByItemId.get(item.id)} dependencies={dependencies} missing={item.kind === "photo" && missing.has(item.photoId)} onPointerDown={(event) => beginDrag(event, item.id, "stage")} onPointerMove={moveDrag} onPointerUp={endDrag} onPointerCancel={cancelDrag} onDoubleClick={() => openReadAtItem(item.id)} onPhotoError={onPhotoError} />)}
           {dropTarget === sequence.items.length && <span className="sequence-insert-line is-at-end" />}
@@ -340,13 +344,13 @@ export function SequencePage({ dependencies, projectId, sequenceId, openVersionI
       else if (action === "split" && context.unit) commit({ type: "splitSpread", unitId: context.unit.id });
       else if (action === "remove-blank") commit({ type: "removeBlank", itemId: orderedSelection[0].id });
     }} />}
-    <section className={`sequence-order${stripCollapsed ? " is-collapsed" : ""}`} aria-label="Sequence Order">
-      <header><button className="sequence-order-heading" aria-label={stripCollapsed ? "Expand Sequence Order" : "Collapse Sequence Order"} onClick={() => setStripCollapsed((value) => !value)}><strong>Sequence Order</strong><img className={stripCollapsed ? "is-collapsed" : ""} src={chevronIcon} alt="" /></button><span className="sequence-order-meta"><img src={sequenceIcon} alt="" />{sequence.name} · {sequence.items.filter((item) => item.kind === "photo").length} photos</span><small>Drag to reorder</small><button aria-label="Overview Grid" aria-pressed={overview} className={`sequence-order-overview${overview ? " is-active" : ""}`} onClick={() => setOverview((value) => !value)}><img src={gridIcon} alt="" /><span>Overview</span></button></header>
+    <section className={`sequence-order${stripCollapsed ? " is-collapsed" : ""}`} aria-label={t("sequence.order")}>
+      <header><button className="sequence-order-heading" aria-label={stripCollapsed ? t("sequence.expandOrder") : t("sequence.collapseOrder")} onClick={() => setStripCollapsed((value) => !value)}><strong>{t("sequence.order")}</strong><img className={stripCollapsed ? "is-collapsed" : ""} src={chevronIcon} alt="" /></button><span className="sequence-order-meta"><img src={sequenceIcon} alt="" />{sequence.name} · {t("common.photoCount", { count: sequence.items.filter((item) => item.kind === "photo").length })}</span><small>{t("sequence.dragToReorder")}</small><button aria-label={t("sequence.overviewGrid")} aria-pressed={overview} className={`sequence-order-overview${overview ? " is-active" : ""}`} onClick={() => setOverview((value) => !value)}><img src={gridIcon} alt="" /><span>{t("sequence.overview")}</span></button></header>
       {!stripCollapsed && <div ref={stripRef} className="sequence-order-track" onScroll={(event) => setStripLayout({ width: event.currentTarget.clientWidth || event.currentTarget.getBoundingClientRect().width, scrollLeft: event.currentTarget.scrollLeft })}><div className="sequence-order-virtual-inner" style={{ width: stripRange.totalWidth }}>{sequence.items.slice(stripRange.startIndex, stripRange.endIndex).map((item, offset) => { const index = stripRange.startIndex + offset; return <SequenceStripItem key={item.id} item={item} index={index} style={{ left: index * stripRange.itemStride }} selected={selected.has(item.id)} dropBefore={dropTarget === index} segment={sequenceLookup?.segmentByItemId.get(item.id)} unit={sequenceLookup?.unitByItemId.get(item.id)} dependencies={dependencies} getPhotoName={getPhotoName} onPointerDown={(event) => beginDrag(event, item.id, "strip")} onPointerMove={moveDrag} onPointerUp={endDrag} onPointerCancel={cancelDrag} onPhotoError={onPhotoError} />; })}{dropTarget === sequence.items.length && <span className="sequence-insert-line is-at-end" />}</div></div>}
     </section>
-    {segmentDialog && <Dialog title={segmentDialog.mode === "create" ? "Create Segment" : "Rename Segment"} onClose={() => setSegmentDialog(undefined)}><label><span>Segment name</span><input autoFocus value={segmentDialog.value} onChange={(event) => setSegmentDialog({ ...segmentDialog, value: event.target.value })} onKeyDown={(event) => { if (event.key === "Enter") submitSegment(); if (event.key === "Escape") setSegmentDialog(undefined); }} /></label><footer><button onClick={() => setSegmentDialog(undefined)}>Cancel</button><button className="is-primary" disabled={!segmentDialog.value.trim()} onClick={submitSegment}>{segmentDialog.mode === "create" ? "Create" : "Save"}</button></footer></Dialog>}
-    {newSequenceDialog && <Dialog title="Create New Sequence" onClose={() => setNewSequenceDialog(undefined)}><label><span>Sequence name</span><input autoFocus value={newSequenceDialog.value} onChange={(event) => setNewSequenceDialog({ value: event.target.value })} onKeyDown={(event) => { if (event.key === "Enter") void createNewSequence(); if (event.key === "Escape") setNewSequenceDialog(undefined); }} /></label><p className="sequence-dialog-hint">The current order will be copied into a new Sequence pile on Table.</p><footer><button onClick={() => setNewSequenceDialog(undefined)}>Cancel</button><button className="is-primary" disabled={!newSequenceDialog.value.trim()} onClick={() => void createNewSequence()}>Create New Sequence</button></footer></Dialog>}
-    {sequenceCompareDialog && <Dialog title="Compare Sequences" onClose={() => setSequenceCompareDialog(false)}><div className="version-dialog-toolbar"><span>Select two Sequences on this Table</span><button className="version-compare-button" disabled={selectedCompareSequenceIds.size !== 2} onClick={compareSelectedSequences}>Compare</button></div><div className="version-list">{tableSequences.length ? tableSequences.map((item) => <div key={item.id} className={selectedCompareSequenceIds.has(item.id) ? "is-version-selected" : ""}><button type="button" className="version-select-row" onClick={() => toggleCompareSequence(item.id)}><span><strong>{item.name}</strong><small>{item.itemCount} items{item.id === sequence.id ? " · Current" : ""}</small></span></button></div>) : <p>No Sequences on this Table yet.</p>}</div><footer><button onClick={() => setSequenceCompareDialog(false)}>Close</button></footer></Dialog>}
+    {segmentDialog && <Dialog title={segmentDialog.mode === "create" ? t("sequence.createSegment") : t("sequence.renameSegment")} onClose={() => setSegmentDialog(undefined)}><label><span>{t("sequence.segmentName")}</span><input autoFocus value={segmentDialog.value} onChange={(event) => setSegmentDialog({ ...segmentDialog, value: event.target.value })} onKeyDown={(event) => { if (event.key === "Enter") submitSegment(); if (event.key === "Escape") setSegmentDialog(undefined); }} /></label><footer><button onClick={() => setSegmentDialog(undefined)}>{t("common.cancel")}</button><button className="is-primary" disabled={!segmentDialog.value.trim()} onClick={submitSegment}>{segmentDialog.mode === "create" ? t("common.create") : t("common.save")}</button></footer></Dialog>}
+    {newSequenceDialog && <Dialog title={t("sequence.duplicate")} onClose={() => setNewSequenceDialog(undefined)}><label><span>{t("table.name")}</span><input autoFocus value={newSequenceDialog.value} onChange={(event) => setNewSequenceDialog({ value: event.target.value })} onKeyDown={(event) => { if (event.key === "Enter") void createNewSequence(); if (event.key === "Escape") setNewSequenceDialog(undefined); }} /></label><p className="sequence-dialog-hint">{t("sequence.duplicateHint")}</p><footer><button onClick={() => setNewSequenceDialog(undefined)}>{t("common.cancel")}</button><button className="is-primary" disabled={!newSequenceDialog.value.trim()} onClick={() => void createNewSequence()}>{t("sequence.duplicate")}</button></footer></Dialog>}
+    {sequenceCompareDialog && <Dialog title={t("sequence.compareSequences")} onClose={() => setSequenceCompareDialog(false)}><div className="version-dialog-toolbar"><span>{t("sequence.selectTwo")}</span><button className="version-compare-button" disabled={selectedCompareSequenceIds.size !== 2} onClick={compareSelectedSequences}>{t("table.compare")}</button></div><div className="version-list">{tableSequences.length ? tableSequences.map((item) => <div key={item.id} className={selectedCompareSequenceIds.has(item.id) ? "is-version-selected" : ""}><button type="button" className="version-select-row" onClick={() => toggleCompareSequence(item.id)}><span><strong>{item.name}</strong><small>{t("common.itemCount", { count: item.itemCount })}{item.id === sequence.id ? ` · ${t("common.current")}` : ""}</small></span></button></div>) : <p>{t("sequence.noneOnTable")}</p>}</div><footer><button onClick={() => setSequenceCompareDialog(false)}>{t("common.close")}</button></footer></Dialog>}
     {readIndex !== undefined && <SequenceReadMode sequence={sequence} initialIndex={readIndex} photoSource={dependencies.photoSource} pinned={workspace?.photoStates ?? {}} onTogglePin={togglePin} onClose={() => setReadIndex(undefined)} onPhotoError={onPhotoError} />}
   </main></>;
 }
@@ -356,6 +360,7 @@ function SequenceToolButton({ icon, label, className = "", ...props }: { icon: s
 }
 
 function SequenceCard({ item, index, visible, selected, dropBefore, segment, dependencies, missing, onPointerDown, onPointerMove, onPointerUp, onPointerCancel, onDoubleClick, onPhotoError }: { item: SequenceItem; index: number; visible: boolean; selected: boolean; dropBefore: boolean; segment?: SequenceSegment; dependencies: AppDependencies; missing: boolean; onPointerDown: (event: ReactPointerEvent<HTMLElement>) => void; onPointerMove: (event: ReactPointerEvent<HTMLElement>) => void; onPointerUp: (event: ReactPointerEvent<HTMLElement>) => void; onPointerCancel: () => void; onDoubleClick: () => void; onPhotoError: (id: PhotoId) => void }) {
+  const { t } = useLocale();
   const [frame, setFrame] = useState(() => item.kind === "blank" ? { width: 280, height: 400 } : fitSequenceCardFrame(0, 0));
   useEffect(() => {
     if (item.kind !== "photo") { setFrame({ width: 280, height: 400 }); return; }
@@ -368,36 +373,41 @@ function SequenceCard({ item, index, visible, selected, dropBefore, segment, dep
   const frameStyle = { "--sequence-card-width": `${frame.width}px`, "--sequence-card-height": `${frame.height}px` } as React.CSSProperties;
   return <article style={frameStyle} data-sequence-index={index} data-item-id={item.id} aria-selected={selected} className={`sequence-card${selected ? " is-selected" : ""}${dropBefore ? " is-drop-target" : ""}${segment ? " is-in-segment" : ""}`} onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={onPointerCancel} onDoubleClick={onDoubleClick}>
     <span className="sequence-card-number">{String(index + 1).padStart(2, "0")}</span>
-    {item.kind === "blank" ? <div className="sequence-blank-page">BLANK</div> : !missing ? visible ? <PhotoThumb resolution="sequence" photoSource={dependencies.photoSource} photoId={item.photoId} alt={`Sequence item ${index + 1}`} onError={onPhotoError} /> : <div className="thumb-placeholder" aria-hidden="true" /> : <div className="sequence-missing-card"><b>MISSING</b></div>}
+    {item.kind === "blank" ? <div className="sequence-blank-page">{t("sequence.blank")}</div> : !missing ? visible ? <PhotoThumb resolution="sequence" photoSource={dependencies.photoSource} photoId={item.photoId} alt={`${t("nav.sequence")} ${index + 1}`} onError={onPhotoError} /> : <div className="thumb-placeholder" aria-hidden="true" /> : <div className="sequence-missing-card"><b>{t("sequence.missing")}</b></div>}
   </article>;
 }
 
 function SequenceStripItem({ item, index, style, selected, dropBefore, segment, unit, dependencies, getPhotoName, onPointerDown, onPointerMove, onPointerUp, onPointerCancel, onPhotoError }: { item: SequenceItem; index: number; style?: CSSProperties; selected: boolean; dropBefore: boolean; segment?: SequenceSegment; unit?: ReadingUnit; dependencies: AppDependencies; getPhotoName: (photoId: PhotoId) => Promise<string | undefined>; onPointerDown: (event: ReactPointerEvent<HTMLElement>) => void; onPointerMove: (event: ReactPointerEvent<HTMLElement>) => void; onPointerUp: (event: ReactPointerEvent<HTMLElement>) => void; onPointerCancel: () => void; onPhotoError: (id: PhotoId) => void }) {
-  const [filename, setFilename] = useState(item.kind === "blank" ? "Blank" : "Photo");
+  const { t } = useLocale();
+  const [filename, setFilename] = useState(item.kind === "blank" ? t("sequence.blank") : t("common.photos"));
   useEffect(() => { if (item.kind !== "photo") return; let live = true; void getPhotoName(item.photoId).then((name) => { if (live && name) setFilename(name); }); return () => { live = false; }; }, [getPhotoName, item]);
   const orderContext = [unit?.kind === "spread" ? "SPREAD" : "", segment?.name ?? ""].filter(Boolean).join(" · ");
   return <button title={`${filename}${orderContext ? ` · ${orderContext}` : ""}`} style={style} data-sequence-index={index} data-item-id={item.id} aria-selected={selected} className={`sequence-order-item${selected ? " is-selected" : ""}${dropBefore ? " is-drop-target" : ""}`} onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={onPointerCancel}>
-    <span className="sequence-order-image">{item.kind === "photo" ? <PhotoThumb photoSource={dependencies.photoSource} photoId={item.photoId} alt="" onError={onPhotoError} /> : <span className="sequence-blank-page">BLANK</span>}{orderContext && <em className="sequence-order-badge">{orderContext}</em>}</span>
+    <span className="sequence-order-image">{item.kind === "photo" ? <PhotoThumb photoSource={dependencies.photoSource} photoId={item.photoId} alt="" onError={onPhotoError} /> : <span className="sequence-blank-page">{t("sequence.blank")}</span>}{orderContext && <em className="sequence-order-badge">{orderContext}</em>}</span>
     <span className="sequence-order-index">{String(index + 1).padStart(2, "0")}</span>
   </button>;
 }
 
 function SegmentHeader({ segment, collapsed, onToggle, onRename, onUngroup, onPointerDown }: { segment: SequenceSegment; collapsed: boolean; onToggle: () => void; onRename: () => void; onUngroup: () => void; onPointerDown: (event: ReactPointerEvent<HTMLElement>) => void }) {
-  return <header className="sequence-segment-header" onPointerDown={onPointerDown}><button onPointerDown={(event) => event.stopPropagation()} onClick={onToggle} aria-expanded={!collapsed}>{collapsed ? "›" : "⌄"}</button><strong onDoubleClick={onRename}>{segment.name}</strong><span>{segment.itemIds.length} items</span><button onPointerDown={(event) => event.stopPropagation()} onClick={onRename}>Rename</button><button onPointerDown={(event) => event.stopPropagation()} onClick={onUngroup}>Ungroup</button></header>;
+  const { t } = useLocale();
+  return <header className="sequence-segment-header" onPointerDown={onPointerDown}><button onPointerDown={(event) => event.stopPropagation()} onClick={onToggle} aria-expanded={!collapsed}>{collapsed ? "›" : "⌄"}</button><strong onDoubleClick={onRename}>{segment.name}</strong><span>{t("common.itemCount", { count: segment.itemIds.length })}</span><button onPointerDown={(event) => event.stopPropagation()} onClick={onRename}>{t("sequence.rename")}</button><button onPointerDown={(event) => event.stopPropagation()} onClick={onUngroup}>{t("sequence.ungroup")}</button></header>;
 }
 
 function OverviewGrid({ overviewElementRef, zoom, sequence, selected, dependencies, onWheel, onOpen, onPhotoError, onPointerDown, onPointerMove, onPointerUp, onPointerCancel }: { overviewElementRef: React.RefObject<HTMLElement | null>; zoom: number; sequence: SequenceDocument; selected: ReadonlySet<SequenceItemId>; dependencies: AppDependencies; onWheel: (event: ReactWheelEvent<HTMLElement>) => void; onOpen: (id: SequenceItemId) => void; onPhotoError: (id: PhotoId) => void; onPointerDown: (event: ReactPointerEvent<HTMLElement>, id: SequenceItemId) => void; onPointerMove: (event: ReactPointerEvent<HTMLElement>) => void; onPointerUp: (event: ReactPointerEvent<HTMLElement>) => void; onPointerCancel: () => void }) {
-  return <section ref={overviewElementRef} className="sequence-overview" style={{ "--overview-zoom": zoom } as React.CSSProperties} role="grid" aria-label="Sequence Overview" onWheel={onWheel} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={onPointerCancel}><header><strong>Overview Grid</strong><span>Select, drag to reorder, or double-click to read.</span></header><div>{sequence.items.map((item, index) => <button data-sequence-index={index} data-item-id={item.id} role="gridcell" aria-selected={selected.has(item.id)} key={item.id} className={selected.has(item.id) ? "is-selected" : ""} onPointerDown={(event) => onPointerDown(event, item.id)} onDoubleClick={() => onOpen(item.id)}>{item.kind === "photo" ? <PhotoThumb photoSource={dependencies.photoSource} photoId={item.photoId} alt={`Item ${index + 1}`} onError={onPhotoError} /> : <span className="sequence-blank-page">BLANK</span>}<b>{String(index + 1).padStart(2, "0")}</b></button>)}</div></section>;
+  const { locale, t } = useLocale();
+  return <section ref={overviewElementRef} className="sequence-overview" style={{ "--overview-zoom": zoom } as React.CSSProperties} role="grid" aria-label={t("sequence.overviewGrid")} onWheel={onWheel} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={onPointerCancel}><header><strong>{t("sequence.overviewGrid")}</strong><span>{locale === "zh-CN" ? "选择、拖动以排序，或双击进入阅读。" : "Select, drag to reorder, or double-click to read."}</span></header><div>{sequence.items.map((item, index) => <button data-sequence-index={index} data-item-id={item.id} role="gridcell" aria-selected={selected.has(item.id)} key={item.id} className={selected.has(item.id) ? "is-selected" : ""} onPointerDown={(event) => onPointerDown(event, item.id)} onDoubleClick={() => onOpen(item.id)}>{item.kind === "photo" ? <PhotoThumb photoSource={dependencies.photoSource} photoId={item.photoId} alt={`${t("common.items")} ${index + 1}`} onError={onPhotoError} /> : <span className="sequence-blank-page">{t("sequence.blank")}</span>}<b>{String(index + 1).padStart(2, "0")}</b></button>)}</div></section>;
 }
 
 function ContextBar({ context, onAction, onSegment }: { onSegment: () => void; context: Context; onAction: (action: ContextAction) => void }) {
-  return <div className="sequence-context-bar table-context-toolbar" role="group" aria-label="Sequence selection actions"><SequenceToolButton icon={segmentIcon} label="Segment" onClick={onSegment} />{context.actions.map((action) => <button className="table-tool-button" key={action} onClick={() => onAction(action)}>{contextLabel(action)}</button>)}</div>;
+  const { t } = useLocale();
+  return <div className="sequence-context-bar table-context-toolbar" role="group" aria-label={t("sequence.editor")}><SequenceToolButton icon={segmentIcon} label={t("sequence.segment")} onClick={onSegment} />{context.actions.map((action) => <button className="table-tool-button" key={action} onClick={() => onAction(action)}>{contextLabel(action, t)}</button>)}</div>;
 }
 
 function Dialog({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {
+  const { t } = useLocale();
   const ref = useRef<HTMLElement>(null);
   useDialogKeyboard(ref, onClose);
-  return <div className="sequence-dialog-backdrop" onPointerDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><section ref={ref} className="sequence-dialog" role="dialog" aria-modal="true" aria-label={title}><header><strong>{title}</strong><button onClick={onClose} aria-label={`Dismiss ${title}`}>×</button></header>{children}</section></div>;
+  return <div className="sequence-dialog-backdrop" onPointerDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><section ref={ref} className="sequence-dialog" role="dialog" aria-modal="true" aria-label={title}><header><strong>{title}</strong><button onClick={onClose} aria-label={`${t("common.close")} ${title}`}>×</button></header>{children}</section></div>;
 }
 
 type ContextAction = "blank-before" | "blank-after" | "spread" | "split" | "remove-blank";
@@ -408,7 +418,7 @@ function contextActions(items: readonly SequenceItem[], lookup: SequenceLookup):
   if (items.length === 2 && items.every((item) => item.kind === "photo")) { const indices = items.map((item) => lookup.itemIndexById.get(item.id) ?? -1).sort((a, b) => a - b); if (indices[0] >= 0 && indices[1] === indices[0] + 1) return { actions: ["spread"] }; }
   return undefined;
 }
-function contextLabel(action: ContextAction): string { return ({ "blank-before": "Insert Blank Before", "blank-after": "Insert Blank After", spread: "Create Spread", split: "Split to Singles", "remove-blank": "Remove Blank" })[action]; }
+function contextLabel(action: ContextAction, t: (key: string) => string): string { return t(({ "blank-before": "sequence.insertBlankBefore", "blank-after": "sequence.insertBlankAfter", spread: "sequence.createSpread", split: "sequence.splitSpread", "remove-blank": "sequence.removeBlank" })[action]); }
 function renderSequenceFlow(sequence: SequenceDocument, lookup: SequenceLookup, collapsed: ReadonlySet<SequenceSegmentId>, renderHeader: (segment: SequenceSegment) => ReactNode, renderItem: (item: SequenceItem, index: number) => ReactNode): ReactNode[] {
   const byStart = new Map(sequence.segments.map((segment) => [segment.itemIds[0], segment])); const nodes: ReactNode[] = [];
   for (let index = 0; index < sequence.items.length;) { const item = sequence.items[index]; const segment = byStart.get(item.id); if (!segment) { nodes.push(renderItem(item, index)); index += 1; continue; } nodes.push(<section key={segment.id} className={`sequence-segment${collapsed.has(segment.id) ? " is-collapsed" : ""}`}>{renderHeader(segment)}{!collapsed.has(segment.id) && <div>{segment.itemIds.map((id) => { const itemIndex = lookup.itemIndexById.get(id) ?? -1; const segmentItem = lookup.itemById.get(id); return segmentItem && itemIndex >= 0 ? renderItem(segmentItem, itemIndex) : null; })}</div>}</section>); index += segment.itemIds.length; }

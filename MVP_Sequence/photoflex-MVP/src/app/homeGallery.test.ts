@@ -7,9 +7,10 @@ const photos = Array.from({ length: 30 }, (_, index) => `photo-${index}` as Phot
 describe("Home photo composition", () => {
   it("samples Table photos without duplicates and gives each row its own sparse layout", () => {
     const rows = createHomeGallery(photos, () => .25);
-    expect(rows.map((row) => row.length)).toEqual([3, 3, 3]);
+    expect(rows).toHaveLength(3);
+    expect(rows.every((row) => row.length >= 3 && row.length <= 6)).toBe(true);
     expect(new Set(rows.map((row) => row.map((photo) => photo.column).join(","))).size).toBe(3);
-    expect(new Set(rows.flat().map((photo) => photo.photoId)).size).toBe(9);
+    expect(new Set(rows.flat().map((photo) => photo.photoId)).size).toBe(15);
     for (const row of rows) {
       expect(new Set(row.map((photo) => photo.column)).size).toBe(row.length);
       for (const photo of row) {
@@ -35,7 +36,7 @@ describe("Home photo composition", () => {
     expect(new Set(rows.map((row) => row.map((photo) => photo.column).join(","))).size).toBe(rows.length);
     for (const row of rows) {
       expect(row.length).toBeGreaterThanOrEqual(Math.min(count, 3));
-      expect(row.length).toBeLessThanOrEqual(5);
+      expect(row.length).toBeLessThanOrEqual(6);
     }
   });
 });

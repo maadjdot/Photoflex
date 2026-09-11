@@ -4,6 +4,7 @@ import { createSequenceLookup, readingPaperLayout, readingUnitItemIds as unitIte
 import { PhotoThumb } from "./PhotoThumb";
 import { useDialogKeyboard } from "./AppPrimitives";
 import type { AppDependencies } from "./dependencies";
+import { useLocale } from "./locale";
 
 interface SequenceReadModeProps {
   readonly sequence: SequenceDocument;
@@ -28,6 +29,7 @@ export async function warmSequenceReadAt(photoSource: AppDependencies["photoSour
 
 /** Owns the Read-mode keyboard, focus and preview-lease lifecycle. */
 export function SequenceReadMode({ sequence, initialIndex, photoSource, pinned, onTogglePin, onClose, onPhotoError }: SequenceReadModeProps) {
+  const { t } = useLocale();
   const [index, setIndex] = useState(Math.max(0, Math.min(sequence.readingUnits.length - 1, initialIndex)));
   const [background, setBackground] = useState<"dark" | "light">("dark");
   const [controls, setControls] = useState(true);
@@ -89,11 +91,11 @@ export function SequenceReadMode({ sequence, initialIndex, photoSource, pinned, 
   const items = unitItemIds(unit).map((id) => lookup.itemById.get(id)).filter((item): item is SequenceItem => Boolean(item));
   const layout = readingPaperLayout(viewport, items.length);
   const paperStyle = { width: layout.width, height: layout.height, gap: layout.gap, "--reading-photo-size": `${(1 - READING_PHOTO_INSET * 2) * 100}%` } as CSSProperties;
-  return <section ref={rootRef} className={`sequence-read is-${background}${controls ? " has-controls" : ""}`} role="dialog" aria-modal="true" aria-label={`Read ${sequence.name}`} onMouseMove={reveal}>
+  return <section ref={rootRef} className={`sequence-read is-${background}${controls ? " has-controls" : ""}`} role="dialog" aria-modal="true" aria-label={`${t("sequence.read")} ${sequence.name}`} onMouseMove={reveal}>
     <div className="sequence-read-pages" style={paperStyle}>{items.map((item) => <article key={item.id} className="sequence-read-page">{item.kind === "photo" ? <PhotoThumb resolution="read" eager photoSource={photoSource} photoId={item.photoId} alt="Sequence reading photograph" onError={onPhotoError} /> : null}{controls && item.kind === "photo" && <button className="sequence-read-pin" onClick={() => onTogglePin(item.photoId)}>{pinned[item.photoId]?.pinned ? "Unpin" : "Pin"}</button>}</article>)}</div>
-    <button className="sequence-read-zone is-left" disabled={index === 0} aria-label="Previous Reading Unit" onClick={() => setIndex((value) => Math.max(0, value - 1))} />
-    <button className="sequence-read-zone is-right" disabled={index === sequence.readingUnits.length - 1} aria-label="Next Reading Unit" onClick={() => setIndex((value) => Math.min(sequence.readingUnits.length - 1, value + 1))} />
-    <header><button ref={closeRef} onClick={onClose}>Close</button><strong>{sequence.name}</strong><button onClick={() => setBackground((value) => value === "dark" ? "light" : "dark")}>{background === "dark" ? "White background" : "Dark background"}</button></header>
+    <button className="sequence-read-zone is-left" disabled={index === 0} aria-label={t("sequence.previousUnit")} onClick={() => setIndex((value) => Math.max(0, value - 1))} />
+    <button className="sequence-read-zone is-right" disabled={index === sequence.readingUnits.length - 1} aria-label={t("sequence.nextUnit")} onClick={() => setIndex((value) => Math.min(sequence.readingUnits.length - 1, value + 1))} />
+    <header><button ref={closeRef} onClick={onClose}>{t("common.close")}</button><strong>{sequence.name}</strong><button onClick={() => setBackground((value) => value === "dark" ? "light" : "dark")}>{background === "dark" ? t("sequence.whiteBackground") : t("sequence.darkBackground")}</button></header>
     <footer>{pageLabel(sequence, unit, lookup)} · {index + 1} / {sequence.readingUnits.length}</footer>
   </section>;
 }

@@ -42,6 +42,8 @@ import {
 } from "../projectStoreData";
 import { toSequenceSummary } from "../../modules/sequence";
 import { openPhotoFlexDatabase, STORE_NAMES } from "./indexedDbSchema";
+import { prepareBackupImport } from "../projectBackup";
+import type { PhotoRef } from "../../contracts";
 
 interface IndexedDbProjectStoreOptions {
   readonly indexedDB?: IDBFactory;
@@ -560,24 +562,45 @@ export class IndexedDbProjectStore implements ProjectStore {
   }
 
   async exportBackup(projectId: ProjectId): Promise<Result<Uint8Array, LoadError>> {
-    const workspace = await this.loadWorkspace(projectId);
-    if (!workspace.ok) return workspace;
-    const versions: SequenceVersion[] = [];
-    const sequences: SequenceDocument[] = [];
-    for (const versionId of workspace.value.versionIds) {
-      const loaded = await this.loadVersion(versionId);
-      if (!loaded.ok) return loaded;
-      versions.push(loaded.value);
-    }
-    for (const sequenceId of workspace.value.sequenceIds) {
-      const loaded = await this.loadSequence(sequenceId);
-      if (!loaded.ok) return loaded;
-      sequences.push(loaded.value);
-    }
-    return ok(new TextEncoder().encode(JSON.stringify(createBackup(workspace.value, versions, sequences))));
+    const opened = await this.database;
+    if (!opened.ok) return opened;
+    try {
+      // Read all documents in one transaction: a concurrent edit cannot split a backup.
+      const tx = opened.value.transaction([STORE_NAMES.projects, STORE_NAMES.versions, STORE_NAMES.sequences, STORE_NAMES.photoIndex], "readonly");
+      const [project, allVersions, allSequences, allPhotos] = await Promise.all([
+        requestValue<ProjectWorkspace | undefined>(tx.objectStore(STORE_NAMES.projects).get(projectId)),
+        requestValue<SequenceVersion[]>(tx.objectStore(STORE_NAMES.versions).index("by-project-id").getAll(projectId)),
+        requestValue<SequenceDocument[]>(tx.objectStore(STORE_NAMES.sequences).index("by-project-id").getAll(projectId)),
+        requestValue<PhotoRef[]>(tx.objectStore(STORE_NAMES.photoIndex).getAll()),
+      ]);
+      if (!project) return err({ kind: "not-found", entity: "project", id: projectId });
+      if (!isWorkspace(project) || project.versionIds.some((id) => !allVersions.some((v) => v.id === id)) || project.sequenceIds.some((id) => !allSequences.some((s) => s.id === id))) return err({ kind: "corrupt-data", entityId: projectId });
+      const sourceIds = new Set(project.sources.map((s) => s.id));
+      const backup = { ...createBackup(project, allVersions.filter((v) => project.versionIds.includes(v.id)), allSequences.filter((s) => project.sequenceIds.includes(s.id))), photoManifest: allPhotos.filter((p) => sourceIds.has(p.sourceId)).map(({ id: photoId, ...p }) => ({ ...p, photoId })) };
+      return ok(new TextEncoder().encode(JSON.stringify(backup)));
+    } catch { return err({ kind: "unavailable", retryable: true }); }
   }
 
-  async importBackup(_bytes: Uint8Array): Promise<Result<ProjectId, BackupError>> {
-    return err({ kind: "unavailable", retryable: false });
+  async importBackup(bytes: Uint8Array): Promise<Result<ProjectId, BackupError>> {
+    const prepared = prepareBackupImport(bytes);
+    if (!prepared.ok) return prepared;
+    const opened = await this.database;
+    if (!opened.ok) return opened;
+    const { backup, photos } = prepared.value;
+    try {
+      const tx = opened.value.transaction([STORE_NAMES.projects, STORE_NAMES.versions, STORE_NAMES.sequences, STORE_NAMES.photoIndex], "readwrite");
+      return await new Promise((resolve) => {
+        let writeError: unknown;
+        tx.oncomplete = () => resolve(ok(backup.project.projectId));
+        tx.onabort = () => resolve(isQuotaError(tx.error) || (writeError instanceof DOMException && writeError.name === "QuotaExceededError") ? err({ kind: "quota-exceeded" }) : err({ kind: "unavailable", retryable: true }));
+        tx.onerror = () => {}; // The abort event reports the atomic failure.
+        try {
+          tx.objectStore(STORE_NAMES.projects).add(backup.project);
+          backup.versions.forEach((v) => tx.objectStore(STORE_NAMES.versions).add(v));
+          backup.sequences.forEach((s) => tx.objectStore(STORE_NAMES.sequences).add(s));
+          photos.forEach((p) => tx.objectStore(STORE_NAMES.photoIndex).add(p));
+        } catch (error) { writeError = error; tx.abort(); }
+      });
+    } catch { return err({ kind: "unavailable", retryable: true }); }
   }
 }

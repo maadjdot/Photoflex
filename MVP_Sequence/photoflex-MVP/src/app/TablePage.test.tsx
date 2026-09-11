@@ -64,6 +64,29 @@ async function createPileFixture() {
 }
 
 describe("TablePage", () => {
+  it("keeps failed edits open when leaving and can save an independent recovery copy", async () => {
+    const dependencies = await createFixture();
+    render(<App dependencies={dependencies} />);
+    const stage = await screen.findByLabelText("Photo worktable");
+    vi.spyOn(dependencies.projectStore, "saveWorktable").mockResolvedValue(err({ kind: "quota-exceeded" }));
+    fireEvent.keyDown(stage, { key: "a", ctrlKey: true });
+    fireEvent.click(screen.getByRole("button", { name: "Group" }));
+    await screen.findByRole("button", { name: "Changes not saved · Retry" });
+    fireEvent.click(screen.getByRole("button", { name: "Back to Home" }));
+    await screen.findByText("Your latest edits have not been saved.");
+    expect(window.location.hash).toBe(`#/projects/${projectId}/table`);
+    expect(screen.getByLabelText("Photo worktable")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Save recovery copy" }));
+    await waitFor(() => expect(window.location.hash).not.toContain(projectId));
+    const projects = await dependencies.projectStore.listProjects();
+    expect(projects.ok && projects.value.length).toBe(2);
+    if (!projects.ok) return;
+    const copyId = projects.value.find((p) => p.id !== projectId)!.id;
+    const copy = await dependencies.projectStore.loadWorkspace(copyId);
+    const original = await dependencies.projectStore.loadWorkspace(projectId);
+    expect(copy.ok && copy.value.worktableDraft.groups.length).toBe(1);
+    expect(original.ok && original.value.worktableDraft.groups.length).toBe(0);
+  });
   beforeEach(() => {
     window.location.hash = `#/projects/${projectId}/table`;
     if (!("PointerEvent" in window)) Object.defineProperty(window, "PointerEvent", { value: MouseEvent });
@@ -115,14 +138,14 @@ describe("TablePage", () => {
 
     expect(await screen.findByLabelText("Photo worktable")).toBeTruthy();
     expect(screen.queryByRole("navigation", { name: "主导航" })).toBeNull();
-    expect(screen.getByRole("button", { name: "返回 Home" }).textContent).toBe("Photoflex");
+    expect(screen.getByRole("button", { name: "Back to Home" }).textContent).toBe("Photoflex");
     const cardA = screen.getByLabelText("A.jpg");
     expect(cardA).toBeTruthy();
     expect(screen.getByLabelText("B.jpg")).toBeTruthy();
     expect(screen.queryByText("A.jpg")).toBeNull();
-    const toolbar = within(screen.getByLabelText("Table 工具栏"));
+    const toolbar = within(screen.getByLabelText("Table toolbar"));
     expect(toolbar.queryByRole("button", { name: "Contact Sheet" })).toBeNull();
-    expect(within(screen.getByRole("button", { name: "返回 Home" }).closest("header")!).getByText("Table Project")).toBeTruthy();
+    expect(within(screen.getByRole("button", { name: "Back to Home" }).closest("header")!).getByText("Table Project")).toBeTruthy();
     expect(toolbar.queryByRole("button", { name: "Preview" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Hand" })).toBeNull();
     expect(screen.queryByRole("group", { name: "Table selection actions" })).toBeNull();
@@ -136,9 +159,6 @@ describe("TablePage", () => {
     expect(screen.getByRole("dialog", { name: "Preview A.jpg" }).querySelector(".table-preview-image-wrap")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Close preview" }));
 
-    const contactSheet = screen.getByRole("button", { name: /Contact Sheet/ });
-    fireEvent.click(contactSheet);
-    await waitFor(() => expect(window.location.hash).toBe(`#/projects/${projectId}/sources/${sourceId}`));
   });
 
   it("选中操作栏保持单行、使用精简文案且不显示 Clear", async () => {
@@ -148,7 +168,7 @@ describe("TablePage", () => {
     fireEvent.keyDown(stage, { key: "a", ctrlKey: true });
     const toolbar = within(screen.getByRole("group", { name: "Table selection actions" }));
     expect(toolbar.getByText("2 photos")).toBeTruthy();
-    expect(toolbar.getByRole("button", { name: "Create Sequence" }).textContent).toContain("Sequence");
+    expect(within(screen.getByRole("group", { name: "Table arrangement tools" })).getByRole("button", { name: "Create Sequence" }).textContent).toContain("Sequence");
     expect(toolbar.queryByRole("button", { name: "Clear" })).toBeNull();
     fireEvent.click(toolbar.getByRole("button", { name: "Link" }));
     expect(toolbar.getByRole("button", { name: "Unlink" })).toBeTruthy();
@@ -245,7 +265,7 @@ describe("TablePage", () => {
   it("keeps header controls together and restores fully hidden panels", async () => {
     render(<App dependencies={await createPileFixture()} />);
     await screen.findByLabelText("Photo worktable");
-    const header = screen.getByRole("button", { name: "返回 Home" }).closest("header")!;
+    const header = screen.getByRole("button", { name: "Back to Home" }).closest("header")!;
     for (const name of ["Undo", "Redo", "Zoom in", "Zoom out", "Hide Photo Sources"]) {
       expect(within(header).getByRole("button", { name })).toBeTruthy();
     }
@@ -387,7 +407,7 @@ describe("TablePage", () => {
 
     const pile = await screen.findByLabelText("Sequence pile Sequence 01");
     fireEvent.pointerDown(pile, { pointerId: 10, button: 0, clientX: 200, clientY: 150 });
-    fireEvent.click(within(screen.getByLabelText("Table 工具栏")).getByRole("button", { name: "Delete Sequence" }));
+    fireEvent.click(within(screen.getByLabelText("Table toolbar")).getByRole("button", { name: "Delete Sequence" }));
     fireEvent.click(within(screen.getByRole("dialog", { name: "Delete Sequence?" })).getByRole("button", { name: "Delete Sequence" }));
 
     await waitFor(async () => {
@@ -412,13 +432,13 @@ describe("TablePage", () => {
     const pile = await screen.findByLabelText("Sequence pile Sequence 01");
     fireEvent.pointerDown(pile, { button: 0 });
     fireEvent.pointerUp(pile, { button: 0 });
-    await screen.findByText("Sequence 01 · 1 photos");
+    await screen.findByText("Sequence 01 · 1 photo");
     const strip = screen.getByLabelText("Sequence Order");
     expect(within(strip).queryByText("A.jpg")).toBeNull();
 
     const cardB = screen.getByLabelText("B.jpg");
     fireEvent.pointerDown(cardB, { pointerId: 21, button: 0, clientX: 320, clientY: 160 });
-    const selectionActions = screen.getByRole("group", { name: "Table selection actions" });
+    const selectionActions = screen.getByRole("group", { name: "Table arrangement tools" });
     fireEvent.click(within(selectionActions).getByRole("button", { name: "Add to Sequence" }));
     const addButton = await screen.findByRole("button", { name: "Add photos" });
     await waitFor(() => expect(addButton.hasAttribute("disabled")).toBe(false));
@@ -427,7 +447,7 @@ describe("TablePage", () => {
     await waitFor(() => expect(within(screen.getByLabelText("Sequence Order")).getByText("Sequence 01 · 2 photos")).toBeTruthy());
     expect(within(screen.getByLabelText("Sequence Order")).queryByText("B.jpg")).toBeNull();
     fireEvent.click(within(screen.getByLabelText("Sequence Order")).getByRole("button", { name: "Remove item 2 from Sequence" }));
-    expect(within(screen.getByLabelText("Sequence Order")).getByText("Sequence 01 · 1 photos")).toBeTruthy();
+    expect(within(screen.getByLabelText("Sequence Order")).getByText("Sequence 01 · 1 photo")).toBeTruthy();
 
     await waitFor(async () => {
       const saved = await projectStore.loadSequence(sequenceId);
@@ -441,15 +461,15 @@ describe("TablePage", () => {
     vi.spyOn(projectStore, "saveSequence").mockResolvedValue(err({ kind: "quota-exceeded" }));
     render(<App dependencies={{ projectStore, photoSource }} />);
 
-    await screen.findByText("Sequence 01 · 1 photos");
+    await screen.findByText("Sequence 01 · 1 photo");
     fireEvent.pointerDown(screen.getByLabelText("B.jpg"), { pointerId: 22, button: 0, clientX: 320, clientY: 160 });
-    fireEvent.click(within(screen.getByRole("group", { name: "Table selection actions" })).getByRole("button", { name: "Add to Sequence" }));
+    fireEvent.click(within(screen.getByRole("group", { name: "Table arrangement tools" })).getByRole("button", { name: "Add to Sequence" }));
     const addButton = await screen.findByRole("button", { name: "Add photos" });
     await waitFor(() => expect(addButton.hasAttribute("disabled")).toBe(false));
     fireEvent.click(addButton);
 
     expect(await screen.findByText("Sequence save failed. Your edit remains on screen.")).toBeTruthy();
-    expect(screen.getByRole("dialog", { name: "Add photos to Sequence" })).toBeTruthy();
+    expect(screen.getByRole("dialog", { name: "Add to Sequence" })).toBeTruthy();
     const saved = await projectStore.loadSequence(sequenceId);
     expect(saved.ok).toBe(true);
     if (saved.ok) expect(saved.value.items).toHaveLength(1);
@@ -459,18 +479,18 @@ describe("TablePage", () => {
     const { projectStore, photoSource } = await createPileFixture();
     render(<App dependencies={{ projectStore, photoSource }} />);
 
-    await screen.findByText("Sequence 01 · 1 photos");
+    await screen.findByText("Sequence 01 · 1 photo");
     fireEvent.pointerDown(screen.getByLabelText("B.jpg"), { pointerId: 23, button: 0, clientX: 320, clientY: 160 });
-    const opener = within(screen.getByRole("group", { name: "Table selection actions" })).getByRole("button", { name: "Add to Sequence" });
+    const opener = within(screen.getByRole("group", { name: "Table arrangement tools" })).getByRole("button", { name: "Add to Sequence" });
     opener.focus();
     fireEvent.click(opener);
-    const dialog = await screen.findByRole("dialog", { name: "Add photos to Sequence" });
+    const dialog = await screen.findByRole("dialog", { name: "Add to Sequence" });
     const addButton = within(dialog).getByRole("button", { name: "Add photos" });
     addButton.focus();
     fireEvent.keyDown(addButton, { key: "Tab" });
     expect(document.activeElement).toBe(within(dialog).getByRole("button", { name: "Close" }));
     fireEvent.keyDown(document.activeElement!, { key: "Escape" });
-    expect(screen.queryByRole("dialog", { name: "Add photos to Sequence" })).toBeNull();
+    expect(screen.queryByRole("dialog", { name: "Add to Sequence" })).toBeNull();
     expect(document.activeElement).toBe(opener);
   });
 
