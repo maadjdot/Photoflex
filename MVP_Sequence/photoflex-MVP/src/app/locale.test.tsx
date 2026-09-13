@@ -21,6 +21,7 @@ describe("localization", () => {
     expect(translate("zh-CN", "table.memoPlaceholder")).toBe("写下你的想法…");
     expect(translate("zh-CN", "table.addToSequence")).toBe("加入序列");
     expect(translate("zh-CN", "table.createSequence")).toBe("创建序列");
+    expect(translate("zh-CN", "table.shuffle")).toBe("打乱");
   });
 
   it("switches the visible interface to Chinese and persists the choice", () => {

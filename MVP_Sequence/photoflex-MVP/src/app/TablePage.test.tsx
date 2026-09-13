@@ -169,6 +169,15 @@ describe("TablePage", () => {
     const toolbar = within(screen.getByRole("group", { name: "Table selection actions" }));
     expect(toolbar.getByText("2 photos")).toBeTruthy();
     expect(within(screen.getByRole("group", { name: "Table arrangement tools" })).getByRole("button", { name: "Create Sequence" }).textContent).toContain("Sequence");
+    const cardA = screen.getByLabelText("A.jpg");
+    const cardB = screen.getByLabelText("B.jpg");
+    const beforeShuffle = [cardA.style.transform, cardB.style.transform];
+    const shuffle = within(screen.getByRole("group", { name: "Table arrangement tools" })).getByRole("button", { name: "Shuffle" });
+    expect(shuffle.hasAttribute("disabled")).toBe(false);
+    fireEvent.click(shuffle);
+    expect([cardA.style.transform, cardB.style.transform]).not.toEqual(beforeShuffle);
+    fireEvent.click(screen.getByRole("button", { name: "Undo" }));
+    expect([cardA.style.transform, cardB.style.transform]).toEqual(beforeShuffle);
     expect(toolbar.queryByRole("button", { name: "Clear" })).toBeNull();
     fireEvent.click(toolbar.getByRole("button", { name: "Link" }));
     expect(toolbar.getByRole("button", { name: "Unlink" })).toBeTruthy();

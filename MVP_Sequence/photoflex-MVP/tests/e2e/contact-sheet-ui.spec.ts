@@ -101,6 +101,7 @@ test("M2.1 Contact Sheet 提供 Place on Table，并移除 Pool 栏", async ({ p
   await expect(page.locator(".worktable-card")).toHaveCount(3);
 
   const firstCard = page.locator(".worktable-card").first();
+  expect(await firstCard.evaluate((card) => getComputedStyle(card).transitionDuration)).toBe("0.14s");
   const beforeDrag = await firstCard.boundingBox();
   if (!beforeDrag) throw new Error("Table card is not visible");
   await page.mouse.move(beforeDrag.x + beforeDrag.width / 2, beforeDrag.y + beforeDrag.height / 2);

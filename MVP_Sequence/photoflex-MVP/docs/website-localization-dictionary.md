@@ -65,6 +65,7 @@ table.duplicateSequence          = en: "Duplicate New Sequence"             | zh
 table.group                      = en: "Group"                              | zh-CN: "分组"
 table.ungroup                    = en: "Ungroup"                            | zh-CN: "取消分组"
 table.compare                    = en: "Compare"                            | zh-CN: "对比"
+table.shuffle                    = en: "Shuffle"                            | zh-CN: "打乱"
 table.remove                     = en: "Remove from Table"                 | zh-CN: "从桌面移除"
 
 sequence.order                   = en: "Sequence Order"                    | zh-CN: "序列顺序"

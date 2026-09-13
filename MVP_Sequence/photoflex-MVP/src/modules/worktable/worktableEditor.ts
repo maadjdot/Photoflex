@@ -10,6 +10,7 @@ import {
   type WorktableEditor,
   type WorktableLayout,
   type WorktableLink,
+  type WorktablePoint,
   type WorktablePlacement,
   type WorktableSequencePilePlacement,
   type WorktableGroup,
@@ -30,6 +31,8 @@ const GROUP_GAP = 6;
 const GROUP_COLUMNS = 4;
 const PLACEMENT_CLEARANCE = 18;
 const PLACEMENT_SEARCH_STEP = 32;
+const HORIZONTAL_ROW_OVERLAP_RATIO = 0.4;
+const HORIZONTAL_ROW_GAP_FACTOR = 2;
 
 export function createEmptyWorktable(projectId: WorktableDraft["projectId"]): WorktableDraft {
   return { projectId, entryOrder: [], placements: {}, groups: [], links: [], pileOrder: [], pilePlacements: {} };
@@ -137,6 +140,7 @@ function applyCommand(
   if (command.type === "move") return move(draft, command.photoIds, command.by.x, command.by.y);
   if (command.type === "resize") return resize(draft, command.photoIds, command.scale);
   if (command.type === "arrange") return arrange(draft, command.photoIds, command.layout);
+  if (command.type === "shuffle") return shuffle(draft, command.photoIds);
   if (command.type === "create-group") return createGroup(draft, command.photoIds);
   if (command.type === "create-link") return createLink(draft, command.photoIds);
   if (command.type === "bring-to-front") return bringToFront(draft, command.photoIds);
@@ -421,6 +425,180 @@ function arrange(
     return before.x !== after.x || before.y !== after.y;
   });
   return ok(changed ? { ...draft, placements } : draft);
+}
+
+function shuffle(
+  draft: WorktableDraft,
+  photoIds: readonly PhotoId[],
+): Result<WorktableDraft, WorktableCommandError> {
+  if (photoIds.length < 2) return ok(draft);
+  const requested = new Set(photoIds);
+  const ordered = draft.entryOrder.filter((photoId) => requested.has(photoId));
+  const horizontalRows = findHorizontalRows(draft, ordered).filter((row) => row.length > 1);
+  const rowMembers = new Set(horizontalRows.flat());
+  const ungrouped = ordered.filter((photoId) => !rowMembers.has(photoId));
+  const placements = { ...draft.placements } as Record<PhotoId, WorktablePlacement>;
+
+  horizontalRows.forEach((slotOwners) => {
+    const shuffled = shuffleCycle(slotOwners);
+    const slots = slotOwners.map((photoId) => ({ x: draft.placements[photoId].x, y: draft.placements[photoId].y }));
+    placePhotosInSlots(placements, shuffled, slots);
+    reflowHorizontalShuffle(draft, placements, slotOwners, shuffled, slots);
+  });
+
+  if (ungrouped.length > 1) {
+    const shuffled = shuffleCycle(ungrouped);
+    const slots = ungrouped.map((photoId) => ({ x: draft.placements[photoId].x, y: draft.placements[photoId].y }));
+    placePhotosInSlots(placements, shuffled, slots);
+    ungrouped.forEach((photoId) => {
+      const current = placements[photoId];
+      const stayedInPlace = current.x === draft.placements[photoId].x && current.y === draft.placements[photoId].y;
+      if (stayedInPlace || !shufflePositionIsAllowed(draft, placements, photoId, current)) {
+        placements[photoId] = findSafeShufflePosition(draft, placements, photoId, current);
+      }
+    });
+  }
+  const changed = ordered.some((photoId) => {
+    const before = draft.placements[photoId];
+    const after = placements[photoId];
+    return before.x !== after.x || before.y !== after.y;
+  });
+  return ok(changed ? { ...draft, placements } : draft);
+}
+
+function shuffleCycle(photoIds: readonly PhotoId[]): PhotoId[] {
+  const shuffled = [...photoIds];
+  for (let index = shuffled.length - 1; index > 0; index -= 1) {
+    // Sattolo's algorithm creates one cycle, so every selected photo leaves
+    // its own slot instead of a shuffle degenerating into a two-photo swap.
+    const swapIndex = Math.floor(Math.random() * index);
+    [shuffled[index], shuffled[swapIndex]] = [shuffled[swapIndex], shuffled[index]];
+  }
+  return shuffled;
+}
+
+function placePhotosInSlots(
+  placements: Record<PhotoId, WorktablePlacement>,
+  photoIds: readonly PhotoId[],
+  slots: readonly WorktablePoint[],
+): void {
+  photoIds.forEach((photoId, index) => {
+    placements[photoId] = { ...placements[photoId], ...slots[index] };
+  });
+}
+
+function findHorizontalRows(draft: WorktableDraft, photoIds: readonly PhotoId[]): PhotoId[][] {
+  const rows: PhotoId[][] = [];
+  const leftToRight = [...photoIds].sort((leftId, rightId) => (
+    draft.placements[leftId].x - draft.placements[rightId].x
+    || draft.placements[leftId].y - draft.placements[rightId].y
+  ));
+  leftToRight.forEach((photoId) => {
+    const placement = draft.placements[photoId];
+    const candidates = rows.flatMap((row, index) => {
+      const previous = draft.placements[row.at(-1)!];
+      const horizontalGap = placement.x - (previous.x + previous.width);
+      const closeEnough = horizontalGap <= Math.max(previous.width, placement.width) * HORIZONTAL_ROW_GAP_FACTOR;
+      const overlapsWholeRow = row.every((memberId) => (
+        verticalOverlapRatio(placement, draft.placements[memberId]) >= HORIZONTAL_ROW_OVERLAP_RATIO
+      ));
+      if (!closeEnough || !overlapsWholeRow) return [];
+      const minimumOverlap = Math.min(...row.map((memberId) => verticalOverlapRatio(placement, draft.placements[memberId])));
+      return [{ index, score: minimumOverlap }];
+    }).sort((left, right) => right.score - left.score);
+    const row = candidates.length ? rows[candidates[0].index] : undefined;
+    if (row) row.push(photoId);
+    else rows.push([photoId]);
+  });
+  return rows;
+}
+
+function verticalOverlapRatio(left: WorktableRect, right: WorktableRect): number {
+  const overlap = Math.max(0, Math.min(left.y + left.height, right.y + right.height) - Math.max(left.y, right.y));
+  return overlap / Math.min(left.height, right.height);
+}
+
+function reflowHorizontalShuffle(
+  draft: WorktableDraft,
+  placements: Record<PhotoId, WorktablePlacement>,
+  slotOwners: readonly PhotoId[],
+  shuffled: readonly PhotoId[],
+  slots: readonly WorktablePoint[],
+): void {
+  const selected = new Set(shuffled);
+  const placed = new Set<PhotoId>();
+  const originalGaps = slotOwners.slice(1).map((_, index) => (
+    slots[index + 1].x - (slots[index].x + draft.placements[slotOwners[index]].width)
+  ));
+  const nonOverlappingGaps = originalGaps.filter((gap) => gap >= 0);
+  const rowGap = nonOverlappingGaps.length ? Math.min(...nonOverlappingGaps) : 0;
+  let previousRight: number | undefined;
+  shuffled.forEach((photoId, index) => {
+    const current = placements[photoId];
+    let x = previousRight === undefined ? slots[0].x : previousRight + rowGap;
+    let candidate = { ...current, x };
+    const relevantIds = draft.entryOrder.filter((otherId) => !selected.has(otherId) || placed.has(otherId));
+    while (true) {
+      const blockers = relevantIds.filter((otherId) => (
+        otherId !== photoId
+        && rectsOverlap(candidate, placements[otherId])
+        && !rectsOverlap(draft.placements[photoId], draft.placements[otherId])
+      ));
+      if (!blockers.length) break;
+      x = Math.max(...blockers.map((otherId) => placements[otherId].x + placements[otherId].width + rowGap));
+      candidate = { ...candidate, x };
+    }
+    placements[photoId] = candidate;
+    placed.add(photoId);
+    previousRight = candidate.x + candidate.width;
+  });
+}
+
+function shufflePositionIsAllowed(
+  draft: WorktableDraft,
+  placements: Readonly<Record<PhotoId, WorktablePlacement>>,
+  photoId: PhotoId,
+  candidate: WorktablePlacement,
+): boolean {
+  return draft.entryOrder.every((otherId) => (
+    otherId === photoId
+    || !rectsOverlap(candidate, placements[otherId])
+    || rectsOverlap(draft.placements[photoId], draft.placements[otherId])
+  ));
+}
+
+function findSafeShufflePosition(
+  draft: WorktableDraft,
+  placements: Readonly<Record<PhotoId, WorktablePlacement>>,
+  photoId: PhotoId,
+  desired: WorktablePlacement,
+): WorktablePlacement {
+  const original = draft.placements[photoId];
+  const fits = (x: number, y: number) => {
+    if (x === original.x && y === original.y) return false;
+    return shufflePositionIsAllowed(draft, placements, photoId, { ...desired, x, y });
+  };
+  for (let radius = 1; radius <= 32; radius += 1) {
+    const candidates: [number, number][] = [];
+    for (let y = -radius; y <= radius; y += 1) {
+      for (let x = -radius; x <= radius; x += 1) {
+        if (Math.max(Math.abs(x), Math.abs(y)) === radius) {
+          candidates.push([desired.x + x * PLACEMENT_SEARCH_STEP, desired.y + y * PLACEMENT_SEARCH_STEP]);
+        }
+      }
+    }
+    candidates.sort((left, right) => (
+      Math.hypot(left[0] - desired.x, left[1] - desired.y) - Math.hypot(right[0] - desired.x, right[1] - desired.y)
+      || right[0] - left[0]
+      || right[1] - left[1]
+    ));
+    const position = candidates.find(([x, y]) => fits(x, y));
+    if (position) return { ...desired, x: position[0], y: position[1] };
+  }
+  const otherPhotos = draft.entryOrder.filter((otherId) => otherId !== photoId).map((otherId) => placements[otherId]);
+  let x = Math.max(...otherPhotos.map((item) => item.x + item.width)) + DEFAULT_WORKTABLE_GAP;
+  if (x === original.x && desired.y === original.y) x += PLACEMENT_SEARCH_STEP;
+  return { ...desired, x, y: desired.y };
 }
 
 function bringToFront(

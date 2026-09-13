@@ -95,6 +95,7 @@ export type WorktableEditCommand =
   | { readonly type: "move"; readonly photoIds: readonly PhotoId[]; readonly by: WorktablePoint }
   | { readonly type: "resize"; readonly photoIds: readonly PhotoId[]; readonly scale: number }
   | { readonly type: "arrange"; readonly photoIds: readonly PhotoId[]; readonly layout: WorktableLayout }
+  | { readonly type: "shuffle"; readonly photoIds: readonly PhotoId[] }
   | { readonly type: "create-group"; readonly photoIds: readonly PhotoId[] }
   | { readonly type: "add-to-group"; readonly groupId: string; readonly photoId: PhotoId }
   | { readonly type: "remove-from-group"; readonly photoId: PhotoId }

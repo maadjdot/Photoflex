@@ -409,12 +409,12 @@ h1, h2, p { margin-top: 0; }
 .worktable-group-frame { position: absolute; box-sizing: border-box; border: 1px solid #c8c6c0; border-radius: 8px; background: rgb(255 255 255 / 40%); pointer-events: none; }
 .worktable-group-frame span { position: absolute; top: 12px; left: 12px; padding: 2px 5px; border-radius: 3px; background: rgb(255 255 255 / 88%); color: #6b6966; font-size: 10px; font-weight: 600; line-height: 15px; white-space: nowrap; pointer-events: auto; cursor: grab; }
 .worktable-group-frame span:active { cursor: grabbing; }
-.worktable-card { position: absolute; overflow: visible; margin: 0; padding: 0; background: transparent; color: #1a1917; cursor: grab; pointer-events: auto; will-change: transform; }
+.worktable-card { position: absolute; overflow: visible; margin: 0; padding: 0; background: transparent; color: #1a1917; cursor: grab; pointer-events: auto; transition: transform 140ms cubic-bezier(.2, .8, .2, 1); will-change: transform; }
 .worktable-card:active { cursor: grabbing; }
 .worktable-photo { position: relative; width: 100%; overflow: hidden; border: 1px solid transparent; background: #fff; box-shadow: 0 1px 3px rgb(28 24 20 / 12%); transition: border-color .12s ease, box-shadow .12s ease, opacity .12s ease; }
 .worktable-card:not(.is-selected):hover .worktable-photo { border-color: #c8c6c0; box-shadow: 0 3px 10px rgb(28 24 20 / 14%); }
 .worktable-card.is-selected .worktable-photo { outline: 2px solid #1a1917; outline-offset: -2px; box-shadow: 0 0 0 1px rgb(255 255 255 / 75%); }
-.worktable-card.is-dragging { cursor: grabbing; }
+.worktable-card.is-dragging { cursor: grabbing; transition: none; }
 .worktable-card.is-dragging .worktable-photo { opacity: .9; box-shadow: 0 10px 28px rgb(28 24 20 / 22%); }
 .worktable-photo img, .worktable-photo .thumb-placeholder { display: block; width: 100%; height: 100%; object-fit: cover; image-rendering: auto; pointer-events: none; }
 .worktable-card.is-missing .worktable-photo { background: repeating-linear-gradient(135deg, #d8d4cf, #d8d4cf 8px, #c8c3bd 8px, #c8c3bd 16px); }
@@ -880,6 +880,7 @@ h1, h2, p { margin-top: 0; }
 .source-manager button:disabled { opacity: .5; }
 .source-manager header button { border: 0; font-size: 20px; }
 @media (prefers-reduced-motion: reduce) { .source-loading-status .loading-mark { animation: none; } }
+@media (prefers-reduced-motion: reduce) { .worktable-card { transition: none; } }
 
 .table-memo { position: absolute; z-index: 5; display: flex; flex-direction: column; min-width: 120px; min-height: 80px; border: 1px solid #d4d2cc; border-radius: 5px; background: #fff; color: #1a1917; box-shadow: 0 3px 12px rgb(26 25 23 / 8%); pointer-events: auto; }
 .table-memo.is-selected { outline: 1px solid #1a1917; }
