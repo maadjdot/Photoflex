@@ -6,7 +6,7 @@ import {
   type Result,
   type StorageAccessError,
 } from "../../contracts";
-import { createInitialVersion, legacySequenceFromWorkspace, migrateWorkspaceV2ToV3, migrateWorkspaceV3ToV4, migrateWorkspaceV4ToV5, upgradeSequenceDocument } from "../projectStoreData";
+import { createInitialVersion, legacySequenceFromWorkspace, migrateWorkspaceV2ToV3, migrateWorkspaceV3ToV4, migrateWorkspaceV4ToV5, migrateWorkspaceV7ToV8, upgradeSequenceDocument } from "../projectStoreData";
 
 export const STORE_NAMES = {
   projects: "projects",
@@ -16,6 +16,7 @@ export const STORE_NAMES = {
   sourceGrants: "source-grants",
   photoThumbnails: "photo-thumbnails",
   photoDerivedPreviews: "photo-derived-previews",
+  photoFileHandles: "photo-file-handles",
 } as const;
 
 interface OpenDatabaseOptions {
@@ -103,7 +104,7 @@ export function migrateToV6(database: IDBDatabase, transaction: IDBTransaction):
       versions.put(initial);
       workspace.versionIds = [...(Array.isArray(workspace.versionIds) ? workspace.versionIds : []), initial.id];
     }
-    cursor.update(workspace);
+    cursor.update(migrateWorkspaceV7ToV8(workspace));
     cursor.continue();
   };
 }
@@ -116,7 +117,7 @@ export function migrateToV7(transaction: IDBTransaction, workspaceSchemaVersion:
   workspaceCursor.onsuccess = () => {
     const cursor = workspaceCursor.result;
     if (!cursor) return;
-    cursor.update({ ...(cursor.value as Record<string, unknown>), schemaVersion: workspaceSchemaVersion });
+    cursor.update(migrateWorkspaceV7ToV8({ ...(cursor.value as Record<string, unknown>), schemaVersion: workspaceSchemaVersion }));
     cursor.continue();
   };
   const versionCursor = versions.openCursor();
@@ -177,6 +178,30 @@ export function migrateToV9(transaction: IDBTransaction): void {
   };
 }
 
+export function migrateToV10(database: IDBDatabase, transaction: IDBTransaction, migrateProjects = true): void {
+  if (!database.objectStoreNames.contains(STORE_NAMES.photoFileHandles)) {
+    database.createObjectStore(STORE_NAMES.photoFileHandles, { keyPath: "photoId" });
+  }
+  if (migrateProjects) {
+    const projects = transaction.objectStore(STORE_NAMES.projects);
+    const cursorRequest = projects.openCursor();
+    cursorRequest.onsuccess = () => {
+      const cursor = cursorRequest.result;
+      if (!cursor) return;
+      cursor.update(migrateWorkspaceV7ToV8(cursor.value as Record<string, unknown>));
+      cursor.continue();
+    };
+  }
+  const photos = transaction.objectStore(STORE_NAMES.photoIndex);
+  const photoCursor = photos.openCursor();
+  photoCursor.onsuccess = () => {
+    const cursor = photoCursor.result;
+    if (!cursor) return;
+    cursor.update({ locationKind: "folder-relative", ...(cursor.value as Record<string, unknown>) });
+    cursor.continue();
+  };
+}
+
 export function openPhotoFlexDatabase(
   options: OpenDatabaseOptions = {},
 ): Promise<Result<IDBDatabase, StorageAccessError>> {
@@ -228,7 +253,10 @@ export function openPhotoFlexDatabase(
           if (migrationFrom < 6) migrateToV6(request.result, request.transaction!);
           else if (migrationFrom < 7) migrateToV7(request.transaction!, WORKSPACE_SCHEMA_VERSION);
           if (migrationFrom < 8) migrateToV8(request.result);
-          if (migrationFrom >= 7 && migrationFrom < 9) migrateToV9(request.transaction!);
+          // v6/v7 already own the project-row cursor for older databases. Let
+          // them finish the workspace normalization so v10 cannot overwrite a
+          // richer migrated row with a concurrent cursor update.
+          if (migrationFrom < 10) migrateToV10(request.result, request.transaction!, migrationFrom >= 7);
         } catch {
           migrationFailed = true;
           request.transaction?.abort();

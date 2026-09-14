@@ -1,13 +1,13 @@
 import type {
-  PhotoId,
   SequenceId,
+  WorktableItemId,
   WorktableDraft,
   WorktableGroup,
   WorktableLink,
 } from "../contracts";
 
 export interface TableActionState {
-  readonly photoIds: readonly PhotoId[];
+  readonly photoIds: readonly WorktableItemId[];
   readonly pileIds: readonly SequenceId[];
   readonly completeGroup?: WorktableGroup;
   readonly memberGroup?: WorktableGroup;
@@ -28,7 +28,7 @@ export interface TableActionState {
 
 export function deriveTableActions(
   draft: WorktableDraft,
-  selectedPhotoIds: ReadonlySet<PhotoId>,
+  selectedPhotoIds: ReadonlySet<WorktableItemId>,
   selectedPileIds: ReadonlySet<SequenceId>,
 ): TableActionState {
   const photoIds = draft.entryOrder.filter((id) => selectedPhotoIds.has(id));

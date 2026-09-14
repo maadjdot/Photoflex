@@ -1,4 +1,4 @@
-import type { PhotoId, WorktableDraft, WorktableViewport } from "../../contracts";
+import type { WorktableDraft, WorktableItemId, WorktableViewport } from "../../contracts";
 
 export interface WorktableViewportSize {
   readonly width: number;
@@ -11,8 +11,8 @@ export function visibleWorktablePhotoIds(
   viewport: WorktableViewport,
   size: WorktableViewportSize,
   overscan = 192,
-): ReadonlySet<PhotoId> {
-  if (size.width <= 0 || size.height <= 0 || viewport.zoom <= 0) return new Set<PhotoId>();
+): ReadonlySet<WorktableItemId> {
+  if (size.width <= 0 || size.height <= 0 || viewport.zoom <= 0) return new Set<WorktableItemId>();
   const left = (-viewport.originX - overscan) / viewport.zoom;
   const top = (-viewport.originY - overscan) / viewport.zoom;
   const right = (size.width - viewport.originX + overscan) / viewport.zoom;

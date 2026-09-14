@@ -30,11 +30,15 @@ for (const [name, factory] of [["memory", () => new MemoryProjectStore()], ["Ind
     expect(copy.photoManifest.map((p) => p.relativePath).sort()).toEqual(["one.jpg", "two.jpg"]);
     const p1 = copy.photoManifest.find((p) => p.relativePath === "one.jpg")!.photoId;
     const p2 = copy.photoManifest.find((p) => p.relativePath === "two.jpg")!.photoId;
-    expect(table.entryOrder).toEqual([p1, p2]);
-    expect(table.placements[p1]).toMatchObject({ photoId: p1, x: 10, y: 20 });
-    expect(table.groups[0].photoIds).toEqual([p1, p2]);
-    expect(table.links[0].photoIds).toEqual([p1, p2]);
-    expect(table.memos?.[0]).toMatchObject({ text: "Opening idea", photoIds: [p1] });
+    const [item1, item2] = table.entryOrder;
+    expect(item1).not.toBe(p1);
+    expect(item2).not.toBe(p2);
+    expect(item1).not.toBe(item2);
+    expect(table.placements[item1]).toMatchObject({ id: item1, photoId: p1, x: 10, y: 20 });
+    expect(table.placements[item2]).toMatchObject({ id: item2, photoId: p2, x: 210, y: 20 });
+    expect(table.groups[0].photoIds).toEqual([item1, item2]);
+    expect(table.links[0].photoIds).toEqual([item1, item2]);
+    expect(table.memos?.[0]).toMatchObject({ text: "Opening idea", photoIds: [item1] });
     expect(copy.project.coverPhotoId).toBe(p1);
     expect(copy.project.photoStates[p1]).toEqual({ decision: "pick", pinned: true });
     expect(copy.sequences[0].items.filter((i) => i.kind === "photo").map((i) => i.photoId)).toEqual([p1, p2, p1]);
@@ -53,6 +57,21 @@ for (const [name, factory] of [["memory", () => new MemoryProjectStore()], ["Ind
       expect((await store.importBackup(backupBytes(invalid))).ok).toBe(false);
     }
     expect(await store.listProjects()).toMatchObject({ ok: true, value: [] });
+  });
+
+  it("imports the previous backup schema and upgrades its Table instances", async () => {
+    const store = factory();
+    const legacy = { ...backupFixture(), schemaVersion: 2 };
+    const imported = await store.importBackup(backupBytes(legacy));
+    expect(imported.ok).toBe(true);
+    if (!imported.ok) return;
+    const exported = await store.exportBackup(imported.value);
+    expect(exported.ok).toBe(true);
+    if (!exported.ok) return;
+    const copy = JSON.parse(new TextDecoder().decode(exported.value)) as ProjectBackupV1;
+    const [itemId] = copy.project.worktableDraft.entryOrder;
+    expect(copy.project.schemaVersion).toBe(8);
+    expect(copy.project.worktableDraft.placements[itemId]).toMatchObject({ id: itemId });
   });
 });
 

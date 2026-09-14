@@ -25,11 +25,11 @@ export function TablePreviewPanel({
       </header>
       {draft.entryOrder.length ? (
         <div className="table-preview-list">
-          {draft.entryOrder.map((photoId) => {
-            const placement = draft.placements[photoId];
+          {draft.entryOrder.map((itemId) => {
+            const placement = draft.placements[itemId];
             return (
-              <button className="table-preview-item" key={photoId} onClick={() => onOpen(photoId)}>
-                <span className="table-preview-thumb"><PhotoThumb photoSource={photoSource} photoId={photoId} alt={placement.filename} onError={onPhotoSourceError} /></span>
+              <button className="table-preview-item" key={itemId} onClick={() => onOpen(placement.photoId)}>
+                <span className="table-preview-thumb"><PhotoThumb photoSource={photoSource} photoId={placement.photoId} alt={placement.filename} onError={onPhotoSourceError} /></span>
                 <span>{placement.filename}</span>
               </button>
             );

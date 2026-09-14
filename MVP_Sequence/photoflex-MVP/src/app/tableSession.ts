@@ -11,6 +11,7 @@ import {
   type WorktableEditor,
   type WorktablePlacementSeed,
   type WorktablePoint,
+  type WorktableItemId,
 } from "../contracts";
 import { createEmptyWorktable, createWorktableEditor } from "../modules/worktable";
 import { deriveTableActions, type TableActionState } from "./tableActionPolicy";
@@ -21,13 +22,13 @@ export interface TableSessionCommit {
 }
 
 export interface TableSessionSelection {
-  readonly photoIds?: readonly PhotoId[];
+  readonly photoIds?: readonly WorktableItemId[];
   readonly pileIds?: readonly SequenceId[];
 }
 
 export interface TableSessionSnapshot {
   readonly draft: WorktableDraft;
-  readonly selectedPhotoIds: readonly PhotoId[];
+  readonly selectedPhotoIds: readonly WorktableItemId[];
   readonly selectedPileIds: readonly SequenceId[];
   readonly canUndo: boolean;
   readonly canRedo: boolean;
@@ -42,12 +43,14 @@ export interface TableSession {
   subscribe(listener: () => void): () => void;
   execute(command: WorktableEditCommand): Result<TableSessionSnapshot, WorktableCommandError>;
   placePhotos(items: readonly WorktablePlacementSeed[], at?: WorktablePoint): Result<TableSessionSnapshot, WorktableCommandError>;
+  copySelection(): boolean;
+  pasteSelection(): Result<TableSessionSnapshot, WorktableCommandError>;
   prepareStructuralDraft(command: WorktableEditCommand): Result<WorktableDraft, WorktableCommandError>;
   undo(): TableSessionSnapshot;
   redo(): TableSessionSnapshot;
-  selectPhoto(photoId: PhotoId, toggle: boolean): readonly PhotoId[] | undefined;
+  selectPhoto(photoId: WorktableItemId, toggle: boolean): readonly WorktableItemId[] | undefined;
   selectPile(sequenceId: SequenceId, toggle: boolean): readonly SequenceId[] | undefined;
-  selectPhotos(photoIds: readonly PhotoId[], additive?: boolean): TableSessionSnapshot;
+  selectPhotos(photoIds: readonly WorktableItemId[], additive?: boolean): TableSessionSnapshot;
   selectAllPhotos(): TableSessionSnapshot;
   clearSelection(): TableSessionSnapshot;
   resetCommittedDraft(draft: WorktableDraft, selection?: TableSessionSelection): TableSessionSnapshot;
@@ -62,9 +65,11 @@ export function createTableSession(
 
 class TableSessionController implements TableSession {
   private editor: WorktableEditor;
-  private selectedPhotoIds = new Set<PhotoId>();
+  private selectedPhotoIds = new Set<WorktableItemId>();
   private selectedPileIds = new Set<SequenceId>();
   private latestLocalEditSeq = 0;
+  private clipboard: readonly WorktablePlacementSeed[] = [];
+  private pasteCount = 0;
   private snapshotValue: TableSessionSnapshot;
   private readonly listeners = new Set<() => void>();
 
@@ -94,6 +99,37 @@ class TableSessionController implements TableSession {
     return this.execute({ type: "place", items, at });
   };
 
+  copySelection = (): boolean => {
+    const selected = new Set(this.selectedPhotoIds);
+    this.clipboard = this.snapshotValue.draft.entryOrder.flatMap((id) => {
+      if (!selected.has(id)) return [];
+      const placement = this.snapshotValue.draft.placements[id];
+      return [{
+        photoId: placement.photoId,
+        width: placement.width,
+        height: placement.height,
+        filename: placement.filename,
+        x: placement.x,
+        y: placement.y,
+      }];
+    });
+    this.pasteCount = 0;
+    return this.clipboard.length > 0;
+  };
+
+  pasteSelection = (): Result<TableSessionSnapshot, WorktableCommandError> => {
+    if (!this.clipboard.length) return ok(this.snapshotValue);
+    this.pasteCount += 1;
+    const offset = this.pasteCount * 32;
+    const ids = this.clipboard.map(() => crypto.randomUUID() as WorktableItemId);
+    const result = this.execute({
+      type: "place",
+      items: this.clipboard.map((item, index) => ({ ...item, id: ids[index], x: item.x! + offset, y: item.y! + offset })),
+    });
+    if (!result.ok) return result;
+    return ok(this.selectPhotos(ids));
+  };
+
   prepareStructuralDraft = (command: WorktableEditCommand): Result<WorktableDraft, WorktableCommandError> => {
     return createWorktableEditor(this.snapshotValue.draft).execute(command);
   };
@@ -108,7 +144,7 @@ class TableSessionController implements TableSession {
     return this.commit(this.editor.redo());
   };
 
-  selectPhoto = (photoId: PhotoId, toggle: boolean): readonly PhotoId[] | undefined => {
+  selectPhoto = (photoId: WorktableItemId, toggle: boolean): readonly WorktableItemId[] | undefined => {
     if (!this.snapshotValue.draft.placements[photoId]) return undefined;
     this.selectedPileIds.clear();
     if (toggle) {
@@ -140,8 +176,8 @@ class TableSessionController implements TableSession {
     return this.snapshotValue.selectedPileIds;
   };
 
-  selectPhotos = (photoIds: readonly PhotoId[], additive = false): TableSessionSnapshot => {
-    const next = additive ? new Set(this.selectedPhotoIds) : new Set<PhotoId>();
+  selectPhotos = (photoIds: readonly WorktableItemId[], additive = false): TableSessionSnapshot => {
+    const next = additive ? new Set(this.selectedPhotoIds) : new Set<WorktableItemId>();
     photoIds.forEach((id) => {
       if (this.snapshotValue.draft.placements[id]) next.add(id);
     });
@@ -225,6 +261,8 @@ export function useTableSession(
     ...snapshot,
     execute: session.execute,
     placePhotos: session.placePhotos,
+    copySelection: session.copySelection,
+    pasteSelection: session.pasteSelection,
     prepareStructuralDraft: session.prepareStructuralDraft,
     undo: session.undo,
     redo: session.redo,

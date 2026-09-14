@@ -12,8 +12,8 @@ import type { SequenceDocument, SequenceSummary } from "./sequence";
 import type { SequenceVersion, VersionSummary } from "./versioning";
 import type { PhotoState, WorktableDraft, WorktableViewport } from "./worktable";
 
-export const INDEXED_DB_SCHEMA_VERSION = 9 as const;
-export const WORKSPACE_SCHEMA_VERSION = 7 as const;
+export const INDEXED_DB_SCHEMA_VERSION = 10 as const;
+export const WORKSPACE_SCHEMA_VERSION = 8 as const;
 
 export type SourceStatus =
   | "loading"
@@ -36,6 +36,8 @@ export interface SourceRecord {
   readonly displayName: string;
   readonly createdAt: string;
   readonly removedAt?: string;
+  /** Missing on legacy rows and treated as a folder source. */
+  readonly kind?: "folder" | "external-files";
 }
 
 export interface SourceRuntimeState {
@@ -58,6 +60,18 @@ export interface PhotoRef {
   readonly height: number;
   readonly fileSize?: number;
   readonly fileLastModified?: number;
+  /** Missing on legacy rows and treated as folder-relative. */
+  readonly locationKind?: "folder-relative" | "file-handle";
+}
+
+export interface DroppedPhotoIngestItem {
+  readonly photo: PhotoRef;
+  readonly status: "created" | "reused";
+}
+
+export interface DroppedPhotoIngestResult {
+  readonly items: readonly DroppedPhotoIngestItem[];
+  readonly skipped: readonly PhotoIssue[];
 }
 
 export interface PhotoPage {
@@ -108,6 +122,12 @@ export interface PhotoSource {
     limit?: number,
   ): Promise<Result<PhotoPage, SourceError>>;
   getPhoto(photoId: PhotoId): Promise<Result<PhotoRef, SourceError>>;
+  /** Import OS-dropped JPEG handles, reusing an existing source photo when it identifies the same file. */
+  ingestDroppedFiles(
+    handles: readonly FileSystemHandle[],
+    sources: readonly SourceRecord[],
+    externalSourceId: SourceId,
+  ): Promise<Result<DroppedPhotoIngestResult, SourceError>>;
   thumbnail(photoId: PhotoId): Promise<Result<PreviewLease, SourceError>>;
   /** A size-tiered derived image; never the original file. */
   derivedPreview(photoId: PhotoId, maxEdge: DerivedPreviewMaxEdge): Promise<Result<PreviewLease, SourceError>>;

@@ -96,6 +96,9 @@ export function TablePhotoCompare({
 
   return <div ref={dialogRef} className="compare-backdrop" role="dialog" aria-modal="true" aria-label={t("table.compareTwo")}>
     <header><span>{t("table.compare")}</span><button onClick={() => setOrder([order[1], order[0]])}>{t("table.swap")}</button><button ref={closeButtonRef} onClick={onClose} aria-label={t("table.closeCompare")}>×</button></header>
-    <div className="compare-images">{order.map((id, index) => <figure key={id}>{urls[index] ? <img src={urls[index]} alt={draft.placements[id].filename} /> : <div className="preview-placeholder">{t("table.previewUnavailable")}</div>}</figure>)}</div>
+    <div className="compare-images">{order.map((id, index) => {
+      const filename = draft.entryOrder.map((itemId) => draft.placements[itemId]).find((placement) => placement.photoId === id)?.filename ?? id;
+      return <figure key={`${id}-${index}`}>{urls[index] ? <img src={urls[index]} alt={filename} /> : <div className="preview-placeholder">{t("table.previewUnavailable")}</div>}</figure>;
+    })}</div>
   </div>;
 }

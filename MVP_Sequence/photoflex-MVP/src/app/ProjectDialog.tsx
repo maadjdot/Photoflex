@@ -56,6 +56,7 @@ export function NewProjectDialog({
       id: grant.sourceId,
       displayName: grant.displayName,
       createdAt,
+      kind: "folder",
     };
     const result = await dependencies.projectStore.createProject({
       id: projectId,

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
-import type { PhotoId, PhotoRef, ProjectId, ProjectWorkspace, SourceError, SourceId } from "../contracts";
+import type { PhotoId, PhotoRef, ProjectId, ProjectWorkspace, SourceError, SourceId, WorktableItemId } from "../contracts";
 import type { AppDependencies } from "./dependencies";
 import type { AppRoute } from "./router";
 import { InlineNotice, EmptyPanel, ErrorPage, LoadingPage, mergeUniquePhotos, now, shortId, sourceErrorMessage, stateNeedsScan, worktableDisplaySize, formatUpdated } from "./AppPrimitives";
@@ -173,9 +173,11 @@ export function ContactSheetPage({
   if (!workspace || !source) return <ErrorPage message={error ?? t("source.loadFailed")} />;
 
   const visiblePhotos = filter === "selected" ? photos.filter((photo) => selected.has(photo.id)) : photos;
+  const tablePhotoIds = tableDraft.entryOrder.map((itemId) => tableDraft.placements[itemId].photoId);
+  const tableSourceIds = new Set(tablePhotoIds);
   const tablePreviewIndex = tablePreviewPhotoId === undefined
     ? -1
-    : tableDraft.entryOrder.indexOf(tablePreviewPhotoId);
+    : tableDraft.entryOrder.findIndex((itemId) => tableDraft.placements[itemId].photoId === tablePreviewPhotoId);
   const visibleSources = workspace.sources.filter((item) => {
     if (item.removedAt) return false;
     return item.displayName.toLowerCase().includes(sourceSearch.trim().toLowerCase());
@@ -195,7 +197,7 @@ export function ContactSheetPage({
   const placeOnTable = async (ids: readonly PhotoId[]) => {
     const requested = ids.map((photoId) => photos.find((photo) => photo.id === photoId)).filter((photo): photo is PhotoRef => Boolean(photo));
     const before = tableSession.draft.entryOrder.length;
-    const result = tableSession.placePhotos(requested.map((photo) => ({ photoId: photo.id, ...worktableDisplaySize(photo.width, photo.height), filename: photo.relativePath.split(/[\\/]/).at(-1) ?? shortId(photo.id) })));
+    const result = tableSession.placePhotos(requested.map((photo) => ({ id: crypto.randomUUID() as WorktableItemId, photoId: photo.id, ...worktableDisplaySize(photo.width, photo.height), filename: photo.relativePath.split(/[\\/]/).at(-1) ?? shortId(photo.id) })));
     if (result.ok) {
       const added = result.value.draft.entryOrder.length - before;
       setSelected(new Set());
@@ -207,11 +209,11 @@ export function ContactSheetPage({
   };
   const toggleTable = async (photoId: PhotoId) => {
     const photo = photos.find((item) => item.id === photoId);
-    const inTable = tableSession.draft.placements[photoId];
-    const result = inTable
-      ? tableSession.execute({ type: "remove", photoIds: [photoId] })
+    const instances = tableSession.draft.entryOrder.filter((itemId) => tableSession.draft.placements[itemId].photoId === photoId);
+    const result = instances.length
+      ? tableSession.execute({ type: "remove", photoIds: instances })
       : photo
-        ? tableSession.placePhotos([{ photoId, ...worktableDisplaySize(photo.width, photo.height), filename: photo.relativePath.split(/[\\/]/).at(-1) ?? shortId(photoId) }])
+        ? tableSession.placePhotos([{ id: crypto.randomUUID() as WorktableItemId, photoId, ...worktableDisplaySize(photo.width, photo.height), filename: photo.relativePath.split(/[\\/]/).at(-1) ?? shortId(photoId) }])
         : undefined;
     if (result && !result.ok) setNotice("Table update could not be completed.");
   };
@@ -241,7 +243,7 @@ export function ContactSheetPage({
         </div>
         <div className="sheet-toolbar"><div className="filter-tabs"><button className={filter === "all" ? "is-active" : ""} onClick={() => setFilter("all")}>{t("source.all")} {Math.max(states[sourceId]?.indexedCount ?? 0, photos.length)}</button><button className={filter === "selected" ? "is-active" : ""} onClick={() => setFilter("selected")}>{t("common.selectedPhotos", { count: selected.size })}</button></div><div className="toolbar-actions"><button className="button button-secondary" onClick={() => setSelected(new Set(visiblePhotos.map((photo) => photo.id)))}>{t("source.selectAll")}</button><button className="button button-secondary" onClick={() => setSelected((current) => new Set(visiblePhotos.filter((photo) => !current.has(photo.id)).map((photo) => photo.id)))}>{t("source.invert")}</button><button className="button button-primary" disabled={!selected.size} onClick={() => void placeOnTable([...selected])}>{t("table.placeOnTable")}</button></div></div>
         {notice && <InlineNotice message={notice} />}
-        {visiblePhotos.length ? <VirtualPhotoGrid photos={visiblePhotos} selected={selected} tableIds={tableDraft.entryOrder} missingIds={missingPhotoIds} zoom={gridZoom} sourceRevision={sourceRevision} initialAnchorPhotoId={workspace.resumeContext?.sourceId === sourceId ? workspace.resumeContext.anchorPhotoId : undefined} onAnchorChange={setAnchorPhotoId} onToggle={toggleSelection} onOpen={(index) => setPreviewIndex(index)} onNearEnd={() => void loadMore()} onPhotoSourceError={handlePhotoSourceError} photoSource={dependencies.photoSource} /> : <EmptyPanel title={filter === "selected" ? t("source.noSelected") : t("source.noSupportedJpeg")} detail={filter === "selected" ? t("source.selectInAll") : t("source.noReadableJpeg")} />}
+        {visiblePhotos.length ? <VirtualPhotoGrid photos={visiblePhotos} selected={selected} tableIds={[...tableSourceIds]} missingIds={missingPhotoIds} zoom={gridZoom} sourceRevision={sourceRevision} initialAnchorPhotoId={workspace.resumeContext?.sourceId === sourceId ? workspace.resumeContext.anchorPhotoId : undefined} onAnchorChange={setAnchorPhotoId} onToggle={toggleSelection} onOpen={(index) => setPreviewIndex(index)} onNearEnd={() => void loadMore()} onPhotoSourceError={handlePhotoSourceError} photoSource={dependencies.photoSource} /> : <EmptyPanel title={filter === "selected" ? t("source.noSelected") : t("source.noSupportedJpeg")} detail={filter === "selected" ? t("source.selectInAll") : t("source.noReadableJpeg")} />}
         {loadingPage && <p className="loading-line">{t("source.loadingMore")}</p>}
       </section>
       <TablePreviewPanel
@@ -253,12 +255,12 @@ export function ContactSheetPage({
       />
       {previewIndex !== undefined && <PreviewOverlay photoIds={visiblePhotos.map((photo) => photo.id)} index={previewIndex} workspace={workspace} photoSource={dependencies.photoSource} onClose={() => setPreviewIndex(undefined)} onMove={setPreviewIndex} onToggleTable={toggleTable} onPhotoSourceError={handlePhotoSourceError} />}
       {tablePreviewIndex >= 0 && <PreviewOverlay
-        photoIds={tableDraft.entryOrder}
+        photoIds={tablePhotoIds}
         index={tablePreviewIndex}
         workspace={workspace}
         photoSource={dependencies.photoSource}
         onClose={() => setTablePreviewPhotoId(undefined)}
-        onMove={(index) => setTablePreviewPhotoId(tableDraft.entryOrder[index])}
+        onMove={(index) => setTablePreviewPhotoId(tableDraft.placements[tableDraft.entryOrder[index]].photoId)}
         onToggleTable={toggleTable}
         onPhotoSourceError={handlePhotoSourceError}
       />}

@@ -20,6 +20,25 @@ function createSession(onCommit = vi.fn()) {
 }
 
 describe("TableSession", () => {
+  it("copies selected photos as new Table instances without copying relations", () => {
+    const { session } = createSession();
+    session.selectPhotos([photoA, photoB]);
+    session.execute({ type: "create-group", photoIds: [photoA, photoB] });
+
+    expect(session.copySelection()).toBe(true);
+    const pasted = session.pasteSelection();
+
+    expect(pasted.ok).toBe(true);
+    if (!pasted.ok) return;
+    const addedIds = pasted.value.selectedPhotoIds;
+    expect(addedIds).toHaveLength(2);
+    expect(addedIds).not.toEqual([photoA, photoB]);
+    expect(addedIds.map((id) => pasted.value.draft.placements[id].photoId)).toEqual([photoA, photoB]);
+    expect(pasted.value.draft.groups).toHaveLength(1);
+    expect(pasted.value.draft.groups[0].photoIds).toEqual([photoA, photoB]);
+    expect(session.undo().draft.entryOrder).toEqual([photoA, photoB, photoC]);
+  });
+
   it("owns the editor, history and monotonic edit sequence behind one interface", () => {
     const { session, onCommit } = createSession();
     session.selectPhoto(photoA, false);

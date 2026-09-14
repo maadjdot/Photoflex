@@ -1,7 +1,7 @@
-import type { PhotoId, WorktableDraft, WorktablePlacement } from "../../contracts";
+import type { PhotoId, WorktableDraft, WorktableItemId, WorktablePlacement } from "../../contracts";
 
 interface SpatialPhoto {
-  readonly id: PhotoId;
+  readonly id: WorktableItemId;
   readonly placement: WorktablePlacement;
   readonly entryIndex: number;
 }
@@ -13,16 +13,16 @@ interface SpatialPhoto {
  */
 export function orderPhotoIdsByTablePosition(
   draft: WorktableDraft,
-  photoIds: readonly PhotoId[],
+  photoIds: readonly WorktableItemId[],
 ): PhotoId[] {
   const requested = new Set(photoIds);
   const positioned = draft.entryOrder
     .map((id, entryIndex) => ({ id, entryIndex, placement: draft.placements[id] }))
     .filter((item): item is SpatialPhoto => requested.has(item.id) && Boolean(item.placement));
   const byId = new Map(positioned.map((item) => [item.id, item]));
-  const outgoing = new Map(positioned.map((item) => [item.id, new Set<PhotoId>()]));
+  const outgoing = new Map(positioned.map((item) => [item.id, new Set<WorktableItemId>()]));
   const indegree = new Map(positioned.map((item) => [item.id, 0]));
-  const addBefore = (before: PhotoId, after: PhotoId) => {
+  const addBefore = (before: WorktableItemId, after: WorktableItemId) => {
     const targets = outgoing.get(before)!;
     if (targets.has(after)) return;
     targets.add(after);
@@ -50,7 +50,7 @@ export function orderPhotoIdsByTablePosition(
   while (available.length) {
     available.sort(horizontalOrder);
     const next = available.shift()!;
-    ordered.push(next.id);
+    ordered.push(next.placement.photoId);
     for (const targetId of outgoing.get(next.id) ?? []) {
       const remaining = (indegree.get(targetId) ?? 0) - 1;
       indegree.set(targetId, remaining);

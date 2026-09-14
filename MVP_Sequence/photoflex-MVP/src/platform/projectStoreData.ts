@@ -95,7 +95,8 @@ export function isWorkspace(value: unknown): value is ProjectWorkspace {
       typeof record.id === "string" &&
       typeof record.displayName === "string" &&
       typeof record.createdAt === "string" &&
-      (record.removedAt === undefined || typeof record.removedAt === "string")
+      (record.removedAt === undefined || typeof record.removedAt === "string") &&
+      (record.kind === undefined || record.kind === "folder" || record.kind === "external-files")
     );
   };
   const isResumeContext = (context: unknown): context is ProjectWorkspace["resumeContext"] => {
@@ -118,6 +119,7 @@ export function isWorkspace(value: unknown): value is ProjectWorkspace {
     const item = placement as Record<string, unknown>;
     return (
       typeof item.photoId === "string" &&
+      (item.id === undefined || typeof item.id === "string") &&
       [item.x, item.y, item.z].every((value) => typeof value === "number" && Number.isFinite(value)) &&
       [item.width, item.height].every((value) => typeof value === "number" && Number.isFinite(value) && value > 0) &&
       typeof item.filename === "string"
@@ -141,7 +143,7 @@ export function isWorkspace(value: unknown): value is ProjectWorkspace {
       if (!table.memos.every((memo) => memo && typeof memo.id === "string" && memo.id.length > 0 && typeof memo.text === "string"
         && [memo.x, memo.y, memo.width, memo.height, memo.fontSize, ...(memo.z === undefined ? [] : [memo.z])].every((value) => typeof value === "number" && Number.isFinite(value))
         && memo.width >= 120 && memo.height >= 80 && memo.fontSize >= 10 && memo.fontSize <= 72
-        && Array.isArray(memo.photoIds) && new Set(memo.photoIds).size === memo.photoIds.length && memo.photoIds.every((id: unknown) => typeof id === "string" && table.entryOrder.includes(id as PhotoId)))) return false;
+        && Array.isArray(memo.photoIds) && new Set(memo.photoIds).size === memo.photoIds.length && memo.photoIds.every((id: unknown) => typeof id === "string" && table.entryOrder.includes(id as ProjectWorkspace["worktableDraft"]["entryOrder"][number])))) return false;
     }
     if (!Array.isArray(table.groups) || !table.groups.every((group) => isRelation(group, 2))) return false;
     if (!Array.isArray(table.links) || !table.links.every((link) => isRelation(link, 2, 6))) return false;
@@ -157,7 +159,7 @@ export function isWorkspace(value: unknown): value is ProjectWorkspace {
     if (!table.entryOrder.every((photoId) => typeof photoId === "string" && isPlacement(table.placements[photoId as keyof typeof table.placements]))) return false;
     const entryIds = new Set<string>(table.entryOrder);
     return Object.entries(table.placements).length === entryIds.size
-      && Object.entries(table.placements).every(([photoId, placement]) => entryIds.has(photoId) && photoId === placement.photoId && isPlacement(placement));
+      && Object.entries(table.placements).every(([itemId, placement]) => entryIds.has(itemId) && ((placement.id ?? placement.photoId) === itemId) && isPlacement(placement));
   };
   const isPhotoStates = (states: unknown): boolean => {
     if (!states || typeof states !== "object" || Array.isArray(states)) return false;
@@ -212,7 +214,7 @@ export function validateSequenceForProject(
 export function migrateWorkspaceV2ToV3(value: Record<string, unknown>): Record<string, unknown> {
   const projectId = value.projectId as ProjectWorkspace["projectId"];
   const poolPhotoIds = Array.isArray(value.poolPhotoIds)
-    ? value.poolPhotoIds.filter((photoId): photoId is ProjectWorkspace["worktableDraft"]["entryOrder"][number] => typeof photoId === "string")
+    ? value.poolPhotoIds.filter((photoId): photoId is PhotoId => typeof photoId === "string")
     : [];
   const sources = Array.isArray(value.sources)
     ? value.sources.map((source) => {
@@ -277,6 +279,19 @@ export function migrateWorkspaceV4ToV5(value: Record<string, unknown>): Record<s
   };
   delete migrated.sequenceDraft;
   return migrated;
+}
+
+export function migrateWorkspaceV7ToV8(value: Record<string, unknown>): Record<string, unknown> {
+  const table = value.worktableDraft && typeof value.worktableDraft === "object"
+    ? value.worktableDraft as Record<string, unknown>
+    : undefined;
+  const placements = table?.placements && typeof table.placements === "object"
+    ? Object.fromEntries(Object.entries(table.placements as Record<string, Record<string, unknown>>).map(([id, placement]) => [id, { ...placement, id }]))
+    : table?.placements;
+  const sources = Array.isArray(value.sources)
+    ? value.sources.map((source) => source && typeof source === "object" ? { kind: "folder", ...(source as Record<string, unknown>) } : source)
+    : value.sources;
+  return { ...value, schemaVersion: WORKSPACE_SCHEMA_VERSION, sources, worktableDraft: table ? { ...table, placements } : table };
 }
 
 export function legacySequenceFromWorkspace(value: Record<string, unknown>): SequenceDocument | undefined {

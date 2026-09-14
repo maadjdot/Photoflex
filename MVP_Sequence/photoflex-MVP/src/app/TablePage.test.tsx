@@ -64,6 +64,55 @@ async function createPileFixture() {
 }
 
 describe("TablePage", () => {
+  it("copies selected photos into independent Table instances", async () => {
+    const dependencies = await createFixture();
+    render(<App dependencies={dependencies} />);
+    const stage = await screen.findByLabelText("Photo worktable");
+
+    fireEvent.keyDown(stage, { key: "a", ctrlKey: true });
+    fireEvent.keyDown(stage, { key: "c", ctrlKey: true });
+    fireEvent.keyDown(stage, { key: "v", ctrlKey: true });
+
+    await waitFor(() => expect(screen.getAllByLabelText("A.jpg")).toHaveLength(2));
+    const workspace = await dependencies.projectStore.loadWorkspace(projectId);
+    expect(workspace.ok && workspace.value.worktableDraft.entryOrder).toHaveLength(4);
+    if (!workspace.ok) return;
+    expect(workspace.value.worktableDraft.entryOrder.map((id) => workspace.value.worktableDraft.placements[id].photoId))
+      .toEqual([photoA, photoB, photoA, photoB]);
+  });
+
+  it("imports an OS-dropped JPEG and creates an External Imports source", async () => {
+    const dependencies = await createFixture();
+    const ingest = vi.spyOn(dependencies.photoSource, "ingestDroppedFiles");
+    const saveWorktable = vi.spyOn(dependencies.projectStore, "saveWorktable");
+    render(<App dependencies={dependencies} />);
+    const stage = await screen.findByLabelText("Photo worktable");
+    const handle = {
+      kind: "file" as const,
+      name: "outside.jpg",
+      async getFile() { return new File(["photo"], "outside.jpg", { type: "image/jpeg" }); },
+      async isSameEntry(other: FileSystemHandle) { return other === handle; },
+    } as unknown as FileSystemFileHandle;
+    const getAsFileSystemHandle = vi.fn(() => Promise.resolve(handle));
+
+    fireEvent.drop(stage, {
+      clientX: 400,
+      clientY: 300,
+      dataTransfer: { types: ["Files"], items: [{ getAsFileSystemHandle }], getData: () => "" },
+    });
+
+    expect(getAsFileSystemHandle).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(ingest).toHaveBeenCalledTimes(1));
+    expect(await ingest.mock.results[0].value).toMatchObject({ ok: true, value: { items: [{ status: "created" }] } });
+    await waitFor(() => expect(saveWorktable).toHaveBeenCalled());
+    await waitFor(async () => {
+      const workspace = await dependencies.projectStore.loadWorkspace(projectId);
+      expect(workspace.ok && workspace.value.sources.some((source) => source.kind === "external-files")).toBe(true);
+      expect(workspace.ok && workspace.value.worktableDraft.entryOrder).toHaveLength(3);
+    });
+    expect(await screen.findByLabelText("outside.jpg")).toBeTruthy();
+  });
+
   it("keeps failed edits open when leaving and can save an independent recovery copy", async () => {
     const dependencies = await createFixture();
     render(<App dependencies={dependencies} />);

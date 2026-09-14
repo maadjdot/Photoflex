@@ -17,7 +17,7 @@ import rowIcon from "../assets/icons/table-row.svg";
 import sequenceIcon from "../assets/icons/table-sequence.svg";
 import shuffleIcon from "../assets/icons/table-swap.svg";
 import undoIcon from "../assets/icons/table-undo.svg";
-import type { PhotoId, SequenceId, WorktableAlignment, WorktableDraft, WorktableEditCommand, WorktableMemo } from "../contracts";
+import type { PhotoId, SequenceId, WorktableAlignment, WorktableDraft, WorktableEditCommand, WorktableItemId, WorktableMemo } from "../contracts";
 import type { TableActionState } from "./tableActionPolicy";
 import { useLocale } from "./locale";
 
@@ -33,7 +33,7 @@ interface TableFloatingToolbarProps {
   readonly onExecute: (command: WorktableEditCommand) => void;
   readonly canAddToSequence?: boolean;
   readonly onAddToSequence?: () => void;
-  readonly onRequestSequence?: (photoIds: readonly PhotoId[]) => void;
+  readonly onRequestSequence?: (photoIds: readonly WorktableItemId[]) => void;
 }
 
 export function TableFloatingToolbar({ storageKey = "photoflex:table-toolbar", actions, canUndo, canRedo, onUndo, onRedo, onExecute, onAddMemo, selectedMemo, canAddToSequence = false, onAddToSequence, onRequestSequence }: TableFloatingToolbarProps) {
@@ -113,27 +113,28 @@ export interface TableContextToolbarProps {
   readonly actions: TableActionState;
   readonly canAddToSequence: boolean;
   readonly onExecute: (command: WorktableEditCommand) => void;
-  readonly onRequestSequence: (photoIds: readonly PhotoId[]) => void;
+  readonly onRequestSequence: (photoIds: readonly WorktableItemId[]) => void;
   readonly onAddToSequence: () => void;
   readonly onPreview: (photoId: PhotoId) => void;
   readonly onComparePhotos: (photoIds: readonly [PhotoId, PhotoId]) => void;
   readonly onCompareSequences: (sequenceIds: readonly [SequenceId, SequenceId]) => void;
   readonly onRemovePiles: (sequenceIds: readonly SequenceId[]) => void;
-  readonly onRemovePhotos: (photoIds: readonly PhotoId[]) => void;
+  readonly onRemovePhotos: (photoIds: readonly WorktableItemId[]) => void;
 }
 
 /** Both command surfaces emit the same intents as before; the canvas owns selection. */
 export function TableContextToolbar({ draft, actions, canAddToSequence, onExecute, onRequestSequence, onAddToSequence, onPreview, onComparePhotos, onCompareSequences, onRemovePiles, onRemovePhotos }: TableContextToolbarProps) {
   const { t } = useLocale();
   const { photoIds, pileIds, selectedGroup: group, memberGroup, selectedLink } = actions;
+  const sourcePhotoIds = photoIds.map((id) => draft.placements[id].photoId);
   const compare = () => {
     if (actions.compareKind === "sequences") onCompareSequences([pileIds[0], pileIds[1]]);
-    if (actions.compareKind === "photos") onComparePhotos([photoIds[0], photoIds[1]]);
+    if (actions.compareKind === "photos") onComparePhotos([sourcePhotoIds[0], sourcePhotoIds[1]]);
   };
   if (!photoIds.length && !pileIds.length) return null;
   return <div className="table-context-toolbar-position"><div className="table-context-toolbar" role="group" aria-label={t("table.selectionActions")}>
     {photoIds.length > 0 && <>
-      {actions.canPreview && <TableToolButton icon={previewIcon} label={t("table.preview")} onClick={() => onPreview(photoIds[0])} />}
+      {actions.canPreview && <TableToolButton icon={previewIcon} label={t("table.preview")} onClick={() => onPreview(sourcePhotoIds[0])} />}
       <TableToolButton icon={groupIcon} label={group ? t("table.ungroup") : t("table.group")} disabled={!group && !actions.canGroup} onClick={() => group ? onExecute({ type: "remove-group", groupId: group.id }) : onExecute({ type: "create-group", photoIds })} />
       <TableToolButton icon={linkIcon} label={selectedLink ? t("table.unlink") : t("table.link")} disabled={!selectedLink && !actions.canCreateLink} onClick={() => selectedLink ? onExecute({ type: "remove-link", linkId: selectedLink.id }) : onExecute({ type: "create-link", photoIds })} />
     </>}

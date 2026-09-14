@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import type { PhotoId, ProjectId, SequenceId, WorktableDraft, WorktablePlacementSeed } from "../../contracts";
+import type { PhotoId, ProjectId, SequenceId, WorktableDraft, WorktableItemId, WorktablePlacementSeed } from "../../contracts";
 import { createEmptyWorktable, createWorktableEditor } from "./worktableEditor";
 
 const projectId = "project-1" as ProjectId;
@@ -12,6 +12,24 @@ const seed = (id: string, width = 196, height = 146): WorktablePlacementSeed => 
 });
 
 describe("WorktableEditor", () => {
+  it("creates independent Table instances that reference the same source photo", () => {
+    const editor = createWorktableEditor(createEmptyWorktable(projectId));
+    const result = editor.execute({
+      type: "place",
+      items: [
+        { ...seed("source-a"), id: photoId("instance-a") },
+        { ...seed("source-a"), id: photoId("instance-b") },
+      ],
+      at: { x: 100, y: 100 },
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.entryOrder).toEqual(["instance-a", "instance-b"]);
+    expect(result.value.placements[photoId("instance-a")]).toMatchObject({ id: "instance-a", photoId: "source-a" });
+    expect(result.value.placements[photoId("instance-b")]).toMatchObject({ id: "instance-b", photoId: "source-a" });
+  });
+
   it("preserves memos across edits and undo, and cleans photo links on removal", () => {
     const editor = createWorktableEditor(createEmptyWorktable(projectId));
     editor.execute({ type: "place", items: [seed("a")] });
@@ -397,11 +415,11 @@ function horizontalGaps(draft: WorktableDraft) {
   return horizontalGapsFor(draft, draft.entryOrder);
 }
 
-function horizontalGapsFor(draft: WorktableDraft, photoIds: readonly PhotoId[]) {
+function horizontalGapsFor(draft: WorktableDraft, photoIds: readonly WorktableItemId[]) {
   const placements = photoIds.map((id) => draft.placements[id]).sort((left, right) => left.x - right.x);
   return placements.slice(1).map((placement, index) => placement.x - (placements[index].x + placements[index].width));
 }
 
-function spatialOrder(draft: WorktableDraft, photoIds: readonly PhotoId[]) {
+function spatialOrder(draft: WorktableDraft, photoIds: readonly WorktableItemId[]) {
   return [...photoIds].sort((leftId, rightId) => draft.placements[leftId].x - draft.placements[rightId].x);
 }

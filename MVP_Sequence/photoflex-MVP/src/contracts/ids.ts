@@ -3,6 +3,11 @@ export type Brand<T, Name extends string> = T & { readonly __brand: Name };
 export type ProjectId = Brand<string, "ProjectId">;
 export type SourceId = Brand<string, "SourceId">;
 export type PhotoId = Brand<string, "PhotoId">;
+/** Stable identity for one visual occurrence on a Table. */
+// PhotoId remains accepted for legacy workspaces whose first Table occurrence
+// used the source id. The reverse assignment is rejected, so Table instance
+// ids cannot accidentally cross into PhotoSource or Sequence APIs.
+export type WorktableItemId = Brand<string, "PhotoId" | "WorktableItemId">;
 export type SequenceId = Brand<string, "SequenceId">;
 export type SequenceItemId = Brand<string, "SequenceItemId">;
 export type ReadingUnitId = Brand<string, "ReadingUnitId">;

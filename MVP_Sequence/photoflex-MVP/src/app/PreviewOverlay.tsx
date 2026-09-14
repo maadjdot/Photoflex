@@ -88,7 +88,9 @@ export function PreviewOverlay({ photoIds, index, workspace, photoSource, onClos
     return () => dialog.removeEventListener("wheel", onPreviewWheel);
   }, []);
 
-  const inTable = Boolean(workspace.worktableDraft.placements[photoId]);
+  const inTable = workspace.worktableDraft.entryOrder.some(
+    (itemId) => workspace.worktableDraft.placements[itemId]?.photoId === photoId,
+  );
   const label = photo?.relativePath ?? shortId(photoId);
   const fitScale = naturalSize && imageWrapSize
     ? Math.min(imageWrapSize.width / naturalSize.width, imageWrapSize.height / naturalSize.height)

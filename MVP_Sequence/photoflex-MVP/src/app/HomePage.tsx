@@ -62,10 +62,10 @@ export function HomePage({
         return;
       }
       const workspace = result.value;
-      const rows = await Promise.all(createHomeGallery(workspace.worktableDraft.entryOrder).map((row) =>
+      const rows = await Promise.all(createHomeGallery(workspace.worktableDraft.entryOrder.map((itemId) => workspace.worktableDraft.placements[itemId].photoId)).map((row) =>
         Promise.all(row.map(async (item) => {
           const photo = await dependencies.photoSource.getPhoto(item.photoId);
-          const fallback = workspace.worktableDraft.placements[item.photoId];
+          const fallback = workspace.worktableDraft.entryOrder.map((itemId) => workspace.worktableDraft.placements[itemId]).find((placement) => placement.photoId === item.photoId);
           const width = photo.ok ? photo.value.width : fallback?.width ?? 1;
           const height = photo.ok ? photo.value.height : fallback?.height ?? 1;
           return { ...item, isPortrait: height > width };

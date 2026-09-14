@@ -21,6 +21,7 @@ import type {
   SourceError,
   WorktableDraft,
   WorktableEditCommand,
+  WorktableItemId,
   WorktablePoint,
   WorktableViewport,
 } from "../contracts";
@@ -45,14 +46,16 @@ export interface TableCanvasHandle {
 
 interface TableCanvasSession {
   readonly draft: WorktableDraft;
-  readonly selectedPhotoIds: readonly PhotoId[];
+  readonly selectedPhotoIds: readonly WorktableItemId[];
   readonly selectedPileIds: readonly SequenceId[];
   readonly execute: (command: WorktableEditCommand) => unknown;
   readonly undo: () => unknown;
   readonly redo: () => unknown;
-  readonly selectPhoto: (photoId: PhotoId, toggle: boolean) => readonly PhotoId[] | undefined;
+  readonly copySelection: () => boolean;
+  readonly pasteSelection: () => unknown;
+  readonly selectPhoto: (photoId: WorktableItemId, toggle: boolean) => readonly WorktableItemId[] | undefined;
   readonly selectPile: (sequenceId: SequenceId, toggle: boolean) => readonly SequenceId[] | undefined;
-  readonly selectPhotos: (photoIds: readonly PhotoId[], additive?: boolean) => unknown;
+  readonly selectPhotos: (photoIds: readonly WorktableItemId[], additive?: boolean) => unknown;
   readonly selectAllPhotos: () => unknown;
   readonly clearSelection: () => unknown;
 }
@@ -65,8 +68,9 @@ interface TableCanvasProps {
   readonly onViewportChange: (viewport: WorktableViewport) => void;
   readonly onOpenPhoto: (photoId: PhotoId) => void;
   readonly onOpenSequence: (sequenceId: SequenceId) => void;
-  readonly onRequestSequence: (photoIds: readonly PhotoId[]) => void;
+  readonly onRequestSequence: (photoIds: readonly WorktableItemId[]) => void;
   readonly onDropPhotos: (photoIds: readonly PhotoId[], point: WorktablePoint) => void;
+  readonly onDropExternalFiles: (handles: readonly FileSystemHandle[], point: WorktablePoint) => void;
   readonly selectedMemoId?: string;
   readonly onSelectMemo?: (id: string | undefined) => void;
   readonly onSelectPile?: (sequenceId: SequenceId) => void;
@@ -89,6 +93,7 @@ export const TableCanvas = forwardRef<TableCanvasHandle, TableCanvasProps>(funct
     onOpenSequence,
     onRequestSequence,
     onDropPhotos,
+    onDropExternalFiles,
     onRemovePiles,
     onPhotoError,
     missingPhotoIds,
@@ -98,10 +103,10 @@ export const TableCanvas = forwardRef<TableCanvasHandle, TableCanvasProps>(funct
   const { draft, selectedPhotoIds, selectedPileIds } = session;
   const [viewport, setViewportState] = useState(initialViewport);
   const [stageSize, setStageSize] = useState({ width: 0, height: 0 });
-  const [retainedPhotoIds, setRetainedPhotoIds] = useState<ReadonlySet<PhotoId>>(new Set());
+  const [retainedPhotoIds, setRetainedPhotoIds] = useState<ReadonlySet<WorktableItemId>>(new Set());
   const stageRef = useRef<HTMLDivElement>(null);
   const viewportRef = useRef(viewport);
-  const photoRetentionRef = useRef(new Map<PhotoId, number>());
+  const photoRetentionRef = useRef(new Map<WorktableItemId, number>());
   const photoRetentionTimerRef = useRef<number | undefined>(undefined);
   viewportRef.current = viewport;
 
@@ -112,11 +117,11 @@ export const TableCanvas = forwardRef<TableCanvasHandle, TableCanvasProps>(funct
     [draft, stageSize, viewport],
   );
   const mountedPhotoIds = useMemo(
-    () => new Set<PhotoId>([...retainedPhotoIds, ...visiblePhotoIds]),
+    () => new Set<WorktableItemId>([...retainedPhotoIds, ...visiblePhotoIds]),
     [retainedPhotoIds, visiblePhotoIds],
   );
   const renderedPhotoIds = useMemo(
-    () => new Set<PhotoId>([...mountedPhotoIds, ...selectedPhotoIds]),
+    () => new Set<WorktableItemId>([...mountedPhotoIds, ...selectedPhotoIds]),
     [mountedPhotoIds, selectedPhotoIds],
   );
   const summaryById = useMemo(
@@ -271,6 +276,17 @@ export const TableCanvas = forwardRef<TableCanvasHandle, TableCanvasProps>(funct
 
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (interactionDisabled) return;
+    const target = event.target as HTMLElement;
+    if (target.matches("input, textarea, [contenteditable='true']")) return;
+    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "c") {
+      if (session.copySelection()) event.preventDefault();
+      return;
+    }
+    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "v") {
+      event.preventDefault();
+      session.pasteSelection();
+      return;
+    }
     if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "a") {
       event.preventDefault();
       session.selectAllPhotos();
@@ -311,17 +327,28 @@ export const TableCanvas = forwardRef<TableCanvasHandle, TableCanvasProps>(funct
       onPointerUp={(event) => gestures.finishGesture(event)}
       onPointerCancel={(event) => gestures.finishGesture(event, true)}
       onDragOver={(event) => {
-        if (event.dataTransfer.types.includes("application/x-photoflex-photo")) event.preventDefault();
+        if (event.dataTransfer.types.includes("application/x-photoflex-photo") || event.dataTransfer.types.includes("Files")) event.preventDefault();
       }}
       onDrop={(event) => {
         const raw = event.dataTransfer.getData("application/x-photoflex-photo");
-        if (!raw) return;
         event.preventDefault();
-        const photoIds = raw.split(",").map((id) => id.trim()).filter(Boolean) as PhotoId[];
-        if (photoIds.length) {
-          const rect = stageRef.current?.getBoundingClientRect();
-          if (rect) onDropPhotos(photoIds, screenToWorld({ x: event.clientX, y: event.clientY }, rect, viewportRef.current));
+        const rect = stageRef.current?.getBoundingClientRect();
+        if (!rect) return;
+        const point = screenToWorld({
+          x: Number.isFinite(event.clientX) ? event.clientX : rect.left + rect.width / 2,
+          y: Number.isFinite(event.clientY) ? event.clientY : rect.top + rect.height / 2,
+        }, rect, viewportRef.current);
+        if (raw) {
+          const photoIds = raw.split(",").map((id) => id.trim()).filter(Boolean) as PhotoId[];
+          if (photoIds.length) onDropPhotos(photoIds, point);
+          return;
         }
+        const handlePromises = Array.from(event.dataTransfer.items).flatMap((item) => {
+          const getHandle = (item as DataTransferItem & { getAsFileSystemHandle?: () => Promise<FileSystemHandle | null> }).getAsFileSystemHandle;
+          return getHandle ? [getHandle.call(item)] : [];
+        });
+        if (!handlePromises.length) { onDropExternalFiles([], point); return; }
+        void Promise.all(handlePromises).then((handles) => onDropExternalFiles(handles.filter((handle): handle is FileSystemHandle => Boolean(handle)), point));
       }}
       onContextMenu={(event) => event.preventDefault()}
       onKeyDown={onKeyDown}
@@ -349,16 +376,16 @@ export const TableCanvas = forwardRef<TableCanvasHandle, TableCanvasProps>(funct
             <article
               key={id}
               aria-label={item.filename}
-              className={`worktable-card${chosen ? " is-selected" : ""}${dragging ? " is-dragging" : ""}${missingPhotoIds.has(id) ? " is-missing" : ""}`}
+              className={`worktable-card${chosen ? " is-selected" : ""}${dragging ? " is-dragging" : ""}${missingPhotoIds.has(item.photoId) ? " is-missing" : ""}`}
               style={{ width: item.width * scale, height: item.height * scale, zIndex: item.z, transform: `translate3d(${item.x + delta.x}px,${item.y + delta.y}px,0)` }}
               onPointerDown={(event) => gestures.onPhotoPointerDown(event, id)}
-              onDoubleClick={() => onOpenPhoto(id)}
+              onDoubleClick={() => onOpenPhoto(item.photoId)}
             >
               <div className="worktable-photo" style={{ height: item.height * scale }}>
                 {mountedPhotoIds.has(id)
-                  ? <PhotoThumb photoSource={photoSource} photoId={id} alt={item.filename} onError={onPhotoError} resolution="table" progressiveTo={visiblePhotoIds.has(id) ? tablePreviewEdge(viewport.zoom, chosen) : 768} />
+                  ? <PhotoThumb photoSource={photoSource} photoId={item.photoId} alt={item.filename} onError={onPhotoError} resolution="table" progressiveTo={visiblePhotoIds.has(id) ? tablePreviewEdge(viewport.zoom, chosen) : 768} />
                   : <div className="thumb-placeholder" aria-hidden="true" />}
-                {missingPhotoIds.has(id) && <span className="worktable-missing">{t("status.missing")}</span>}
+                {missingPhotoIds.has(item.photoId) && <span className="worktable-missing">{t("status.missing")}</span>}
               </div>
               {chosen && selectedPhotoIds.length === 1 && <button aria-label="Resize photo" className="worktable-resize-handle" onPointerDown={(event) => gestures.onPhotoResizePointerDown(event, id)} />}
             </article>
@@ -405,7 +432,7 @@ export const TableCanvas = forwardRef<TableCanvasHandle, TableCanvasProps>(funct
   );
 });
 
-function groupBounds(draft: WorktableDraft, ids: readonly PhotoId[]) {
+function groupBounds(draft: WorktableDraft, ids: readonly WorktableItemId[]) {
   const placements = ids.map((id) => draft.placements[id]);
   const contentLeft = Math.min(...placements.map((item) => item.x));
   const contentTop = Math.min(...placements.map((item) => item.y));
@@ -421,7 +448,7 @@ function groupBounds(draft: WorktableDraft, ids: readonly PhotoId[]) {
   };
 }
 
-function setsEqual(left: ReadonlySet<PhotoId>, right: ReadonlySet<PhotoId>) {
+function setsEqual(left: ReadonlySet<WorktableItemId>, right: ReadonlySet<WorktableItemId>) {
   return left.size === right.size && [...left].every((id) => right.has(id));
 }
 

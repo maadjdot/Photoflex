@@ -15,6 +15,7 @@ afterEach(async () => {
 interface TestDirectory {
   readonly handle: FileSystemDirectoryHandle;
   readonly files: Map<string, File>;
+  fileHandle(name: string): FileSystemFileHandle;
   getFileReadCount(): number;
   setPermission(permission: PermissionState): void;
 }
@@ -26,13 +27,17 @@ function createDirectory(identity: string, displayName: string, names: readonly 
   const makeFileHandle = (name: string): FileSystemFileHandle => ({
     kind: "file",
     name,
+    identity: `${identity}/${name}`,
+    async isSameEntry(other: FileSystemHandle) {
+      return (other as FileSystemHandle & { identity?: string }).identity === `${identity}/${name}`;
+    },
     getFile: async () => {
       fileReadCount += 1;
       const file = files.get(name);
       if (!file) throw new DOMException("File not found", "NotFoundError");
       return file;
     },
-  } as FileSystemFileHandle);
+  } as unknown as FileSystemFileHandle);
   const directory = {
     kind: "directory" as const,
     name: displayName,
@@ -50,6 +55,11 @@ function createDirectory(identity: string, displayName: string, names: readonly 
     async *entries() {
       for (const name of files.keys()) yield [name, makeFileHandle(name)] as [string, FileSystemFileHandle];
     },
+    async resolve(candidate: FileSystemHandle) {
+      const candidateIdentity = (candidate as FileSystemHandle & { identity?: string }).identity;
+      const prefix = `${identity}/`;
+      return candidateIdentity?.startsWith(prefix) ? [candidateIdentity.slice(prefix.length)] : null;
+    },
     async getDirectoryHandle() {
       throw new DOMException("Directory not found", "NotFoundError");
     },
@@ -62,6 +72,7 @@ function createDirectory(identity: string, displayName: string, names: readonly 
   return {
     files,
     handle: directory as unknown as FileSystemDirectoryHandle,
+    fileHandle: makeFileHandle,
     getFileReadCount: () => fileReadCount,
     setPermission(next) {
       permission = next;
@@ -76,6 +87,80 @@ async function scanToEnd(source: BrowserPhotoSource, sourceId: SourceId) {
 }
 
 describe("BrowserPhotoSource", () => {
+  it("imports an external JPEG once and reuses its source photo on a later drop", async () => {
+    const sourceId = "external-source" as SourceId;
+    const identity = "external-file-a";
+    const handle = {
+      kind: "file" as const,
+      name: "outside.jpg",
+      identity,
+      async isSameEntry(other: FileSystemHandle) { return (other as FileSystemHandle & { identity?: string }).identity === identity; },
+      async queryPermission() { return "granted" as PermissionState; },
+      async getFile() { return new File(["jpeg"], "outside.jpg", { type: "image/jpeg", lastModified: 12 }); },
+    } as unknown as FileSystemFileHandle;
+    const source = new BrowserPhotoSource({ databaseName: `external-${crypto.randomUUID()}` });
+    databases.push(source);
+
+    const first = await source.ingestDroppedFiles([handle], [], sourceId);
+    const second = await source.ingestDroppedFiles([handle], [], sourceId);
+
+    expect(first.ok && first.value.items[0].status).toBe("created");
+    expect(second.ok && second.value.items[0].status).toBe("reused");
+    expect(first.ok && second.ok && first.value.items[0].photo.id).toBe(second.ok ? second.value.items[0].photo.id : undefined);
+    expect(first.ok && first.value.items[0].photo).toMatchObject({ sourceId, locationKind: "file-handle" });
+  });
+
+  it("rebinds a reused external photo to the newly dropped authorized handle", async () => {
+    const sourceId = "external-source" as SourceId;
+    let oldPermission: PermissionState = "granted";
+    const makeHandle = (permission: () => PermissionState) => ({
+      kind: "file" as const,
+      name: "recover.jpg",
+      identity: "recover-original",
+      async isSameEntry(other: FileSystemHandle) {
+        return (other as FileSystemHandle & { identity?: string }).identity === "recover-original";
+      },
+      async queryPermission() { return permission(); },
+      async getFile() { return new File(["jpeg"], "recover.jpg", { type: "image/jpeg" }); },
+    } as unknown as FileSystemFileHandle);
+    const source = new BrowserPhotoSource({ databaseName: `external-rebind-${crypto.randomUUID()}` });
+    databases.push(source);
+    const first = await source.ingestDroppedFiles([makeHandle(() => oldPermission)], [], sourceId);
+    if (!first.ok) throw Error("first import failed");
+    oldPermission = "denied";
+    expect(await source.preview(first.value.items[0].photo.id)).toMatchObject({ ok: false, error: { kind: "permission-lost" } });
+
+    const rebound = await source.ingestDroppedFiles([makeHandle(() => "granted")], [], sourceId);
+
+    expect(rebound).toMatchObject({ ok: true, value: { items: [{ status: "reused", photo: { id: first.value.items[0].photo.id } }] } });
+    expect((await source.preview(first.value.items[0].photo.id)).ok).toBe(true);
+  });
+
+  it("reuses a photo already indexed under an authorized folder source", async () => {
+    const directory = createDirectory("folder-drop", "Folder", ["inside.jpg"]);
+    const source = new BrowserPhotoSource({
+      databaseName: `folder-drop-${crypto.randomUUID()}`,
+      picker: async () => directory.handle,
+    });
+    databases.push(source);
+    const grant = await source.chooseFolder([]);
+    if (!grant.ok) throw Error("folder grant failed");
+    await scanToEnd(source, grant.value.sourceId);
+    const indexed = await source.listPhotos(grant.value.sourceId);
+    if (!indexed.ok) throw Error("folder index failed");
+
+    const dropped = await source.ingestDroppedFiles(
+      [directory.fileHandle("inside.jpg")],
+      [{ id: grant.value.sourceId, displayName: "Folder", createdAt: new Date(0).toISOString(), kind: "folder" }],
+      "external-source" as SourceId,
+    );
+
+    expect(dropped.ok && dropped.value.items[0]).toMatchObject({
+      status: "reused",
+      photo: { id: indexed.value.items[0].id, sourceId: grant.value.sourceId, relativePath: "inside.jpg" },
+    });
+  });
+
   it("reconnects an imported folder without changing restored photo IDs and rejects an unrelated folder", async () => {
     const databaseName = `restore-folder-${crypto.randomUUID()}`;
     const store = IndexedDbProjectStore.open({ databaseName });
@@ -93,7 +178,9 @@ describe("BrowserPhotoSource", () => {
     expect(await source.restoreFolder(sourceId)).toMatchObject({ ok: true, value: { sourceId } });
     await scanToEnd(source, sourceId);
     const page = await source.listPhotos(sourceId);
-    expect(page.ok && page.value.items.map((p) => p.id)).toEqual(workspace.value.worktableDraft.entryOrder);
+    expect(page.ok && page.value.items.map((p) => p.id)).toEqual(
+      workspace.value.worktableDraft.entryOrder.map((id) => workspace.value.worktableDraft.placements[id].photoId),
+    );
     expect(page.ok && page.value.items.map((p) => p.relativePath)).toEqual(["one.jpg", "two.jpg"]);
     await store.close();
   });

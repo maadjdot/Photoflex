@@ -75,12 +75,12 @@ describe("IndexedDB schema 0 → 1", () => {
     const migrated = await requestValue<Record<string, unknown>>(
       opened.value.transaction(STORE_NAMES.projects, "readonly").objectStore(STORE_NAMES.projects).get("legacy-project"),
     );
-    expect(migrated.schemaVersion).toBe(7);
+    expect(migrated.schemaVersion).toBe(8);
     expect(migrated.memo).toBe("");
     expect(migrated.expectedPhotoCount).toBeNull();
     expect(migrated.lastOpenedAt).toBe("2026-08-26T08:10:00.000Z");
     expect(migrated.sources).toEqual([
-      { id: "source-1", displayName: "Photos", createdAt: "2026-08-26T08:00:00.000Z" },
+      { id: "source-1", displayName: "Photos", createdAt: "2026-08-26T08:00:00.000Z", kind: "folder" },
     ]);
     expect(migrated).not.toHaveProperty("poolPhotoIds");
     expect(migrated.photoStates).toEqual({});
@@ -88,8 +88,8 @@ describe("IndexedDB schema 0 → 1", () => {
       projectId: "legacy-project",
       entryOrder: ["legacy-photo-a", "legacy-photo-b"],
       placements: {
-        "legacy-photo-a": { x: 64, y: 64, width: 235, height: 175 },
-        "legacy-photo-b": { x: 347, y: 64, width: 235, height: 175 },
+        "legacy-photo-a": { id: "legacy-photo-a", x: 64, y: 64, width: 235, height: 175 },
+        "legacy-photo-b": { id: "legacy-photo-b", x: 347, y: 64, width: 235, height: 175 },
       },
       groups: [],
       links: [],
@@ -171,12 +171,12 @@ describe("IndexedDB schema 0 → 1", () => {
     const version = await requestValue<Record<string, unknown>>(opened.value.transaction(STORE_NAMES.versions, "readonly").objectStore(STORE_NAMES.versions).get(currentVersionId));
     expect(version).toMatchObject({ name: "Initial · Street Edit", sequenceId: "sequence-a" });
     const workspace = await requestValue<Record<string, unknown>>(opened.value.transaction(STORE_NAMES.projects, "readonly").objectStore(STORE_NAMES.projects).get("sequence-project"));
-    expect(workspace).toMatchObject({ schemaVersion: 7, versionIds: [currentVersionId] });
+    expect(workspace).toMatchObject({ schemaVersion: 8, versionIds: [currentVersionId] });
     opened.value.close(); await deleteDatabase(databaseName);
   });
 });
 
-describe("IndexedDB schema 8 → 9", () => {
+describe("IndexedDB schema 8 → 10", () => {
   it("upgrades schema 6 workspaces for persistent deletion recovery", async () => {
     const databaseName = `photoflex-deletion-recovery-${crypto.randomUUID()}`;
     const legacy = await new Promise<IDBDatabase>((resolve, reject) => {
@@ -217,7 +217,8 @@ describe("IndexedDB schema 8 → 9", () => {
     const migrated = await requestValue<Record<string, unknown>>(
       opened.value.transaction(STORE_NAMES.projects, "readonly").objectStore(STORE_NAMES.projects).get("pending-deletion-project"),
     );
-    expect(migrated.schemaVersion).toBe(7);
+    expect(migrated.schemaVersion).toBe(8);
+    expect(opened.value.objectStoreNames.contains(STORE_NAMES.photoFileHandles)).toBe(true);
     expect(migrated).not.toHaveProperty("deletionPendingAt");
     opened.value.close();
     await deleteDatabase(databaseName);

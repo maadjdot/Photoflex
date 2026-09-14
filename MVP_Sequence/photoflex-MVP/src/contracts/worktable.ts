@@ -1,4 +1,4 @@
-import type { PhotoId, ProjectId, Result, SequenceId } from "./ids";
+import type { PhotoId, ProjectId, Result, SequenceId, WorktableItemId } from "./ids";
 
 export interface WorktablePoint {
   readonly x: number;
@@ -12,6 +12,8 @@ export interface WorktableViewport {
 }
 
 export interface WorktablePlacement extends WorktablePoint {
+  /** Missing only on legacy in-memory fixtures; persisted workspaces are migrated. */
+  readonly id?: WorktableItemId;
   readonly photoId: PhotoId;
   readonly z: number;
   readonly width: number;
@@ -23,14 +25,14 @@ export interface WorktablePlacement extends WorktablePoint {
 export interface WorktableGroup {
   readonly id: string;
   readonly name: string;
-  readonly photoIds: readonly PhotoId[];
+  readonly photoIds: readonly WorktableItemId[];
 }
 
 /** A weak Table-only relationship rendered as a chain between members. */
 export interface WorktableLink {
   readonly id: string;
   readonly name: string;
-  readonly photoIds: readonly PhotoId[];
+  readonly photoIds: readonly WorktableItemId[];
 }
 
 export interface WorktableSequencePilePlacement extends WorktablePoint {
@@ -48,15 +50,15 @@ export interface WorktableMemo extends WorktablePoint {
   readonly width: number;
   readonly height: number;
   readonly fontSize: number;
-  readonly photoIds: readonly PhotoId[];
+  readonly photoIds: readonly WorktableItemId[];
 }
 
 export interface WorktableDraft {
   /** Optional for projects saved before Table memos were introduced. */
   readonly memos?: readonly WorktableMemo[];
   readonly projectId: ProjectId;
-  readonly entryOrder: readonly PhotoId[];
-  readonly placements: Readonly<Record<PhotoId, WorktablePlacement>>;
+  readonly entryOrder: readonly WorktableItemId[];
+  readonly placements: Readonly<Record<WorktableItemId, WorktablePlacement>>;
   readonly groups: readonly WorktableGroup[];
   readonly links: readonly WorktableLink[];
   readonly pileOrder: readonly SequenceId[];
@@ -64,10 +66,15 @@ export interface WorktableDraft {
 }
 
 export interface WorktablePlacementSeed {
+  /** Defaults to photoId for legacy callers and the first Table occurrence. */
+  readonly id?: WorktableItemId;
   readonly photoId: PhotoId;
   readonly width: number;
   readonly height: number;
   readonly filename: string;
+  /** Optional relative geometry used when duplicating a batch. */
+  readonly x?: number;
+  readonly y?: number;
 }
 
 export type WorktableAlignment =
@@ -92,29 +99,29 @@ export type WorktableEditCommand =
       readonly items: readonly WorktablePlacementSeed[];
       readonly at?: WorktablePoint;
     }
-  | { readonly type: "move"; readonly photoIds: readonly PhotoId[]; readonly by: WorktablePoint }
-  | { readonly type: "resize"; readonly photoIds: readonly PhotoId[]; readonly scale: number }
-  | { readonly type: "arrange"; readonly photoIds: readonly PhotoId[]; readonly layout: WorktableLayout }
-  | { readonly type: "shuffle"; readonly photoIds: readonly PhotoId[] }
-  | { readonly type: "create-group"; readonly photoIds: readonly PhotoId[] }
-  | { readonly type: "add-to-group"; readonly groupId: string; readonly photoId: PhotoId }
-  | { readonly type: "remove-from-group"; readonly photoId: PhotoId }
+  | { readonly type: "move"; readonly photoIds: readonly WorktableItemId[]; readonly by: WorktablePoint }
+  | { readonly type: "resize"; readonly photoIds: readonly WorktableItemId[]; readonly scale: number }
+  | { readonly type: "arrange"; readonly photoIds: readonly WorktableItemId[]; readonly layout: WorktableLayout }
+  | { readonly type: "shuffle"; readonly photoIds: readonly WorktableItemId[] }
+  | { readonly type: "create-group"; readonly photoIds: readonly WorktableItemId[] }
+  | { readonly type: "add-to-group"; readonly groupId: string; readonly photoId: WorktableItemId }
+  | { readonly type: "remove-from-group"; readonly photoId: WorktableItemId }
   | { readonly type: "remove-group"; readonly groupId: string }
-  | { readonly type: "create-link"; readonly photoIds: readonly PhotoId[] }
+  | { readonly type: "create-link"; readonly photoIds: readonly WorktableItemId[] }
   | { readonly type: "remove-link"; readonly linkId: string }
   | { readonly type: "place-sequence-pile"; readonly placement: WorktableSequencePilePlacement }
   | { readonly type: "move-sequence-piles"; readonly sequenceIds: readonly SequenceId[]; readonly by: WorktablePoint }
   | { readonly type: "resize-sequence-pile"; readonly sequenceId: SequenceId; readonly scale: number }
   | { readonly type: "bring-sequence-piles-to-front"; readonly sequenceIds: readonly SequenceId[] }
   | { readonly type: "remove-sequence-piles"; readonly sequenceIds: readonly SequenceId[] }
-  | { readonly type: "bring-to-front"; readonly photoIds: readonly PhotoId[] }
-  | { readonly type: "remove"; readonly photoIds: readonly PhotoId[] };
+  | { readonly type: "bring-to-front"; readonly photoIds: readonly WorktableItemId[] }
+  | { readonly type: "remove"; readonly photoIds: readonly WorktableItemId[] };
 
 export type WorktableCommandError =
-  | { readonly kind: "unknown-placement"; readonly photoId: PhotoId }
+  | { readonly kind: "unknown-placement"; readonly photoId: WorktableItemId }
   | { readonly kind: "unknown-sequence-pile"; readonly sequenceId: SequenceId }
   | { readonly kind: "duplicate-sequence-pile"; readonly sequenceId: SequenceId }
-  | { readonly kind: "duplicate-photo-id"; readonly photoId: PhotoId }
+  | { readonly kind: "duplicate-photo-id"; readonly photoId: WorktableItemId }
   | { readonly kind: "invalid-coordinate" }
   | { readonly kind: "invalid-layout" }
   | { readonly kind: "invalid-relation" };

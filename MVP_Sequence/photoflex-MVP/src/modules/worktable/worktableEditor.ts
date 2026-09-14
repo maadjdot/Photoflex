@@ -14,6 +14,7 @@ import {
   type WorktablePlacement,
   type WorktableSequencePilePlacement,
   type WorktableGroup,
+  type WorktableItemId,
   type SequenceId,
 } from "../../contracts";
 
@@ -169,7 +170,7 @@ function editMemo(draft: WorktableDraft, command: Extract<WorktableEditCommand, 
 
 function createGroup(
   draft: WorktableDraft,
-  photoIds: readonly PhotoId[],
+  photoIds: readonly WorktableItemId[],
 ): Result<WorktableDraft, WorktableCommandError> {
   if (photoIds.length < 2 || new Set(photoIds).size !== photoIds.length) return err({ kind: "invalid-relation" });
   if (draft.groups.some((group) => group.photoIds.some((photoId) => photoIds.includes(photoId)))) {
@@ -194,7 +195,7 @@ function removeGroup(draft: WorktableDraft, groupId: string): Result<WorktableDr
 function addToGroup(
   draft: WorktableDraft,
   groupId: string,
-  photoId: PhotoId,
+  photoId: WorktableItemId,
 ): Result<WorktableDraft, WorktableCommandError> {
   const group = draft.groups.find((candidate) => candidate.id === groupId);
   if (!group || !draft.placements[photoId] || draft.groups.some((candidate) => candidate.photoIds.includes(photoId))) {
@@ -207,7 +208,7 @@ function addToGroup(
   return ok({ ...packed, groups: packed.groups.map((candidate) => candidate.id === groupId ? { ...candidate, photoIds } : candidate) });
 }
 
-function removeFromGroup(draft: WorktableDraft, photoId: PhotoId): Result<WorktableDraft, WorktableCommandError> {
+function removeFromGroup(draft: WorktableDraft, photoId: WorktableItemId): Result<WorktableDraft, WorktableCommandError> {
   const group = draft.groups.find((candidate) => candidate.photoIds.includes(photoId));
   if (!group) return err({ kind: "invalid-relation" });
   const members = group.photoIds.filter((memberId) => memberId !== photoId);
@@ -224,7 +225,7 @@ function removeFromGroup(draft: WorktableDraft, photoId: PhotoId): Result<Workta
 
 function createLink(
   draft: WorktableDraft,
-  photoIds: readonly PhotoId[],
+  photoIds: readonly WorktableItemId[],
 ): Result<WorktableDraft, WorktableCommandError> {
   if (photoIds.length < 2 || photoIds.length > 6 || new Set(photoIds).size !== photoIds.length) return err({ kind: "invalid-relation" });
   const ordered = draft.entryOrder.filter((photoId) => photoIds.includes(photoId));
@@ -245,12 +246,12 @@ function removeLink(draft: WorktableDraft, linkId: string): Result<WorktableDraf
 
 function packNearAnchor(
   draft: WorktableDraft,
-  photoIds: readonly PhotoId[],
+  photoIds: readonly WorktableItemId[],
   anchorX: number,
   anchorY: number,
   gap: number,
 ): WorktableDraft {
-  const placements = { ...draft.placements } as Record<PhotoId, WorktablePlacement>;
+  const placements = { ...draft.placements } as Record<WorktableItemId, WorktablePlacement>;
   // The last selected/ordered member is the anchor. Pack earlier members to
   // its left so creating a relation does not make the photographer lose it.
   const widthBeforeAnchor = photoIds.slice(0, -1).reduce((sum, photoId) => sum + placements[photoId].width + gap, 0);
@@ -265,11 +266,11 @@ function packNearAnchor(
 
 function packGroupGrid(
   draft: WorktableDraft,
-  photoIds: readonly PhotoId[],
+  photoIds: readonly WorktableItemId[],
   originX: number,
   originY: number,
 ): WorktableDraft {
-  const placements = { ...draft.placements } as Record<PhotoId, WorktablePlacement>;
+  const placements = { ...draft.placements } as Record<WorktableItemId, WorktablePlacement>;
   for (let rowStart = 0, y = originY; rowStart < photoIds.length; rowStart += GROUP_COLUMNS) {
     const row = photoIds.slice(rowStart, rowStart + GROUP_COLUMNS);
     const rowHeight = Math.max(...row.map((photoId) => placements[photoId].height));
@@ -291,12 +292,12 @@ function nextRelationId(prefix: "group" | "link", relations: readonly WorktableG
 
 function resize(
   draft: WorktableDraft,
-  photoIds: readonly PhotoId[],
+  photoIds: readonly WorktableItemId[],
   scale: number,
 ): Result<WorktableDraft, WorktableCommandError> {
   if (!Number.isFinite(scale) || scale <= 0) return err({ kind: "invalid-coordinate" });
   if (Math.abs(scale - 1) < .0001) return ok(draft);
-  const placements = { ...draft.placements } as Record<PhotoId, WorktablePlacement>;
+  const placements = { ...draft.placements } as Record<WorktableItemId, WorktablePlacement>;
   let changed = false;
   for (const photoId of photoIds) {
     const current = placements[photoId];
@@ -318,19 +319,24 @@ function place(
   draft: WorktableDraft,
   command: Extract<WorktableEditCommand, { type: "place" }>,
 ): Result<WorktableDraft, WorktableCommandError> {
-  const seen = new Set<PhotoId>();
+  const seen = new Set<WorktableItemId>();
   for (const item of command.items) {
-    if (seen.has(item.photoId)) return err({ kind: "duplicate-photo-id", photoId: item.photoId });
-    seen.add(item.photoId);
-    if (![item.width, item.height].every(isPositiveFinite)) return err({ kind: "invalid-coordinate" });
+    const itemId = item.id ?? item.photoId;
+    if (seen.has(itemId)) return err({ kind: "duplicate-photo-id", photoId: itemId });
+    seen.add(itemId);
+    if (![item.width, item.height].every(isPositiveFinite)
+      || (item.x !== undefined && !Number.isFinite(item.x))
+      || (item.y !== undefined && !Number.isFinite(item.y))) return err({ kind: "invalid-coordinate" });
   }
   if (command.at && ![command.at.x, command.at.y].every(Number.isFinite)) {
     return err({ kind: "invalid-coordinate" });
   }
 
-  const additions = command.items.filter((item) => !draft.placements[item.photoId]);
+  const additions = command.items
+    .map((item) => ({ ...item, id: item.id ?? item.photoId }))
+    .filter((item) => !draft.placements[item.id]);
   if (!additions.length) return ok(draft);
-  const placements = { ...draft.placements } as Record<PhotoId, WorktablePlacement>;
+  const placements = { ...draft.placements } as Record<WorktableItemId, WorktablePlacement>;
   const entryOrder = [...draft.entryOrder];
   const maxZ = maximumZ(draft);
   const origin = command.at ?? DEFAULT_ORIGIN;
@@ -338,31 +344,31 @@ function place(
     const index = command.at ? offset : entryOrder.length + offset;
     return {
       ...item,
-      x: origin.x + (index % DEFAULT_COLUMNS) * DEFAULT_CELL_WIDTH,
-      y: origin.y + Math.floor(index / DEFAULT_COLUMNS) * DEFAULT_CELL_HEIGHT,
+      x: item.x ?? origin.x + (index % DEFAULT_COLUMNS) * DEFAULT_CELL_WIDTH,
+      y: item.y ?? origin.y + Math.floor(index / DEFAULT_COLUMNS) * DEFAULT_CELL_HEIGHT,
     };
   });
   const positioned = moveRectsToOpenArea(draft, proposed);
 
   positioned.forEach((item, offset) => {
-    placements[item.photoId] = {
+    placements[item.id] = {
       ...item,
       z: maxZ + offset + 1,
     };
-    entryOrder.push(item.photoId);
+    entryOrder.push(item.id);
   });
   return ok({ ...draft, placements, entryOrder });
 }
 
 function move(
   draft: WorktableDraft,
-  photoIds: readonly PhotoId[],
+  photoIds: readonly WorktableItemId[],
   dx: number,
   dy: number,
 ): Result<WorktableDraft, WorktableCommandError> {
   if (![dx, dy].every(Number.isFinite)) return err({ kind: "invalid-coordinate" });
   if (!dx && !dy) return ok(draft);
-  const placements = { ...draft.placements } as Record<PhotoId, WorktablePlacement>;
+  const placements = { ...draft.placements } as Record<WorktableItemId, WorktablePlacement>;
   for (const photoId of photoIds) {
     const current = placements[photoId];
     placements[photoId] = { ...current, x: current.x + dx, y: current.y + dy };
@@ -372,7 +378,7 @@ function move(
 
 function arrange(
   draft: WorktableDraft,
-  photoIds: readonly PhotoId[],
+  photoIds: readonly WorktableItemId[],
   layout: WorktableLayout,
 ): Result<WorktableDraft, WorktableCommandError> {
   if (photoIds.length < 2) return ok(draft);
@@ -383,7 +389,7 @@ function arrange(
   const minY = Math.min(...selected.map((item) => item.y));
   const maxRight = Math.max(...selected.map((item) => item.x + item.width));
   const maxBottom = Math.max(...selected.map((item) => item.y + item.height));
-  const placements = { ...draft.placements } as Record<PhotoId, WorktablePlacement>;
+  const placements = { ...draft.placements } as Record<WorktableItemId, WorktablePlacement>;
 
   if (layout.type === "grid") {
     const columns = layout.columns ?? Math.ceil(Math.sqrt(selected.length));
@@ -429,7 +435,7 @@ function arrange(
 
 function shuffle(
   draft: WorktableDraft,
-  photoIds: readonly PhotoId[],
+  photoIds: readonly WorktableItemId[],
 ): Result<WorktableDraft, WorktableCommandError> {
   if (photoIds.length < 2) return ok(draft);
   const requested = new Set(photoIds);
@@ -437,7 +443,7 @@ function shuffle(
   const horizontalRows = findHorizontalRows(draft, ordered).filter((row) => row.length > 1);
   const rowMembers = new Set(horizontalRows.flat());
   const ungrouped = ordered.filter((photoId) => !rowMembers.has(photoId));
-  const placements = { ...draft.placements } as Record<PhotoId, WorktablePlacement>;
+  const placements = { ...draft.placements } as Record<WorktableItemId, WorktablePlacement>;
 
   horizontalRows.forEach((slotOwners) => {
     const shuffled = shuffleCycle(slotOwners);
@@ -466,7 +472,7 @@ function shuffle(
   return ok(changed ? { ...draft, placements } : draft);
 }
 
-function shuffleCycle(photoIds: readonly PhotoId[]): PhotoId[] {
+function shuffleCycle(photoIds: readonly WorktableItemId[]): WorktableItemId[] {
   const shuffled = [...photoIds];
   for (let index = shuffled.length - 1; index > 0; index -= 1) {
     // Sattolo's algorithm creates one cycle, so every selected photo leaves
@@ -478,8 +484,8 @@ function shuffleCycle(photoIds: readonly PhotoId[]): PhotoId[] {
 }
 
 function placePhotosInSlots(
-  placements: Record<PhotoId, WorktablePlacement>,
-  photoIds: readonly PhotoId[],
+  placements: Record<WorktableItemId, WorktablePlacement>,
+  photoIds: readonly WorktableItemId[],
   slots: readonly WorktablePoint[],
 ): void {
   photoIds.forEach((photoId, index) => {
@@ -487,8 +493,8 @@ function placePhotosInSlots(
   });
 }
 
-function findHorizontalRows(draft: WorktableDraft, photoIds: readonly PhotoId[]): PhotoId[][] {
-  const rows: PhotoId[][] = [];
+function findHorizontalRows(draft: WorktableDraft, photoIds: readonly WorktableItemId[]): WorktableItemId[][] {
+  const rows: WorktableItemId[][] = [];
   const leftToRight = [...photoIds].sort((leftId, rightId) => (
     draft.placements[leftId].x - draft.placements[rightId].x
     || draft.placements[leftId].y - draft.placements[rightId].y
@@ -520,13 +526,13 @@ function verticalOverlapRatio(left: WorktableRect, right: WorktableRect): number
 
 function reflowHorizontalShuffle(
   draft: WorktableDraft,
-  placements: Record<PhotoId, WorktablePlacement>,
-  slotOwners: readonly PhotoId[],
-  shuffled: readonly PhotoId[],
+  placements: Record<WorktableItemId, WorktablePlacement>,
+  slotOwners: readonly WorktableItemId[],
+  shuffled: readonly WorktableItemId[],
   slots: readonly WorktablePoint[],
 ): void {
   const selected = new Set(shuffled);
-  const placed = new Set<PhotoId>();
+  const placed = new Set<WorktableItemId>();
   const originalGaps = slotOwners.slice(1).map((_, index) => (
     slots[index + 1].x - (slots[index].x + draft.placements[slotOwners[index]].width)
   ));
@@ -556,8 +562,8 @@ function reflowHorizontalShuffle(
 
 function shufflePositionIsAllowed(
   draft: WorktableDraft,
-  placements: Readonly<Record<PhotoId, WorktablePlacement>>,
-  photoId: PhotoId,
+  placements: Readonly<Record<WorktableItemId, WorktablePlacement>>,
+  photoId: WorktableItemId,
   candidate: WorktablePlacement,
 ): boolean {
   return draft.entryOrder.every((otherId) => (
@@ -569,8 +575,8 @@ function shufflePositionIsAllowed(
 
 function findSafeShufflePosition(
   draft: WorktableDraft,
-  placements: Readonly<Record<PhotoId, WorktablePlacement>>,
-  photoId: PhotoId,
+  placements: Readonly<Record<WorktableItemId, WorktablePlacement>>,
+  photoId: WorktableItemId,
   desired: WorktablePlacement,
 ): WorktablePlacement {
   const original = draft.placements[photoId];
@@ -603,14 +609,14 @@ function findSafeShufflePosition(
 
 function bringToFront(
   draft: WorktableDraft,
-  photoIds: readonly PhotoId[],
+  photoIds: readonly WorktableItemId[],
 ): Result<WorktableDraft, WorktableCommandError> {
   const selected = new Set(photoIds);
   const ordered = draft.entryOrder.filter((photoId) => selected.has(photoId));
   const maxZ = maximumZ(draft);
   const alreadyTop = ordered.every((photoId, index) => draft.placements[photoId].z === maxZ - ordered.length + index + 1);
   if (alreadyTop) return ok(draft);
-  const placements = { ...draft.placements } as Record<PhotoId, WorktablePlacement>;
+  const placements = { ...draft.placements } as Record<WorktableItemId, WorktablePlacement>;
   ordered.forEach((photoId, index) => {
     placements[photoId] = { ...placements[photoId], z: maxZ + index + 1 };
   });
@@ -619,11 +625,11 @@ function bringToFront(
 
 function remove(
   draft: WorktableDraft,
-  photoIds: readonly PhotoId[],
+  photoIds: readonly WorktableItemId[],
 ): Result<WorktableDraft, WorktableCommandError> {
   if (!photoIds.length) return ok(draft);
   const removed = new Set(photoIds);
-  const placements = { ...draft.placements } as Record<PhotoId, WorktablePlacement>;
+  const placements = { ...draft.placements } as Record<WorktableItemId, WorktablePlacement>;
   photoIds.forEach((photoId) => delete placements[photoId]);
   return ok({
     ...draft,
@@ -643,9 +649,9 @@ function remove(
 
 function validateKnown(
   draft: WorktableDraft,
-  photoIds: readonly PhotoId[],
+  photoIds: readonly WorktableItemId[],
 ): Result<true, WorktableCommandError> {
-  const seen = new Set<PhotoId>();
+  const seen = new Set<WorktableItemId>();
   for (const photoId of photoIds) {
     if (seen.has(photoId)) return err({ kind: "duplicate-photo-id", photoId });
     seen.add(photoId);
@@ -783,7 +789,7 @@ function isNonNegativeFinite(value: number): boolean {
 function copyDraft(draft: WorktableDraft): WorktableDraft {
   const placements = Object.fromEntries(
     Object.entries(draft.placements).map(([photoId, placement]) => [photoId, { ...placement }]),
-  ) as Record<PhotoId, WorktablePlacement>;
+  ) as Record<WorktableItemId, WorktablePlacement>;
   const pilePlacements = Object.fromEntries(
     Object.entries(draft.pilePlacements).map(([sequenceId, placement]) => [sequenceId, { ...placement }]),
   ) as Record<SequenceId, WorktableSequencePilePlacement>;

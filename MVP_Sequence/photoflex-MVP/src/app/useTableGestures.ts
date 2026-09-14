@@ -1,20 +1,20 @@
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type RefObject } from "react";
 import type {
-  PhotoId,
   SequenceId,
   WorktableDraft,
   WorktableEditCommand,
   WorktablePoint,
   WorktableViewport,
+  WorktableItemId,
 } from "../contracts";
 import { screenToWorld } from "../modules/worktable";
 
 type Gesture =
-  | { kind: "photo"; pointerId: number; start: WorktablePoint; ids: readonly PhotoId[] }
+  | { kind: "photo"; pointerId: number; start: WorktablePoint; ids: readonly WorktableItemId[] }
   | { kind: "pile"; pointerId: number; start: WorktablePoint; ids: readonly SequenceId[] }
   | { kind: "pan"; pointerId: number; start: WorktablePoint; viewport: WorktableViewport }
   | { kind: "marquee"; pointerId: number; start: WorktablePoint; additive: boolean }
-  | { kind: "resize"; pointerId: number; start: WorktablePoint; photoId: PhotoId; width: number }
+  | { kind: "resize"; pointerId: number; start: WorktablePoint; photoId: WorktableItemId; width: number }
   | { kind: "resize-pile"; pointerId: number; start: WorktablePoint; sequenceId: SequenceId; width: number };
 
 export interface TableMarquee {
@@ -30,16 +30,16 @@ interface TableGestureOptions {
   readonly viewport: WorktableViewport;
   readonly setViewport: (viewport: WorktableViewport) => void;
   readonly execute: (command: WorktableEditCommand) => void;
-  readonly selectPhoto: (photoId: PhotoId, toggle: boolean) => readonly PhotoId[] | undefined;
+  readonly selectPhoto: (photoId: WorktableItemId, toggle: boolean) => readonly WorktableItemId[] | undefined;
   readonly selectPile: (sequenceId: SequenceId, toggle: boolean) => readonly SequenceId[] | undefined;
-  readonly selectPhotos: (photoIds: readonly PhotoId[], additive?: boolean) => unknown;
+  readonly selectPhotos: (photoIds: readonly WorktableItemId[], additive?: boolean) => unknown;
   readonly clearSelection: () => unknown;
   readonly disabled?: boolean;
 }
 
 export interface TableGesturePreview {
   readonly kind?: Gesture["kind"];
-  readonly photoId?: PhotoId;
+  readonly photoId?: WorktableItemId;
   readonly sequenceId?: SequenceId;
   readonly dragDelta: WorktablePoint;
   readonly resizeScale: number;
@@ -97,7 +97,7 @@ export function useTableGestures(options: TableGestureOptions) {
     identify(gesture);
   };
 
-  const onPhotoPointerDown = (event: ReactPointerEvent<HTMLElement>, id: PhotoId) => {
+  const onPhotoPointerDown = (event: ReactPointerEvent<HTMLElement>, id: WorktableItemId) => {
     if (disabled) return;
     event.preventDefault();
     event.stopPropagation();
@@ -113,7 +113,7 @@ export function useTableGestures(options: TableGestureOptions) {
     });
   };
 
-  const onGroupPointerDown = (event: ReactPointerEvent<HTMLElement>, ids: readonly PhotoId[]) => {
+  const onGroupPointerDown = (event: ReactPointerEvent<HTMLElement>, ids: readonly WorktableItemId[]) => {
     if (disabled || event.button !== 0 || !stageRef.current || !ids.length) return;
     event.preventDefault();
     event.stopPropagation();
@@ -142,7 +142,7 @@ export function useTableGestures(options: TableGestureOptions) {
     });
   };
 
-  const onPhotoResizePointerDown = (event: ReactPointerEvent<HTMLButtonElement>, id: PhotoId) => {
+  const onPhotoResizePointerDown = (event: ReactPointerEvent<HTMLButtonElement>, id: WorktableItemId) => {
     if (disabled) return;
     const stage = stageRef.current;
     const item = draft.placements[id];

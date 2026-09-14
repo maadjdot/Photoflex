@@ -60,7 +60,10 @@ export function SourceBrowser({ dependencies, workspace, onPlacePhotos, onOpenPh
     const state = states[source.id];
     return `${source.id}:${state?.status ?? "unknown"}:${state?.indexedCount ?? 0}:${state?.scanRevision ?? 0}`;
   }).join("|");
-  const tableIds = useMemo(() => new Set(workspace.worktableDraft.entryOrder), [workspace.worktableDraft.entryOrder]);
+  const tableIds = useMemo(
+    () => new Set(workspace.worktableDraft.entryOrder.map((id) => workspace.worktableDraft.placements[id].photoId)),
+    [workspace.worktableDraft.entryOrder, workspace.worktableDraft.placements],
+  );
 
   useEffect(() => {
     try {

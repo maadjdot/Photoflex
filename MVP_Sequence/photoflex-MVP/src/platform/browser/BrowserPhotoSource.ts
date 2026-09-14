@@ -2,6 +2,7 @@ import {
   err,
   ok,
   type DerivedPreviewMaxEdge,
+  type DroppedPhotoIngestResult,
   type PhotoId,
   type PhotoPage,
   type PhotoRef,
@@ -12,6 +13,7 @@ import {
   type SourceError,
   type SourceGrant,
   type SourceId,
+  type SourceRecord,
   type SourceRuntimeState,
   type SourceScanEvent,
 } from "../../contracts";
@@ -21,6 +23,12 @@ type DirectoryPicker = () => Promise<FileSystemDirectoryHandle>;
 
 type DirectoryHandleLike = FileSystemDirectoryHandle & {
   entries(): AsyncIterableIterator<[string, FileSystemHandle]>;
+  queryPermission?(descriptor?: { mode?: "read" | "readwrite" }): Promise<PermissionState>;
+  requestPermission?(descriptor?: { mode?: "read" | "readwrite" }): Promise<PermissionState>;
+  resolve?(possibleDescendant: FileSystemHandle): Promise<string[] | null>;
+};
+
+type FileHandleLike = FileSystemFileHandle & {
   queryPermission?(descriptor?: { mode?: "read" | "readwrite" }): Promise<PermissionState>;
   requestPermission?(descriptor?: { mode?: "read" | "readwrite" }): Promise<PermissionState>;
 };
@@ -50,6 +58,11 @@ interface StoredDerivedPreview {
   readonly maxEdge: DerivedPreviewMaxEdge;
   readonly sourceVersion: string;
   readonly blob: Blob;
+}
+
+interface StoredFileHandle {
+  readonly photoId: PhotoId;
+  readonly handle: FileSystemFileHandle;
 }
 
 interface CachedUrl {
@@ -117,6 +130,7 @@ export class BrowserPhotoSource implements PhotoSource {
   private readonly handles = new Map<SourceId, FileSystemDirectoryHandle>();
   private readonly states = new Map<SourceId, SourceRuntimeState>();
   private readonly photoVersions = new Map<PhotoId, string>();
+  private readonly fileHandles = new Map<PhotoId, FileSystemFileHandle>();
   private readonly urlCache = new Map<string, CachedUrl>();
   private readonly thumbnailJobs = new Map<string, Promise<Result<Blob, SourceError>>>();
   private readonly derivedPreviewJobs = new Map<string, Promise<Result<Blob, SourceError>>>();
@@ -147,6 +161,7 @@ export class BrowserPhotoSource implements PhotoSource {
     this.urlCache.clear();
     this.derivedPreviewCache.clear();
     this.photoVersions.clear();
+    this.fileHandles.clear();
   }
 
   async chooseFolder(
@@ -196,6 +211,24 @@ export class BrowserPhotoSource implements PhotoSource {
   async restoreFolder(sourceId: SourceId): Promise<Result<SourceGrant, SourceError>> {
     const opened = await this.database;
     if (!opened.ok) return err(toSourceError());
+    const sourceRecord = await this.findSourceRecord(opened.value, sourceId);
+    if (sourceRecord?.kind === "external-files") {
+      const photos = await this.readSourcePhotos(opened.value, sourceId);
+      let permissionLost = false;
+      for (const photo of photos) {
+        const handle = await this.readFileHandle(opened.value, photo.id);
+        if (!handle) { permissionLost = true; continue; }
+        const fileHandle = handle as FileHandleLike;
+        let permission = await fileHandle.queryPermission?.({ mode: "read" });
+        if (permission !== "granted" && fileHandle.requestPermission) permission = await fileHandle.requestPermission({ mode: "read" });
+        if (permission && permission !== "granted") permissionLost = true;
+      }
+      const status = permissionLost ? "permission-lost" as const : photos.length ? "ready" as const : "empty" as const;
+      this.states.set(sourceId, { ...initialState(sourceId, status), discoveredCount: photos.length, indexedCount: photos.length });
+      return permissionLost
+        ? err({ kind: "permission-lost", sourceId })
+        : ok({ sourceId, displayName: sourceRecord.displayName, status, restored: true });
+    }
     let handle = await this.loadHandle(sourceId, opened.value);
     if (!handle) {
       // Backups contain paths and stable photo references, never directory grants.
@@ -259,16 +292,18 @@ export class BrowserPhotoSource implements PhotoSource {
     try {
       const photos = await this.readSourcePhotos(opened.value, sourceId);
       const transaction = opened.value.transaction(
-        [STORE_NAMES.sourceGrants, STORE_NAMES.photoIndex, STORE_NAMES.photoThumbnails, STORE_NAMES.photoDerivedPreviews],
+        [STORE_NAMES.sourceGrants, STORE_NAMES.photoIndex, STORE_NAMES.photoThumbnails, STORE_NAMES.photoDerivedPreviews, STORE_NAMES.photoFileHandles],
         "readwrite",
       );
       transaction.objectStore(STORE_NAMES.sourceGrants).delete(sourceId);
       const photoStore = transaction.objectStore(STORE_NAMES.photoIndex);
       const thumbnailStore = transaction.objectStore(STORE_NAMES.photoThumbnails);
       const derivedStore = transaction.objectStore(STORE_NAMES.photoDerivedPreviews);
+      const fileHandleStore = transaction.objectStore(STORE_NAMES.photoFileHandles);
       for (const photo of photos) {
         photoStore.delete(photo.id);
         thumbnailStore.delete(photo.id);
+        fileHandleStore.delete(photo.id);
         for (const maxEdge of [768, 1536, 2048] as const) derivedStore.delete([photo.id, maxEdge]);
       }
       await transactionResult(transaction);
@@ -276,6 +311,7 @@ export class BrowserPhotoSource implements PhotoSource {
       this.states.delete(sourceId);
       for (const photo of photos) {
         this.photoVersions.delete(photo.id);
+        this.fileHandles.delete(photo.id);
         this.dropCachedUrls(`thumbnail:${photo.id}:`);
         this.dropCachedUrls(`preview:${photo.id}:`);
         for (const jobKey of this.thumbnailJobs.keys()) {
@@ -304,6 +340,24 @@ export class BrowserPhotoSource implements PhotoSource {
     const opened = await this.database;
     if (!opened.ok) {
       yield err(toSourceError());
+      return;
+    }
+    const source = await this.findSourceRecord(opened.value, sourceId);
+    if (source?.kind === "external-files") {
+      const photos = await this.readSourcePhotos(opened.value, sourceId);
+      let permissionLost = false;
+      for (const photo of photos) {
+        const fileHandle = await this.readFileHandle(opened.value, photo.id) as FileHandleLike | undefined;
+        const permission = await fileHandle?.queryPermission?.({ mode: "read" });
+        if (!fileHandle || (permission && permission !== "granted")) permissionLost = true;
+      }
+      const state = {
+        ...initialState(sourceId, permissionLost ? "permission-lost" : photos.length ? "ready" : "empty"),
+        discoveredCount: photos.length,
+        indexedCount: photos.length,
+      };
+      this.states.set(sourceId, state);
+      yield ok({ kind: "completed", state });
       return;
     }
     const handle = await this.loadHandle(sourceId, opened.value);
@@ -408,8 +462,22 @@ export class BrowserPhotoSource implements PhotoSource {
     const storedState = grant?.state ?? cached;
     if (!storedState) {
       const projects = await requestValue<import("../../contracts").ProjectWorkspace[]>(opened.value.transaction(STORE_NAMES.projects, "readonly").objectStore(STORE_NAMES.projects).getAll());
-      if (!projects.some((p) => p.sources.some((s) => s.id === sourceId))) return err({ kind: "source-not-found", sourceId });
+      const source = projects.flatMap((p) => p.sources).find((s) => s.id === sourceId);
+      if (!source) return err({ kind: "source-not-found", sourceId });
       const photos = await this.readSourcePhotos(opened.value, sourceId);
+      if (source.kind === "external-files") {
+        let permissionLost = false;
+        for (const photo of photos) {
+          const handle = await this.readFileHandle(opened.value, photo.id);
+          const permission = await (handle as FileHandleLike | undefined)?.queryPermission?.({ mode: "read" });
+          if (!handle || (permission && permission !== "granted")) permissionLost = true;
+        }
+        return ok({
+          ...initialState(sourceId, permissionLost ? "permission-lost" : photos.length ? "ready" : "empty"),
+          discoveredCount: photos.length,
+          indexedCount: photos.length,
+        });
+      }
       return ok({ ...initialState(sourceId, "offline"), indexedCount: photos.length });
     }
     const handle = await this.loadHandle(sourceId, opened.value);
@@ -455,6 +523,117 @@ export class BrowserPhotoSource implements PhotoSource {
       const photo = await this.readStoredPhoto(opened.value, photoId);
       return photo ? ok(photo) : err({ kind: "photo-not-found", photoId });
     } catch {
+      return err(toSourceError());
+    }
+  }
+
+  async ingestDroppedFiles(
+    handles: readonly FileSystemHandle[],
+    sources: readonly SourceRecord[],
+    externalSourceId: SourceId,
+  ): Promise<Result<DroppedPhotoIngestResult, SourceError>> {
+    const opened = await this.database;
+    if (!opened.ok) return err(toSourceError());
+    const database = opened.value;
+    const items: DroppedPhotoIngestResult["items"][number][] = [];
+    const skipped: DroppedPhotoIngestResult["skipped"][number][] = [];
+    const accepted: FileSystemFileHandle[] = [];
+    try {
+      for (const handle of handles) {
+        if (handle.kind !== "file" || !isJpeg(handle.name)) {
+          skipped.push({ kind: "unsupported-file", relativePath: handle.name });
+          continue;
+        }
+        const fileHandle = handle as FileSystemFileHandle;
+        let repeatedInBatch = false;
+        for (const previous of accepted) {
+          if (await previous.isSameEntry(fileHandle)) { repeatedInBatch = true; break; }
+        }
+        if (repeatedInBatch) continue;
+        accepted.push(fileHandle);
+
+        let resolvedSourceId: SourceId | undefined;
+        let resolvedPath: string | undefined;
+        for (const source of sources) {
+          if (source.removedAt || source.kind === "external-files") continue;
+          const directory = await this.loadHandle(source.id, database) as DirectoryHandleLike | undefined;
+          if (!directory?.resolve) continue;
+          const parts = await directory.resolve(fileHandle).catch(() => null);
+          if (parts?.length) {
+            resolvedSourceId = source.id;
+            resolvedPath = parts.join("/");
+            break;
+          }
+        }
+
+        if (resolvedSourceId && resolvedPath) {
+          const previous = await this.readPhotoBySourcePath(database, resolvedSourceId, resolvedPath);
+          if (previous) {
+            items.push({ photo: previous, status: "reused" });
+            continue;
+          }
+          const file = await fileHandle.getFile();
+          const dimensions = await readDimensions(file);
+          const photo: PhotoRef = {
+            id: crypto.randomUUID() as PhotoId,
+            sourceId: resolvedSourceId,
+            relativePath: resolvedPath,
+            locationKind: "folder-relative",
+            width: dimensions.width,
+            height: dimensions.height,
+            fileSize: file.size,
+            fileLastModified: file.lastModified,
+          };
+          await this.writePhotos(database, [photo]);
+          this.photoVersions.set(photo.id, photoVersion(photo));
+          items.push({ photo, status: "created" });
+          continue;
+        }
+
+        const externalPhotos = await this.readSourcePhotos(database, externalSourceId);
+        let matched: PhotoRef | undefined;
+        for (const photo of externalPhotos) {
+          const stored = await this.readFileHandle(database, photo.id);
+          if (stored && await stored.isSameEntry(fileHandle)) { matched = photo; break; }
+        }
+        if (matched) {
+          // A fresh user drop is also the recovery path for a persisted handle
+          // whose read permission was lost. Keep the PhotoId, replace only the
+          // capability used to reach its original file.
+          await this.saveFileHandle(database, matched.id, fileHandle);
+          items.push({ photo: matched, status: "reused" });
+          continue;
+        }
+        const file = await fileHandle.getFile();
+        const dimensions = await readDimensions(file);
+        const id = crypto.randomUUID() as PhotoId;
+        const photo: PhotoRef = {
+          id,
+          sourceId: externalSourceId,
+          relativePath: `_external/${id}/${file.name}`,
+          locationKind: "file-handle",
+          width: dimensions.width,
+          height: dimensions.height,
+          fileSize: file.size,
+          fileLastModified: file.lastModified,
+        };
+        await this.writePhotos(database, [photo]);
+        await this.saveFileHandle(database, id, fileHandle);
+        this.photoVersions.set(id, photoVersion(photo));
+        items.push({ photo, status: "created" });
+      }
+      const externalPhotos = await this.readSourcePhotos(database, externalSourceId);
+      this.states.set(externalSourceId, {
+        ...initialState(externalSourceId, externalPhotos.length ? "ready" : "empty"),
+        discoveredCount: externalPhotos.length,
+        indexedCount: externalPhotos.length,
+        skippedCount: skipped.length,
+      });
+      return ok({ items, skipped });
+    } catch (error) {
+      if (error instanceof DOMException && (error.name === "NotAllowedError" || error.name === "SecurityError")) {
+        return err({ kind: "permission-denied" });
+      }
       return err(toSourceError());
     }
   }
@@ -604,6 +783,35 @@ export class BrowserPhotoSource implements PhotoSource {
     );
   }
 
+  private async readPhotoBySourcePath(database: IDBDatabase, sourceId: SourceId, relativePath: string): Promise<PhotoRef | undefined> {
+    return requestValue<PhotoRef | undefined>(
+      database.transaction(STORE_NAMES.photoIndex, "readonly").objectStore(STORE_NAMES.photoIndex).index("by-source-path").get([sourceId, relativePath]),
+    );
+  }
+
+  private async readFileHandle(database: IDBDatabase, photoId: PhotoId): Promise<FileSystemFileHandle | undefined> {
+    const cached = this.fileHandles.get(photoId);
+    if (cached) return cached;
+    const stored = await requestValue<StoredFileHandle | undefined>(
+      database.transaction(STORE_NAMES.photoFileHandles, "readonly").objectStore(STORE_NAMES.photoFileHandles).get(photoId),
+    ).catch(() => undefined);
+    if (stored?.handle) this.fileHandles.set(photoId, stored.handle);
+    return stored?.handle;
+  }
+
+  private async saveFileHandle(database: IDBDatabase, photoId: PhotoId, handle: FileSystemFileHandle): Promise<void> {
+    this.fileHandles.set(photoId, handle);
+    try {
+      const transaction = database.transaction(STORE_NAMES.photoFileHandles, "readwrite");
+      transaction.objectStore(STORE_NAMES.photoFileHandles).put({ photoId, handle } satisfies StoredFileHandle);
+      await transactionResult(transaction);
+    } catch (error) {
+      // fake-indexeddb cannot clone method-bearing test handles; native handles are cloneable.
+      if (error instanceof DOMException && error.name === "DataCloneError") return;
+      throw error;
+    }
+  }
+
   private async getPhotoVersion(database: IDBDatabase, photoId: PhotoId): Promise<string | undefined> {
     const cached = this.photoVersions.get(photoId);
     if (cached) return cached;
@@ -633,6 +841,13 @@ export class BrowserPhotoSource implements PhotoSource {
     if (grant?.handle) this.handles.set(sourceId, grant.handle);
     if (grant?.state) this.states.set(sourceId, grant.state);
     return grant?.handle;
+  }
+
+  private async findSourceRecord(database: IDBDatabase, sourceId: SourceId): Promise<SourceRecord | undefined> {
+    const projects = await requestValue<import("../../contracts").ProjectWorkspace[]>(
+      database.transaction(STORE_NAMES.projects, "readonly").objectStore(STORE_NAMES.projects).getAll(),
+    );
+    return projects.flatMap((project) => project.sources).find((source) => source.id === sourceId);
   }
 
   private async saveGrant(database: IDBDatabase, grant: StoredGrant): Promise<void> {
@@ -715,6 +930,20 @@ export class BrowserPhotoSource implements PhotoSource {
   private async readPhotoFile(database: IDBDatabase, photoId: PhotoId): Promise<Result<Blob, SourceError>> {
     const photo = await this.readStoredPhoto(database, photoId).catch(() => undefined);
     if (!photo) return err({ kind: "photo-not-found", photoId });
+    if (photo.locationKind === "file-handle") {
+      const handle = await this.readFileHandle(database, photoId);
+      if (!handle) return err({ kind: "permission-lost", sourceId: photo.sourceId });
+      try {
+        const permission = await (handle as FileHandleLike).queryPermission?.({ mode: "read" });
+        if (permission && permission !== "granted") return err({ kind: "permission-lost", sourceId: photo.sourceId });
+        return ok(await handle.getFile());
+      } catch (error) {
+        if (error instanceof DOMException && (error.name === "NotAllowedError" || error.name === "SecurityError")) {
+          return err({ kind: "permission-lost", sourceId: photo.sourceId });
+        }
+        return err({ kind: "photo-not-found", photoId });
+      }
+    }
     const handle = await this.loadHandle(photo.sourceId, database);
     if (!handle) return err({ kind: "permission-lost", sourceId: photo.sourceId });
     try {

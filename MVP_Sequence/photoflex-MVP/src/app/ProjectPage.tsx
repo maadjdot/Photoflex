@@ -110,7 +110,7 @@ export function ProjectPage({
       if (result.error.kind !== "cancelled") setNotice(sourceErrorMessage(result.error.kind, locale));
       return;
     }
-    const source: SourceRecord = { id: result.value.sourceId, displayName: result.value.displayName, createdAt: now() };
+    const source: SourceRecord = { id: result.value.sourceId, displayName: result.value.displayName, createdAt: now(), kind: "folder" };
     const saved = await persist((current) => {
       const existing = current.sources.find((item) => item.id === source.id);
       const sources = existing

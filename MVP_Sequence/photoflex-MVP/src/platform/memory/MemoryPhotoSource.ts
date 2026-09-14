@@ -2,6 +2,7 @@ import {
   err,
   ok,
   type PhotoId,
+  type DroppedPhotoIngestResult,
   type PhotoPage,
   type PhotoRef,
   type PhotoSource,
@@ -13,17 +14,21 @@ import {
   type SourceError,
   type SourceGrant,
   type SourceId,
+  type SourceRecord,
 } from "../../contracts";
 
 interface MemorySourceFixture {
   readonly grant: SourceGrant;
   readonly photos?: readonly PhotoRef[];
   readonly previewUrls?: Readonly<Record<PhotoId, string>>;
+  readonly directoryHandle?: FileSystemDirectoryHandle;
 }
 
 export class MemoryPhotoSource implements PhotoSource {
   private readonly states = new Map<SourceId, SourceRuntimeState>();
   private readonly removedSourceIds = new Set<SourceId>();
+  private readonly importedPhotos = new Map<PhotoId, PhotoRef>();
+  private readonly importedHandles = new Map<PhotoId, FileSystemFileHandle>();
 
   constructor(private readonly fixtures: readonly MemorySourceFixture[] = []) {
     for (const fixture of fixtures) {
@@ -57,9 +62,11 @@ export class MemoryPhotoSource implements PhotoSource {
   async removeSource(sourceId: SourceId): Promise<Result<RemovedSourceData, SourceError>> {
     if (!this.states.has(sourceId)) return ok({ photoIds: [] });
     const fixture = this.fixtures.find(({ grant }) => grant.sourceId === sourceId);
+    const importedIds = [...this.importedPhotos.values()].filter((photo) => photo.sourceId === sourceId).map((photo) => photo.id);
+    importedIds.forEach((id) => { this.importedPhotos.delete(id); this.importedHandles.delete(id); });
     this.states.delete(sourceId);
     this.removedSourceIds.add(sourceId);
-    return ok({ photoIds: fixture?.photos?.map((photo) => photo.id) ?? [] });
+    return ok({ photoIds: [...(fixture?.photos?.map((photo) => photo.id) ?? []), ...importedIds] });
   }
 
   async *scan(
@@ -67,11 +74,11 @@ export class MemoryPhotoSource implements PhotoSource {
     signal?: AbortSignal,
   ): AsyncIterable<Result<SourceScanEvent, SourceError>> {
     const fixture = this.fixtures.find(({ grant }) => grant.sourceId === sourceId && !this.removedSourceIds.has(sourceId));
-    if (!fixture) {
+    if (!fixture && !this.states.has(sourceId)) {
       yield err({ kind: "source-not-found", sourceId });
       return;
     }
-    const photos = fixture.photos ?? [];
+    const photos = [...(fixture?.photos ?? []), ...[...this.importedPhotos.values()].filter((photo) => photo.sourceId === sourceId)];
     const state = {
       sourceId,
       status: "loading" as const,
@@ -113,9 +120,9 @@ export class MemoryPhotoSource implements PhotoSource {
     limit = 100,
   ): Promise<Result<PhotoPage, SourceError>> {
     const fixture = this.fixtures.find(({ grant }) => grant.sourceId === sourceId && !this.removedSourceIds.has(sourceId));
-    if (!fixture) return err({ kind: "source-not-found", sourceId });
+    if (!fixture && !this.states.has(sourceId)) return err({ kind: "source-not-found", sourceId });
     const start = Number(cursor) || 0;
-    const photos = fixture.photos ?? [];
+    const photos = [...(fixture?.photos ?? []), ...[...this.importedPhotos.values()].filter((photo) => photo.sourceId === sourceId)];
     const items = photos.slice(start, start + limit);
     return ok({
       items,
@@ -125,12 +132,98 @@ export class MemoryPhotoSource implements PhotoSource {
   }
 
   async getPhoto(photoId: PhotoId): Promise<Result<PhotoRef, SourceError>> {
+    const imported = this.importedPhotos.get(photoId);
+    if (imported && !this.removedSourceIds.has(imported.sourceId)) return ok(imported);
     for (const fixture of this.fixtures) {
       if (this.removedSourceIds.has(fixture.grant.sourceId)) continue;
       const photo = fixture.photos?.find((item) => item.id === photoId);
       if (photo) return ok(photo);
     }
     return err({ kind: "photo-not-found", photoId });
+  }
+
+  async ingestDroppedFiles(
+    handles: readonly FileSystemHandle[],
+    sources: readonly SourceRecord[],
+    externalSourceId: SourceId,
+  ): Promise<Result<DroppedPhotoIngestResult, SourceError>> {
+    const items: DroppedPhotoIngestResult["items"][number][] = [];
+    const skipped: DroppedPhotoIngestResult["skipped"][number][] = [];
+    for (const handle of handles) {
+      if (handle.kind !== "file" || !/\.jpe?g$/i.test(handle.name)) {
+        skipped.push({ kind: "unsupported-file", relativePath: handle.name });
+        continue;
+      }
+      let folderSource: SourceRecord | undefined;
+      let folderPath: string | undefined;
+      for (const source of sources) {
+        if (source.removedAt || source.kind === "external-files") continue;
+        const directory = this.fixtures.find((fixture) => fixture.grant.sourceId === source.id)?.directoryHandle as (FileSystemDirectoryHandle & { resolve?(entry: FileSystemHandle): Promise<string[] | null> }) | undefined;
+        const parts = await directory?.resolve?.(handle);
+        if (parts?.length) { folderSource = source; folderPath = parts.join("/"); break; }
+      }
+      if (folderSource && folderPath) {
+        const fixturePhoto = this.fixtures
+          .find((fixture) => fixture.grant.sourceId === folderSource!.id)
+          ?.photos?.find((photo) => photo.relativePath === folderPath);
+        const indexedPhoto = [...this.importedPhotos.values()]
+          .find((photo) => photo.sourceId === folderSource!.id && photo.relativePath === folderPath);
+        const previous = fixturePhoto ?? indexedPhoto;
+        if (previous) {
+          items.push({ photo: previous, status: "reused" });
+          continue;
+        }
+        const file = await (handle as FileSystemFileHandle).getFile();
+        const id = crypto.randomUUID() as PhotoId;
+        const photo: PhotoRef = {
+          id,
+          sourceId: folderSource.id,
+          relativePath: folderPath,
+          locationKind: "folder-relative",
+          width: 0,
+          height: 0,
+          fileSize: file.size,
+          fileLastModified: file.lastModified,
+        };
+        this.importedPhotos.set(id, photo);
+        items.push({ photo, status: "created" });
+        continue;
+      }
+      let existing: PhotoRef | undefined;
+      for (const [id, storedHandle] of this.importedHandles) {
+        if (await storedHandle.isSameEntry(handle)) { existing = this.importedPhotos.get(id); break; }
+      }
+      if (existing) {
+        items.push({ photo: existing, status: "reused" });
+        continue;
+      }
+      const fileHandle = handle as FileSystemFileHandle;
+      const file = await fileHandle.getFile();
+      const id = crypto.randomUUID() as PhotoId;
+      const photo: PhotoRef = {
+        id,
+        sourceId: externalSourceId,
+        relativePath: `_external/${id}/${file.name}`,
+        locationKind: "file-handle",
+        width: 0,
+        height: 0,
+        fileSize: file.size,
+        fileLastModified: file.lastModified,
+      };
+      this.importedPhotos.set(id, photo);
+      this.importedHandles.set(id, fileHandle);
+      this.states.set(externalSourceId, {
+        sourceId: externalSourceId,
+        status: "ready",
+        scanRevision: 0,
+        discoveredCount: [...this.importedPhotos.values()].filter((item) => item.sourceId === externalSourceId).length,
+        indexedCount: [...this.importedPhotos.values()].filter((item) => item.sourceId === externalSourceId).length,
+        skippedCount: skipped.length,
+        failedCount: 0,
+      });
+      items.push({ photo, status: "created" });
+    }
+    return ok({ items, skipped });
   }
 
   async thumbnail(photoId: PhotoId): Promise<Result<PreviewLease, SourceError>> {
