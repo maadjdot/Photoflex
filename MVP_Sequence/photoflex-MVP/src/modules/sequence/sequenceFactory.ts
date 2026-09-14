@@ -84,7 +84,7 @@ function contentFromSequence(source: SequenceDocument) {
   const items: readonly SequenceItem[] = source.items.map((item) => {
     const id = newId<SequenceItemId>("item");
     itemIds.set(item.id, id);
-    return item.kind === "photo" ? { id, kind: "photo", photoId: item.photoId } : { id, kind: "blank" };
+    return item.kind === "photo" ? { id, kind: "photo", photoId: item.photoId } : item.kind === "text" ? { id, kind: "text", text: item.text, fontSize: item.fontSize, ...(item.html ? { html: item.html } : {}) } : { id, kind: "blank" };
   });
   const mappedItemId = (id: SequenceItemId) => {
     const mapped = itemIds.get(id);

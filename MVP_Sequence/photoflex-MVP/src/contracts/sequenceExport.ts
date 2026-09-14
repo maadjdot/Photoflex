@@ -1,5 +1,5 @@
 import type { PhotoId } from "./ids";
-import type { SequenceDocument } from "./sequence";
+import type { SequenceDocument, SequenceTextItem } from "./sequence";
 
 export interface SequencePdfProgress {
   readonly completed: number;
@@ -16,4 +16,5 @@ export interface SequencePdfOptions {
 /** Encoded photograph, with orientation applied, ready to embed in a PDF. */
 export interface SequencePdfImageSource {
   loadJpeg(photoId: PhotoId, signal?: AbortSignal): Promise<Uint8Array>;
+  loadTextJpeg?(item: SequenceTextItem, width: number, height: number, signal?: AbortSignal): Promise<Uint8Array>;
 }

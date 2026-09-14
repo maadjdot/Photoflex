@@ -691,6 +691,13 @@ h1, h2, p { margin-top: 0; }
 .sequence-order-badge { position: absolute; top: 4px; left: 4px; max-width: calc(100% - 8px); padding: 2px 4px; overflow: hidden; border-radius: 2px; background: rgb(255 255 255 / 82%); color: #6b6966; font-size: 8px; font-style: normal; text-overflow: ellipsis; white-space: nowrap; }
 .sequence-order-index { display: block; width: 121.6px; margin-top: 4px; overflow: hidden; color: #b8b6b0; font-size: 10px; line-height: 15px; text-align: center; text-overflow: ellipsis; white-space: nowrap; }
 .sequence-blank-page { display: grid; box-sizing: border-box; place-items: center; width: 100%; height: 100%; border: 1px solid #d4d2cc; border-radius: inherit; background: #fff; color: #6b6966; font-size: 9px; letter-spacing: .12em; }
+.sequence-card.is-text { background: #fff; }
+.sequence-text-page { position: relative; width: 100%; height: 100%; border: 1px solid #d4d2cc; background: #fff; }
+.sequence-text-page [contenteditable="true"] { box-sizing: border-box; width: 100%; height: 100%; padding: calc(28px * var(--sequence-zoom)); overflow: auto; border: 0; outline: 0; background: transparent; color: #1a1917; font-family: inherit; line-height: 1.35; text-align: left; white-space: pre-wrap; overflow-wrap: anywhere; }
+.sequence-text-page [contenteditable="true"]:empty::before { color: #aaa8a3; content: attr(data-placeholder); pointer-events: none; }
+.sequence-text-toolbar-control { display: flex; align-items: center; gap: 5px; height: 28px; padding: 0 8px; color: #6b6966; font-size: 10px; }
+.sequence-text-toolbar-control input { width: 52px; height: 22px; padding: 0 4px; border: 1px solid #d4d2cc; border-radius: 3px; background: #fff; color: #1a1917; font: inherit; font-size: 10px; }
+.sequence-text-thumb { display: grid; box-sizing: border-box; place-items: start; width: 100%; height: 100%; padding: 12px; overflow: hidden; background: #fff; color: #1a1917; font-family: inherit; line-height: 1.25; text-align: left; white-space: pre-wrap; overflow-wrap: anywhere; }
 .sequence-overview { --overview-zoom: 1; min-height: 0; overflow: auto; padding: calc(25px * var(--overview-zoom)) calc(48px * var(--overview-zoom)) calc(48px * var(--overview-zoom)); background: #f7f7f5; }
 .sequence-overview > header { display: flex; justify-content: space-between; margin-bottom: 20px; color: #777; font-size: 10px; }
 .sequence-overview > header strong { color: #171513; font-size: calc(13px * var(--overview-zoom)); }
@@ -740,6 +747,7 @@ h1, h2, p { margin-top: 0; }
 .sequence-read-pages { display: flex; align-items: stretch; justify-content: center; }
 .sequence-read-page { position: relative; display: grid; flex: 1 1 0; max-width: 760px; place-items: center; min-width: 0; min-height: 0; margin: 0; overflow: hidden; background: #fff; box-sizing: border-box; }
 .sequence-read-page img, .sequence-read-page .thumb-placeholder { display: block; width: var(--reading-photo-size); height: var(--reading-photo-size); max-width: 100%; max-height: 100%; min-width: 0; min-height: 0; object-fit: contain; }
+.sequence-read-text { box-sizing: border-box; width: 100%; max-height: 100%; padding: 9%; overflow: auto; color: #1a1917; font-family: inherit; line-height: 1.35; text-align: left; white-space: pre-wrap; overflow-wrap: anywhere; }
 .sequence-read-pin { position: absolute; right: 14px; bottom: 12px; padding: 6px 10px; border: 1px solid #171513; background: #fff; font-size: 10px; }
 .sequence-read > header, .sequence-read > footer { position: fixed; right: 0; left: 0; z-index: 3; display: flex; align-items: center; color: #fff; opacity: 0; transition: opacity .15s ease; pointer-events: none; }
 .sequence-read.has-controls > header, .sequence-read.has-controls > footer { opacity: 1; pointer-events: auto; }

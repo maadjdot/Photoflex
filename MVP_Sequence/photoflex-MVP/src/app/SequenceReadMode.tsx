@@ -5,6 +5,7 @@ import { PhotoThumb } from "./PhotoThumb";
 import { useDialogKeyboard } from "./AppPrimitives";
 import type { AppDependencies } from "./dependencies";
 import { useLocale } from "./locale";
+import { sequenceTextHtml } from "./sequenceTextFormatting";
 
 interface SequenceReadModeProps {
   readonly sequence: SequenceDocument;
@@ -92,7 +93,7 @@ export function SequenceReadMode({ sequence, initialIndex, photoSource, pinned, 
   const layout = readingPaperLayout(viewport, items.length);
   const paperStyle = { width: layout.width, height: layout.height, gap: layout.gap, "--reading-photo-size": `${(1 - READING_PHOTO_INSET * 2) * 100}%` } as CSSProperties;
   return <section ref={rootRef} className={`sequence-read is-${background}${controls ? " has-controls" : ""}`} role="dialog" aria-modal="true" aria-label={`${t("sequence.read")} ${sequence.name}`} onMouseMove={reveal}>
-    <div className="sequence-read-pages" style={paperStyle}>{items.map((item) => <article key={item.id} className="sequence-read-page">{item.kind === "photo" ? <PhotoThumb resolution="read" eager photoSource={photoSource} photoId={item.photoId} alt="Sequence reading photograph" onError={onPhotoError} /> : null}{controls && item.kind === "photo" && <button className="sequence-read-pin" onClick={() => onTogglePin(item.photoId)}>{pinned[item.photoId]?.pinned ? "Unpin" : "Pin"}</button>}</article>)}</div>
+    <div className="sequence-read-pages" style={paperStyle}>{items.map((item) => <article key={item.id} className="sequence-read-page">{item.kind === "photo" ? <PhotoThumb resolution="read" eager photoSource={photoSource} photoId={item.photoId} alt="Sequence reading photograph" onError={onPhotoError} /> : item.kind === "text" ? <div className="sequence-read-text" style={{ fontSize: `${item.fontSize}px` }} dangerouslySetInnerHTML={{ __html: sequenceTextHtml(item.text, item.fontSize, item.html) }} /> : null}{controls && item.kind === "photo" && <button className="sequence-read-pin" onClick={() => onTogglePin(item.photoId)}>{pinned[item.photoId]?.pinned ? "Unpin" : "Pin"}</button>}</article>)}</div>
     <button className="sequence-read-zone is-left" disabled={index === 0} aria-label={t("sequence.previousUnit")} onClick={() => setIndex((value) => Math.max(0, value - 1))} />
     <button className="sequence-read-zone is-right" disabled={index === sequence.readingUnits.length - 1} aria-label={t("sequence.nextUnit")} onClick={() => setIndex((value) => Math.min(sequence.readingUnits.length - 1, value + 1))} />
     <header><button ref={closeRef} onClick={onClose}>{t("common.close")}</button><strong>{sequence.name}</strong><button onClick={() => setBackground((value) => value === "dark" ? "light" : "dark")}>{background === "dark" ? t("sequence.whiteBackground") : t("sequence.darkBackground")}</button></header>

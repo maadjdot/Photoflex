@@ -341,6 +341,7 @@ export function upgradeSequenceDocument(value: Record<string, unknown>): Sequenc
     const item = raw as Record<string, unknown>;
     if (typeof item.id !== "string") continue;
     if (item.kind === "blank") items.push({ id: item.id as SequenceItemId, kind: "blank" });
+    else if (item.kind === "text" && typeof item.text === "string") items.push({ id: item.id as SequenceItemId, kind: "text", text: item.text, fontSize: normalizeTextFontSize(item.fontSize), ...(typeof item.html === "string" && item.html ? { html: item.html } : {}) });
     else if (typeof item.photoId === "string") items.push({ id: item.id as SequenceItemId, kind: "photo", photoId: item.photoId as PhotoId });
   }
   const candidate = {
@@ -371,7 +372,7 @@ export function createInitialVersion(sequence: SequenceDocument): SequenceVersio
 
 function isSequenceContent(value: Partial<SequenceDocument> | SequenceVersion): boolean {
   if (!Array.isArray(value.items) || value.items.length > MVP_SEQUENCE_ITEM_LIMIT) return false;
-  if (!value.items.every((item) => item && typeof item.id === "string" && (item.kind === "blank" || (item.kind === "photo" && typeof item.photoId === "string")))) return false;
+  if (!value.items.every((item) => item && typeof item.id === "string" && (item.kind === "blank" || (item.kind === "text" && typeof item.text === "string" && (item.html === undefined || typeof item.html === "string") && Number.isInteger(item.fontSize) && item.fontSize >= 12 && item.fontSize <= 120) || (item.kind === "photo" && typeof item.photoId === "string")))) return false;
   if (new Set(value.items.map((item) => item.id)).size !== value.items.length) return false;
   if (!Array.isArray(value.segments) || !Array.isArray(value.readingUnits)) return false;
   const ids = new Set(value.items.map((item) => item.id));
@@ -404,6 +405,10 @@ function isViewport(value: unknown): boolean {
   return [viewport.originX, viewport.originY, viewport.zoom].every(
     (coordinate) => typeof coordinate === "number" && Number.isFinite(coordinate),
   ) && typeof viewport.zoom === "number" && viewport.zoom > 0;
+}
+
+function normalizeTextFontSize(value: unknown): number {
+  return typeof value === "number" && Number.isFinite(value) ? Math.round(Math.max(12, Math.min(120, value))) : 32;
 }
 
 export function createBackup(

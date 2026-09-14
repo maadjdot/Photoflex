@@ -52,6 +52,16 @@ describe("SequenceEditor", () => {
     expect(editor.canUndo()).toBe(false);
   });
 
+  it("creates and edits a text page with a bounded font size", () => {
+    const editor = createSequenceEditor(draft([item("a")]));
+    expect(editor.execute({ type: "addText", itemId: "text" as SequenceItemId, unitId: "text-unit" as ReadingUnitId, text: "中 English", fontSize: 240, at: 1 }).ok).toBe(true);
+    expect(editor.snapshot().items[1]).toEqual({ id: "text", kind: "text", text: "中 English", fontSize: 120 });
+    expect(editor.snapshot().readingUnits[1]).toMatchObject({ id: "text-unit", kind: "single", itemId: "text" });
+
+    expect(editor.execute({ type: "updateText", itemId: "text" as SequenceItemId, text: "", fontSize: 20 }).ok).toBe(true);
+    expect(editor.snapshot().items[1]).toEqual({ id: "text", kind: "text", text: "", fontSize: 20 });
+  });
+
   it("rejects removing the last item so the persisted Sequence stays valid", () => {
     const editor = createSequenceEditor(draft([item("a")]));
     expect(editor.execute({ type: "remove", itemIds: ["a" as SequenceItemId] })).toEqual({

@@ -12,7 +12,15 @@ export interface SequenceBlankItem {
   readonly kind: "blank";
 }
 
-export type SequenceItem = SequencePhotoItem | SequenceBlankItem;
+export interface SequenceTextItem {
+  readonly id: SequenceItemId;
+  readonly kind: "text";
+  readonly text: string;
+  readonly fontSize: number;
+  readonly html?: string;
+}
+
+export type SequenceItem = SequencePhotoItem | SequenceBlankItem | SequenceTextItem;
 
 export type ReadingUnit =
   | { readonly id: ReadingUnitId; readonly kind: "single"; readonly itemId: SequenceItemId }
@@ -74,6 +82,8 @@ export type SequenceEditCommand =
   | { readonly type: "move"; readonly itemIds: readonly SequenceItemId[]; readonly to: number }
   | { readonly type: "remove"; readonly itemIds: readonly SequenceItemId[] }
   | { readonly type: "addBlank"; readonly itemId: SequenceItemId; readonly unitId: ReadingUnitId; readonly at: number }
+  | { readonly type: "addText"; readonly itemId: SequenceItemId; readonly unitId: ReadingUnitId; readonly text: string; readonly fontSize: number; readonly html?: string; readonly at: number }
+  | { readonly type: "updateText"; readonly itemId: SequenceItemId; readonly text: string; readonly fontSize: number; readonly html?: string }
   | { readonly type: "removeBlank"; readonly itemId: SequenceItemId }
   | { readonly type: "createSpread"; readonly unitId: ReadingUnitId; readonly itemIds: readonly [SequenceItemId, SequenceItemId] }
   | { readonly type: "splitSpread"; readonly unitId: ReadingUnitId }

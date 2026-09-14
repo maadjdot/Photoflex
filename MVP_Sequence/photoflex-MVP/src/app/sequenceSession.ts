@@ -75,9 +75,10 @@ export class SequenceSessionControllerImpl implements SequenceSessionController 
       this.setSnapshot({ ...this.snapshot, loading: false, error: "Sequence could not be loaded." });
       return;
     }
-    this.editor = this.createEditor(result.value);
+    const sequence = withoutSegments(result.value);
+    this.editor = this.createEditor(sequence);
     this.failedDraft = undefined;
-    this.setSnapshot(this.snapshotFor(result.value, "idle"));
+    this.setSnapshot(this.snapshotFor(sequence, "idle"));
   }
 
   execute(command: SequenceEditCommand): Result<SequenceDocument, SequenceSessionCommandError> {
@@ -103,8 +104,9 @@ export class SequenceSessionControllerImpl implements SequenceSessionController 
 
   replaceDraft(draft: ReturnType<SequenceEditor["snapshot"]>, notice?: string) {
     if (!this.snapshot.sequence || draft.projectId !== this.projectId) return;
-    this.editor = createSequenceEditor(draft);
-    const next = { ...this.snapshot.sequence, items: draft.items, segments: draft.segments, readingUnits: draft.readingUnits };
+    const segmentlessDraft = { ...draft, segments: [] };
+    this.editor = createSequenceEditor(segmentlessDraft);
+    const next = { ...this.snapshot.sequence, items: segmentlessDraft.items, segments: [], readingUnits: segmentlessDraft.readingUnits };
     this.setSnapshot({ ...this.snapshotFor(next, "idle"), error: notice });
   }
 
@@ -196,5 +198,9 @@ export function useSequenceSession(persistence: SequenceWritePort, projectId: Pr
 }
 
 function toDraft(sequence: SequenceDocument) {
-  return { projectId: sequence.projectId, baseVersionId: sequence.currentVersionId, items: sequence.items, segments: sequence.segments, readingUnits: sequence.readingUnits };
+  return { projectId: sequence.projectId, baseVersionId: sequence.currentVersionId, items: sequence.items, segments: [], readingUnits: sequence.readingUnits };
+}
+
+function withoutSegments(sequence: SequenceDocument): SequenceDocument {
+  return sequence.segments.length ? { ...sequence, segments: [] } : sequence;
 }

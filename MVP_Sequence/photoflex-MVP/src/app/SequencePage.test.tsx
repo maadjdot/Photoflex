@@ -68,6 +68,47 @@ it("opens Read as a keyboard-navigable modal and restores focus when it closes",
   expect(document.activeElement).toBe(readButton);
 });
 
+it("inserts an editable text page and exposes one Insert Blank action without Segment", async () => {
+  const projectStore = new MemoryProjectStore();
+  const projectId = "sequence-text-project" as ProjectId;
+  const created = await projectStore.createProject({ id: projectId, name: "Sequence text", createdAt: "2026-09-07T00:00:00.000Z" });
+  if (!created.ok) throw new Error("project fixture failed");
+  const fixture = sequenceFixture(projectId, "sequence-text", "Text pages", "first-blank", "text-version");
+  expect((await projectStore.createSequence(projectId, created.value.revision, fixture.sequence, fixture.version, created.value.worktableDraft)).ok).toBe(true);
+  window.location.hash = `#/projects/${projectId}/sequences/${fixture.sequence.id}`;
+
+  render(<App dependencies={{ projectStore, photoSource: new MemoryPhotoSource() }} />);
+  await screen.findAllByText("BLANK");
+  const workspace = document.querySelector<HTMLElement>(".sequence-workspace");
+  if (!workspace) throw new Error("sequence workspace missing");
+  fireEvent.keyDown(workspace, { key: "ArrowRight" });
+  expect(await screen.findByRole("button", { name: "Insert Blank" })).toBeTruthy();
+  expect(screen.queryByRole("button", { name: /Insert Blank (Before|After)/ })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Segment" })).toBeNull();
+
+  fireEvent.click(screen.getByRole("button", { name: "Insert Text" }));
+  const editor = await screen.findByRole("textbox", { name: "Text page content" });
+  editor.focus();
+  editor.textContent = "中文 English";
+  const liveTextNode = editor.firstChild;
+  fireEvent.input(editor);
+  await waitFor(() => expect(editor.firstChild).toBe(liveTextNode));
+  const range = document.createRange();
+  range.setStart(editor.firstChild!, 0);
+  range.setEnd(editor.firstChild!, 2);
+  window.getSelection()?.removeAllRanges();
+  window.getSelection()?.addRange(range);
+  fireEvent.mouseUp(editor);
+  fireEvent.change(screen.getByRole("spinbutton", { name: "Font size" }), { target: { value: "48" } });
+  expect(screen.getByRole("button", { name: "Remove Text" })).toBeTruthy();
+
+  await waitFor(async () => {
+    const saved = await projectStore.loadSequence(fixture.sequence.id);
+    expect(saved.ok && saved.value.items[1]).toMatchObject({ kind: "text", text: "中文 English", fontSize: 32 });
+    expect(saved.ok && saved.value.items[1].kind === "text" && saved.value.items[1].html).toContain("font-size: 48px");
+  });
+});
+
 function sequenceFixture(projectId: ProjectId, id: string, name: string, itemIdValue: string, versionIdValue: string) {
   const sequenceId = id as SequenceId;
   const itemId = itemIdValue as SequenceItemId;

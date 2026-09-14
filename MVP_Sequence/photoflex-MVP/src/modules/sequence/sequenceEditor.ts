@@ -58,6 +58,20 @@ function apply(draft: SequenceDraft, command: SequenceEditCommand): Result<Seque
     if (!added.ok) return added;
     return ok({ ...added.value, readingUnits: replaceUnitId(added.value.readingUnits, command.itemId, command.unitId) });
   }
+  if (command.type === "addText") {
+    const added = addItems(draft, [{ id: command.itemId, kind: "text", text: command.text, fontSize: normalizeFontSize(command.fontSize), ...(command.html ? { html: command.html } : {}) }], command.at);
+    if (!added.ok) return added;
+    return ok({ ...added.value, readingUnits: replaceUnitId(added.value.readingUnits, command.itemId, command.unitId) });
+  }
+  if (command.type === "updateText") {
+    const item = draft.items.find((value) => value.id === command.itemId);
+    if (!item) return err({ kind: "unknown-item", itemId: command.itemId });
+    if (item.kind !== "text") return err({ kind: "invalid-reading-unit" });
+    const fontSize = normalizeFontSize(command.fontSize);
+    const html = command.html || undefined;
+    if (item.text === command.text && item.fontSize === fontSize && item.html === html) return ok(draft);
+    return ok({ ...draft, items: draft.items.map((value) => value.id === item.id ? { ...value, text: command.text, fontSize, ...(html ? { html } : { html: undefined }) } : value) });
+  }
   if (command.type === "createSpread") return createSpread(draft, command.unitId, command.itemIds);
   if (command.type === "splitSpread") return splitSpread(draft, command.unitId);
   if (command.type === "createSegment") return createSegment(draft, command.segment);
@@ -211,3 +225,4 @@ function firstIndex(unit: ReadingUnit, indices: ReadonlyMap<SequenceItemId, numb
 function unitInsertionIndex(items: readonly SequenceItem[], units: readonly ReadingUnit[], itemIndex: number): number { const indices = new Map(items.map((item, index) => [item.id, index])); const found = units.findIndex((unit) => firstIndex(unit, indices) > itemIndex); return found < 0 ? units.length : found; }
 function replaceUnitId(units: readonly ReadingUnit[], itemId: SequenceItemId, unitId: ReadingUnitId): readonly ReadingUnit[] { return units.map((unit) => unitContains(unit, itemId) ? { ...unit, id: unitId } : unit); }
 function copy(draft: SequenceDraft): SequenceDraft { return { ...draft, items: draft.items.map((item) => ({ ...item })), segments: draft.segments.map((segment) => ({ ...segment, itemIds: [...segment.itemIds] })), readingUnits: draft.readingUnits.map((unit) => ({ ...unit })) }; }
+function normalizeFontSize(value: number): number { return Math.round(Math.max(12, Math.min(120, Number.isFinite(value) ? value : 32))); }
