@@ -3,6 +3,7 @@ import { err, type PhotoId, type ProjectId, type SequenceDocument, type Sequence
 import { MemoryPhotoSource } from "../platform/memory/MemoryPhotoSource";
 import { MemoryProjectStore } from "../platform/memory/MemoryProjectStore";
 import { createWorktableEditor } from "../modules/worktable";
+import { createInitialSequenceBundle } from "../modules/sequence";
 import { createProjectWriteCoordinator } from "./projectWriteCoordinator";
 
 const projectId = "coordinator-project" as ProjectId;
@@ -71,6 +72,36 @@ describe("ProjectWriteCoordinator", () => {
     expect(saved.value.worktableDraft.pileOrder).toEqual([sequenceId]);
     expect((await projectStore.loadSequence(sequenceId)).ok).toBe(true);
     expect((await projectStore.loadVersion(versionId)).ok).toBe(true);
+  });
+
+  it("moves new Sequence piles away from photos and existing piles", async () => {
+    const { projectStore, photoSource, workspace } = await fixture();
+    const coordinator = createProjectWriteCoordinator({ projectStore, photoSource }, projectId);
+    await coordinator.load();
+    const placed = createWorktableEditor(workspace.worktableDraft).execute({
+      type: "place",
+      items: [{ photoId, width: 100, height: 100, filename: "photo.jpg", x: 10, y: 10 }],
+    });
+    if (!placed.ok) throw new Error("photo fixture failed");
+    expect((await coordinator.saveWorktable(placed.value)).ok).toBe(true);
+
+    const first = createInitialSequenceBundle({ projectId, name: "Sequence A", content: { kind: "photos", photoIds: [photoId] } });
+    const second = createInitialSequenceBundle({ projectId, name: "Sequence B", content: { kind: "photos", photoIds: [photoId] } });
+    expect((await coordinator.createSequenceBundle({ ...first, pile: { x: 10, y: 10, width: 211, height: 142 } })).ok).toBe(true);
+    expect((await coordinator.createSequenceBundle({ ...second, pile: { x: 10, y: 10, width: 211, height: 142 } })).ok).toBe(true);
+
+    const saved = await projectStore.loadWorkspace(projectId);
+    if (!saved.ok) throw new Error("workspace fixture failed");
+    const photo = saved.value.worktableDraft.placements[saved.value.worktableDraft.entryOrder[0]];
+    const firstPile = saved.value.worktableDraft.pilePlacements[first.sequence.id];
+    const secondPile = saved.value.worktableDraft.pilePlacements[second.sequence.id];
+    const overlaps = (left: { x: number; y: number; width: number; height: number }, right: { x: number; y: number; width: number; height: number }) => (
+      left.x < right.x + right.width && left.x + left.width > right.x
+      && left.y < right.y + right.height && left.y + left.height > right.y
+    );
+    expect(overlaps(firstPile, photo)).toBe(false);
+    expect(overlaps(secondPile, photo)).toBe(false);
+    expect(overlaps(firstPile, secondPile)).toBe(false);
   });
 
   it("keeps sequence ordering writes out of page-local queues", async () => {

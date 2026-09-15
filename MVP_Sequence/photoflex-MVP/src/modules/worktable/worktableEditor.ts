@@ -161,7 +161,7 @@ function editMemo(draft: WorktableDraft, command: Extract<WorktableEditCommand, 
   if (![memo.x, memo.y, memo.width, memo.height, memo.fontSize, ...(memo.z === undefined ? [] : [memo.z])].every(Number.isFinite) || memo.width < 120 || memo.height < 80 || memo.fontSize < 10 || memo.fontSize > 72) return err({ kind: "invalid-coordinate" });
   if (typeof memo.text !== "string" || new Set(memo.photoIds).size !== memo.photoIds.length || memo.photoIds.some((id) => !draft.placements[id])) return err({ kind: "invalid-relation" });
   if (command.type === "create-memo") {
-    const [positioned] = moveRectsToOpenArea(draft, [memo]);
+    const [positioned] = moveWorktableRectsToOpenArea(draft, [memo]);
     memo = { ...memo, x: positioned.x, y: positioned.y, z: maximumZ(draft) + 1 };
   }
   const next = { ...memo, photoIds: [...memo.photoIds] };
@@ -348,7 +348,7 @@ function place(
       y: item.y ?? origin.y + Math.floor(index / DEFAULT_COLUMNS) * DEFAULT_CELL_HEIGHT,
     };
   });
-  const positioned = moveRectsToOpenArea(draft, proposed);
+  const positioned = moveWorktableRectsToOpenArea(draft, proposed);
 
   positioned.forEach((item, offset) => {
     placements[item.id] = {
@@ -742,10 +742,10 @@ function maximumZ(draft: WorktableDraft): number {
   return Math.max(graphicZ, ...(draft.memos ?? []).map((memo, index) => memo.z ?? graphicZ + index + 1));
 }
 
-interface WorktableRect { readonly x: number; readonly y: number; readonly width: number; readonly height: number }
+export interface WorktableRect { readonly x: number; readonly y: number; readonly width: number; readonly height: number }
 
 /** Keeps a newly-created batch near its requested point without covering existing Table material. */
-function moveRectsToOpenArea<T extends WorktableRect>(draft: WorktableDraft, rects: readonly T[]): T[] {
+export function moveWorktableRectsToOpenArea<T extends WorktableRect>(draft: WorktableDraft, rects: readonly T[]): T[] {
   const occupied: WorktableRect[] = [
     ...Object.values(draft.placements),
     ...Object.values(draft.pilePlacements),
@@ -768,7 +768,9 @@ function moveRectsToOpenArea<T extends WorktableRect>(draft: WorktableDraft, rec
     const offset = candidates.find(([dx, dy]) => fits(dx, dy));
     if (offset) return rects.map((rect) => ({ ...rect, x: rect.x + offset[0], y: rect.y + offset[1] }));
   }
-  return rects.map((rect) => ({ ...rect }));
+  const minX = Math.min(...rects.map((rect) => rect.x));
+  const openX = Math.max(minX, ...occupied.map((item) => item.x + item.width + PLACEMENT_CLEARANCE));
+  return rects.map((rect) => ({ ...rect, x: rect.x + openX - minX }));
 }
 
 function rectsOverlap(left: WorktableRect, right: WorktableRect, gap = 0): boolean {

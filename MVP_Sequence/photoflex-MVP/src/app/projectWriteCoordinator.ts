@@ -21,7 +21,7 @@ import {
   type BackupError,
 } from "../contracts";
 import type { AppDependencies } from "./dependencies";
-import { createWorktableEditor } from "../modules/worktable";
+import { createWorktableEditor, moveWorktableRectsToOpenArea } from "../modules/worktable";
 
 export type CoordinatorPausedError = { readonly kind: "writes-paused" };
 export type ProjectWriteScope = { readonly kind: "workspace" } | { readonly kind: "sequence"; readonly sequenceId: SequenceId };
@@ -245,12 +245,13 @@ export class ProjectWriteCoordinatorImpl implements ProjectWriteCoordinator {
       const current = this.currentWorkspace();
       if (!current) return err({ kind: "workspace-not-ready" } as const);
       const editor = createWorktableEditor(current.worktableDraft);
+      const [pilePosition] = moveWorktableRectsToOpenArea(current.worktableDraft, [input.pile]);
       const placement = editor.execute({
         type: "place-sequence-pile",
         placement: {
           sequenceId: input.sequence.id,
-          x: input.pile.x,
-          y: input.pile.y,
+          x: pilePosition.x,
+          y: pilePosition.y,
           z: maximumWorktableZ(current.worktableDraft) + 1,
           width: input.pile.width,
           height: input.pile.height,

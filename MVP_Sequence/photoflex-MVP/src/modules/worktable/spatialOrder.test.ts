@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { PhotoId, ProjectId, WorktableDraft, WorktablePlacement } from "../../contracts";
-import { orderPhotoIdsByTablePosition } from "./spatialOrder";
+import type { PhotoId, ProjectId, WorktableDraft, WorktableItemId, WorktablePlacement } from "../../contracts";
+import { orderPhotoIdsByTablePosition, orderWorktableItemIdsByTablePosition } from "./spatialOrder";
 
 const photoId = (value: string) => value as PhotoId;
 
@@ -70,5 +70,23 @@ describe("orderPhotoIdsByTablePosition", () => {
     };
 
     expect(orderPhotoIdsByTablePosition(draft, [photoId("a"), photoId("missing")])).toEqual(["a"]);
+  });
+
+  it("preserves distinct Table occurrences of the same source photo", () => {
+    const first = "occurrence-a" as WorktableItemId;
+    const second = "occurrence-b" as WorktableItemId;
+    const source = photoId("same-source");
+    const draft: WorktableDraft = {
+      projectId: "duplicate-order-project" as ProjectId,
+      entryOrder: [first, second],
+      placements: {
+        [first]: { ...placement("same-source", 300, 20), id: first, photoId: source },
+        [second]: { ...placement("same-source", 20, 20), id: second, photoId: source },
+      },
+      groups: [], links: [], pileOrder: [], pilePlacements: {},
+    };
+
+    expect(orderWorktableItemIdsByTablePosition(draft, [first, second])).toEqual([second, first]);
+    expect(orderPhotoIdsByTablePosition(draft, [first, second])).toEqual([source, source]);
   });
 });

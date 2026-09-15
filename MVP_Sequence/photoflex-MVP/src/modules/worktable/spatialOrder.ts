@@ -15,6 +15,14 @@ export function orderPhotoIdsByTablePosition(
   draft: WorktableDraft,
   photoIds: readonly WorktableItemId[],
 ): PhotoId[] {
+  return orderWorktableItemIdsByTablePosition(draft, photoIds).map((id) => draft.placements[id].photoId);
+}
+
+/** Keeps distinct Table occurrences identifiable while applying visual order. */
+export function orderWorktableItemIdsByTablePosition(
+  draft: WorktableDraft,
+  photoIds: readonly WorktableItemId[],
+): WorktableItemId[] {
   const requested = new Set(photoIds);
   const positioned = draft.entryOrder
     .map((id, entryIndex) => ({ id, entryIndex, placement: draft.placements[id] }))
@@ -46,11 +54,11 @@ export function orderPhotoIdsByTablePosition(
     || left.entryIndex - right.entryIndex
   );
   const available = positioned.filter((item) => indegree.get(item.id) === 0);
-  const ordered: PhotoId[] = [];
+  const ordered: WorktableItemId[] = [];
   while (available.length) {
     available.sort(horizontalOrder);
     const next = available.shift()!;
-    ordered.push(next.placement.photoId);
+    ordered.push(next.id);
     for (const targetId of outgoing.get(next.id) ?? []) {
       const remaining = (indegree.get(targetId) ?? 0) - 1;
       indegree.set(targetId, remaining);

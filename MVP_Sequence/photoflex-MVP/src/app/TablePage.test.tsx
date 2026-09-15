@@ -81,6 +81,42 @@ describe("TablePage", () => {
       .toEqual([photoA, photoB, photoA, photoB]);
   });
 
+  it("keeps duplicate Table occurrences when the create-Sequence order is changed", async () => {
+    const dependencies = await createFixture();
+    render(<App dependencies={dependencies} />);
+    const stage = await screen.findByLabelText("Photo worktable");
+
+    fireEvent.keyDown(stage, { key: "a", ctrlKey: true });
+    fireEvent.keyDown(stage, { key: "c", ctrlKey: true });
+    fireEvent.keyDown(stage, { key: "v", ctrlKey: true });
+    await waitFor(() => expect(screen.getAllByLabelText("A.jpg")).toHaveLength(2));
+    fireEvent.keyDown(stage, { key: "a", ctrlKey: true });
+    fireEvent.click(screen.getByRole("button", { name: "Create Sequence" }));
+
+    const dialog = await screen.findByRole("dialog", { name: "Create Sequence pile" });
+    const first = within(dialog).getByAltText("Order 1: A.jpg").closest("button")!;
+    const last = within(dialog).getByAltText("Order 4: B.jpg").closest("button")!;
+    fireEvent.dragStart(first);
+    fireEvent.dragOver(last);
+    fireEvent.drop(last);
+    fireEvent.click(within(dialog).getByRole("button", { name: "Create Pile" }));
+
+    await waitFor(async () => {
+      const listed = await dependencies.projectStore.listSequences(projectId);
+      expect(listed.ok && listed.value).toHaveLength(1);
+    });
+    const listed = await dependencies.projectStore.listSequences(projectId);
+    if (!listed.ok) throw new Error("sequence was not created");
+    const created = await dependencies.projectStore.loadSequence(listed.value[0].id);
+    expect(created.ok).toBe(true);
+    if (created.ok) {
+      expect(created.value.items.map((item) => item.kind === "photo" ? item.photoId : "other"))
+        .toEqual([photoB, photoA, photoA, photoB]);
+    }
+    const workspace = await dependencies.projectStore.loadWorkspace(projectId);
+    expect(workspace.ok && workspace.value.worktableDraft.entryOrder).toHaveLength(4);
+  });
+
   it("imports an OS-dropped JPEG and creates an External Imports source", async () => {
     const dependencies = await createFixture();
     const ingest = vi.spyOn(dependencies.photoSource, "ingestDroppedFiles");
