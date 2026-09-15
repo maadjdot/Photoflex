@@ -1,4 +1,5 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { Analytics } from "@vercel/analytics/react";
 import { createProjectWriteCoordinator, type ProjectWriteCoordinator } from "./projectWriteCoordinator";
 import { downloadBackup } from "./ProjectBackupControls";
 import { AppHeader } from "./AppHeader";
@@ -89,6 +90,7 @@ function M1AppContent({ dependencies }: AppProps) {
       {route.name !== "table" && route.name !== "sequence" && <AppHeader dependencies={dependencies} route={route} projectId={currentProjectId} contactSourceId={contactSourceId} lastSequenceId={lastSequenceId} navigate={navigate} variant={usesTableChrome ? "table" : "default"} />}
       {projectContent}
       {recovery && <div className="draft-recovery" role="alert"><strong>{t("backup.unsavedTitle")}</strong><p>{t("backup.unsavedDetail")}</p><div><button disabled={recovering} onClick={() => setRecovery(false)}>{t("backup.keepEditing")}</button><button disabled={recovering} onClick={() => void recover(true)}>{t("backup.downloadRecovery")}</button><button disabled={recovering} onClick={() => void recover(false)}>{recovering ? t("project.preparing") : t("backup.saveRecoveryCopy")}</button></div>{recoveryError && <p>{recoveryError}</p>}</div>}
+      <Analytics />
     </div>
   );
 }
