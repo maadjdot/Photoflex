@@ -24,6 +24,7 @@ export interface UseSequenceReorderDragInput {
   readonly containers: SequenceDragContainers;
   readonly onSelectionChange: (selected: ReadonlySet<SequenceItemId>, anchor?: SequenceItemId) => void;
   readonly onMove: (itemIds: readonly SequenceItemId[], to: number) => void;
+  readonly onActivate?: (itemId: SequenceItemId, source: SequenceDragSource) => void;
 }
 
 interface DragState {
@@ -33,6 +34,7 @@ interface DragState {
   readonly clickedId: SequenceItemId;
   readonly collapseOnClick: boolean;
   readonly startX: number;
+  readonly startY: number;
   target: number;
   moved: boolean;
 }
@@ -53,12 +55,14 @@ export function useSequenceReorderDrag({
   containers,
   onSelectionChange,
   onMove,
+  onActivate,
 }: UseSequenceReorderDragInput) {
   const [dropTarget, setDropTarget] = useState<number>();
   const dragRef = useRef<DragState | undefined>(undefined);
   const dragFrameRef = useRef<number | undefined>(undefined);
   const pendingPointRef = useRef<{ readonly x: number; readonly y: number; readonly pointerId: number } | undefined>(undefined);
   const layoutRef = useRef<readonly DragLayoutItem[]>([]);
+  const suppressClickRef = useRef(false);
 
   const containerFor = useCallback((source: SequenceDragSource) => {
     if (source === "stage") return containers.stage.current;
@@ -103,6 +107,7 @@ export function useSequenceReorderDrag({
       onSelectionChange(nextSelection.selected, nextSelection.anchor);
     }
     event.currentTarget.setPointerCapture(event.pointerId);
+    suppressClickRef.current = false;
     dragRef.current = {
       pointerId: event.pointerId,
       source,
@@ -110,6 +115,7 @@ export function useSequenceReorderDrag({
       clickedId: id,
       collapseOnClick: !forcedIds && selected.has(id) && selected.size > 1 && !event.shiftKey && !event.ctrlKey && !event.metaKey,
       startX: event.clientX,
+      startY: event.clientY,
       target: itemIds.indexOf(id),
       moved: false,
     };
@@ -119,7 +125,10 @@ export function useSequenceReorderDrag({
   const move = useCallback((event: ReactPointerEvent<HTMLElement>) => {
     const drag = dragRef.current;
     if (!drag || drag.pointerId !== event.pointerId) return;
-    if (Math.abs(event.clientX - drag.startX) > 4) drag.moved = true;
+    if (Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY) > 4) {
+      drag.moved = true;
+      suppressClickRef.current = true;
+    }
     pendingPointRef.current = { x: event.clientX, y: event.clientY, pointerId: event.pointerId };
     if (dragFrameRef.current !== undefined) return;
     dragFrameRef.current = requestAnimationFrame(() => {
@@ -130,8 +139,13 @@ export function useSequenceReorderDrag({
       const container = containerFor(currentDrag.source);
       if (!container) return;
       const bounds = container.getBoundingClientRect();
-      if (point.x < bounds.left + 48) container.scrollLeft -= 24;
-      else if (point.x > bounds.right - 48) container.scrollLeft += 24;
+      if (currentDrag.source === "overview") {
+        if (point.y < bounds.top + 48) container.scrollTop -= 24;
+        else if (point.y > bounds.bottom - 48) container.scrollTop += 24;
+      } else {
+        if (point.x < bounds.left + 48) container.scrollLeft -= 24;
+        else if (point.x > bounds.right - 48) container.scrollLeft += 24;
+      }
       const target = insertionTarget(currentDrag.source, point, bounds, container, layoutRef.current, itemIds.length);
       currentDrag.target = target;
       setDropTarget(target);
@@ -144,17 +158,18 @@ export function useSequenceReorderDrag({
     if (dragFrameRef.current !== undefined) cancelAnimationFrame(dragFrameRef.current);
     dragFrameRef.current = undefined;
     const point = pendingPointRef.current;
-    const strip = containers.strip.current;
-    if (point && drag.source === "strip" && strip) {
-      const bounds = strip.getBoundingClientRect();
-      drag.target = sequenceStripInsertionIndex(point.x, bounds.left, strip.scrollLeft, itemIds.length, 16, TABLE_SEQUENCE_STRIP_ITEM_WIDTH, TABLE_SEQUENCE_STRIP_ITEM_GAP);
+    const container = containerFor(drag.source);
+    if (point && container) {
+      const bounds = container.getBoundingClientRect();
+      drag.target = insertionTarget(drag.source, point, bounds, container, layoutRef.current, itemIds.length);
     }
     dragRef.current = undefined;
     pendingPointRef.current = undefined;
     setDropTarget(undefined);
     if (drag.moved) onMove(drag.itemIds, drag.target);
     else if (drag.collapseOnClick) onSelectionChange(new Set([drag.clickedId]), drag.clickedId);
-  }, [containers.strip, itemIds.length, onMove, onSelectionChange]);
+    else onActivate?.(drag.clickedId, drag.source);
+  }, [containerFor, itemIds.length, onActivate, onMove, onSelectionChange]);
 
   const cancel = useCallback(() => {
     if (dragFrameRef.current !== undefined) cancelAnimationFrame(dragFrameRef.current);
@@ -171,7 +186,13 @@ export function useSequenceReorderDrag({
     pendingPointRef.current = undefined;
   }, []);
 
-  return { dropTarget, begin, move, end, cancel };
+  const consumeClickSuppression = useCallback(() => {
+    const suppressed = suppressClickRef.current;
+    suppressClickRef.current = false;
+    return suppressed;
+  }, []);
+
+  return { dropTarget, begin, move, end, cancel, consumeClickSuppression };
 }
 
 function selectionAfterPointer(

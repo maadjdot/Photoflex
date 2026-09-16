@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { PhotoId, PhotoSource, SourceError, WorktableDraft } from "../contracts";
 import { useDialogKeyboard } from "./AppPrimitives";
 import { useLocale } from "./locale";
+import { PhotoPreviewControls, usePhotoPreviewInteraction } from "./usePhotoPreviewInteraction";
 
 export function TablePhotoPreview({
   photoId,
@@ -20,6 +21,7 @@ export function TablePhotoPreview({
   const [url, setUrl] = useState<string>();
   const dialogRef = useRef<HTMLDivElement>(null);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
+  const interaction = usePhotoPreviewInteraction();
   useDialogKeyboard(dialogRef, onClose);
 
   useEffect(() => {
@@ -48,9 +50,19 @@ export function TablePhotoPreview({
   }, []);
 
   return <div ref={dialogRef} className="table-preview-backdrop" role="dialog" aria-modal="true" aria-label={`Preview ${filename}`} onPointerDown={onClose}>
-    <section className="table-preview-dialog" onPointerDown={(event) => event.stopPropagation()}>
+    <section className="table-preview-dialog table-photo-preview-dialog" onPointerDown={(event) => event.stopPropagation()}>
       <header><span>{filename}</span><button ref={closeButtonRef} onClick={onClose} aria-label={t("table.closePreview")}>×</button></header>
-      <div className="table-preview-image-wrap">{url ? <img src={url} alt={filename} /> : <div className="preview-placeholder">{t("table.previewUnavailable")}</div>}</div>
+      <div
+        ref={interaction.viewportRef}
+        className={`table-preview-image-wrap photo-preview-viewport${interaction.pannable ? " is-pannable" : ""}${interaction.dragging ? " is-dragging" : ""}`}
+        onPointerDown={interaction.onPointerDown}
+        onPointerMove={interaction.onPointerMove}
+        onPointerUp={interaction.onPointerUp}
+        onPointerCancel={interaction.onPointerCancel}
+      >
+        {url ? <div className={`table-photo-preview-image${interaction.sideways ? " is-sideways" : ""}`} style={{ transform: interaction.imageTransform }} data-rotation={interaction.normalizedRotation}><img src={url} alt={filename} draggable={false} /></div> : <div className="preview-placeholder">{t("table.previewUnavailable")}</div>}
+        <PhotoPreviewControls interaction={interaction} />
+      </div>
     </section>
   </div>;
 }

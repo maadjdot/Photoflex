@@ -36,6 +36,7 @@ import { PhotoThumb } from "./PhotoThumb";
 import { deriveTableActions } from "./tableActionPolicy";
 import { useTableGestures } from "./useTableGestures";
 import { useLocale } from "./locale";
+import { sequencePileCardWidth } from "./sequenceCardGeometry";
 
 const TABLE_IMAGE_RETENTION_MS = 20_000;
 const TABLE_RETAINED_IMAGE_LIMIT = 72;
@@ -149,6 +150,7 @@ export const TableCanvas = forwardRef<TableCanvasHandle, TableCanvasProps>(funct
     selectPile: session.selectPile,
     selectPhotos: session.selectPhotos,
     clearSelection: session.clearSelection,
+    onOpenSequence,
     disabled: interactionDisabled,
   });
 
@@ -398,18 +400,26 @@ export const TableCanvas = forwardRef<TableCanvasHandle, TableCanvasProps>(funct
           const dragging = chosen && preview.kind === "pile";
           const delta = chosen && preview.kind === "pile" ? preview.dragDelta : { x: 0, y: 0 };
           const scale = preview.kind === "resize-pile" && preview.sequenceId === id ? preview.pileResizeScale : 1;
+          const minimumCardWidth = sequencePileCardWidth(summary?.previewPhotoIds.length ?? 0);
+          const cardWidth = Math.max(pile.width, minimumCardWidth);
+          const cardHeight = Math.max(pile.height, 176);
           return (
             <article
               key={id}
               aria-label={`Sequence pile ${summary?.name ?? "Missing Sequence"}`}
               className={`sequence-pile${chosen ? " is-selected" : ""}${dragging ? " is-dragging" : ""}`}
-              style={{ width: pile.width * scale, height: pile.height * scale, zIndex: pile.z, transform: `translate3d(${pile.x + delta.x - (pile.width * (scale - 1)) / 2}px,${pile.y + delta.y - (pile.height * (scale - 1)) / 2}px,0)` }}
-              onPointerDown={(event) => { if (event.button === 0 && !interactionDisabled) props.onSelectPile?.(id); gestures.onPilePointerDown(event, id); }}
-              onDoubleClick={(event) => { event.stopPropagation(); onOpenSequence(id); }}
+              style={{ width: cardWidth * scale, height: cardHeight * scale, zIndex: pile.z, transform: `translate3d(${pile.x + delta.x - (cardWidth * (scale - 1)) / 2}px,${pile.y + delta.y - (cardHeight * (scale - 1)) / 2}px,0)` }}
+              onPointerDown={(event) => { if (event.button === 0 && !event.ctrlKey && !event.metaKey && !interactionDisabled) props.onSelectPile?.(id); gestures.onPilePointerDown(event, id); }}
             >
-              <header><strong>{summary?.name ?? "Missing Sequence"}</strong><span>{summary?.itemCount ?? 0}</span></header>
-              <div className="sequence-pile-thumbs">{summary?.previewPhotoIds.map((photoId, index) => <span key={`${photoId}-${index}`}><PhotoThumb photoSource={photoSource} photoId={photoId} alt="" onError={onPhotoError} /></span>)}</div>
-              {chosen && <button aria-label="Resize sequence pile" className="worktable-resize-handle sequence-pile-resize-handle" onPointerDown={(event) => gestures.onPileResizePointerDown(event, id)} />}
+              <header><div><small>SEQUENCE</small><strong>{summary?.name ?? "Missing Sequence"}</strong></div><span>{summary?.photoCount ?? 0}</span></header>
+              <div className="sequence-pile-thumbs">{summary?.previewPhotoIds.map((photoId, index) => <span key={`${photoId}-${index}`}><PhotoThumb fit="cover" photoSource={photoSource} photoId={photoId} alt="" onError={onPhotoError} /></span>)}</div>
+              <button
+                type="button"
+                aria-label="Resize sequence pile"
+                className="worktable-resize-handle sequence-pile-resize-handle"
+                disabled={interactionDisabled}
+                onPointerDown={(event) => gestures.onPileResizePointerDown(event, id, { width: cardWidth, height: cardHeight })}
+              />
             </article>
           );
         })}

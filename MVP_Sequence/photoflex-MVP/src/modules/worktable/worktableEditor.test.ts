@@ -393,6 +393,31 @@ describe("WorktableEditor", () => {
     const removed = editor.execute({ type: "remove-sequence-piles", sequenceIds: [placement.sequenceId] });
     expect(removed.ok && removed.value.entryOrder).toEqual(["a"]);
   });
+
+  it("resizes a legacy Sequence card from its rendered size and keeps its center", () => {
+    const editor = createWorktableEditor(createEmptyWorktable(projectId));
+    const sequenceId = "sequence-1" as SequenceId;
+    editor.execute({
+      type: "place-sequence-pile",
+      placement: { sequenceId, x: 80, y: 90, z: 1, width: 190, height: 118 },
+    });
+
+    const resized = editor.execute({
+      type: "resize-sequence-pile",
+      sequenceId,
+      scale: 1.15,
+      baseSize: { width: 402, height: 176 },
+    });
+
+    expect(resized.ok).toBe(true);
+    if (!resized.ok) return;
+    const placement = resized.value.pilePlacements[sequenceId];
+    expect(placement.width).toBeCloseTo(462.3);
+    expect(placement.height).toBeCloseTo(202.4);
+    expect(placement.x).toBeCloseTo(49.85);
+    expect(placement.y).toBeCloseTo(76.8);
+    expect(editor.undo().pilePlacements[sequenceId]).toMatchObject({ width: 190, height: 118, x: 80, y: 90 });
+  });
 });
 
 function overlaps(left: { x: number; y: number; width: number; height: number }, right: { x: number; y: number; width: number; height: number }) {

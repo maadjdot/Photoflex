@@ -11,11 +11,11 @@ import { screenToWorld } from "../modules/worktable";
 
 type Gesture =
   | { kind: "photo"; pointerId: number; start: WorktablePoint; ids: readonly WorktableItemId[] }
-  | { kind: "pile"; pointerId: number; start: WorktablePoint; ids: readonly SequenceId[] }
+  | { kind: "pile"; pointerId: number; start: WorktablePoint; ids: readonly SequenceId[]; openOnClick?: SequenceId; moved: boolean; startClient: WorktablePoint }
   | { kind: "pan"; pointerId: number; start: WorktablePoint; viewport: WorktableViewport }
   | { kind: "marquee"; pointerId: number; start: WorktablePoint; additive: boolean }
   | { kind: "resize"; pointerId: number; start: WorktablePoint; photoId: WorktableItemId; width: number }
-  | { kind: "resize-pile"; pointerId: number; start: WorktablePoint; sequenceId: SequenceId; width: number };
+  | { kind: "resize-pile"; pointerId: number; start: WorktablePoint; sequenceId: SequenceId; width: number; height: number };
 
 export interface TableMarquee {
   readonly left: number;
@@ -34,6 +34,7 @@ interface TableGestureOptions {
   readonly selectPile: (sequenceId: SequenceId, toggle: boolean) => readonly SequenceId[] | undefined;
   readonly selectPhotos: (photoIds: readonly WorktableItemId[], additive?: boolean) => unknown;
   readonly clearSelection: () => unknown;
+  readonly onOpenSequence?: (sequenceId: SequenceId) => void;
   readonly disabled?: boolean;
 }
 
@@ -48,7 +49,7 @@ export interface TableGesturePreview {
 }
 
 export function useTableGestures(options: TableGestureOptions) {
-  const { stageRef, draft, viewport, setViewport, execute, selectPhoto, selectPile, selectPhotos, clearSelection, disabled = false } = options;
+  const { stageRef, draft, viewport, setViewport, execute, selectPhoto, selectPile, selectPhotos, clearSelection, onOpenSequence, disabled = false } = options;
   const [dragDelta, setDragDelta] = useState<WorktablePoint>({ x: 0, y: 0 });
   const [resizeScale, setResizeScale] = useState(1);
   const [pileResizeScale, setPileResizeScale] = useState(1);
@@ -132,13 +133,17 @@ export function useTableGestures(options: TableGestureOptions) {
     event.stopPropagation();
     if (event.button === 2) return startPan(event);
     if (event.button !== 0 || !stageRef.current) return;
-    const ids = selectPile(id, event.shiftKey || event.ctrlKey || event.metaKey);
+    const modified = event.shiftKey || event.ctrlKey || event.metaKey;
+    const ids = selectPile(id, modified);
     if (!ids?.length) return;
     beginDrag(event, {
       kind: "pile",
       pointerId: event.pointerId,
       start: screenToWorld({ x: event.clientX, y: event.clientY }, stageRef.current.getBoundingClientRect(), viewportRef.current),
       ids,
+      openOnClick: modified ? undefined : id,
+      moved: false,
+      startClient: { x: event.clientX, y: event.clientY },
     });
   };
 
@@ -162,7 +167,11 @@ export function useTableGestures(options: TableGestureOptions) {
     identify(gesture);
   };
 
-  const onPileResizePointerDown = (event: ReactPointerEvent<HTMLButtonElement>, id: SequenceId) => {
+  const onPileResizePointerDown = (
+    event: ReactPointerEvent<HTMLButtonElement>,
+    id: SequenceId,
+    renderedSize?: { readonly width: number; readonly height: number },
+  ) => {
     if (disabled) return;
     const stage = stageRef.current;
     const pile = draft.pilePlacements[id];
@@ -175,7 +184,8 @@ export function useTableGestures(options: TableGestureOptions) {
       pointerId: event.pointerId,
       start: screenToWorld({ x: event.clientX, y: event.clientY }, stage.getBoundingClientRect(), viewportRef.current),
       sequenceId: id,
-      width: pile.width,
+      width: renderedSize?.width ?? pile.width,
+      height: renderedSize?.height ?? pile.height,
     };
     gestureRef.current = gesture;
     scaleRef.current = 1;
@@ -237,6 +247,7 @@ export function useTableGestures(options: TableGestureOptions) {
       setPileResizeScale(scaleRef.current);
       return;
     }
+    if (gesture.kind === "pile" && Math.hypot(event.clientX - gesture.startClient.x, event.clientY - gesture.startClient.y) > 5) gesture.moved = true;
     const world = screenToWorld({ x: event.clientX, y: event.clientY }, rect, viewportRef.current);
     const delta = { x: world.x - gesture.start.x, y: world.y - gesture.start.y };
     deltaRef.current = delta;
@@ -258,11 +269,17 @@ export function useTableGestures(options: TableGestureOptions) {
     if (dragFrameRef.current !== undefined) cancelAnimationFrame(dragFrameRef.current);
     dragFrameRef.current = undefined;
     const delta = deltaRef.current;
-    const moved = Math.abs(delta.x) > .25 || Math.abs(delta.y) > .25;
+    const moved = gesture.kind === "pile" ? gesture.moved : Math.abs(delta.x) > .25 || Math.abs(delta.y) > .25;
     if (!cancelled && moved && gesture.kind === "photo") execute({ type: "move", photoIds: gesture.ids, by: delta });
     if (!cancelled && moved && gesture.kind === "pile") execute({ type: "move-sequence-piles", sequenceIds: gesture.ids, by: delta });
+    if (!cancelled && !moved && gesture.kind === "pile" && gesture.openOnClick) onOpenSequence?.(gesture.openOnClick);
     if (!cancelled && gesture.kind === "resize" && Math.abs(scaleRef.current - 1) > .01) execute({ type: "resize", photoIds: [gesture.photoId], scale: scaleRef.current });
-    if (!cancelled && gesture.kind === "resize-pile" && Math.abs(scaleRef.current - 1) > .01) execute({ type: "resize-sequence-pile", sequenceId: gesture.sequenceId, scale: scaleRef.current });
+    if (!cancelled && gesture.kind === "resize-pile" && Math.abs(scaleRef.current - 1) > .01) execute({
+      type: "resize-sequence-pile",
+      sequenceId: gesture.sequenceId,
+      scale: scaleRef.current,
+      baseSize: { width: gesture.width, height: gesture.height },
+    });
     if (!cancelled && gesture.kind === "marquee") {
       const rect = stage.getBoundingClientRect();
       const a = screenToWorld(gesture.start, rect, viewportRef.current);

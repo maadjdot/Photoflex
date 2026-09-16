@@ -111,7 +111,13 @@ export type WorktableEditCommand =
   | { readonly type: "remove-link"; readonly linkId: string }
   | { readonly type: "place-sequence-pile"; readonly placement: WorktableSequencePilePlacement }
   | { readonly type: "move-sequence-piles"; readonly sequenceIds: readonly SequenceId[]; readonly by: WorktablePoint }
-  | { readonly type: "resize-sequence-pile"; readonly sequenceId: SequenceId; readonly scale: number }
+  | {
+      readonly type: "resize-sequence-pile";
+      readonly sequenceId: SequenceId;
+      readonly scale: number;
+      /** Optional rendered size used when a legacy placement is smaller than the current card minimum. */
+      readonly baseSize?: { readonly width: number; readonly height: number };
+    }
   | { readonly type: "bring-sequence-piles-to-front"; readonly sequenceIds: readonly SequenceId[] }
   | { readonly type: "remove-sequence-piles"; readonly sequenceIds: readonly SequenceId[] }
   | { readonly type: "bring-to-front"; readonly photoIds: readonly WorktableItemId[] }

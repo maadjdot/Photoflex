@@ -1,6 +1,6 @@
 import { startSharedScan, stopSharedScan } from "./ProjectSourceMonitor";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { PhotoId, PhotoRef, ProjectId, SequenceId, SequenceSummary, SourceError, SourceId, SourceRecord, WorktableDraft, WorktableEditCommand, WorktableItemId } from "../contracts";
+import type { PhotoId, PhotoRef, ProjectId, SequenceId, SequenceSummary, SourceError, SourceId, SourceRecord, VersionId, WorktableDraft, WorktableEditCommand, WorktableItemId } from "../contracts";
 import type { AppDependencies } from "./dependencies";
 import { createInitialSequenceBundle } from "../modules/sequence";
 import { orderPhotoIdsByTablePosition } from "../modules/worktable";
@@ -10,7 +10,6 @@ import type { AppRoute } from "./router";
 import { SourceBrowser } from "./SourceBrowser";
 import { TableContextToolbar, TableFloatingToolbar } from "./TableContextToolbar";
 import { TableSequenceAddDialog } from "./TableSequenceAddDialog";
-import { SequenceOrderPanel } from "./SequenceOrderPanel";
 import { TableCanvas, type TableCanvasHandle } from "./TableCanvas";
 import { TableWorkspace } from "./TableWorkspace";
 import { TablePhotoCompare, TablePhotoPreview } from "./TableMediaDialogs";
@@ -18,12 +17,13 @@ import { useTableSession, type TableSessionCommit } from "./tableSession";
 import { useProjectWorkspaceSession, workspaceSaveErrorMessage } from "./useProjectWorkspace";
 import { useTableWorkspaceLifecycle } from "./useTableWorkspaceLifecycle";
 import { useLocale } from "./locale";
+import { SequenceOverlay } from "./SequenceOverlay";
+import { sequencePileCardWidth } from "./sequenceCardGeometry";
 
-const PILE_WIDTH = 211;
-const PILE_HEIGHT = 142;
+const PILE_HEIGHT = 176;
 interface SequenceConfirmation { name: string; photoIds: readonly PhotoId[] }
 
-export function TablePage({ dependencies, projectId, navigate }: { dependencies: AppDependencies; projectId: ProjectId; navigate: (route: AppRoute) => void }) {
+export function TablePage({ dependencies, projectId, navigate, sequenceOverlay }: { dependencies: AppDependencies; projectId: ProjectId; navigate: (route: AppRoute) => void; sequenceOverlay?: { readonly sequenceId: SequenceId; readonly openVersionId?: VersionId } }) {
   const { t } = useLocale();
   const { workspace, save, saveWorktable, deleteSequences, createSequenceBundle, listSequences, coordinator, loading, error } = useProjectWorkspaceSession(dependencies, projectId);
   const [summaries, setSummaries] = useState<readonly SequenceSummary[]>([]);
@@ -37,11 +37,9 @@ export function TablePage({ dependencies, projectId, navigate }: { dependencies:
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [addToSequenceOpen, setAddToSequenceOpen] = useState(false);
   const [addToSequenceId, setAddToSequenceId] = useState<SequenceId>();
-  const [sequenceRefreshKey, setSequenceRefreshKey] = useState(0);
   const [confirmationDragId, setConfirmationDragId] = useState<PhotoId>();
   const [selectedMemoId, setSelectedMemoId] = useState<string>();
   const [addingSource, setAddingSource] = useState(false);
-  const [sequenceHidden, setSequenceHidden] = useState(true);
   const [sourcePanelMode, setSourcePanelMode] = useState<"compact" | "expanded" | "closed">("compact");
   const canvasRef = useRef<TableCanvasHandle>(null);
   const createSequenceDialogRef = useRef<HTMLElement>(null);
@@ -169,7 +167,8 @@ export function TablePage({ dependencies, projectId, navigate }: { dependencies:
     const center = canvasRef.current?.getViewportCenter() ?? { x: 200, y: 160 };
     const flushed = await coordinator.flush();
     if (!flushed.ok) { setNotice(workspaceSaveErrorMessage(flushed.error)); return; }
-    const result = await createSequenceBundle({ sequence, initialVersion, pile: { x: center.x - PILE_WIDTH / 2, y: center.y - PILE_HEIGHT / 2, width: PILE_WIDTH, height: PILE_HEIGHT } });
+    const pileWidth = sequencePileCardWidth(confirmation.photoIds.length);
+    const result = await createSequenceBundle({ sequence, initialVersion, pile: { x: center.x - pileWidth / 2, y: center.y - PILE_HEIGHT / 2, width: pileWidth, height: PILE_HEIGHT } });
     if (!result.ok) { setNotice(result.error.kind === "sequence-name-exists" ? t("table.sequenceNameExists") : t("table.sequenceCreateFailed")); return; }
     if (result.value.worktableDraft) tableSession.resetCommittedDraft(result.value.worktableDraft, { pileIds: [id] });
     setSummaries((items) => [...items, result.value.summary]); setActiveSequenceId(id); setConfirmation(undefined); setNotice(t("table.sequenceCreated", { name }));
@@ -244,7 +243,7 @@ export function TablePage({ dependencies, projectId, navigate }: { dependencies:
       onViewportChange={tableLifecycle.onViewportChange}
       selectedMemoId={selectedMemoId}
       onSelectMemo={setSelectedMemoId}
-      onSelectPile={(id) => { setSelectedMemoId(undefined); setActiveSequenceId(id); setSequenceHidden(false); }}
+      onSelectPile={(id) => { setSelectedMemoId(undefined); setActiveSequenceId(id); }}
       onOpenPhoto={setPreviewPhotoId}
       onOpenSequence={(sequenceId) => navigate({ name: "sequence", projectId, sequenceId })}
       onRequestSequence={requestSequence}
@@ -263,12 +262,12 @@ export function TablePage({ dependencies, projectId, navigate }: { dependencies:
     <TableContextToolbar draft={draft} actions={actions} canAddToSequence={Boolean(photoIds.length && summaries.length)} onExecute={execute} onRequestSequence={requestSequence} onAddToSequence={() => { setAddToSequenceId(summaries[0]?.id); setAddToSequenceOpen(true); }} onPreview={setPreviewPhotoId} onComparePhotos={setComparePhotoIds} onCompareSequences={(ids) => navigate({ name: "sequence-compare", projectId, leftSequenceId: ids[0], rightSequenceId: ids[1] })} onRemovePiles={(ids) => setDeleteConfirmation(ids)} onRemovePhotos={(ids) => execute({ type: "remove", photoIds: ids })} />
     </div>
     {confirmation && <section ref={createSequenceDialogRef} className="sequence-confirmation sequence-pile-confirmation" role="dialog" aria-modal="true" aria-label={t("sequence.createPileAria")}><header><h2>{t("table.createSequence")}</h2><button type="button" aria-label={t("common.close")} onClick={() => setConfirmation(undefined)}>×</button></header><label><span>{t("table.name")}</span><input autoFocus value={confirmation.name} onChange={(event) => setConfirmation({ ...confirmation, name: event.target.value })} onKeyDown={(event) => event.key === "Enter" && void createPile()} /></label><div className="sequence-confirmation-order">{confirmation.photoIds.map((id, index) => <button key={`${id}-${index}`} draggable onDragStart={() => setConfirmationDragId(id)} onDragOver={(event) => event.preventDefault()} onDrop={() => { if (confirmationDragId) setConfirmation({ ...confirmation, photoIds: movePhoto(confirmation.photoIds, confirmationDragId, index) }); setConfirmationDragId(undefined); }}><PhotoThumb photoSource={dependencies.photoSource} photoId={id} alt={t("sequence.orderItem", { index: index + 1, filename: draft.entryOrder.map((itemId) => draft.placements[itemId]).find((placement) => placement.photoId === id)?.filename ?? id })} onError={onPhotoError} /><span>{index + 1}</span></button>)}</div><div><button onClick={() => setConfirmation(undefined)}>{t("common.cancel")}</button><button className="button button-primary" onClick={() => void createPile()}>{t("table.createPile")}</button></div></section>}
-    {addToSequenceOpen && <TableSequenceAddDialog persistence={coordinator} listSequences={listSequences} projectId={projectId} photoIds={selectedSourcePhotoIds} summaries={summaries} initialSequenceId={addToSequenceId} onClose={() => setAddToSequenceOpen(false)} onSummariesChange={setSummaries} onSequenceChanged={(sequenceId) => { setActiveSequenceId(sequenceId); setSequenceRefreshKey((value) => value + 1); }} onNotice={setNotice} />}
+    {addToSequenceOpen && <TableSequenceAddDialog persistence={coordinator} listSequences={listSequences} projectId={projectId} photoIds={selectedSourcePhotoIds} summaries={summaries} initialSequenceId={addToSequenceId} onClose={() => setAddToSequenceOpen(false)} onSummariesChange={setSummaries} onSequenceChanged={setActiveSequenceId} onNotice={setNotice} />}
     {deleteConfirmation && <section ref={deleteSequenceDialogRef} className="delete-sequence-dialog" role="dialog" aria-modal="true" aria-labelledby="delete-sequence-title"><h2 id="delete-sequence-title">{t("table.deleteQuestion", { target: deleteConfirmation.length > 1 ? t("sequence.many") : t("sequence.one") })}</h2><p>{t("table.deleteWarning", { names: deleteConfirmation.map((id) => summaryById.get(id)?.name ?? t("status.missing")).join(", "), count: deleteConfirmation.reduce((count, id) => count + (summaryById.get(id)?.itemCount ?? 0), 0) })}</p><footer><button type="button" autoFocus disabled={deleteBusy} onClick={() => setDeleteConfirmation(undefined)}>{t("common.cancel")}</button><button type="button" className="button-danger" disabled={deleteBusy} onClick={() => void confirmRemoveSelectedPiles(deleteConfirmation)}>{deleteBusy ? t("project.deleting") : t("table.deleteSequence")}</button></footer></section>}
-    <div className="table-sequence-panel-host" hidden={sequenceHidden}><SequenceOrderPanel onHide={() => setSequenceHidden(true)} persistence={coordinator} dependencies={dependencies} projectId={projectId} sequenceId={activeSequenceId} refreshKey={sequenceRefreshKey} navigate={navigate} onPhotoError={onPhotoError} onNotice={setNotice} onItemCountChange={(sequenceId, itemCount) => setSummaries((items) => items.map((item) => item.id === sequenceId ? { ...item, itemCount } : item))} /></div>
     </TableWorkspace>
     {previewPhotoId && previewPlacement && <TablePhotoPreview photoId={previewPhotoId} filename={previewPlacement.filename} photoSource={dependencies.photoSource} onClose={() => setPreviewPhotoId(undefined)} onError={onPhotoError} />}
     {comparePhotoIds && <TablePhotoCompare ids={comparePhotoIds} draft={draft} photoSource={dependencies.photoSource} onClose={() => setComparePhotoIds(undefined)} />}
+    {sequenceOverlay && <SequenceOverlay dependencies={dependencies} persistence={coordinator} projectId={projectId} sequenceId={sequenceOverlay.sequenceId} openVersionId={sequenceOverlay.openVersionId} onClose={() => navigate({ name: "table", projectId })} onPhotoError={onPhotoError} />}
   </main>;
 }
 

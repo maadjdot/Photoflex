@@ -12,6 +12,7 @@ interface PhotoThumbProps {
   /** Optional higher table tier to swap in after the 768px image is visible. */
   readonly progressiveTo?: DerivedPreviewMaxEdge;
   readonly sourceRevision?: number;
+  readonly fit?: "cover" | "contain";
 }
 
 export const PhotoThumb = memo(function PhotoThumb({
@@ -23,6 +24,7 @@ export const PhotoThumb = memo(function PhotoThumb({
   resolution = "thumbnail",
   progressiveTo,
   sourceRevision,
+  fit,
 }: PhotoThumbProps) {
   const { t } = useLocale();
   const [url, setUrl] = useState<string>();
@@ -100,6 +102,7 @@ export const PhotoThumb = memo(function PhotoThumb({
       decoding="async"
       fetchPriority={resolution === "full" || resolution === "read" ? "high" : "auto"}
       draggable={false}
+      style={fit ? { objectFit: fit } : undefined}
     />
   ) : (
     <div className="thumb-placeholder" aria-label={t("common.thumbnailLoading", { name: alt })} />

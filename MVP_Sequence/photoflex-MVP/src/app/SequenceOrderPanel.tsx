@@ -22,7 +22,7 @@ interface SequenceOrderPanelProps {
   readonly navigate: (route: AppRoute) => void;
   readonly onPhotoError: (photoId: PhotoId, error: SourceError) => void;
   readonly onNotice: (message: string) => void;
-  readonly onItemCountChange?: (sequenceId: SequenceId, itemCount: number) => void;
+  readonly onItemCountChange?: (sequenceId: SequenceId, itemCount: number, photoCount: number) => void;
 }
 
 /** Owns the sequence strip's local UI and sequence-session interaction. */
@@ -90,7 +90,7 @@ function ActiveSequenceOrderPanel({ persistence, dependencies, projectId, sequen
   const removeItem = (itemId: SequenceItemId) => {
     const result = execute({ type: "remove", itemIds: [itemId] });
     if (!result.ok) { onNotice(t("sequence.removeItemFailed")); return; }
-    onItemCountChange?.(sequenceId, result.value.items.length);
+    onItemCountChange?.(sequenceId, result.value.items.length, result.value.items.filter((item) => item.kind === "photo").length);
     onNotice(t("sequence.removedOne"));
   };
 
