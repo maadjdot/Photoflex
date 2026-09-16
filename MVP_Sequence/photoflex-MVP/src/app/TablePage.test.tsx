@@ -325,6 +325,32 @@ describe("TablePage", () => {
     expect(restored.ok && restored.value.sources[0].removedAt).toBeUndefined();
   });
 
+  it("reloads failed worktable photos after reconnecting a restored source", async () => {
+    const dependencies = await createFixture();
+    let connected = false;
+    const originalPreview = dependencies.photoSource.derivedPreview.bind(dependencies.photoSource);
+    vi.spyOn(dependencies.photoSource, "derivedPreview").mockImplementation(async (id: PhotoId) =>
+      connected ? originalPreview(id) : err({ kind: "preview-unavailable" as const, photoId: id }),
+    );
+    const originalRestore = dependencies.photoSource.restoreFolder.bind(dependencies.photoSource);
+    vi.spyOn(dependencies.photoSource, "restoreFolder").mockImplementation(async (id) => {
+      const restored = await originalRestore(id);
+      if (restored.ok) connected = true;
+      return restored;
+    });
+
+    render(<App dependencies={dependencies} />);
+    const card = await screen.findByLabelText("A.jpg");
+    await waitFor(() => expect(card.classList.contains("is-missing")).toBe(true));
+    fireEvent.click(screen.getByRole("button", { name: "Manage photo sources" }));
+    const manager = screen.getByRole("dialog", { name: "Manage photo sources" });
+    fireEvent.click(within(manager).getByRole("button", { name: "Remove source" }));
+    fireEvent.click(await within(manager).findByRole("button", { name: "Reconnect" }));
+
+    await waitFor(() => expect(within(card).getByAltText("A.jpg")).toBeTruthy());
+    expect(card.classList.contains("is-missing")).toBe(false);
+  });
+
   it("keeps header controls together and does not render the retired Sequence Order panel", async () => {
     render(<App dependencies={await createPileFixture()} />);
     await screen.findByLabelText("Photo worktable");

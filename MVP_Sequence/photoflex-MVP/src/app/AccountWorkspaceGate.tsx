@@ -1,7 +1,6 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import type { AccountError, AccountUser } from "../contracts";
 import type { AccountWorkspace, AppDependencies } from "./dependencies";
-import googleLogo from "../assets/google-logo.svg";
 import { useLocale } from "./locale";
 
 const authErrorKey = (error: AccountError): string => {
@@ -25,6 +24,8 @@ export function AccountWorkspaceGate({ dependencies, children }: {
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [verificationCode, setVerificationCode] = useState("");
+  const [awaitingVerification, setAwaitingVerification] = useState(false);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string>();
 
@@ -46,7 +47,6 @@ export function AccountWorkspaceGate({ dependencies, children }: {
     if (!factory || !user) { setWorkspace(undefined); return; }
     const opened = factory.open(user.id);
     setWorkspace(opened);
-    window.location.hash = "#/";
     return () => { void opened.close(); };
   }, [factory, user?.id]);
 
@@ -62,18 +62,23 @@ export function AccountWorkspaceGate({ dependencies, children }: {
     } else {
       const result = await account.signUp(email.trim(), password, { fullName: fullName.trim() });
       if (!result.ok) setMessage(t(authErrorKey(result.error)));
-      else if (result.value.confirmationRequired) setMessage(t("cloud.checkEmail"));
-      else setUser(result.value.user);
+      else if (result.value.confirmationRequired) {
+        setAwaitingVerification(Boolean(account.verifySignUp));
+        setMessage(t("cloud.checkEmail"));
+      } else if (result.value.user) setUser(result.value.user);
+      else setMessage(t("cloud.authFailed"));
     }
     setBusy(false);
   };
 
-  const continueWithGoogle = async () => {
-    if (!account?.signInWithGoogle || busy) return;
+  const verifyEmail = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!account?.verifySignUp || busy) return;
     setBusy(true);
     setMessage(undefined);
-    const result = await account.signInWithGoogle();
-    if (!result.ok) setMessage(t(authErrorKey(result.error)));
+    const result = await account.verifySignUp(verificationCode);
+    if (result.ok) { setAwaitingVerification(false); setUser(result.value); }
+    else setMessage(t(authErrorKey(result.error)));
     setBusy(false);
   };
 
@@ -81,6 +86,8 @@ export function AccountWorkspaceGate({ dependencies, children }: {
     setMode((current) => current === "sign-in" ? "sign-up" : "sign-in");
     setMessage(undefined);
     setPassword("");
+    setVerificationCode("");
+    setAwaitingVerification(false);
   };
 
   if (!account || !factory) return <>{children(dependencies)}</>;
@@ -95,9 +102,15 @@ export function AccountWorkspaceGate({ dependencies, children }: {
     <main className="account-gate-main">
       <div className="account-gate-panel">
         <section className="account-auth-card" aria-labelledby="account-auth-title">
-          <h1 id="account-auth-title">{t(signingUp ? "cloud.createAccountTitle" : "cloud.signInTitle")}</h1>
-          <p className="account-auth-subtitle">{t(signingUp ? "cloud.createAccountDetail" : "cloud.signInDetail")}</p>
-          <form className="account-auth-form" onSubmit={(event) => void authenticate(event)}>
+          <h1 id="account-auth-title">{t(awaitingVerification ? "cloud.verifyEmail" : signingUp ? "cloud.createAccountTitle" : "cloud.signInTitle")}</h1>
+          <p className="account-auth-subtitle">{t(awaitingVerification ? "cloud.checkEmail" : signingUp ? "cloud.createAccountDetail" : "cloud.signInDetail")}</p>
+          {awaitingVerification ? <form className="account-auth-form" onSubmit={(event) => void verifyEmail(event)}>
+            <label className="account-auth-field"><span>{t("cloud.verificationCode")}</span>
+              <input type="text" required inputMode="numeric" autoComplete="one-time-code" value={verificationCode} onChange={(event) => setVerificationCode(event.target.value)} />
+            </label>
+            {message && <p className="account-auth-message" role="status">{message}</p>}
+            <button type="submit" className="account-auth-primary" disabled={busy}>{busy ? t("common.loading") : t("cloud.verifyEmail")}</button>
+          </form> : <form className="account-auth-form" onSubmit={(event) => void authenticate(event)}>
             {signingUp && <label className="account-auth-field">
               <span>{t("cloud.fullName")}</span>
               <input type="text" required minLength={2} autoComplete="name" placeholder={t("cloud.fullNamePlaceholder")} value={fullName} onChange={(event) => setFullName(event.target.value)} />
@@ -111,16 +124,11 @@ export function AccountWorkspaceGate({ dependencies, children }: {
                 <span>{t("cloud.password")}</span>
                 {!signingUp && <button type="button" className="account-forgot-password" disabled title={t("cloud.passwordResetUnavailable")}>{t("cloud.forgotPassword")}</button>}
               </span>
-              <input type="password" required minLength={6} autoComplete={signingUp ? "new-password" : "current-password"} placeholder="••••••••" value={password} onChange={(event) => setPassword(event.target.value)} />
+              <input type="password" required minLength={signingUp ? 8 : 6} autoComplete={signingUp ? "new-password" : "current-password"} placeholder="••••••••" value={password} onChange={(event) => setPassword(event.target.value)} />
             </label>
             {message && <p className="account-auth-message" role="status">{message}</p>}
             <button type="submit" className="account-auth-primary" disabled={busy}>{busy ? t("common.loading") : t(signingUp ? "cloud.signUp" : "cloud.signIn")}</button>
-          </form>
-          <div className="account-auth-divider"><span />{t("cloud.or")}<span /></div>
-          <button type="button" className="account-google-button" disabled={busy || !account.signInWithGoogle} onClick={() => void continueWithGoogle()} title={!account.signInWithGoogle ? t("cloud.googleUnavailable") : undefined}>
-            <img src={googleLogo} alt="" aria-hidden="true" />
-            {t("cloud.continueWithGoogle")}
-          </button>
+          </form>}
         </section>
         <p className="account-auth-switch">
           {t(signingUp ? "cloud.haveAccount" : "cloud.noAccount")} {" "}

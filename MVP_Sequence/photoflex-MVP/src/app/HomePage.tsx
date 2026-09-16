@@ -233,11 +233,11 @@ export function HomePage({
             ) : (
               <div className="home-gallery-empty">
                 <p>{t("home.noPhotos")}</p>
-                <button className="button button-secondary" onClick={() => navigate({ name: "table", projectId: selectedProject.id })} aria-label={t("home.openProject", { name: selectedProject.name })}>{t("home.openTable")}</button>
               </div>
             )}
             <div className="home-project-feature-copy">
               <span>{t("home.updatedAt", { time: formatUpdated(selectedProject.updatedAt, locale) })}</span>
+              <button className="button button-secondary" onClick={() => navigate({ name: "table", projectId: selectedProject.id })} aria-label={t("home.openProject", { name: selectedProject.name })}>{t("home.openTable")}</button>
             </div>
           </article>
         ) : (

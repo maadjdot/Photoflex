@@ -17,7 +17,8 @@ export interface AccountSession {
   getCurrentUser(): Promise<Result<AccountUser | null, AccountError>>;
   subscribe(listener: (user: AccountUser | null) => void): () => void;
   signIn(email: string, password: string): Promise<Result<AccountUser, AccountError>>;
-  signUp(email: string, password: string, profile?: { readonly fullName?: string }): Promise<Result<{ readonly user: AccountUser; readonly confirmationRequired: boolean }, AccountError>>;
+  signUp(email: string, password: string, profile?: { readonly fullName?: string }): Promise<Result<{ readonly user?: AccountUser; readonly confirmationRequired: boolean }, AccountError>>;
+  verifySignUp?(code: string): Promise<Result<AccountUser, AccountError>>;
   signInWithGoogle?(): Promise<Result<void, AccountError>>;
   signOut(): Promise<Result<void, AccountError>>;
 }
@@ -54,4 +55,5 @@ export interface ProjectCloud {
   list(): Promise<Result<readonly CloudProjectSummary[], CloudProjectError>>;
   pull(projectId: ProjectId): Promise<Result<CloudProjectSnapshot, CloudProjectError>>;
   push(input: PushCloudProjectInput): Promise<Result<CloudProjectSnapshot, CloudProjectError>>;
+  delete(projectId: ProjectId, expectedCloudRevision: number): Promise<Result<void, CloudProjectError>>;
 }

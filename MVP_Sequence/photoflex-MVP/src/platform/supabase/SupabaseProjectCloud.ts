@@ -114,4 +114,15 @@ export class SupabaseProjectCloud implements ProjectCloud {
     if (!existing.ok) return existing;
     return err({ kind: "conflict", expectedRevision: input.expectedCloudRevision, actualRevision: existing.value.cloudRevision });
   }
+
+  async delete(projectId: ProjectId, expectedCloudRevision: number): Promise<Result<void, CloudProjectError>> {
+    const userId = await this.userId();
+    if (!userId.ok) return userId;
+    const { data, error } = await this.client.from("projects")
+      .delete().eq("id", projectId).eq("owner_id", userId.value).eq("cloud_revision", expectedCloudRevision).select("id").maybeSingle();
+    if (error) return err(unavailable());
+    if (data) return ok(undefined);
+    const existing = await this.pull(projectId);
+    return existing.ok ? err({ kind: "conflict", expectedRevision: expectedCloudRevision, actualRevision: existing.value.cloudRevision }) : existing.error.kind === "not-found" ? ok(undefined) : existing;
+  }
 }

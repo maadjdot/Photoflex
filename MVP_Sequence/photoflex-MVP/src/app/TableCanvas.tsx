@@ -78,6 +78,7 @@ interface TableCanvasProps {
   readonly onRemovePiles: (sequenceIds: readonly SequenceId[]) => void;
   readonly onPhotoError: (photoId: PhotoId, error: SourceError) => void;
   readonly missingPhotoIds: ReadonlySet<PhotoId>;
+  readonly sourceRevision?: number;
   readonly interactionDisabled?: boolean;
   readonly emptyAction: { readonly label: string; readonly onClick: () => void };
 }
@@ -98,6 +99,7 @@ export const TableCanvas = forwardRef<TableCanvasHandle, TableCanvasProps>(funct
     onRemovePiles,
     onPhotoError,
     missingPhotoIds,
+    sourceRevision,
     interactionDisabled = false,
     emptyAction,
   } = props;
@@ -385,7 +387,7 @@ export const TableCanvas = forwardRef<TableCanvasHandle, TableCanvasProps>(funct
             >
               <div className="worktable-photo" style={{ height: item.height * scale }}>
                 {mountedPhotoIds.has(id)
-                  ? <PhotoThumb photoSource={photoSource} photoId={item.photoId} alt={item.filename} onError={onPhotoError} resolution="table" progressiveTo={visiblePhotoIds.has(id) ? tablePreviewEdge(viewport.zoom, chosen) : 768} />
+                  ? <PhotoThumb photoSource={photoSource} photoId={item.photoId} alt={item.filename} onError={onPhotoError} resolution="table" progressiveTo={visiblePhotoIds.has(id) ? tablePreviewEdge(viewport.zoom, chosen) : 768} sourceRevision={sourceRevision} />
                   : <div className="thumb-placeholder" aria-hidden="true" />}
                 {missingPhotoIds.has(item.photoId) && <span className="worktable-missing">{t("status.missing")}</span>}
               </div>
@@ -412,7 +414,7 @@ export const TableCanvas = forwardRef<TableCanvasHandle, TableCanvasProps>(funct
               onPointerDown={(event) => { if (event.button === 0 && !event.ctrlKey && !event.metaKey && !interactionDisabled) props.onSelectPile?.(id); gestures.onPilePointerDown(event, id); }}
             >
               <header><div><small>SEQUENCE</small><strong>{summary?.name ?? "Missing Sequence"}</strong></div><span>{summary?.photoCount ?? 0}</span></header>
-              <div className="sequence-pile-thumbs">{summary?.previewPhotoIds.map((photoId, index) => <span key={`${photoId}-${index}`}><PhotoThumb fit="cover" photoSource={photoSource} photoId={photoId} alt="" onError={onPhotoError} /></span>)}</div>
+              <div className="sequence-pile-thumbs">{summary?.previewPhotoIds.map((photoId, index) => <span key={`${photoId}-${index}`}><PhotoThumb fit="cover" photoSource={photoSource} photoId={photoId} alt="" onError={onPhotoError} sourceRevision={sourceRevision} /></span>)}</div>
               <button
                 type="button"
                 aria-label="Resize sequence pile"

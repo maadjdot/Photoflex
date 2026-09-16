@@ -1,6 +1,6 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { createProjectWriteCoordinator, type ProjectWriteCoordinator } from "./projectWriteCoordinator";
-import { downloadBackup } from "./ProjectBackupControls";
+import { downloadRecoveryBackup } from "./downloadRecoveryBackup";
 import { AppHeader } from "./AppHeader";
 import { ContactSheetPage } from "./ContactSheetPage";
 import type { AppDependencies } from "./dependencies";
@@ -45,11 +45,11 @@ function M1AppContent({ dependencies }: AppProps) {
   coordinatorRef.current = coordinator;
   useEffect(() => {
     const beforeUnload = (event: BeforeUnloadEvent) => {
-      if (coordinatorRef.current?.hasUnsavedWork()) { event.preventDefault(); event.returnValue = ""; }
+      if (coordinatorRef.current?.hasUnsavedWork() || dependencies.cloudSave?.hasPending?.()) { event.preventDefault(); event.returnValue = ""; }
     };
     window.addEventListener("beforeunload", beforeUnload);
     return () => window.removeEventListener("beforeunload", beforeUnload);
-  }, []);
+  }, [dependencies.cloudSave]);
   const recover = async (asFile: boolean) => {
     if (!coordinator || recovering) return;
     setRecovering(true);
@@ -57,7 +57,7 @@ function M1AppContent({ dependencies }: AppProps) {
     try {
       if (asFile) {
         const result = await coordinator.exportRecoveryBackup();
-        if (result.ok) downloadBackup(result.value, "PhotoFlex recovery");
+        if (result.ok) downloadRecoveryBackup(result.value);
         else setRecoveryError(locale === "zh-CN" ? "无法创建恢复备份，草稿仍保持打开。" : "Recovery backup could not be created. Your draft is still open.");
       } else {
         const result = await coordinator.restoreRecoveryCopy();

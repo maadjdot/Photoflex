@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { SourceId } from "../../contracts";
 import { BrowserPhotoSource } from "./BrowserPhotoSource";
 import { IndexedDbProjectStore } from "./IndexedDbProjectStore";
@@ -10,6 +10,7 @@ afterEach(async () => {
   for (const source of databases.splice(0)) {
     await source.close();
   }
+  vi.unstubAllGlobals();
 });
 
 interface TestDirectory {
@@ -86,7 +87,23 @@ async function scanToEnd(source: BrowserPhotoSource, sourceId: SourceId) {
   return events;
 }
 
+function selectedFile(relativePath: string): File {
+  const name = relativePath.split("/").at(-1)!;
+  const file = new File([name], name, { type: "image/jpeg" });
+  Object.defineProperty(file, "webkitRelativePath", { value: relativePath });
+  return file;
+}
+
 describe("BrowserPhotoSource", () => {
+  it("prefers the native directory picker when the browser provides it", async () => {
+    const directory = createDirectory("native", "Native Photos", ["one.jpg"]);
+    const nativePicker = vi.fn(async () => directory.handle);
+    vi.stubGlobal("showDirectoryPicker", nativePicker);
+    const source = new BrowserPhotoSource({ databaseName: `native-picker-${crypto.randomUUID()}` });
+    databases.push(source);
+    expect(await source.chooseFolder([])).toMatchObject({ ok: true, value: { displayName: "Native Photos" } });
+    expect(nativePicker).toHaveBeenCalledOnce();
+  });
   it("imports an external JPEG once and reuses its source photo on a later drop", async () => {
     const sourceId = "external-source" as SourceId;
     const identity = "external-file-a";
@@ -169,10 +186,12 @@ describe("BrowserPhotoSource", () => {
     const workspace = await store.loadWorkspace(imported.value);
     if (!workspace.ok) throw Error("project missing");
     const sourceId = workspace.value.sources[0].id;
+    const photoId = workspace.value.worktableDraft.entryOrder.map((id) => workspace.value.worktableDraft.placements[id].photoId)[0];
     let directory = createDirectory("wrong", "Unrelated", ["other.jpg"]);
     const source = new BrowserPhotoSource({ databaseName, picker: async () => directory.handle });
     databases.push(source);
     expect(await source.getSourceState(sourceId)).toMatchObject({ ok: true, value: { status: "offline", indexedCount: 2 } });
+    expect((await source.preview(photoId)).ok).toBe(false);
     expect(await source.restoreFolder(sourceId)).toMatchObject({ ok: false, error: { kind: "folder-mismatch" } });
     directory = createDirectory("right", "Photos", ["one.jpg", "two.jpg"]);
     expect(await source.restoreFolder(sourceId)).toMatchObject({ ok: true, value: { sourceId } });
@@ -182,7 +201,58 @@ describe("BrowserPhotoSource", () => {
       workspace.value.worktableDraft.entryOrder.map((id) => workspace.value.worktableDraft.placements[id].photoId),
     );
     expect(page.ok && page.value.items.map((p) => p.relativePath)).toEqual(["one.jpg", "two.jpg"]);
+    const preview = await source.preview(photoId);
+    expect(preview.ok).toBe(true);
+    if (preview.ok) preview.value.release();
     await store.close();
+  });
+  it("uses selected directory files when native directory access is unavailable", async () => {
+    const databaseName = `webkit-folder-${crypto.randomUUID()}`;
+    const store = IndexedDbProjectStore.open({ databaseName });
+    const imported = await store.importBackup(backupBytes());
+    if (!imported.ok) throw Error(JSON.stringify(imported));
+    const workspace = await store.loadWorkspace(imported.value);
+    if (!workspace.ok) throw Error("project missing");
+    const sourceId = workspace.value.sources[0].id;
+    const expectedPhotoIds = workspace.value.worktableDraft.entryOrder.map((id) => workspace.value.worktableDraft.placements[id].photoId);
+    let files = [selectedFile("Wrong/other.jpg")];
+    const first = new BrowserPhotoSource({ databaseName, filePicker: async () => files });
+    databases.push(first);
+    expect(await first.restoreFolder(sourceId)).toMatchObject({ ok: false, error: { kind: "folder-mismatch" } });
+    files = [selectedFile("Photos/one.jpg"), selectedFile("Photos/two.jpg")];
+    expect(await first.restoreFolder(sourceId)).toMatchObject({ ok: true, value: { displayName: "Photos" } });
+    await scanToEnd(first, sourceId);
+    const page = await first.listPhotos(sourceId);
+    expect(page.ok && page.value.items.map((photo) => photo.id)).toEqual(expectedPhotoIds);
+    const preview = await first.preview(expectedPhotoIds[0]);
+    expect(preview.ok).toBe(true);
+    if (preview.ok) preview.value.release();
+
+    await first.close();
+    const reopened = new BrowserPhotoSource({ databaseName, filePicker: async () => files });
+    databases.push(reopened);
+    expect(await reopened.getSourceState(sourceId)).toMatchObject({ ok: true, value: { status: "offline", indexedCount: 2 } });
+    expect((await reopened.preview(expectedPhotoIds[0])).ok).toBe(false);
+    expect((await reopened.restoreFolder(sourceId)).ok).toBe(true);
+    expect((await reopened.preview(expectedPhotoIds[0])).ok).toBe(true);
+    await store.close();
+  });
+  it("scans nested paths from a directory file selection", async () => {
+    const source = new BrowserPhotoSource({
+      databaseName: `webkit-nested-${crypto.randomUUID()}`,
+      filePicker: async () => [selectedFile("Photos/Nested/image.jpg")],
+    });
+    databases.push(source);
+    const grant = await source.chooseFolder([]);
+    if (!grant.ok) throw Error(JSON.stringify(grant));
+    await scanToEnd(source, grant.value.sourceId);
+    const page = await source.listPhotos(grant.value.sourceId);
+    expect(page.ok && page.value.items.map((photo) => photo.relativePath)).toEqual(["Nested/image.jpg"]);
+    if (page.ok) {
+      const preview = await source.preview(page.value.items[0].id);
+      expect(preview.ok).toBe(true);
+      if (preview.ok) preview.value.release();
+    }
   });
   it("按相对路径稳定排列分页照片", async () => {
     const directory = createDirectory("ordered", "Ordered", ["Z.JPG", "A.JPG", "M.JPG"]);

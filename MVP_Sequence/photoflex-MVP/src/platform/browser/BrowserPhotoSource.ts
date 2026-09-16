@@ -18,6 +18,7 @@ import {
   type SourceScanEvent,
 } from "../../contracts";
 import { openPhotoFlexDatabase, STORE_NAMES } from "./indexedDbSchema";
+import { pickWebkitDirectory } from "./webkitDirectoryPicker";
 
 type DirectoryPicker = () => Promise<FileSystemDirectoryHandle>;
 
@@ -35,6 +36,7 @@ type FileHandleLike = FileSystemFileHandle & {
 
 interface BrowserPhotoSourceOptions {
   readonly picker?: DirectoryPicker;
+  readonly filePicker?: () => Promise<readonly File[]>;
   readonly databaseName?: string;
   readonly indexedDB?: IDBFactory;
 }
@@ -142,12 +144,12 @@ export class BrowserPhotoSource implements PhotoSource {
   private readonly database: Promise<Result<IDBDatabase, unknown>>;
 
   constructor(options: BrowserPhotoSourceOptions = {}) {
-    this.picker = options.picker ?? (() => {
-      const picker = (globalThis as typeof globalThis & { showDirectoryPicker?: DirectoryPicker })
-        .showDirectoryPicker;
-      if (!picker) return Promise.reject(new Error("File System Access API unavailable"));
-      return picker();
-    });
+    const nativePicker = (globalThis as typeof globalThis & { showDirectoryPicker?: DirectoryPicker }).showDirectoryPicker;
+    this.picker = options.picker ?? (options.filePicker
+      ? () => pickWebkitDirectory(options.filePicker)
+      : typeof nativePicker === "function"
+        ? () => nativePicker.call(globalThis)
+        : () => pickWebkitDirectory());
     this.database = openPhotoFlexDatabase({
       databaseName: options.databaseName,
       indexedDB: options.indexedDB,

@@ -9,7 +9,7 @@ import { AccountWorkspaceGate } from "./AccountWorkspaceGate";
 import type { AppDependencies } from "./dependencies";
 import { LocaleProvider } from "./locale";
 
-afterEach(cleanup);
+afterEach(() => { cleanup(); window.location.hash = "#/"; });
 
 describe("AccountWorkspaceGate", () => {
   it("hides the local workspace after logout and opens an account-scoped workspace after login", async () => {
@@ -41,6 +41,22 @@ describe("AccountWorkspaceGate", () => {
     await waitFor(() => expect(screen.queryByText("PRIVATE WORKSPACE")).toBeNull());
   });
 
+  it("preserves a cloud project deep link when an existing session opens", async () => {
+    window.location.hash = "#/projects/cloud-project/table";
+    const accountSession: AccountSession = {
+      getCurrentUser: vi.fn(async () => ok({ id: "account-a" })),
+      subscribe: vi.fn(() => () => undefined),
+      signIn: vi.fn(), signUp: vi.fn(), signOut: vi.fn(),
+    };
+    const dependencies: AppDependencies = {
+      projectStore: new MemoryProjectStore(), photoSource: new MemoryPhotoSource(), accountSession,
+      accountWorkspaces: { open: vi.fn(() => ({ dependencies: { projectStore: new MemoryProjectStore(), photoSource: new MemoryPhotoSource(), accountSession }, close: vi.fn(async () => undefined) })) },
+    };
+    render(<LocaleProvider><AccountWorkspaceGate dependencies={dependencies}>{() => <div>Cloud project</div>}</AccountWorkspaceGate></LocaleProvider>);
+    expect(await screen.findByText("Cloud project")).toBeTruthy();
+    expect(window.location.hash).toBe("#/projects/cloud-project/table");
+  });
+
   it("switches between the sign-in and account-creation designs", async () => {
     const accountSession: AccountSession = {
       getCurrentUser: vi.fn(async () => ok(null)),
@@ -64,6 +80,39 @@ describe("AccountWorkspaceGate", () => {
     fireEvent.change(screen.getByPlaceholderText("••••••••"), { target: { value: "password" } });
     fireEvent.click(screen.getByRole("button", { name: "Create account" }));
     await waitFor(() => expect(accountSession.signUp).toHaveBeenCalledWith("jane@example.com", "password", { fullName: "Jane Smith" }));
-    expect(await screen.findByText("Check your email to confirm the account, then sign in.")).toBeTruthy();
+    expect(await screen.findByText("Enter the verification code sent to your email.")).toBeTruthy();
+  });
+
+  it("completes CloudBase email registration with the verification code", async () => {
+    const accountSession: AccountSession = {
+      getCurrentUser: vi.fn(async () => ok(null)),
+      subscribe: vi.fn(() => () => undefined),
+      signIn: vi.fn(),
+      signUp: vi.fn(async () => ok({ confirmationRequired: true })),
+      verifySignUp: vi.fn(async () => ok({ id: "verified-user", email: "jane@example.com" })),
+      signOut: vi.fn(),
+    };
+    const dependencies: AppDependencies = {
+      projectStore: new MemoryProjectStore(),
+      photoSource: new MemoryPhotoSource(),
+      accountSession,
+      accountWorkspaces: {
+        open: vi.fn(() => ({
+          dependencies: { projectStore: new MemoryProjectStore(), photoSource: new MemoryPhotoSource(), accountSession },
+          close: vi.fn(async () => undefined),
+        })),
+      },
+    };
+    render(<LocaleProvider><AccountWorkspaceGate dependencies={dependencies}>{() => <div>PRIVATE WORKSPACE</div>}</AccountWorkspaceGate></LocaleProvider>);
+    fireEvent.click(await screen.findByRole("button", { name: "Sign up" }));
+    fireEvent.change(screen.getByPlaceholderText("Jane Smith"), { target: { value: "Jane Smith" } });
+    fireEvent.change(screen.getByPlaceholderText("you@example.com"), { target: { value: "jane@example.com" } });
+    fireEvent.change(screen.getByPlaceholderText("••••••••"), { target: { value: "password123" } });
+    fireEvent.click(screen.getByRole("button", { name: "Create account" }));
+    fireEvent.change(await screen.findByLabelText("Verification code"), { target: { value: "123456" } });
+    fireEvent.click(screen.getByRole("button", { name: "Verify email" }));
+    await waitFor(() => expect(accountSession.verifySignUp).toHaveBeenCalledWith("123456"));
+    expect(await screen.findByText("PRIVATE WORKSPACE")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Google/ })).toBeNull();
   });
 });

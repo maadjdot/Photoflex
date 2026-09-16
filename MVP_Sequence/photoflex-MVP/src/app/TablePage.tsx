@@ -1,4 +1,4 @@
-import { startSharedScan, stopSharedScan } from "./ProjectSourceMonitor";
+import { onSharedScanCompleted, startSharedScan, stopSharedScan } from "./ProjectSourceMonitor";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { PhotoId, PhotoRef, ProjectId, SequenceId, SequenceSummary, SourceError, SourceId, SourceRecord, VersionId, WorktableDraft, WorktableEditCommand, WorktableItemId } from "../contracts";
 import type { AppDependencies } from "./dependencies";
@@ -29,6 +29,7 @@ export function TablePage({ dependencies, projectId, navigate, sequenceOverlay }
   const [summaries, setSummaries] = useState<readonly SequenceSummary[]>([]);
   const [activeSequenceId, setActiveSequenceId] = useState<SequenceId>();
   const [missing, setMissing] = useState<Set<PhotoId>>(new Set());
+  const [sourceRevision, setSourceRevision] = useState(0);
   const [notice, setNotice] = useState<string>();
   const [previewPhotoId, setPreviewPhotoId] = useState<PhotoId>();
   const [comparePhotoIds, setComparePhotoIds] = useState<readonly [PhotoId, PhotoId]>();
@@ -92,6 +93,10 @@ export function TablePage({ dependencies, projectId, navigate, sequenceOverlay }
   const onPhotoError = useCallback((id: PhotoId, sourceError: SourceError) => {
     if (sourceError.kind === "photo-not-found" || sourceError.kind === "preview-unavailable") setMissing((current) => new Set([...current, id]));
   }, []);
+  useEffect(() => onSharedScanCompleted(dependencies.photoSource, () => {
+    setMissing(new Set());
+    setSourceRevision((revision) => revision + 1);
+  }), [dependencies.photoSource]);
 
   const placeSourcePhotos = useCallback(async (photos: readonly PhotoRef[], point = canvasRef.current?.getViewportCenter() ?? { x: 200, y: 160 }) => {
     const beforeCount = draft?.entryOrder.length ?? 0;
@@ -252,6 +257,7 @@ export function TablePage({ dependencies, projectId, navigate, sequenceOverlay }
       onRemovePiles={(sequenceIds) => setDeleteConfirmation(sequenceIds)}
       onPhotoError={onPhotoError}
       missingPhotoIds={missing}
+      sourceRevision={sourceRevision}
       interactionDisabled={writeSnapshot.writeState === "failed"}
       emptyAction={{
         label: firstSource ? t("table.openPhotos") : t("table.addFolder"),
@@ -261,7 +267,7 @@ export function TablePage({ dependencies, projectId, navigate, sequenceOverlay }
     <TableFloatingToolbar onAddMemo={addMemo} selectedMemo={selectedMemo} storageKey={`photoflex:table-toolbar:${projectId}`} actions={actions} canUndo={tableSession.canUndo} canRedo={tableSession.canRedo} onUndo={() => history("undo")} onRedo={() => history("redo")} onExecute={execute} canAddToSequence={Boolean(photoIds.length && summaries.length)} onAddToSequence={() => { setAddToSequenceId(summaries[0]?.id); setAddToSequenceOpen(true); }} onRequestSequence={requestSequence} />
     <TableContextToolbar draft={draft} actions={actions} canAddToSequence={Boolean(photoIds.length && summaries.length)} onExecute={execute} onRequestSequence={requestSequence} onAddToSequence={() => { setAddToSequenceId(summaries[0]?.id); setAddToSequenceOpen(true); }} onPreview={setPreviewPhotoId} onComparePhotos={setComparePhotoIds} onCompareSequences={(ids) => navigate({ name: "sequence-compare", projectId, leftSequenceId: ids[0], rightSequenceId: ids[1] })} onRemovePiles={(ids) => setDeleteConfirmation(ids)} onRemovePhotos={(ids) => execute({ type: "remove", photoIds: ids })} />
     </div>
-    {confirmation && <section ref={createSequenceDialogRef} className="sequence-confirmation sequence-pile-confirmation" role="dialog" aria-modal="true" aria-label={t("sequence.createPileAria")}><header><h2>{t("table.createSequence")}</h2><button type="button" aria-label={t("common.close")} onClick={() => setConfirmation(undefined)}>×</button></header><label><span>{t("table.name")}</span><input autoFocus value={confirmation.name} onChange={(event) => setConfirmation({ ...confirmation, name: event.target.value })} onKeyDown={(event) => event.key === "Enter" && void createPile()} /></label><div className="sequence-confirmation-order">{confirmation.photoIds.map((id, index) => <button key={`${id}-${index}`} draggable onDragStart={() => setConfirmationDragId(id)} onDragOver={(event) => event.preventDefault()} onDrop={() => { if (confirmationDragId) setConfirmation({ ...confirmation, photoIds: movePhoto(confirmation.photoIds, confirmationDragId, index) }); setConfirmationDragId(undefined); }}><PhotoThumb photoSource={dependencies.photoSource} photoId={id} alt={t("sequence.orderItem", { index: index + 1, filename: draft.entryOrder.map((itemId) => draft.placements[itemId]).find((placement) => placement.photoId === id)?.filename ?? id })} onError={onPhotoError} /><span>{index + 1}</span></button>)}</div><div><button onClick={() => setConfirmation(undefined)}>{t("common.cancel")}</button><button className="button button-primary" onClick={() => void createPile()}>{t("table.createPile")}</button></div></section>}
+    {confirmation && <section ref={createSequenceDialogRef} className="sequence-confirmation sequence-pile-confirmation" role="dialog" aria-modal="true" aria-label={t("sequence.createPileAria")}><header><h2>{t("table.createSequence")}</h2><button type="button" aria-label={t("common.close")} onClick={() => setConfirmation(undefined)}>×</button></header><label><span>{t("table.name")}</span><input autoFocus value={confirmation.name} onChange={(event) => setConfirmation({ ...confirmation, name: event.target.value })} onKeyDown={(event) => event.key === "Enter" && void createPile()} /></label><div className="sequence-confirmation-order">{confirmation.photoIds.map((id, index) => <button key={`${id}-${index}`} draggable onDragStart={() => setConfirmationDragId(id)} onDragOver={(event) => event.preventDefault()} onDrop={() => { if (confirmationDragId) setConfirmation({ ...confirmation, photoIds: movePhoto(confirmation.photoIds, confirmationDragId, index) }); setConfirmationDragId(undefined); }}><PhotoThumb photoSource={dependencies.photoSource} photoId={id} alt={t("sequence.orderItem", { index: index + 1, filename: draft.entryOrder.map((itemId) => draft.placements[itemId]).find((placement) => placement.photoId === id)?.filename ?? id })} onError={onPhotoError} sourceRevision={sourceRevision} /><span>{index + 1}</span></button>)}</div><div><button onClick={() => setConfirmation(undefined)}>{t("common.cancel")}</button><button className="button button-primary" onClick={() => void createPile()}>{t("table.createPile")}</button></div></section>}
     {addToSequenceOpen && <TableSequenceAddDialog persistence={coordinator} listSequences={listSequences} projectId={projectId} photoIds={selectedSourcePhotoIds} summaries={summaries} initialSequenceId={addToSequenceId} onClose={() => setAddToSequenceOpen(false)} onSummariesChange={setSummaries} onSequenceChanged={setActiveSequenceId} onNotice={setNotice} />}
     {deleteConfirmation && <section ref={deleteSequenceDialogRef} className="delete-sequence-dialog" role="dialog" aria-modal="true" aria-labelledby="delete-sequence-title"><h2 id="delete-sequence-title">{t("table.deleteQuestion", { target: deleteConfirmation.length > 1 ? t("sequence.many") : t("sequence.one") })}</h2><p>{t("table.deleteWarning", { names: deleteConfirmation.map((id) => summaryById.get(id)?.name ?? t("status.missing")).join(", "), count: deleteConfirmation.reduce((count, id) => count + (summaryById.get(id)?.itemCount ?? 0), 0) })}</p><footer><button type="button" autoFocus disabled={deleteBusy} onClick={() => setDeleteConfirmation(undefined)}>{t("common.cancel")}</button><button type="button" className="button-danger" disabled={deleteBusy} onClick={() => void confirmRemoveSelectedPiles(deleteConfirmation)}>{deleteBusy ? t("project.deleting") : t("table.deleteSequence")}</button></footer></section>}
     </TableWorkspace>

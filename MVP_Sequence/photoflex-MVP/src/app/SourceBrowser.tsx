@@ -13,6 +13,7 @@ import contactIcon from "../assets/icons/table-contact-sheet.svg";
 import manageIcon from "../assets/icons/table-manage-sources.svg";
 import plusIcon from "../assets/icons/table-plus.svg";
 import { useLocale } from "./locale";
+import { hasNativeDirectoryPicker } from "../platform/browser/webkitDirectoryPicker";
 
 type SourceSelection = SourceId | "all";
 type SourcePanelMode = "compact" | "expanded" | "closed";
@@ -161,6 +162,7 @@ export function SourceBrowser({ dependencies, workspace, onPlacePhotos, onOpenPh
     </div>
     {sourceBusy && <div className="source-loading-status" role="status" aria-live="polite"><span className="loading-mark" aria-hidden="true" /><span>{addingSource ? t("project.connecting") : locale === "zh-CN" ? `正在加载照片… 已找到 ${currentCount} 张` : `Loading photos… ${currentCount} found`}</span></div>}
     {problemSources.map((source) => <p className="table-source-notice" role="alert" key={source.id}>{source.displayName}: {states[source.id]?.errorMessage ?? "Source unavailable."} <button type="button" onClick={() => states[source.id]?.status === "error" ? startScan(source.id) : onReconnectSource?.(source.id)}>{states[source.id]?.status === "error" ? "Retry" : "Reconnect"}</button></p>)}
+    {!hasNativeDirectoryPicker() && <p className="table-source-notice">{t("source.temporaryFolderAccess")}</p>}
     {notice && <p className="table-source-notice" role="status">{notice}</p>}
     <SourcePhotoGrid
       photos={visiblePhotos}

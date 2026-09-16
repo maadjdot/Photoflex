@@ -1,9 +1,11 @@
 import type { AccountSession, PhotoSource, ProjectCloud, ProjectId, ProjectStore } from "../contracts";
 import { BrowserPhotoSource } from "../platform/browser/BrowserPhotoSource";
 import { IndexedDbProjectStore } from "../platform/browser/IndexedDbProjectStore";
-import { createSupabaseClient, readSupabaseConfiguration } from "../platform/supabase/client";
-import { SupabaseAccountSession } from "../platform/supabase/SupabaseAccountSession";
-import { SupabaseProjectCloud } from "../platform/supabase/SupabaseProjectCloud";
+import { createCloudBaseClient, readCloudBaseConfiguration } from "../platform/cloudbase/client";
+import { CloudBaseAccountSession } from "../platform/cloudbase/CloudBaseAccountSession";
+import { CloudBaseProjectCloud } from "../platform/cloudbase/CloudBaseProjectCloud";
+import { CloudBackedProjectStore, type CloudSaveStatus } from "../platform/cloudbase/CloudBackedProjectStore";
+import { onSharedScanCompleted } from "./ProjectSourceMonitor";
 
 export interface AppDiagnosticEvent {
   readonly name: "write-failure";
@@ -19,6 +21,7 @@ export interface AppDependencies {
   readonly photoSource: PhotoSource;
   readonly accountSession?: AccountSession;
   readonly projectCloud?: ProjectCloud;
+  readonly cloudSave?: { subscribe(listener: () => void): () => void; getStatus(projectId: ProjectId): CloudSaveStatus; hasPending?(): boolean };
   readonly accountWorkspaces?: AccountWorkspaceFactory;
   readonly diagnostics?: { report(event: AppDiagnosticEvent): void };
 }
@@ -54,11 +57,11 @@ function createLocalWorkspace(databaseName = "photoflex-mvp"): Pick<AppDependenc
 }
 
 export function createBrowserDependencies(): AppDependencies {
-  const configuration = readSupabaseConfiguration(import.meta.env);
-  const supabase = configuration ? createSupabaseClient(configuration) : undefined;
+  const configuration = readCloudBaseConfiguration(import.meta.env);
+  const cloudbase = configuration ? createCloudBaseClient(configuration) : undefined;
   const local = createLocalWorkspace();
-  const accountSession = supabase ? new SupabaseAccountSession(supabase) : undefined;
-  const projectCloud = supabase ? new SupabaseProjectCloud(supabase) : undefined;
+  const accountSession = cloudbase ? new CloudBaseAccountSession(cloudbase) : undefined;
+  const projectCloud = cloudbase ? new CloudBaseProjectCloud(cloudbase, accountSession!) : undefined;
   return {
     projectStore: local.projectStore,
     photoSource: local.photoSource,
@@ -68,14 +71,17 @@ export function createBrowserDependencies(): AppDependencies {
       accountWorkspaces: {
         open(userId: string): AccountWorkspace {
           const scoped = createLocalWorkspace(databaseNameForAccount(userId));
+          const synced = new CloudBackedProjectStore(scoped.projectStore as IndexedDbProjectStore, projectCloud, window.localStorage, `photoflex:cloud-auto:${configuration!.envId}:${userId}`);
+          const unsubscribeScan = onSharedScanCompleted(scoped.photoSource, (sourceId) => { void synced.photoIndexChanged(sourceId); });
           return {
             dependencies: {
-              projectStore: scoped.projectStore,
+              projectStore: synced,
               photoSource: scoped.photoSource,
               accountSession,
               projectCloud,
+              cloudSave: synced,
             },
-            close: scoped.close,
+            close: async () => { unsubscribeScan(); synced.dispose(); await scoped.close(); },
           };
         },
       },

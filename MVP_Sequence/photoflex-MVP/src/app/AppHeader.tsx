@@ -52,6 +52,7 @@ export function AppHeader({ dependencies, route, projectId, contactSourceId, las
     <div className={route.name === "home" ? "home-header-actions" : "topbar-actions"}>
       {route.name === "home" && <LanguageSwitcher />}
       {actions}
+      {projectId && route.name !== "project" && <NavButton onClick={() => navigate({ name: "project", projectId })}>{t("nav.projectSettings")}</NavButton>}
       <CloudControls dependencies={dependencies} projectId={projectId} />
     </div>
   </header>;

@@ -40,6 +40,8 @@ it("shows only the selected Table's photos, keeps the layout stable during rende
   const city = await screen.findByLabelText("City photos");
   await waitFor(() => expect(city.querySelectorAll("img")).toHaveLength(city.querySelectorAll(".home-gallery-photo").length));
   expect(screen.queryByLabelText("Coast photos")).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: /^Open project City$/ }));
+  expect(navigate).toHaveBeenLastCalledWith({ name: "table", projectId: "City" });
   const buttons = [...city.querySelectorAll<HTMLButtonElement>("button")];
   for (const button of buttons) {
     expect(button.dataset.photoId).toMatch(/^City-/);

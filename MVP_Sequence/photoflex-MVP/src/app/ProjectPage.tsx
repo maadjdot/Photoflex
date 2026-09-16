@@ -9,8 +9,8 @@ import { deleteProjectWorkspace, projectDeletionErrorMessage } from "./ProjectWo
 import { useSourceMonitor, stopSharedScan } from "./ProjectSourceMonitor";
 import { useProjectWorkspaceSession, workspaceSaveErrorMessage, type WorkspaceUpdate } from "./useProjectWorkspace";
 import { ProjectInfoPanel } from "./ProjectInfoPanel";
-import { ProjectBackupControls } from "./ProjectBackupControls";
 import { useLocale } from "./locale";
+import { hasNativeDirectoryPicker } from "../platform/browser/webkitDirectoryPicker";
 
 function ProjectRail({
   dependencies,
@@ -149,10 +149,10 @@ export function ProjectPage({
     <main className="workspace-layout page">
       <ProjectRail dependencies={dependencies} currentProjectId={projectId} currentPhotoCount={totalIndexed(states)} navigate={navigate} />
       <ProjectInfoPanel workspace={workspace} photoSource={dependencies.photoSource} deleting={deletingProject} onUpdateName={updateName} onUpdateMemo={updateMemo} onDelete={() => void deleteProject()} onAddSource={() => void addSource()}>
-        <ProjectBackupControls dependencies={dependencies} projectId={projectId} name={workspace.name} />
         {addingSource && <div className="source-loading-status" role="status"><span className="loading-mark" aria-hidden="true" />{t("project.connecting")}</div>}
         {notice && <InlineNotice message={notice} />}
         <div className="section-heading"><span>{t("project.photoSources")}</span><span>{t("project.connectedFolders", { count: workspace.sources.filter((source) => !source.removedAt).length })}</span></div>
+        {!hasNativeDirectoryPicker() && <p className="source-access-note">{t("source.temporaryFolderAccess")}</p>}
         <section className="source-list" aria-label={t("project.photoSources")}>
           {visibleSources.map((source) => <SourceCard key={source.id} source={source} state={source.removedAt ? { sourceId: source.id, status: "offline", discoveredCount: 0, indexedCount: 0, skippedCount: 0, failedCount: 0 } : states[source.id]} onOpen={() => !source.removedAt && stateHasPhotos(states[source.id]) && navigate({ name: "contact-sheet", projectId, sourceId: source.id })} onRefresh={() => startScan(source.id)} onReconnect={() => void reconnectSource(dependencies, workspace, source, persist, startScan, locale, setNotice)} onRemove={() => void removeSource(source)} />)}
           {!visibleSources.length && <EmptyPanel title={t("project.noFolders")} detail={t("project.noFoldersDetail")} />}

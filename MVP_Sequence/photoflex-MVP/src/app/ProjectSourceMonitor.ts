@@ -5,6 +5,13 @@ import { initialRuntimeState, stateNeedsScan } from "./AppPrimitives";
 type ScanListener = (state: SourceRuntimeState) => void;
 interface SourceMonitorChannel { controller?: AbortController; readonly listeners: Set<ScanListener>; }
 const sourceChannels = new WeakMap<AppDependencies["photoSource"], Map<SourceId, SourceMonitorChannel>>();
+const completionListeners = new WeakMap<AppDependencies["photoSource"], Set<(sourceId: SourceId) => void>>();
+export function onSharedScanCompleted(photoSource: AppDependencies["photoSource"], listener: (sourceId: SourceId) => void): () => void {
+  let listeners = completionListeners.get(photoSource);
+  if (!listeners) { listeners = new Set(); completionListeners.set(photoSource, listeners); }
+  listeners.add(listener);
+  return () => listeners?.delete(listener);
+}
 function channelsFor(photoSource: AppDependencies["photoSource"]) { let channels = sourceChannels.get(photoSource); if (!channels) { channels = new Map(); sourceChannels.set(photoSource, channels); } return channels; }
 function channelFor(photoSource: AppDependencies["photoSource"], sourceId: SourceId) { const channels = channelsFor(photoSource); let channel = channels.get(sourceId); if (!channel) { channel = { listeners: new Set() }; channels.set(sourceId, channel); } return channel; }
 export function startSharedScan(photoSource: AppDependencies["photoSource"], sourceId: SourceId) {
@@ -21,6 +28,7 @@ export function startSharedScan(photoSource: AppDependencies["photoSource"], sou
           break;
         }
         channel.listeners.forEach((listener) => listener(result.value.state));
+        if (result.value.kind === "completed") completionListeners.get(photoSource)?.forEach((listener) => listener(sourceId));
       }
     } catch {
       notifyScanFailure(channel, sourceId);

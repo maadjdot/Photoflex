@@ -8,6 +8,7 @@ import {
   type DeleteError,
   type LoadError,
   type ProjectId,
+  type ProjectBackupV1,
   type ProjectStore,
   type ProjectSummary,
   type ProjectWorkspace,
@@ -384,5 +385,25 @@ export class MemoryProjectStore implements ProjectStore {
     backup.versions.forEach((v) => this.database.versions.set(v.id, clone(v)));
     photos.forEach((p) => this.database.photos.set(p.id, clone(p)));
     return ok(backup.project.projectId);
+  }
+
+  async installCloudSnapshot(document: ProjectBackupV1): Promise<Result<void, BackupError>> {
+    const prepared = prepareBackupImport(new TextEncoder().encode(JSON.stringify(document)), true);
+    if (!prepared.ok) return prepared;
+    if (this.options.unavailable) return err({ kind: "unavailable", retryable: true });
+    if (this.options.quotaExceeded) return err({ kind: "quota-exceeded" });
+    const { backup, photos } = prepared.value;
+    const previous = this.database.projects.get(backup.project.projectId);
+    if (previous) {
+      previous.versionIds.forEach((id) => this.database.versions.delete(id));
+      previous.sequenceIds.forEach((id) => this.database.sequences.delete(id));
+      const oldSources = new Set(previous.sources.map((source) => source.id));
+      for (const [id, photo] of this.database.photos) if (oldSources.has(photo.sourceId)) this.database.photos.delete(id);
+    }
+    this.database.projects.set(backup.project.projectId, clone(backup.project));
+    backup.versions.forEach((version) => this.database.versions.set(version.id, clone(version)));
+    backup.sequences.forEach((sequence) => this.database.sequences.set(sequence.id, clone(sequence)));
+    photos.forEach((photo) => this.database.photos.set(photo.id, clone(photo)));
+    return ok(undefined);
   }
 }
