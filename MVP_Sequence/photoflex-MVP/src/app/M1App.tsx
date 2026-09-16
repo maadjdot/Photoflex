@@ -12,6 +12,7 @@ import { useAppRoute } from "./router";
 import { useAppNavigationState } from "./useAppNavigationState";
 import { ProjectWorkspaceProvider } from "./useProjectWorkspace";
 import { LocaleProvider, useLocale } from "./locale";
+import { AccountWorkspaceGate } from "./AccountWorkspaceGate";
 
 export { VirtualPhotoGrid } from "./VirtualPhotoGrid";
 
@@ -24,7 +25,7 @@ interface AppProps {
 }
 
 export function M1App(props: AppProps) {
-  return <LocaleProvider><M1AppContent {...props} /></LocaleProvider>;
+  return <LocaleProvider><AccountWorkspaceGate dependencies={props.dependencies}>{(dependencies) => <M1AppContent dependencies={dependencies} />}</AccountWorkspaceGate></LocaleProvider>;
 }
 
 function M1AppContent({ dependencies }: AppProps) {

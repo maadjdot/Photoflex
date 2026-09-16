@@ -3,6 +3,7 @@ import type { ProjectId, SequenceId, SourceId } from "../contracts";
 import type { AppDependencies } from "./dependencies";
 import type { AppRoute } from "./router";
 import { LanguageSwitcher, useLocale } from "./locale";
+import { CloudControls } from "./CloudControls";
 
 export function AppHeader({ dependencies, route, projectId, contactSourceId, lastSequenceId, navigate, variant = "default", projectLabel, actions }: {
   readonly dependencies: AppDependencies;
@@ -50,7 +51,8 @@ export function AppHeader({ dependencies, route, projectId, contactSourceId, las
     </nav>}
     <div className={route.name === "home" ? "home-header-actions" : "topbar-actions"}>
       {route.name === "home" && <LanguageSwitcher />}
-      {actions ?? <button className="login-button" aria-label={t("nav.login")}>{t("nav.login")}</button>}
+      {actions}
+      <CloudControls dependencies={dependencies} projectId={projectId} />
     </div>
   </header>;
 }
