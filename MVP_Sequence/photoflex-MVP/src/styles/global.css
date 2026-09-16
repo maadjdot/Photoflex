@@ -127,10 +127,12 @@ h1, h2, p { margin-top: 0; }
 .home-project-index-item.is-active::before { opacity: 1; }
 .home-project-select { display: block; flex: 1; min-width: 0; padding: 0 0 0 24px; border: 0; background: transparent; color: #aaa; font-family: "Courier Prime", "Courier New", monospace; font-size: 14px; font-weight: 400; line-height: 1.5; text-align: left; white-space: normal; overflow-wrap: anywhere; transition: color .2s ease; }
 .home-project-index-item:hover .home-project-select, .home-project-select:focus-visible, .home-project-index-item.is-active .home-project-select { color: #0c0c0c; }
-.home-project-delete { flex: 0 0 auto; padding: 0 4px; border: 0; background: transparent; color: #ccc; font-size: 16px; line-height: 1; opacity: 0; pointer-events: none; transition: color .15s ease, opacity .15s ease; }
-.home-project-index-item:hover .home-project-delete, .home-project-index-item:focus-within .home-project-delete { opacity: 1; pointer-events: auto; }
-.home-project-delete:hover { color: #0c0c0c; }
-.home-project-delete:disabled { opacity: .35; }
+.home-project-rename-input { flex: 1; min-width: 0; height: 28px; margin-left: 18px; padding: 0 6px; border: 1px solid oklch(92.8% .006 264.531); border-radius: 6px; outline: 0; background: oklch(98.5% .002 247.839); color: #0c0c0c; font-family: "Courier Prime", "Courier New", monospace; font-size: 14px; }
+.home-project-rename-input:focus { border-color: oklch(70.7% .022 261.325); background: #fff; }
+.home-project-delete, .home-project-rename, .home-project-save-name { flex: 0 0 auto; padding: 0 4px; border: 0; background: transparent; color: #ccc; font-size: 16px; line-height: 1; opacity: 0; pointer-events: none; transition: color .15s ease, opacity .15s ease; }
+.home-project-index-item:hover :is(.home-project-delete, .home-project-rename), .home-project-index-item:focus-within :is(.home-project-delete, .home-project-rename), .home-project-save-name { opacity: 1; pointer-events: auto; }
+.home-project-delete:hover, .home-project-rename:hover, .home-project-save-name:hover { color: #0c0c0c; }
+.home-project-delete:disabled, .home-project-save-name:disabled { opacity: .35; }
 .home-project-stage { position: relative; display: flex; flex-direction: column; flex: 1; min-width: 0; min-height: 0; overflow: hidden; }
 .home-project-feature { display: flex; flex: 1; width: 100%; min-width: 0; min-height: 0; flex-direction: column; }
 .home-gallery { display: grid; flex: 1; grid-template-rows: repeat(3, minmax(0, 1fr)); row-gap: 30px; min-height: 0; padding: 32px clamp(24px, 4.8vw, 52px) clamp(24px, 6vh, 40px); }

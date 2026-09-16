@@ -27,15 +27,30 @@ import { createEmptyWorktable, migratePoolToWorktable } from "../modules/worktab
 
 export function createWorkspace(input: CreateProjectInput): ProjectWorkspace {
   const createdAt = input.createdAt;
+  const memo = input.memo ?? "";
+  const worktableDraft = createEmptyWorktable(input.id);
   return {
     schemaVersion: WORKSPACE_SCHEMA_VERSION,
     projectId: input.id,
     name: input.name,
-    memo: input.memo ?? "",
+    memo,
     expectedPhotoCount: input.expectedPhotoCount ?? null,
     sources: input.initialSource ? [input.initialSource] : [],
     photoStates: {},
-    worktableDraft: createEmptyWorktable(input.id),
+    worktableDraft: memo.trim() ? {
+      ...worktableDraft,
+      memos: [{
+        id: `project-memo-${input.id}`,
+        text: memo,
+        x: 64,
+        y: 64,
+        z: 1,
+        width: 260,
+        height: 180,
+        fontSize: 16,
+        photoIds: [],
+      }],
+    } : worktableDraft,
     sequenceIds: [],
     versionIds: [],
     revision: 0 as WorkspaceRevision,

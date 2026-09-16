@@ -47,3 +47,20 @@ it("shows only the selected Table's photos, keeps the layout stable during rende
     expect(navigate).toHaveBeenLastCalledWith({ name: "table", projectId: "City" });
   }
 });
+
+it("renames a project from the Home project index and persists it", async () => {
+  const projectStore = new MemoryProjectStore();
+  const projectId = "rename-project" as ProjectId;
+  const created = await projectStore.createProject({ id: projectId, name: "Before", createdAt: "2026-09-08T00:00:00.000Z" });
+  if (!created.ok) throw new Error("Fixture creation failed");
+
+  render(<HomePage dependencies={{ projectStore, photoSource: new MemoryPhotoSource() }} navigate={vi.fn()} />);
+  fireEvent.click(await screen.findByRole("button", { name: "Rename project Before" }));
+  const input = screen.getByRole("textbox", { name: "Rename project Before" });
+  fireEvent.change(input, { target: { value: "After" } });
+  fireEvent.click(screen.getByRole("button", { name: "Save Before" }));
+
+  await screen.findByRole("button", { name: "After" });
+  const workspace = await projectStore.loadWorkspace(projectId);
+  expect(workspace.ok && workspace.value.name).toBe("After");
+});

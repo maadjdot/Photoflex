@@ -26,6 +26,9 @@ export function HomePage({
   const [error, setError] = useState<string>();
   const [showDialog, setShowDialog] = useState(false);
   const [deletingProjectId, setDeletingProjectId] = useState<ProjectId>();
+  const [renamingProjectId, setRenamingProjectId] = useState<ProjectId>();
+  const [editingProjectId, setEditingProjectId] = useState<ProjectId>();
+  const [renameDraft, setRenameDraft] = useState("");
   const [selectedProjectId, setSelectedProjectId] = useState<ProjectId>();
   const [gallery, setGallery] = useState<{ projectId: ProjectId; rows: GalleryPhoto[][] }>();
 
@@ -89,6 +92,45 @@ export function HomePage({
     setDeletingProjectId(undefined);
   };
 
+  const beginRename = (project: ProjectSummary) => {
+    setSelectedProjectId(project.id);
+    setEditingProjectId(project.id);
+    setRenameDraft(project.name);
+  };
+
+  const renameProject = async (project: ProjectSummary) => {
+    const name = renameDraft.trim();
+    if (!name) {
+      setError(t("project.enterName"));
+      return;
+    }
+    if (name === project.name) {
+      setEditingProjectId(undefined);
+      return;
+    }
+    setRenamingProjectId(project.id);
+    setError(undefined);
+    const loaded = await dependencies.projectStore.loadWorkspace(project.id);
+    if (!loaded.ok) {
+      setError(t("home.renameFailed"));
+      setRenamingProjectId(undefined);
+      return;
+    }
+    const updatedAt = new Date().toISOString();
+    const saved = await dependencies.projectStore.saveWorkspace(
+      { ...loaded.value, name, updatedAt },
+      loaded.value.revision,
+    );
+    if (!saved.ok) {
+      setError(t("home.renameFailed"));
+      setRenamingProjectId(undefined);
+      return;
+    }
+    setProjects((current) => current.map((item) => item.id === project.id ? { ...item, name, updatedAt } : item));
+    setEditingProjectId(undefined);
+    setRenamingProjectId(undefined);
+  };
+
   return (
     <main className="page home-page">
       <aside className="home-project-index" aria-label={t("home.projectIndex")}>
@@ -104,13 +146,47 @@ export function HomePage({
           <ul className="home-project-index-list">
             {projects.map((project) => (
               <li key={project.id} className={`home-project-index-item${project.id === selectedProject?.id ? " is-active" : ""}`}>
-                <button
-                  type="button"
-                  className="home-project-select"
-                  onClick={() => setSelectedProjectId(project.id)}
-                >
-                  {project.name}
-                </button>
+                {editingProjectId === project.id ? (
+                  <input
+                    className="home-project-rename-input"
+                    autoFocus
+                    value={renameDraft}
+                    maxLength={80}
+                    aria-label={`${t("home.renameProject")} ${project.name}`}
+                    onFocus={(event) => event.currentTarget.select()}
+                    onChange={(event) => setRenameDraft(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") { event.preventDefault(); void renameProject(project); }
+                      if (event.key === "Escape") { setEditingProjectId(undefined); setRenameDraft(project.name); }
+                    }}
+                  />
+                ) : (
+                  <button
+                    type="button"
+                    className="home-project-select"
+                    onClick={() => setSelectedProjectId(project.id)}
+                  >
+                    {project.name}
+                  </button>
+                )}
+                {editingProjectId === project.id ? (
+                  <button
+                    type="button"
+                    className="home-project-save-name"
+                    title={t("common.save")}
+                    aria-label={`${t("common.save")} ${project.name}`}
+                    disabled={renamingProjectId === project.id || !renameDraft.trim()}
+                    onClick={() => void renameProject(project)}
+                  >✓</button>
+                ) : (
+                  <button
+                    type="button"
+                    className="home-project-rename"
+                    title={t("home.renameProject")}
+                    aria-label={`${t("home.renameProject")} ${project.name}`}
+                    onClick={() => beginRename(project)}
+                  >✎</button>
+                )}
                 <button
                   type="button"
                   className="home-project-delete"

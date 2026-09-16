@@ -34,11 +34,12 @@ describe("M1 app", () => {
     expect(screen.queryByRole("navigation", { name: "主导航" })).toBeNull();
   });
 
-  it("创建项目时要求名称与照片文件夹", async () => {
+  it("只填写项目名称即可创建，项目备注会成为 Table Memo", async () => {
+    const projectStore = new MemoryProjectStore();
     render(
       <App
         dependencies={{
-          projectStore: new MemoryProjectStore(),
+          projectStore,
           photoSource: new MemoryPhotoSource(),
         }}
       />,
@@ -47,8 +48,15 @@ describe("M1 app", () => {
     screen.getByRole("button", { name: "Create a project" }).click();
     const createButton = await screen.findByRole("button", { name: "Create project" });
 
-    // Figma 交互要求资料齐全前不可提交，因此这里验证禁用状态，而不是提交后的报错。
     expect((createButton as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.change(screen.getByLabelText("Project name"), { target: { value: "Folderless Project" } });
+    fireEvent.change(screen.getByLabelText("Project memo"), { target: { value: "Opening direction" } });
+    expect((createButton as HTMLButtonElement).disabled).toBe(false);
+    fireEvent.click(createButton);
+
+    expect((await screen.findByLabelText("Memo text") as HTMLTextAreaElement).value).toBe("Opening direction");
+    const listed = await projectStore.listProjects();
+    expect(listed.ok && listed.value[0]).toMatchObject({ name: "Folderless Project", sourceCount: 0 });
   });
 
   it("从项目首页进入项目时默认打开 Table", async () => {
