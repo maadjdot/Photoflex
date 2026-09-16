@@ -6,6 +6,7 @@
   "packageManager": "pnpm@10.15.1",
   "scripts": {
     "dev": "vite --host 127.0.0.1",
+    "prototype:layout": "vite --host 127.0.0.1 --open /prototype/layout?variant=B",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview --host 127.0.0.1",
     "test": "vitest run",
