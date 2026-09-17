@@ -1,10 +1,10 @@
 import { onSharedScanCompleted, startSharedScan, stopSharedScan } from "./ProjectSourceMonitor";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { PhotoId, PhotoRef, ProjectId, SequenceId, SequenceSummary, SourceError, SourceId, SourceRecord, VersionId, WorktableDraft, WorktableEditCommand, WorktableItemId } from "../contracts";
+import type { PhotoId, PhotoRef, ProjectId, SequenceDocument, SequenceId, SequenceItemId, SequenceSummary, SourceError, SourceId, SourceRecord, VersionId, WorktableDraft, WorktableEditCommand, WorktableItemId } from "../contracts";
 import type { AppDependencies } from "./dependencies";
-import { createInitialSequenceBundle } from "../modules/sequence";
+import { createInitialSequenceBundle, createSequenceEditor } from "../modules/sequence";
 import { orderPhotoIdsByTablePosition } from "../modules/worktable";
-import { useDialogKeyboard, worktableDisplaySize } from "./AppPrimitives";
+import { sourceErrorMessage, useDialogKeyboard, worktableDisplaySize } from "./AppPrimitives";
 import { PhotoThumb } from "./PhotoThumb";
 import type { AppRoute } from "./router";
 import { SourceBrowser } from "./SourceBrowser";
@@ -19,12 +19,13 @@ import { useTableWorkspaceLifecycle } from "./useTableWorkspaceLifecycle";
 import { useLocale } from "./locale";
 import { SequenceOverlay } from "./SequenceOverlay";
 import { sequencePileCardWidth } from "./sequenceCardGeometry";
+import { CloudSaveStatus } from "./CloudControls";
 
 const PILE_HEIGHT = 176;
 interface SequenceConfirmation { name: string; photoIds: readonly PhotoId[] }
 
 export function TablePage({ dependencies, projectId, navigate, sequenceOverlay }: { dependencies: AppDependencies; projectId: ProjectId; navigate: (route: AppRoute) => void; sequenceOverlay?: { readonly sequenceId: SequenceId; readonly openVersionId?: VersionId } }) {
-  const { t } = useLocale();
+  const { locale, t } = useLocale();
   const { workspace, save, saveWorktable, deleteSequences, createSequenceBundle, listSequences, coordinator, loading, error } = useProjectWorkspaceSession(dependencies, projectId);
   const [summaries, setSummaries] = useState<readonly SequenceSummary[]>([]);
   const [activeSequenceId, setActiveSequenceId] = useState<SequenceId>();
@@ -124,6 +125,26 @@ export function TablePage({ dependencies, projectId, navigate, sequenceOverlay }
     });
   }, [dependencies.photoSource, placeSourcePhotos]);
 
+  const readSequenceForDrag = useCallback(async (sequenceId: SequenceId): Promise<SequenceDocument | undefined> => {
+    const result = await coordinator.loadSequence(sequenceId);
+    return result.ok ? result.value : undefined;
+  }, [coordinator]);
+  const addDraggedPhotosToSequence = useCallback(async (ids: readonly WorktableItemId[], sequenceId: SequenceId, at?: number) => {
+    if (!draft) return;
+    const photoIds = orderPhotoIdsByTablePosition(draft, ids);
+    if (!photoIds.length) return;
+    const additions = photoIds.map((photoId) => ({ id: crypto.randomUUID() as SequenceItemId, kind: "photo" as const, photoId }));
+    const result = await coordinator.editSequence(sequenceId, (current) => {
+      const editor = createSequenceEditor({ projectId, baseVersionId: current.currentVersionId, items: current.items, segments: current.segments, readingUnits: current.readingUnits });
+      const added = editor.execute({ type: "add", items: additions, ...(at === undefined ? {} : { at: Math.max(0, Math.min(at, current.items.length)) }) });
+      return added.ok ? { ...current, items: added.value.items, segments: added.value.segments, readingUnits: added.value.readingUnits } : added;
+    });
+    if (!result.ok) { setNotice(t("sequence.addFailed")); return; }
+    setSummaries((current) => current.map((summary) => summary.id === sequenceId ? result.value.summary : summary));
+    setActiveSequenceId(sequenceId);
+    setNotice(t("sequence.addedPhotos", { count: additions.length, name: result.value.sequence.name }));
+  }, [coordinator, draft, projectId, t]);
+
   const dropExternalFiles = useCallback(async (handles: readonly FileSystemHandle[], point: { x: number; y: number }) => {
     if (!handles.length) { setNotice("This browser cannot keep access to dropped files."); return; }
     if (!workspace) return;
@@ -211,11 +232,32 @@ export function TablePage({ dependencies, projectId, navigate, sequenceOverlay }
   };
   const openContactSheet = (sourceId: SourceId) => { void coordinator.flush().then((result) => { if (result.ok) navigate({ name: "contact-sheet", projectId, sourceId }); else setNotice(workspaceSaveErrorMessage(result.error)); }); };
   const reconnectSource = async (sourceId: SourceId) => {
-    const restored = await dependencies.photoSource.restoreFolder(sourceId);
-    if (!restored.ok) { setNotice(t("source.reconnectFailed")); return; }
-    const saved = await save((current) => ({ ...current, sources: current.sources.map((source) => source.id === sourceId ? { ...source, removedAt: undefined } : source), updatedAt: new Date().toISOString() }));
+    const restored = await dependencies.photoSource.restoreFolder(sourceId, { reselect: true });
+    if (!restored.ok) { if (restored.error.kind !== "cancelled") setNotice(sourceErrorMessage(restored.error.kind, locale)); return false; }
+    const saved = await save((current) => ({ ...current, sources: current.sources.map((source) => source.id === sourceId ? { ...source, displayName: restored.value.displayName, removedAt: undefined } : source), updatedAt: new Date().toISOString() }));
     if (!saved.ok) setNotice(workspaceSaveErrorMessage(saved.error));
     else startSharedScan(dependencies.photoSource, sourceId);
+    return saved.ok;
+  };
+  const reconnectAllSources = async () => {
+    const folders = workspace.sources.filter((source) => !source.removedAt && source.kind !== "external-files");
+    const result = await dependencies.photoSource.reconnectFoldersFromParent(folders);
+    if (!result.ok) {
+      if (result.error.kind !== "cancelled") setNotice(sourceErrorMessage(result.error.kind, locale));
+      return;
+    }
+    result.value.reconnected.forEach((sourceId) => startSharedScan(dependencies.photoSource, sourceId));
+    return result.value;
+  };
+  const reconnectSavedSources = async () => {
+    const folders = workspace.sources.filter((source) => !source.removedAt && source.kind !== "external-files");
+    const result = await dependencies.photoSource.reconnectFoldersFromSavedAccess(folders);
+    if (!result.ok) {
+      if (result.error.kind !== "cancelled") setNotice(sourceErrorMessage(result.error.kind, locale));
+      return;
+    }
+    result.value.reconnected.forEach((sourceId) => startSharedScan(dependencies.photoSource, sourceId));
+    return result.value;
   };
   const selectedMemo = draft.memos?.find((memo) => memo.id === selectedMemoId);
   const previewPlacement = previewPhotoId
@@ -233,10 +275,11 @@ export function TablePage({ dependencies, projectId, navigate, sequenceOverlay }
     stopSharedScan(dependencies.photoSource, sourceId);
     return true;
   };
-  const sourceBrowser = <SourceBrowser addingSource={addingSource} onRemoveSource={removeSource} dependencies={dependencies} projectId={projectId} workspace={workspace} onPlacePhotos={placeSourcePhotos} onOpenPhoto={setPreviewPhotoId} onAddSource={() => void addSource()} onOpenContactSheet={openContactSheet} onReconnectSource={(sourceId) => void reconnectSource(sourceId)} onPhotoError={onPhotoError} onPanelModeChange={setSourcePanelMode} />;
+  const sourceBrowser = <SourceBrowser addingSource={addingSource} onRemoveSource={removeSource} dependencies={dependencies} projectId={projectId} workspace={workspace} onPlacePhotos={placeSourcePhotos} onOpenPhoto={setPreviewPhotoId} onAddSource={() => void addSource()} onOpenContactSheet={openContactSheet} onReconnectSource={reconnectSource} onReconnectSavedSources={reconnectSavedSources} onReconnectAllSources={reconnectAllSources} onPhotoError={onPhotoError} onPanelModeChange={setSourcePanelMode} />;
 
   return <main className="table-page page">
     {notice && <p className="table-notice" role="status">{notice}</p>}
+    <div className="table-cloud-save-status"><CloudSaveStatus dependencies={dependencies} projectId={projectId} /></div>
     <TableWorkspace sidebar={sourceBrowser} sidebarMode={sourcePanelMode} storageKey={`photoflex:table-sidebar:${projectId}`}>
     <div className="table-canvas-area" aria-label={t("table.toolbar")}>
     <TableCanvas
@@ -254,6 +297,8 @@ export function TablePage({ dependencies, projectId, navigate, sequenceOverlay }
       onRequestSequence={requestSequence}
       onDropPhotos={dropSourcePhotos}
       onDropExternalFiles={(handles, point) => void dropExternalFiles(handles, point)}
+      onReadSequence={readSequenceForDrag}
+      onDropPhotosOnSequence={(ids, sequenceId, at) => { void addDraggedPhotosToSequence(ids, sequenceId, at); }}
       onRemovePiles={(sequenceIds) => setDeleteConfirmation(sequenceIds)}
       onPhotoError={onPhotoError}
       missingPhotoIds={missing}
@@ -273,7 +318,7 @@ export function TablePage({ dependencies, projectId, navigate, sequenceOverlay }
     </TableWorkspace>
     {previewPhotoId && previewPlacement && <TablePhotoPreview photoId={previewPhotoId} filename={previewPlacement.filename} photoSource={dependencies.photoSource} onClose={() => setPreviewPhotoId(undefined)} onError={onPhotoError} />}
     {comparePhotoIds && <TablePhotoCompare ids={comparePhotoIds} draft={draft} photoSource={dependencies.photoSource} onClose={() => setComparePhotoIds(undefined)} />}
-    {sequenceOverlay && <SequenceOverlay dependencies={dependencies} persistence={coordinator} projectId={projectId} sequenceId={sequenceOverlay.sequenceId} openVersionId={sequenceOverlay.openVersionId} onClose={() => navigate({ name: "table", projectId })} onPhotoError={onPhotoError} />}
+    {sequenceOverlay && <SequenceOverlay dependencies={dependencies} persistence={coordinator} projectId={projectId} sequenceId={sequenceOverlay.sequenceId} openVersionId={sequenceOverlay.openVersionId} onClose={() => { void listSequences().then((latest) => { if (latest.ok) setSummaries(latest.value); navigate({ name: "table", projectId }); }); }} onPhotoError={onPhotoError} />}
   </main>;
 }
 

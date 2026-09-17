@@ -31,6 +31,7 @@ export function SequenceOverlay({ dependencies, persistence, projectId, sequence
   const [anchor, setAnchor] = useState<SequenceItemId>();
   const [readIndex, setReadIndex] = useState<number>();
   const [previewIndex, setPreviewIndex] = useState<number>();
+  const [actionError, setActionError] = useState<string>();
   const [photoShapes, setPhotoShapes] = useState<ReadonlyMap<PhotoId, "landscape" | "portrait">>(new Map());
   const rootRef = useRef<HTMLElement>(null);
   const gridRef = useRef<HTMLElement>(null);
@@ -42,6 +43,7 @@ export function SequenceOverlay({ dependencies, persistence, projectId, sequence
 
   const photos = useMemo(() => projectSequencePhotos(sequence?.items ?? []), [sequence?.items]);
   const photoItemIds = useMemo(() => photos.map(({ item }) => item.id), [photos]);
+  const selectedPhotoItemIds = useMemo(() => photoItemIds.filter((id) => selected.has(id)), [photoItemIds, selected]);
 
   useEffect(() => { closeRef.current?.focus(); }, [sequence?.id]);
   useEffect(() => {
@@ -66,6 +68,16 @@ export function SequenceOverlay({ dependencies, persistence, projectId, sequence
     const result = await sequenceSession.flush();
     if (result.ok) onClose();
   }, [onClose, sequenceSession]);
+
+  const removePhotoItems = useCallback((ids: readonly SequenceItemId[]) => {
+    if (!sequence || !ids.length) return false;
+    const result = sequenceSession.execute({ type: "remove", itemIds: ids });
+    if (!result.ok) { setActionError(t("sequence.removeItemFailed")); return false; }
+    setActionError(undefined);
+    setSelected((current) => new Set([...current].filter((id) => !ids.includes(id))));
+    if (anchor && ids.includes(anchor)) setAnchor(undefined);
+    return true;
+  }, [anchor, sequence, sequenceSession, t]);
 
   const reorder = useSequenceReorderDrag({
     itemIds: photoItemIds,
@@ -93,7 +105,14 @@ export function SequenceOverlay({ dependencies, persistence, projectId, sequence
     onPointerCancel: reorder.cancel,
   });
 
-  return <section ref={rootRef} className="sequence-overlay" role="dialog" aria-modal="true" aria-label={`Sequence ${sequence.name}`} tabIndex={-1}>
+  return <section ref={rootRef} className="sequence-overlay" role="dialog" aria-modal="true" aria-label={`Sequence ${sequence.name}`} tabIndex={-1} onKeyDown={(event) => {
+    if (readIndex !== undefined || (event.key !== "Delete" && event.key !== "Backspace")) return;
+    if ((event.target as HTMLElement).closest("input, textarea, [contenteditable='true']")) return;
+    if (selectedPhotoItemIds.length) {
+      event.preventDefault();
+      if (removePhotoItems(selectedPhotoItemIds) && previewIndex !== undefined) setPreviewIndex(undefined);
+    }
+  }}>
     <header className="sequence-overlay-header">
       <div><span>SEQUENCE</span><h1>{sequence.name}</h1></div>
       <nav aria-label="Sequence controls">
@@ -101,10 +120,9 @@ export function SequenceOverlay({ dependencies, persistence, projectId, sequence
         <button ref={closeRef} className="sequence-overlay-close" aria-label={`${t("common.close")} Sequence`} onClick={() => void closeOverlay()}>×</button>
       </nav>
     </header>
-    {sequenceSession.error && <div className="sequence-overlay-notice" role="status"><span>{sequenceSession.error}</span>{sequenceSession.saveState === "failed" && <button onClick={() => void sequenceSession.retry()}>{t("common.retry")}</button>}</div>}
+    {(actionError || sequenceSession.error) && <div className="sequence-overlay-notice" role="status"><span>{actionError || sequenceSession.error}</span>{sequenceSession.saveState === "failed" && <button onClick={() => void sequenceSession.retry()}>{t("common.retry")}</button>}</div>}
     <section ref={gridRef} className="sequence-overlay-grid" role="grid" aria-label="Sequence photo order" onPointerMove={reorder.move} onPointerUp={reorder.end} onPointerCancel={reorder.cancel}>
-      {photos.map(({ item, photoIndex }) => <button
-        key={item.id}
+      {photos.map(({ item, photoIndex }) => <button key={item.id}
         type="button"
         role="gridcell"
         aria-selected={selected.has(item.id)}
@@ -112,7 +130,7 @@ export function SequenceOverlay({ dependencies, persistence, projectId, sequence
         data-sequence-index={photoIndex}
         data-item-id={item.id}
         className={`sequence-overlay-card is-${photoShapes.get(item.photoId) ?? "landscape"}${selected.has(item.id) ? " is-selected" : ""}${reorder.dropTarget === photoIndex ? " is-drop-target" : ""}`}
-        onClick={() => { if (!reorder.consumeClickSuppression()) setPreviewIndex(photoIndex); }}
+        onClick={(event) => { if (!reorder.consumeClickSuppression() && !event.shiftKey && !event.ctrlKey && !event.metaKey) setPreviewIndex(photoIndex); }}
         {...pointerHandlers(item.id)}
       >
         <PhotoThumb resolution="table" progressiveTo={1536} fit="contain" photoSource={dependencies.photoSource} photoId={item.photoId} alt="" onError={onPhotoError} />

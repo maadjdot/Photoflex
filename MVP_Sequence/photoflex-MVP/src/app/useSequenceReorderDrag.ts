@@ -33,6 +33,7 @@ interface DragState {
   readonly itemIds: readonly SequenceItemId[];
   readonly clickedId: SequenceItemId;
   readonly collapseOnClick: boolean;
+  readonly activateOnClick: boolean;
   readonly startX: number;
   readonly startY: number;
   target: number;
@@ -114,6 +115,7 @@ export function useSequenceReorderDrag({
       itemIds: draggedIds,
       clickedId: id,
       collapseOnClick: !forcedIds && selected.has(id) && selected.size > 1 && !event.shiftKey && !event.ctrlKey && !event.metaKey,
+      activateOnClick: !event.shiftKey && !event.ctrlKey && !event.metaKey,
       startX: event.clientX,
       startY: event.clientY,
       target: itemIds.indexOf(id),
@@ -168,7 +170,7 @@ export function useSequenceReorderDrag({
     setDropTarget(undefined);
     if (drag.moved) onMove(drag.itemIds, drag.target);
     else if (drag.collapseOnClick) onSelectionChange(new Set([drag.clickedId]), drag.clickedId);
-    else onActivate?.(drag.clickedId, drag.source);
+    else if (drag.activateOnClick) onActivate?.(drag.clickedId, drag.source);
   }, [containerFor, itemIds.length, onActivate, onMove, onSelectionChange]);
 
   const cancel = useCallback(() => {

@@ -16,6 +16,7 @@ import plusIcon from "../assets/icons/table-plus.svg";
 import type {
   DerivedPreviewMaxEdge,
   PhotoId,
+  SequenceDocument,
   SequenceId,
   SequenceSummary,
   SourceError,
@@ -37,6 +38,7 @@ import { deriveTableActions } from "./tableActionPolicy";
 import { useTableGestures } from "./useTableGestures";
 import { useLocale } from "./locale";
 import { sequencePileCardWidth } from "./sequenceCardGeometry";
+import { calculateSequenceStripVirtualRange } from "../modules/sequence";
 
 const TABLE_IMAGE_RETENTION_MS = 20_000;
 const TABLE_RETAINED_IMAGE_LIMIT = 72;
@@ -72,6 +74,8 @@ interface TableCanvasProps {
   readonly onRequestSequence: (photoIds: readonly WorktableItemId[]) => void;
   readonly onDropPhotos: (photoIds: readonly PhotoId[], point: WorktablePoint) => void;
   readonly onDropExternalFiles: (handles: readonly FileSystemHandle[], point: WorktablePoint) => void;
+  readonly onDropPhotosOnSequence: (photoIds: readonly WorktableItemId[], sequenceId: SequenceId, at?: number) => void;
+  readonly onReadSequence: (sequenceId: SequenceId) => Promise<SequenceDocument | undefined>;
   readonly selectedMemoId?: string;
   readonly onSelectMemo?: (id: string | undefined) => void;
   readonly onSelectPile?: (sequenceId: SequenceId) => void;
@@ -96,6 +100,8 @@ export const TableCanvas = forwardRef<TableCanvasHandle, TableCanvasProps>(funct
     onRequestSequence,
     onDropPhotos,
     onDropExternalFiles,
+    onDropPhotosOnSequence,
+    onReadSequence,
     onRemovePiles,
     onPhotoError,
     missingPhotoIds,
@@ -107,6 +113,8 @@ export const TableCanvas = forwardRef<TableCanvasHandle, TableCanvasProps>(funct
   const [viewport, setViewportState] = useState(initialViewport);
   const [stageSize, setStageSize] = useState({ width: 0, height: 0 });
   const [retainedPhotoIds, setRetainedPhotoIds] = useState<ReadonlySet<WorktableItemId>>(new Set());
+  const [sequenceTray, setSequenceTray] = useState<{ readonly sequence: SequenceDocument; readonly left: number; readonly top: number; readonly width: number }>();
+  const [trayScrollLeft, setTrayScrollLeft] = useState(0);
   const stageRef = useRef<HTMLDivElement>(null);
   const viewportRef = useRef(viewport);
   const photoRetentionRef = useRef(new Map<WorktableItemId, number>());
@@ -153,8 +161,41 @@ export const TableCanvas = forwardRef<TableCanvasHandle, TableCanvasProps>(funct
     selectPhotos: session.selectPhotos,
     clearSelection: session.clearSelection,
     onOpenSequence,
+    onDropPhotosOnSequence,
     disabled: interactionDisabled,
   });
+  const trayRange = useMemo(() => calculateSequenceStripVirtualRange({
+    itemCount: sequenceTray?.sequence.items.length ?? 0,
+    viewportWidth: sequenceTray?.width ?? 0,
+    scrollLeft: trayScrollLeft,
+    itemWidth: 72,
+    itemGap: 10,
+  }), [sequenceTray, trayScrollLeft]);
+
+  useEffect(() => {
+    const sequenceId = gestures.preview.targetSequenceId;
+    setSequenceTray(undefined);
+    setTrayScrollLeft(0);
+    if (!sequenceId) return;
+    let active = true;
+    const timer = window.setTimeout(() => {
+      void onReadSequence(sequenceId).then((sequence) => {
+        if (!active || !sequence) return;
+        const stage = stageRef.current;
+        const pile = [...(stage?.querySelectorAll<HTMLElement>("[data-sequence-pile-id]") ?? [])].find((item) => item.dataset.sequencePileId === sequenceId);
+        if (!stage || !pile) return;
+        const stageRect = stage.getBoundingClientRect();
+        const pileRect = pile.getBoundingClientRect();
+        const width = Math.max(1, Math.min(560, stageRect.width - 24));
+        const left = Math.max(12, Math.min(stageRect.width - width - 12, pileRect.left + pileRect.width / 2 - stageRect.left - width / 2));
+        const below = pileRect.bottom - stageRect.top;
+        const above = pileRect.top - stageRect.top - 108;
+        const top = below + 108 <= stageRect.height ? below : Math.max(8, above);
+        setSequenceTray({ sequence, left, top, width });
+      });
+    }, 240);
+    return () => { active = false; window.clearTimeout(timer); };
+  }, [gestures.preview.targetSequenceId, onReadSequence]);
 
   useImperativeHandle(forwardedRef, () => ({
     getViewportCenter() {
@@ -221,6 +262,12 @@ export const TableCanvas = forwardRef<TableCanvasHandle, TableCanvasProps>(funct
     const stage = stageRef.current;
     if (!stage) return;
     const onWheel = (event: WheelEvent) => {
+      const tray = (event.target as HTMLElement).closest<HTMLElement>("[data-sequence-insert-tray]");
+      if (tray) {
+        event.preventDefault();
+        tray.scrollLeft += event.deltaY + event.deltaX;
+        return;
+      }
       if (!event.ctrlKey && !event.metaKey && (event.target as HTMLElement).closest(".table-memo textarea")) return;
       event.preventDefault();
       if (event.ctrlKey || event.metaKey) {
@@ -311,7 +358,10 @@ export const TableCanvas = forwardRef<TableCanvasHandle, TableCanvasProps>(funct
         else if (!event.shiftKey && actions.canCreateLink && !actions.selectedLink) session.execute({ type: "create-link", photoIds: selectedPhotoIds });
       }
     }
-    if (event.key === "Escape") session.clearSelection();
+    if (event.key === "Escape") {
+      if (!gestures.cancelActiveGesture()) session.clearSelection();
+      return;
+    }
     if (event.key.toLowerCase() === "s" && selectedPhotoIds.length) onRequestSequence(selectedPhotoIds);
     if (event.key === "Delete" || event.key === "Backspace") {
       if (selectedPileIds.length) onRemovePiles(selectedPileIds);
@@ -377,8 +427,12 @@ export const TableCanvas = forwardRef<TableCanvasHandle, TableCanvasProps>(funct
           const delta = chosen && preview.kind === "photo" ? preview.dragDelta : { x: 0, y: 0 };
           const scale = preview.kind === "resize" && preview.photoId === id ? preview.resizeScale : 1;
           return (
+            <div key={id} className="worktable-photo-position">
+            {dragging && <div className="worktable-drag-origin" aria-hidden="true" style={{ width: item.width, height: item.height, zIndex: item.z, transform: `translate3d(${item.x}px,${item.y}px,0)` }}>
+              <PhotoThumb photoSource={photoSource} photoId={item.photoId} alt="" resolution="table" sourceRevision={sourceRevision} />
+            </div>}
             <article
-              key={id}
+              data-worktable-photo-id={id}
               aria-label={item.filename}
               className={`worktable-card${chosen ? " is-selected" : ""}${dragging ? " is-dragging" : ""}${missingPhotoIds.has(item.photoId) ? " is-missing" : ""}`}
               style={{ width: item.width * scale, height: item.height * scale, zIndex: item.z, transform: `translate3d(${item.x + delta.x}px,${item.y + delta.y}px,0)` }}
@@ -393,6 +447,7 @@ export const TableCanvas = forwardRef<TableCanvasHandle, TableCanvasProps>(funct
               </div>
               {chosen && selectedPhotoIds.length === 1 && <button aria-label="Resize photo" className="worktable-resize-handle" onPointerDown={(event) => gestures.onPhotoResizePointerDown(event, id)} />}
             </article>
+            </div>
           );
         })}
         {draft.pileOrder.map((id) => {
@@ -408,13 +463,15 @@ export const TableCanvas = forwardRef<TableCanvasHandle, TableCanvasProps>(funct
           return (
             <article
               key={id}
+              data-sequence-pile-id={id}
               aria-label={`Sequence pile ${summary?.name ?? "Missing Sequence"}`}
-              className={`sequence-pile${chosen ? " is-selected" : ""}${dragging ? " is-dragging" : ""}`}
+              className={`sequence-pile${chosen ? " is-selected" : ""}${dragging ? " is-dragging" : ""}${preview.targetSequenceId === id ? " is-add-target" : ""}`}
               style={{ width: cardWidth * scale, height: cardHeight * scale, zIndex: pile.z, transform: `translate3d(${pile.x + delta.x - (cardWidth * (scale - 1)) / 2}px,${pile.y + delta.y - (cardHeight * (scale - 1)) / 2}px,0)` }}
               onPointerDown={(event) => { if (event.button === 0 && !event.ctrlKey && !event.metaKey && !interactionDisabled) props.onSelectPile?.(id); gestures.onPilePointerDown(event, id); }}
             >
               <header><div><small>SEQUENCE</small><strong>{summary?.name ?? "Missing Sequence"}</strong></div><span>{summary?.photoCount ?? 0}</span></header>
               <div className="sequence-pile-thumbs">{summary?.previewPhotoIds.map((photoId, index) => <span key={`${photoId}-${index}`}><PhotoThumb fit="cover" photoSource={photoSource} photoId={photoId} alt="" onError={onPhotoError} sourceRevision={sourceRevision} /></span>)}</div>
+              {preview.targetSequenceId === id && <div className="sequence-pile-add-cue" aria-live="polite"><strong>{t("table.addToSequence")}</strong><small>{t("common.photoCount", { count: selectedPhotoIds.length })}</small></div>}
               <button
                 type="button"
                 aria-label="Resize sequence pile"
@@ -427,6 +484,26 @@ export const TableCanvas = forwardRef<TableCanvasHandle, TableCanvasProps>(funct
         })}
       </div>
       {preview.marquee && <div className="worktable-marquee" style={preview.marquee} />}
+      {sequenceTray && preview.targetSequenceId === sequenceTray.sequence.id && <div
+        className="sequence-insert-tray"
+        data-sequence-insert-tray
+        data-sequence-id={sequenceTray.sequence.id}
+        data-item-count={sequenceTray.sequence.items.length}
+        aria-hidden="true"
+        style={{ left: sequenceTray.left, top: sequenceTray.top, width: sequenceTray.width }}
+        onScroll={(event) => setTrayScrollLeft(event.currentTarget.scrollLeft)}
+      >
+        <div className="sequence-insert-track" style={{ width: Math.max(sequenceTray.width, trayRange.totalWidth + 24) }}>
+          {sequenceTray.sequence.items.slice(trayRange.startIndex, trayRange.endIndex).map((item, offset) => {
+            const index = trayRange.startIndex + offset;
+            return <div key={item.id} className="sequence-insert-item" style={{ left: 12 + index * trayRange.itemStride }}>
+              {item.kind === "photo" ? <PhotoThumb photoSource={photoSource} photoId={item.photoId} alt="" onError={onPhotoError} resolution="sequence" sourceRevision={sourceRevision} /> : <span className="sequence-insert-nonphoto">{item.kind === "blank" ? t("sequence.blank") : t("sequence.text")}</span>}
+              <small>{index + 1}</small>
+            </div>;
+          })}
+          {preview.insertIndex !== undefined && <span className="sequence-insert-marker" style={{ left: 8 + preview.insertIndex * trayRange.itemStride }} />}
+        </div>
+      </div>}
       {!draft.entryOrder.length && !draft.pileOrder.length && !draft.memos?.length && (
         <section className="worktable-empty">
           <span>{t("table.emptyLabel")}</span>

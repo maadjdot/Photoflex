@@ -1,18 +1,23 @@
 // @vitest-environment jsdom
 
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { afterEach, expect, it } from "vitest";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { PhotoId, ProjectId, ReadingUnitId, SequenceDocument, SequenceId, SequenceItemId, SequenceVersion, SourceId, VersionId } from "../contracts";
 import { MemoryPhotoSource } from "../platform/memory/MemoryPhotoSource";
 import { MemoryProjectStore } from "../platform/memory/MemoryProjectStore";
 import { App } from "./App";
+
+beforeEach(() => {
+  if (!("PointerEvent" in window)) Object.defineProperty(window, "PointerEvent", { configurable: true, value: MouseEvent });
+  Object.defineProperty(HTMLElement.prototype, "setPointerCapture", { configurable: true, value: vi.fn() });
+});
 
 afterEach(() => {
   cleanup();
   window.location.hash = "#/";
 });
 
-it("opens a single-photo preview from the grid and enters continuous Read only from the Read button", async () => {
+async function createOverlayFixture(singlePhoto = false) {
   const projectStore = new MemoryProjectStore();
   const projectId = "sequence-overlay-project" as ProjectId;
   const sourceId = "sequence-overlay-source" as SourceId;
@@ -27,12 +32,13 @@ it("opens a single-photo preview from the grid and enters continuous Read only f
     initialSource: { id: sourceId, displayName: "Photos", createdAt: "2026-09-16T00:00:00.000Z" },
   });
   if (!created.ok) throw new Error("project fixture failed");
-  const items = [
+  const fullItems = [
     { id: "photo-landscape" as SequenceItemId, kind: "photo" as const, photoId: landscape },
     { id: "legacy-blank" as SequenceItemId, kind: "blank" as const },
     { id: "legacy-text" as SequenceItemId, kind: "text" as const, text: "Hidden note", fontSize: 24 },
     { id: "photo-portrait" as SequenceItemId, kind: "photo" as const, photoId: portrait },
   ];
+  const items = singlePhoto ? fullItems.slice(0, 1) : fullItems;
   const readingUnits: SequenceDocument["readingUnits"] = items.map((item, index) => ({
     id: `unit-${index}` as ReadingUnitId,
     kind: item.kind === "blank" ? "blank" as const : "single" as const,
@@ -49,6 +55,11 @@ it("opens a single-photo preview from the grid and enters continuous Read only f
     ],
     previewUrls: { [landscape]: "data:image/gif;base64,R0lGODlhAQABAAAAACw=", [portrait]: "data:image/gif;base64,R0lGODlhAQABAAAAACw=" },
   }]);
+  return { projectStore, photoSource, projectId, sequenceId, landscape, portrait };
+}
+
+it("opens a single-photo preview from the grid and enters continuous Read only from the Read button", async () => {
+  const { projectStore, photoSource, projectId, sequenceId } = await createOverlayFixture();
   window.location.hash = `#/projects/${projectId}/sequences/${sequenceId}`;
 
   render(<App dependencies={{ projectStore, photoSource }} />);
@@ -107,4 +118,88 @@ it("opens a single-photo preview from the grid and enters continuous Read only f
   fireEvent.keyDown(window, { key: "Escape" });
   await waitFor(() => expect(screen.queryByRole("dialog", { name: "Read Complete photos" })).toBeNull());
   expect(screen.getByRole("dialog", { name: "Sequence Complete photos" })).toBeTruthy();
+});
+
+it("removes a selected photo with Delete without deleting the source photo", async () => {
+  const { projectStore, photoSource, projectId, sequenceId, portrait } = await createOverlayFixture();
+  window.location.hash = `#/projects/${projectId}/sequences/${sequenceId}`;
+  render(<App dependencies={{ projectStore, photoSource }} />);
+  const overlay = await screen.findByRole("dialog", { name: "Sequence Complete photos" });
+  const grid = within(overlay).getByRole("grid", { name: "Sequence photo order" });
+
+  expect(within(overlay).queryByRole("button", { name: /Remove/ })).toBeNull();
+  const second = within(grid).getByRole("gridcell", { name: "Photo 02" });
+  fireEvent.pointerDown(second, { pointerId: 60, button: 0, clientX: 320, clientY: 100 });
+  fireEvent.pointerUp(second, { pointerId: 60, clientX: 320, clientY: 100 });
+  const preview = screen.queryByRole("dialog", { name: "Preview photo 2" });
+  if (preview) fireEvent.click(within(preview).getByRole("button", { name: "Close" }));
+  fireEvent.keyDown(overlay, { key: "Delete" });
+
+  await waitFor(() => expect(within(grid).getAllByRole("gridcell")).toHaveLength(1));
+  await waitFor(async () => {
+    const saved = await projectStore.loadSequence(sequenceId);
+    expect(saved.ok && saved.value.items.some((item) => item.kind === "photo" && item.photoId === portrait)).toBe(false);
+  });
+  expect((await photoSource.getPhoto(portrait)).ok).toBe(true);
+});
+
+it("supports multi-select removal with Backspace without opening a preview on modifier click", async () => {
+  const { projectStore, photoSource, projectId, sequenceId } = await createOverlayFixture();
+  window.location.hash = `#/projects/${projectId}/sequences/${sequenceId}`;
+  render(<App dependencies={{ projectStore, photoSource }} />);
+  const overlay = await screen.findByRole("dialog", { name: "Sequence Complete photos" });
+  const grid = within(overlay).getByRole("grid", { name: "Sequence photo order" });
+  const first = within(grid).getByRole("gridcell", { name: "Photo 01" });
+  const second = within(grid).getByRole("gridcell", { name: "Photo 02" });
+  fireEvent.pointerDown(first, { pointerId: 61, button: 0, clientX: 100, clientY: 100 });
+  fireEvent.pointerUp(first, { pointerId: 61, clientX: 100, clientY: 100 });
+  fireEvent.click(first);
+  fireEvent.click(within(screen.getByRole("dialog", { name: "Preview photo 1" })).getByRole("button", { name: "Close" }));
+  fireEvent.pointerDown(second, { pointerId: 62, button: 0, ctrlKey: true, clientX: 320, clientY: 100 });
+  fireEvent.pointerUp(second, { pointerId: 62, ctrlKey: true, clientX: 320, clientY: 100 });
+  fireEvent.click(second, { ctrlKey: true });
+  expect(screen.queryByRole("dialog", { name: "Preview photo 2" })).toBeNull();
+  expect(within(overlay).queryByRole("button", { name: /Remove/ })).toBeNull();
+  fireEvent.keyDown(overlay, { key: "Backspace" });
+
+  await waitFor(() => expect(within(grid).queryAllByRole("gridcell")).toHaveLength(0));
+  await waitFor(async () => {
+    const saved = await projectStore.loadSequence(sequenceId);
+    expect(saved.ok && saved.value.items.map((item) => item.kind)).toEqual(["blank", "text"]);
+  });
+});
+
+it("removes the selected photo with Delete but protects a Sequence's final item", async () => {
+  const { projectStore, photoSource, projectId, sequenceId } = await createOverlayFixture();
+  window.location.hash = `#/projects/${projectId}/sequences/${sequenceId}`;
+  const view = render(<App dependencies={{ projectStore, photoSource }} />);
+  const overlay = await screen.findByRole("dialog", { name: "Sequence Complete photos" });
+  const first = within(overlay).getByRole("gridcell", { name: "Photo 01" });
+  fireEvent.pointerDown(first, { pointerId: 63, button: 0, clientX: 100, clientY: 100 });
+  fireEvent.pointerUp(first, { pointerId: 63, clientX: 100, clientY: 100 });
+  const preview = screen.queryByRole("dialog", { name: "Preview photo 1" });
+  if (preview) fireEvent.click(within(preview).getByRole("button", { name: "Close" }));
+  fireEvent.keyDown(overlay, { key: "Delete" });
+  await waitFor(async () => {
+    const saved = await projectStore.loadSequence(sequenceId);
+    expect(saved.ok && saved.value.items.some((item) => item.id === "photo-landscape")).toBe(false);
+  });
+  view.unmount();
+
+  const single = await createOverlayFixture(true);
+  window.location.hash = `#/projects/${single.projectId}/sequences/${single.sequenceId}`;
+  render(<App dependencies={{ projectStore: single.projectStore, photoSource: single.photoSource }} />);
+  const singleOverlay = await screen.findByRole("dialog", { name: "Sequence Complete photos" });
+  expect(within(singleOverlay).queryByRole("button", { name: /Remove/ })).toBeNull();
+  const singleCard = within(singleOverlay).getByRole("gridcell", { name: "Photo 01" });
+  fireEvent.pointerDown(singleCard, { pointerId: 64, button: 0, clientX: 100, clientY: 100 });
+  fireEvent.pointerUp(singleCard, { pointerId: 64, clientX: 100, clientY: 100 });
+  const singlePreview = screen.queryByRole("dialog", { name: "Preview photo 1" });
+  if (singlePreview) fireEvent.click(within(singlePreview).getByRole("button", { name: "Close" }));
+  fireEvent.keyDown(singleOverlay, { key: "Backspace" });
+  await waitFor(async () => {
+    const saved = await single.projectStore.loadSequence(single.sequenceId);
+    expect(saved.ok && saved.value.items).toHaveLength(1);
+  });
+  expect(within(singleOverlay).getByRole("status").textContent).toContain("could not be removed");
 });

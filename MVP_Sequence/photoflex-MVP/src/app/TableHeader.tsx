@@ -14,7 +14,7 @@ export function TableHeader({ dependencies, projectId, lastSequenceId, navigate 
   const { t } = useLocale();
   const { workspace, coordinator } = useProjectWorkspaceSession(dependencies, projectId);
   const { writeState } = coordinator.getSnapshot();
-  return <AppHeader dependencies={dependencies} route={{ name: "table", projectId }} projectId={projectId} lastSequenceId={lastSequenceId} navigate={navigate} variant="table" projectLabel={workspace?.name ?? t("common.loading")} actions={
+  return <AppHeader dependencies={dependencies} route={{ name: "table", projectId }} projectId={projectId} lastSequenceId={lastSequenceId} navigate={navigate} variant="table" showProjectSettings={false} showCloudSaveStatus={false} projectLabel={workspace?.name ?? t("common.loading")} actions={
     <div id="table-header-controls" className="table-header-controls">
       {writeState === "failed" && <button type="button" className="table-save-retry" onClick={() => void coordinator.retry({ kind: "workspace" })}>{t("status.changesNotSaved")}</button>}
     </div>

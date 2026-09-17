@@ -422,6 +422,146 @@ describe("TablePage", () => {
     expect(saved.value.sequenceIds).toEqual([]);
   });
 
+  it("拖到序列卡片时加入照片，Table 原位不变", async () => {
+    const { projectStore, photoSource, sequenceId } = await createPileFixture();
+    const saveWorktable = vi.spyOn(projectStore, "saveWorktable");
+    render(<App dependencies={{ projectStore, photoSource }} />);
+    const stage = await screen.findByLabelText("Photo worktable");
+    const card = screen.getByLabelText("B.jpg");
+    const pile = screen.getByLabelText("Sequence pile Sequence 01");
+    Object.defineProperty(pile, "getBoundingClientRect", {
+      configurable: true,
+      value: () => ({ left: 350, top: 180, width: 280, height: 176, right: 630, bottom: 356, x: 350, y: 180, toJSON() {} }),
+    });
+    const before = await projectStore.loadWorkspace(projectId);
+    if (!before.ok) throw new Error("workspace not loaded");
+    const original = before.value.worktableDraft.placements[photoB];
+    saveWorktable.mockClear();
+
+    fireEvent.pointerDown(card, { pointerId: 71, button: 0, clientX: 100, clientY: 100 });
+    fireEvent.pointerMove(stage, { pointerId: 71, clientX: 430, clientY: 245 });
+    expect(pile.classList.contains("is-add-target")).toBe(true);
+    expect(within(pile).getByText("Add to Sequence")).toBeTruthy();
+    fireEvent.pointerUp(stage, { pointerId: 71, clientX: 430, clientY: 245 });
+
+    await waitFor(async () => {
+      const sequence = await projectStore.loadSequence(sequenceId);
+      expect(sequence.ok && sequence.value.items.map((item) => item.kind === "photo" && item.photoId)).toEqual([photoA, photoB]);
+    });
+    const after = await projectStore.loadWorkspace(projectId);
+    expect(after.ok && after.value.worktableDraft.placements[photoB]).toEqual(original);
+    expect(saveWorktable).not.toHaveBeenCalled();
+    await waitFor(() => expect(within(pile).getByText("2")).toBeTruthy());
+    expect(pile.classList.contains("is-add-target")).toBe(false);
+  });
+
+  it("拖过序列再离开时仍按普通移动处理", async () => {
+    const { projectStore, photoSource, sequenceId } = await createPileFixture();
+    render(<App dependencies={{ projectStore, photoSource }} />);
+    const stage = await screen.findByLabelText("Photo worktable");
+    const card = screen.getByLabelText("B.jpg");
+    const pile = screen.getByLabelText("Sequence pile Sequence 01");
+    Object.defineProperty(pile, "getBoundingClientRect", {
+      configurable: true,
+      value: () => ({ left: 350, top: 180, width: 280, height: 176, right: 630, bottom: 356, x: 350, y: 180, toJSON() {} }),
+    });
+    const before = await projectStore.loadWorkspace(projectId);
+    if (!before.ok) throw new Error("workspace not loaded");
+    const original = before.value.worktableDraft.placements[photoB];
+
+    fireEvent.pointerDown(card, { pointerId: 72, button: 0, clientX: 100, clientY: 100 });
+    fireEvent.pointerMove(stage, { pointerId: 72, clientX: 430, clientY: 245 });
+    expect(pile.classList.contains("is-add-target")).toBe(true);
+    fireEvent.pointerMove(stage, { pointerId: 72, clientX: 160, clientY: 130 });
+    expect(pile.classList.contains("is-add-target")).toBe(false);
+    fireEvent.pointerUp(stage, { pointerId: 72, clientX: 160, clientY: 130 });
+
+    await waitFor(async () => {
+      const workspace = await projectStore.loadWorkspace(projectId);
+      expect(workspace.ok && workspace.value.worktableDraft.placements[photoB].x).toBe(original.x + 60);
+    });
+    const sequence = await projectStore.loadSequence(sequenceId);
+    expect(sequence.ok && sequence.value.items).toHaveLength(1);
+  });
+
+  it("在展开的顺序带上松手可插入指定位置", async () => {
+    const { projectStore, photoSource, sequenceId } = await createPileFixture();
+    render(<App dependencies={{ projectStore, photoSource }} />);
+    const stage = await screen.findByLabelText("Photo worktable");
+    const card = screen.getByLabelText("B.jpg");
+    const pile = screen.getByLabelText("Sequence pile Sequence 01");
+    Object.defineProperty(pile, "getBoundingClientRect", {
+      configurable: true,
+      value: () => ({ left: 350, top: 180, width: 280, height: 176, right: 630, bottom: 356, x: 350, y: 180, toJSON() {} }),
+    });
+    fireEvent.pointerDown(card, { pointerId: 73, button: 0, clientX: 100, clientY: 100 });
+    fireEvent.pointerMove(stage, { pointerId: 73, clientX: 430, clientY: 245 });
+    const tray = await waitFor(() => {
+      const element = stage.querySelector<HTMLElement>("[data-sequence-insert-tray]");
+      expect(element).toBeTruthy();
+      return element!;
+    });
+    Object.defineProperty(tray, "getBoundingClientRect", {
+      configurable: true,
+      value: () => ({ left: 210, top: 356, width: 560, height: 108, right: 770, bottom: 464, x: 210, y: 356, toJSON() {} }),
+    });
+    fireEvent.pointerMove(stage, { pointerId: 73, clientX: 430, clientY: 350 });
+    expect(stage.querySelector("[data-sequence-insert-tray]")).toBeTruthy();
+    fireEvent.pointerMove(stage, { pointerId: 73, clientX: 220, clientY: 390 });
+    expect(stage.querySelector(".sequence-insert-marker")).toBeTruthy();
+    fireEvent.pointerUp(stage, { pointerId: 73, clientX: 220, clientY: 390 });
+
+    await waitFor(async () => {
+      const sequence = await projectStore.loadSequence(sequenceId);
+      expect(sequence.ok && sequence.value.items.map((item) => item.kind === "photo" && item.photoId)).toEqual([photoB, photoA]);
+    });
+  });
+
+  it("多选照片可一次拖入同一序列，并按桌面顺序连续加入", async () => {
+    const { projectStore, photoSource, sequenceId } = await createPileFixture();
+    render(<App dependencies={{ projectStore, photoSource }} />);
+    const stage = await screen.findByLabelText("Photo worktable");
+    const pile = screen.getByLabelText("Sequence pile Sequence 01");
+    Object.defineProperty(pile, "getBoundingClientRect", {
+      configurable: true,
+      value: () => ({ left: 350, top: 180, width: 280, height: 176, right: 630, bottom: 356, x: 350, y: 180, toJSON() {} }),
+    });
+    fireEvent.keyDown(stage, { key: "a", ctrlKey: true });
+    fireEvent.pointerDown(screen.getByLabelText("B.jpg"), { pointerId: 74, button: 0, clientX: 100, clientY: 100 });
+    fireEvent.pointerMove(stage, { pointerId: 74, clientX: 430, clientY: 245 });
+    expect(within(pile).getByText("2 photos")).toBeTruthy();
+    fireEvent.pointerUp(stage, { pointerId: 74, clientX: 430, clientY: 245 });
+
+    await waitFor(async () => {
+      const sequence = await projectStore.loadSequence(sequenceId);
+      expect(sequence.ok && sequence.value.items.map((item) => item.kind === "photo" && item.photoId)).toEqual([photoA, photoA, photoB]);
+    });
+  });
+
+  it("拖到序列上按 Escape 会取消手势，不移动也不加入", async () => {
+    const { projectStore, photoSource, sequenceId } = await createPileFixture();
+    render(<App dependencies={{ projectStore, photoSource }} />);
+    const stage = await screen.findByLabelText("Photo worktable");
+    const pile = screen.getByLabelText("Sequence pile Sequence 01");
+    Object.defineProperty(pile, "getBoundingClientRect", {
+      configurable: true,
+      value: () => ({ left: 350, top: 180, width: 280, height: 176, right: 630, bottom: 356, x: 350, y: 180, toJSON() {} }),
+    });
+    const before = await projectStore.loadWorkspace(projectId);
+    if (!before.ok) throw new Error("workspace not loaded");
+    const original = before.value.worktableDraft.placements[photoB];
+    fireEvent.pointerDown(screen.getByLabelText("B.jpg"), { pointerId: 75, button: 0, clientX: 100, clientY: 100 });
+    fireEvent.pointerMove(stage, { pointerId: 75, clientX: 430, clientY: 245 });
+    expect(pile.classList.contains("is-add-target")).toBe(true);
+    fireEvent.keyDown(stage, { key: "Escape" });
+    fireEvent.pointerUp(stage, { pointerId: 75, clientX: 430, clientY: 245 });
+    expect(pile.classList.contains("is-add-target")).toBe(false);
+    const after = await projectStore.loadWorkspace(projectId);
+    const sequence = await projectStore.loadSequence(sequenceId);
+    expect(after.ok && after.value.worktableDraft.placements[photoB]).toEqual(original);
+    expect(sequence.ok && sequence.value.items).toHaveLength(1);
+  });
+
   it("取消中的桌面手势只丢弃预览，不提交编辑", async () => {
     const dependencies = await createFixture();
     const saveSpy = vi.spyOn(dependencies.projectStore, "saveWorktable");
@@ -592,6 +732,33 @@ describe("TablePage", () => {
     fireEvent.keyDown(document.activeElement!, { key: "Escape" });
     expect(screen.queryByRole("dialog", { name: "Add to Sequence" })).toBeNull();
     expect(document.activeElement).toBe(opener);
+  });
+
+  it("在 Sequence 中移除照片后返回 Table 会刷新序列卡片数量", async () => {
+    const { projectStore, photoSource, sequenceId } = await createPileFixture();
+    const loaded = await projectStore.loadSequence(sequenceId);
+    if (!loaded.ok) throw new Error("sequence not loaded");
+    const extraId = "item-extra" as SequenceItemId;
+    const expanded = {
+      ...loaded.value,
+      items: [...loaded.value.items, { id: extraId, kind: "photo" as const, photoId: photoB }],
+      readingUnits: [...loaded.value.readingUnits, { id: "unit-extra" as ReadingUnitId, kind: "single" as const, itemId: extraId }],
+    };
+    expect((await projectStore.saveSequence(expanded, loaded.value.revision)).ok).toBe(true);
+    window.location.hash = `#/projects/${projectId}/sequences/${sequenceId}`;
+    render(<App dependencies={{ projectStore, photoSource }} />);
+    const overlay = await screen.findByRole("dialog", { name: "Sequence Sequence 01" });
+    const card = within(overlay).getByRole("gridcell", { name: "Photo 02" });
+    fireEvent.pointerDown(card, { pointerId: 24, button: 0, clientX: 320, clientY: 160 });
+    fireEvent.pointerUp(card, { pointerId: 24, clientX: 320, clientY: 160 });
+    const preview = screen.queryByRole("dialog", { name: "Preview photo 2" });
+    if (preview) fireEvent.click(within(preview).getByRole("button", { name: "Close" }));
+    fireEvent.keyDown(overlay, { key: "Delete" });
+    fireEvent.click(within(overlay).getByRole("button", { name: "Close Sequence" }));
+
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Sequence Sequence 01" })).toBeNull());
+    const pile = screen.getByLabelText("Sequence pile Sequence 01");
+    await waitFor(() => expect(within(pile).getByText("1")).toBeTruthy());
   });
 
   it("单击 Sequence 卡片打开网格覆盖层，拖动或 Ctrl 单击不会打开", async () => {

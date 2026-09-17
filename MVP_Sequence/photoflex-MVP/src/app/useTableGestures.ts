@@ -8,9 +8,10 @@ import type {
   WorktableItemId,
 } from "../contracts";
 import { screenToWorld } from "../modules/worktable";
+import { sequenceStripInsertionIndex } from "../modules/sequence";
 
 type Gesture =
-  | { kind: "photo"; pointerId: number; start: WorktablePoint; ids: readonly WorktableItemId[] }
+  | { kind: "photo"; pointerId: number; start: WorktablePoint; ids: readonly WorktableItemId[]; startClient: WorktablePoint; moved: boolean }
   | { kind: "pile"; pointerId: number; start: WorktablePoint; ids: readonly SequenceId[]; openOnClick?: SequenceId; moved: boolean; startClient: WorktablePoint }
   | { kind: "pan"; pointerId: number; start: WorktablePoint; viewport: WorktableViewport }
   | { kind: "marquee"; pointerId: number; start: WorktablePoint; additive: boolean }
@@ -35,6 +36,7 @@ interface TableGestureOptions {
   readonly selectPhotos: (photoIds: readonly WorktableItemId[], additive?: boolean) => unknown;
   readonly clearSelection: () => unknown;
   readonly onOpenSequence?: (sequenceId: SequenceId) => void;
+  readonly onDropPhotosOnSequence: (photoIds: readonly WorktableItemId[], sequenceId: SequenceId, at?: number) => void;
   readonly disabled?: boolean;
 }
 
@@ -46,15 +48,19 @@ export interface TableGesturePreview {
   readonly resizeScale: number;
   readonly pileResizeScale: number;
   readonly marquee?: TableMarquee;
+  readonly targetSequenceId?: SequenceId;
+  readonly insertIndex?: number;
 }
 
 export function useTableGestures(options: TableGestureOptions) {
-  const { stageRef, draft, viewport, setViewport, execute, selectPhoto, selectPile, selectPhotos, clearSelection, onOpenSequence, disabled = false } = options;
+  const { stageRef, draft, viewport, setViewport, execute, selectPhoto, selectPile, selectPhotos, clearSelection, onOpenSequence, onDropPhotosOnSequence, disabled = false } = options;
   const [dragDelta, setDragDelta] = useState<WorktablePoint>({ x: 0, y: 0 });
   const [resizeScale, setResizeScale] = useState(1);
   const [pileResizeScale, setPileResizeScale] = useState(1);
   const [marquee, setMarquee] = useState<TableMarquee>();
   const [gestureIdentity, setGestureIdentity] = useState<Pick<TableGesturePreview, "kind" | "photoId" | "sequenceId">>({});
+  const [targetSequenceId, setTargetSequenceId] = useState<SequenceId>();
+  const [insertIndex, setInsertIndex] = useState<number>();
   const gestureRef = useRef<Gesture | undefined>(undefined);
   const deltaRef = useRef<WorktablePoint>({ x: 0, y: 0 });
   const scaleRef = useRef(1);
@@ -111,6 +117,8 @@ export function useTableGestures(options: TableGestureOptions) {
       pointerId: event.pointerId,
       start: screenToWorld({ x: event.clientX, y: event.clientY }, stageRef.current.getBoundingClientRect(), viewportRef.current),
       ids,
+      startClient: { x: event.clientX, y: event.clientY },
+      moved: false,
     });
   };
 
@@ -124,6 +132,8 @@ export function useTableGestures(options: TableGestureOptions) {
       pointerId: event.pointerId,
       start: screenToWorld({ x: event.clientX, y: event.clientY }, stageRef.current.getBoundingClientRect(), viewportRef.current),
       ids,
+      startClient: { x: event.clientX, y: event.clientY },
+      moved: false,
     });
   };
 
@@ -247,7 +257,12 @@ export function useTableGestures(options: TableGestureOptions) {
       setPileResizeScale(scaleRef.current);
       return;
     }
-    if (gesture.kind === "pile" && Math.hypot(event.clientX - gesture.startClient.x, event.clientY - gesture.startClient.y) > 5) gesture.moved = true;
+    if ((gesture.kind === "pile" || gesture.kind === "photo") && Math.hypot(event.clientX - gesture.startClient.x, event.clientY - gesture.startClient.y) > 5) gesture.moved = true;
+    if (gesture.kind === "photo") {
+      const target = gesture.moved ? sequenceDropAt(stage, event.clientX, event.clientY) : undefined;
+      setTargetSequenceId(target?.sequenceId);
+      setInsertIndex(target?.at);
+    }
     const world = screenToWorld({ x: event.clientX, y: event.clientY }, rect, viewportRef.current);
     const delta = { x: world.x - gesture.start.x, y: world.y - gesture.start.y };
     deltaRef.current = delta;
@@ -269,8 +284,12 @@ export function useTableGestures(options: TableGestureOptions) {
     if (dragFrameRef.current !== undefined) cancelAnimationFrame(dragFrameRef.current);
     dragFrameRef.current = undefined;
     const delta = deltaRef.current;
-    const moved = gesture.kind === "pile" ? gesture.moved : Math.abs(delta.x) > .25 || Math.abs(delta.y) > .25;
-    if (!cancelled && moved && gesture.kind === "photo") execute({ type: "move", photoIds: gesture.ids, by: delta });
+    const moved = gesture.kind === "pile" || gesture.kind === "photo" ? gesture.moved : Math.abs(delta.x) > .25 || Math.abs(delta.y) > .25;
+    const sequenceTarget = !cancelled && moved && gesture.kind === "photo" ? sequenceDropAt(stage, event.clientX, event.clientY) : undefined;
+    if (sequenceTarget && gesture.kind === "photo") {
+      animatePhotoIntoPile(stage, gesture.ids, sequenceTarget.sequenceId);
+      onDropPhotosOnSequence(gesture.ids, sequenceTarget.sequenceId, sequenceTarget.at);
+    } else if (!cancelled && moved && gesture.kind === "photo") execute({ type: "move", photoIds: gesture.ids, by: delta });
     if (!cancelled && moved && gesture.kind === "pile") execute({ type: "move-sequence-piles", sequenceIds: gesture.ids, by: delta });
     if (!cancelled && !moved && gesture.kind === "pile" && gesture.openOnClick) onOpenSequence?.(gesture.openOnClick);
     if (!cancelled && gesture.kind === "resize" && Math.abs(scaleRef.current - 1) > .01) execute({ type: "resize", photoIds: [gesture.photoId], scale: scaleRef.current });
@@ -299,7 +318,29 @@ export function useTableGestures(options: TableGestureOptions) {
     setResizeScale(1);
     setPileResizeScale(1);
     setMarquee(undefined);
+    setTargetSequenceId(undefined);
+    setInsertIndex(undefined);
     identify(undefined);
+  };
+
+  const cancelActiveGesture = () => {
+    const gesture = gestureRef.current;
+    const stage = stageRef.current;
+    if (!gesture || !stage) return false;
+    if (stage.hasPointerCapture(gesture.pointerId)) stage.releasePointerCapture(gesture.pointerId);
+    gestureRef.current = undefined;
+    if (dragFrameRef.current !== undefined) cancelAnimationFrame(dragFrameRef.current);
+    dragFrameRef.current = undefined;
+    deltaRef.current = { x: 0, y: 0 };
+    scaleRef.current = 1;
+    setDragDelta({ x: 0, y: 0 });
+    setResizeScale(1);
+    setPileResizeScale(1);
+    setMarquee(undefined);
+    setTargetSequenceId(undefined);
+    setInsertIndex(undefined);
+    identify(undefined);
+    return true;
   };
 
   return {
@@ -309,6 +350,8 @@ export function useTableGestures(options: TableGestureOptions) {
       resizeScale,
       pileResizeScale,
       marquee,
+      targetSequenceId,
+      insertIndex,
     } satisfies TableGesturePreview,
     onPhotoPointerDown,
     onGroupPointerDown,
@@ -318,5 +361,50 @@ export function useTableGestures(options: TableGestureOptions) {
     onStagePointerDown,
     onStagePointerMove,
     finishGesture,
+    cancelActiveGesture,
   };
+}
+
+function sequenceDropAt(stage: HTMLElement, clientX: number, clientY: number): { sequenceId: SequenceId; at?: number } | undefined {
+  const tray = stage.querySelector<HTMLElement>("[data-sequence-insert-tray]");
+  if (tray) {
+    const rect = tray.getBoundingClientRect();
+    if (clientX >= rect.left && clientX <= rect.right && clientY >= rect.top && clientY <= rect.bottom) {
+      return {
+        sequenceId: tray.dataset.sequenceId as SequenceId,
+        at: sequenceStripInsertionIndex(clientX, rect.left, tray.scrollLeft, Number(tray.dataset.itemCount), 12, 72, 10),
+      };
+    }
+  }
+  const piles = [...stage.querySelectorAll<HTMLElement>("[data-sequence-pile-id]")]
+    .sort((left, right) => Number(right.style.zIndex) - Number(left.style.zIndex));
+  const pile = piles.find((pile) => {
+    const rect = pile.getBoundingClientRect();
+    return clientX >= rect.left && clientX <= rect.right && clientY >= rect.top && clientY <= rect.bottom;
+  });
+  return pile ? { sequenceId: pile.dataset.sequencePileId as SequenceId } : undefined;
+}
+
+function animatePhotoIntoPile(stage: HTMLElement, ids: readonly WorktableItemId[], sequenceId: SequenceId) {
+  const pile = [...stage.querySelectorAll<HTMLElement>("[data-sequence-pile-id]")].find((item) => item.dataset.sequencePileId === sequenceId);
+  if (!pile || window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches) return;
+  const target = pile.getBoundingClientRect();
+  ids.slice(0, 3).forEach((id, index) => {
+    const card = [...stage.querySelectorAll<HTMLElement>("[data-worktable-photo-id]")].find((item) => item.dataset.worktablePhotoId === id);
+    const source = card?.querySelector(".worktable-photo img");
+    if (!card || !source) return;
+    const rect = card.getBoundingClientRect();
+    const image = source.cloneNode(true) as HTMLImageElement;
+    Object.assign(image.style, { position: "fixed", left: `${rect.left}px`, top: `${rect.top}px`, width: `${rect.width}px`, height: `${rect.height}px`, objectFit: "cover", borderRadius: "5px", boxShadow: "0 14px 32px rgb(28 24 20 / 24%)", pointerEvents: "none", zIndex: "99999" });
+    document.body.appendChild(image);
+    if (typeof image.animate !== "function") { image.remove(); return; }
+    const dx = target.left + target.width / 2 - rect.left - rect.width / 2 + index * 8;
+    const dy = target.top + target.height * .7 - rect.top - rect.height / 2;
+    const animation = image.animate([
+      { transform: "translate3d(0, 0, 0) scale(1)", opacity: 1 },
+      { transform: `translate3d(${dx}px, ${dy}px, 0) scale(.32)`, opacity: .2 },
+    ], { duration: 280 + index * 35, easing: "cubic-bezier(.22,.8,.24,1)", fill: "forwards" });
+    animation.onfinish = () => image.remove();
+    animation.oncancel = () => image.remove();
+  });
 }
