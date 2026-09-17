@@ -5,7 +5,7 @@ import type { AppRoute } from "./router";
 import { LanguageSwitcher, useLocale } from "./locale";
 import { CloudControls } from "./CloudControls";
 
-export function AppHeader({ dependencies, route, projectId, contactSourceId, lastSequenceId, navigate, variant = "default", projectLabel, actions }: {
+export function AppHeader({ dependencies, route, projectId, contactSourceId, lastSequenceId, navigate, variant = "default", projectLabel, actions, projectSettingsProjectId, showProjectSettings = true, showCloudSaveStatus = true }: {
   readonly dependencies: AppDependencies;
   readonly route: AppRoute;
   readonly projectId?: ProjectId;
@@ -15,6 +15,9 @@ export function AppHeader({ dependencies, route, projectId, contactSourceId, las
   readonly variant?: "default" | "table";
   readonly projectLabel?: string;
   readonly actions?: ReactNode;
+  readonly projectSettingsProjectId?: ProjectId;
+  readonly showProjectSettings?: boolean;
+  readonly showCloudSaveStatus?: boolean;
 }) {
   const [projectName, setProjectName] = useState<string>();
   const { t } = useLocale();
@@ -33,6 +36,7 @@ export function AppHeader({ dependencies, route, projectId, contactSourceId, las
 
   const brand = <button className="brand" onClick={() => navigate({ name: "home" })} aria-label={t("app.backHome")}>Photoflex</button>;
   const label = projectLabel ?? projectName ?? projectId;
+  const settingsProjectId = showProjectSettings ? projectSettingsProjectId ?? (route.name === "home" ? undefined : projectId) : undefined;
   return <header className={`topbar${variant === "table" ? " is-table" : ""}${route.name === "home" ? " is-home" : ""}`}>
     {variant === "table" ? <div className="table-header-project">{brand}{projectId && <><span className="table-header-slash" aria-hidden="true">/</span><span className="project-context-name" title={label}>{label}</span></>}</div> : <>{brand}{projectId && <span className="project-context-name" title={label}>{label}</span>}</>}
     {route.name !== "home" && route.name !== "table" && route.name !== "sequence" && <nav className="topnav" aria-label={t("nav.main")}>
@@ -52,8 +56,8 @@ export function AppHeader({ dependencies, route, projectId, contactSourceId, las
     <div className={route.name === "home" ? "home-header-actions" : "topbar-actions"}>
       {route.name === "home" && <LanguageSwitcher />}
       {actions}
-      {projectId && route.name !== "project" && <NavButton onClick={() => navigate({ name: "project", projectId })}>{t("nav.projectSettings")}</NavButton>}
-      <CloudControls dependencies={dependencies} projectId={projectId} />
+      {settingsProjectId && <NavButton onClick={() => navigate({ name: "project", projectId: settingsProjectId })}>{t("nav.projectSettings")}</NavButton>}
+      <CloudControls dependencies={dependencies} projectId={projectId} showSaveStatus={showCloudSaveStatus} />
     </div>
   </header>;
 }

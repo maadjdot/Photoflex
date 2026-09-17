@@ -64,11 +64,36 @@ describe("M1 app", () => {
     const projectId = "project-default-table" as ProjectId;
     const created = await projectStore.createProject({ id: projectId, name: "Default Table", createdAt: "2026-09-05T08:00:00.000Z" });
     if (!created.ok) throw new Error("project fixture not created");
+    const photoId = "default-table-photo" as import("../contracts").PhotoId;
+    const saved = await projectStore.saveWorktable(projectId, {
+      ...created.value.worktableDraft,
+      entryOrder: [photoId],
+      placements: { [photoId]: { photoId, x: 0, y: 0, z: 1, width: 100, height: 150, filename: "default-table-photo.jpg" } },
+    }, created.value.revision);
+    if (!saved.ok) throw new Error("project worktable not saved");
     render(<App dependencies={{ projectStore, photoSource: new MemoryPhotoSource() }} />);
 
-    fireEvent.click(await screen.findByRole("button", { name: "Open project Default Table" }));
+    fireEvent.click(await screen.findByRole("button", { name: /Open project Default Table/ }));
     expect(await screen.findByLabelText("Photo worktable")).toBeTruthy();
     expect(window.location.hash).toBe(`#/projects/${projectId}/table`);
+  });
+
+  it("首页的项目设置跟随当前选中的项目，Table 顶部不再显示该按钮", async () => {
+    const projectStore = new MemoryProjectStore();
+    for (const [id, name] of [["first-project", "First Project"], ["second-project", "Second Project"]] as const) {
+      const created = await projectStore.createProject({ id: id as ProjectId, name, createdAt: "2026-09-05T08:00:00.000Z" });
+      if (!created.ok) throw new Error("project fixture not created");
+    }
+    render(<App dependencies={{ projectStore, photoSource: new MemoryPhotoSource() }} />);
+
+    expect(await screen.findByRole("button", { name: "Project settings" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Second Project" }));
+    fireEvent.click(screen.getByRole("button", { name: "Project settings" }));
+    await waitFor(() => expect(window.location.hash).toBe("#/projects/second-project"));
+
+    window.location.hash = "#/projects/first-project/table";
+    expect(await screen.findByLabelText("Photo worktable")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Project settings" })).toBeNull();
   });
 
   it("可以从项目列表删除项目", async () => {
@@ -91,7 +116,7 @@ describe("M1 app", () => {
       />,
     );
 
-    await screen.findByRole("button", { name: "Open project Drag Project" });
+    await screen.findByRole("button", { name: "Drag Project" });
     fireEvent.click(screen.getByRole("button", { name: "Delete project Drag Project" }));
 
     await waitFor(async () => {

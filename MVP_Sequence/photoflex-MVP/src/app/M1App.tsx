@@ -13,6 +13,7 @@ import { useAppNavigationState } from "./useAppNavigationState";
 import { ProjectWorkspaceProvider } from "./useProjectWorkspace";
 import { LocaleProvider, useLocale } from "./locale";
 import { AccountWorkspaceGate } from "./AccountWorkspaceGate";
+import type { ProjectId } from "../contracts";
 
 export { VirtualPhotoGrid } from "./VirtualPhotoGrid";
 
@@ -31,6 +32,7 @@ function M1AppContent({ dependencies }: AppProps) {
   const { locale, t } = useLocale();
   const coordinatorRef = useRef<ProjectWriteCoordinator | undefined>(undefined);
   const [recovery, setRecovery] = useState(false);
+  const [homeProjectId, setHomeProjectId] = useState<ProjectId>();
   const [recovering, setRecovering] = useState(false);
   const [recoveryError, setRecoveryError] = useState<string>();
   const [route, navigate] = useAppRoute(async () => {
@@ -43,6 +45,9 @@ function M1AppContent({ dependencies }: AppProps) {
   const { currentProjectId, contactSourceId, lastSequenceId } = useAppNavigationState(dependencies, route);
   const coordinator = useMemo(() => currentProjectId ? createProjectWriteCoordinator(dependencies, currentProjectId) : undefined, [dependencies, currentProjectId]);
   coordinatorRef.current = coordinator;
+  useEffect(() => {
+    if (route.name !== "home") setHomeProjectId(undefined);
+  }, [route.name]);
   useEffect(() => {
     const beforeUnload = (event: BeforeUnloadEvent) => {
       if (coordinatorRef.current?.hasUnsavedWork() || dependencies.cloudSave?.hasPending?.()) { event.preventDefault(); event.returnValue = ""; }
@@ -80,12 +85,12 @@ function M1AppContent({ dependencies }: AppProps) {
       </Suspense>
     </ProjectWorkspaceProvider>
   ) : (
-    <HomePage dependencies={dependencies} navigate={navigate} />
+    <HomePage dependencies={dependencies} navigate={navigate} onSelectedProjectIdChange={setHomeProjectId} />
   );
 
   return (
     <div className={`app-shell${usesTableChrome ? " is-table" : ""}`}>
-      {route.name !== "table" && route.name !== "sequence" && <AppHeader dependencies={dependencies} route={route} projectId={currentProjectId} contactSourceId={contactSourceId} lastSequenceId={lastSequenceId} navigate={navigate} variant={usesTableChrome ? "table" : "default"} />}
+      {route.name !== "table" && route.name !== "sequence" && <AppHeader dependencies={dependencies} route={route} projectId={currentProjectId} projectSettingsProjectId={route.name === "home" ? homeProjectId : undefined} contactSourceId={contactSourceId} lastSequenceId={lastSequenceId} navigate={navigate} variant={usesTableChrome ? "table" : "default"} />}
       {projectContent}
       {recovery && <div className="draft-recovery" role="alert"><strong>{t("backup.unsavedTitle")}</strong><p>{t("backup.unsavedDetail")}</p><div><button disabled={recovering} onClick={() => setRecovery(false)}>{t("backup.keepEditing")}</button><button disabled={recovering} onClick={() => void recover(true)}>{t("backup.downloadRecovery")}</button><button disabled={recovering} onClick={() => void recover(false)}>{recovering ? t("project.preparing") : t("backup.saveRecoveryCopy")}</button></div>{recoveryError && <p>{recoveryError}</p>}</div>}
     </div>

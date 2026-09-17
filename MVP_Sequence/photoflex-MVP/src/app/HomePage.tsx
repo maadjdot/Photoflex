@@ -16,9 +16,11 @@ interface GalleryPhoto extends HomeGalleryPhoto {
 export function HomePage({
   dependencies,
   navigate,
+  onSelectedProjectIdChange,
 }: {
   readonly dependencies: AppDependencies;
   readonly navigate: (route: AppRoute) => void;
+  readonly onSelectedProjectIdChange?: (projectId?: ProjectId) => void;
 }) {
   const { locale, t } = useLocale();
   const [projects, setProjects] = useState<readonly ProjectSummary[]>([]);
@@ -53,6 +55,10 @@ export function HomePage({
   const selectedProject = projects.find((project) => project.id === selectedProjectId) ?? projects[0];
   const activeProjectId = selectedProject?.id;
   const rows = gallery?.projectId === activeProjectId ? gallery?.rows : undefined;
+
+  useEffect(() => {
+    onSelectedProjectIdChange?.(selectedProject?.id);
+  }, [onSelectedProjectIdChange, selectedProject?.id]);
 
   useEffect(() => {
     if (!activeProjectId) return;
@@ -237,7 +243,6 @@ export function HomePage({
             )}
             <div className="home-project-feature-copy">
               <span>{t("home.updatedAt", { time: formatUpdated(selectedProject.updatedAt, locale) })}</span>
-              <button className="button button-secondary" onClick={() => navigate({ name: "table", projectId: selectedProject.id })} aria-label={t("home.openProject", { name: selectedProject.name })}>{t("home.openTable")}</button>
             </div>
           </article>
         ) : (
