@@ -168,7 +168,7 @@ function SourceCard({ source, state, onOpen, onRefresh, onReconnect, onRemove }:
   const canOpen = stateHasPhotos(state);
   return <article className={`source-card status-${status}`}>
     <div className="source-card-copy"><h2>{source.displayName.toUpperCase()}</h2><p className="source-count">{sourceCounts(state, locale)}</p><p className="source-status"><StatusDot status={status} />{statusText(status, locale)}</p>{state?.errorMessage && <p className="source-error">{state.errorMessage}</p>}</div>
-    <div className="source-card-actions">{status === "permission-lost" || status === "offline" ? <button className="text-button source-open" onClick={onReconnect}>{t("project.reconnectFolder")}</button> : <button className="text-button source-open" disabled={!canOpen} onClick={onOpen}>{t("common.open")}</button>}<details className="source-menu"><summary aria-label={t("project.actions", { name: source.displayName })}>…</summary><div><button onClick={onRefresh}>{t("project.refresh")}</button><button onClick={onRemove}>{t("project.removeSource")}</button></div></details></div>
+    <div className="source-card-actions">{status === "permission-lost" || status === "offline" || status === "error" ? <button className="text-button source-open" onClick={onReconnect}>{t("project.reconnectFolder")}</button> : <button className="text-button source-open" disabled={!canOpen} onClick={onOpen}>{t("common.open")}</button>}<details className="source-menu"><summary aria-label={t("project.actions", { name: source.displayName })}>…</summary><div><button onClick={onRefresh}>{t("project.refresh")}</button><button onClick={onRemove}>{t("project.removeSource")}</button></div></details></div>
     {status === "loading" && <div className="progress-bar"><span style={{ width: `${progressPercent(state)}%` }} /></div>}
   </article>;
 }
@@ -179,9 +179,9 @@ function statusText(status: SourceRuntimeState["status"], locale: import("./loca
 }
 
 async function reconnectSource(dependencies: AppDependencies, workspace: ProjectWorkspace, source: SourceRecord, persist: (update: WorkspaceUpdate) => Promise<boolean>, startScan: (sourceId: import("../contracts").SourceId) => void, locale: import("./localeDictionary").Locale, onError: (message: string) => void) {
-  const restored = await dependencies.photoSource.restoreFolder(source.id);
+  const restored = await dependencies.photoSource.restoreFolder(source.id, { reselect: true });
   if (restored.ok) {
-    const saved = await persist((current) => ({ ...current, sources: current.sources.map((item) => item.id === source.id ? { ...item, removedAt: undefined } : item), updatedAt: now() }));
+    const saved = await persist((current) => ({ ...current, sources: current.sources.map((item) => item.id === source.id ? { ...item, displayName: restored.value.displayName, removedAt: undefined } : item), updatedAt: now() }));
     if (saved) startScan(source.id);
     return;
   }

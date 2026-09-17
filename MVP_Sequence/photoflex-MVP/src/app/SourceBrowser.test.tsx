@@ -16,6 +16,57 @@ afterEach(() => {
 });
 
 describe("SourceBrowser", () => {
+  it("uses one reconnect action for all sources when the selection is All", async () => {
+    const projectStore = new MemoryProjectStore();
+    const created = await projectStore.createProject({ id: projectId, name: "Sources", createdAt: "2026-09-01T00:00:00.000Z" });
+    if (!created.ok) throw new Error("project fixture failed");
+    const photoSource = new MemoryPhotoSource([{ grant: { sourceId, displayName: "Selects", status: "offline", restored: true }, photos: [] }]);
+    const reconnectAll = vi.fn(async () => ({ reconnected: [sourceId], unmatched: [] }));
+    const reconnectOne = vi.fn();
+    render(<SourceBrowser dependencies={{ projectStore, photoSource }} projectId={projectId} workspace={{ ...created.value, sources: [{ id: sourceId, displayName: "Selects", createdAt: created.value.createdAt }] }} onPlacePhotos={vi.fn()} onOpenPhoto={() => {}} onAddSource={() => {}} onReconnectSource={reconnectOne} onReconnectSavedSources={reconnectAll} onPhotoError={() => {}} />);
+
+    fireEvent.change(screen.getByRole("combobox", { name: "Select photo source" }), { target: { value: "all" } });
+    fireEvent.click(await screen.findByRole("button", { name: "Reconnect" }));
+    await waitFor(() => expect(reconnectAll).toHaveBeenCalledOnce());
+    expect(reconnectOne).not.toHaveBeenCalled();
+  });
+
+  it("shows one parent-folder action and individual selection only for unmatched folders", async () => {
+    const projectStore = new MemoryProjectStore();
+    const created = await projectStore.createProject({ id: projectId, name: "Sources", createdAt: "2026-09-01T00:00:00.000Z" });
+    if (!created.ok) throw new Error("project fixture failed");
+    const changedId = "source-browser-changed" as SourceId;
+    const sources = [
+      { id: sourceId, displayName: "Photos", createdAt: created.value.createdAt, kind: "folder" as const },
+      { id: changedId, displayName: "Old name", createdAt: created.value.createdAt, kind: "folder" as const },
+    ];
+    const photoSource = new MemoryPhotoSource();
+    const reconnectAll = vi.fn(async () => ({ reconnected: [sourceId], unmatched: [changedId] }));
+    const reconnectOne = vi.fn(async () => true);
+    render(<SourceBrowser dependencies={{ projectStore, photoSource }} projectId={projectId} workspace={{ ...created.value, sources }} onPlacePhotos={vi.fn()} onOpenPhoto={() => {}} onAddSource={() => {}} onRemoveSource={vi.fn()} onReconnectSource={reconnectOne} onReconnectAllSources={reconnectAll} onPhotoError={() => {}} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Manage photo sources" }));
+    fireEvent.click(screen.getByRole("button", { name: "Reconnect all folders" }));
+    await screen.findByText("Folders reconnected: 1; needing individual selection: 1.");
+    expect(reconnectAll).toHaveBeenCalledOnce();
+    fireEvent.click(screen.getByRole("button", { name: "Choose folder" }));
+    await waitFor(() => expect(reconnectOne).toHaveBeenCalledWith(changedId));
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Choose folder" })).toBeNull());
+  });
+
+  it("offers folder reconnection when a scan has failed", async () => {
+    const projectStore = new MemoryProjectStore();
+    const created = await projectStore.createProject({ id: projectId, name: "Sources", createdAt: "2026-09-01T00:00:00.000Z" });
+    if (!created.ok) throw new Error("project fixture failed");
+    const photoSource = new MemoryPhotoSource([{ grant: { sourceId, displayName: "Selects", status: "error", restored: true }, photos: [] }]);
+    const reconnect = vi.fn();
+    render(<SourceBrowser dependencies={{ projectStore, photoSource }} projectId={projectId} workspace={{ ...created.value, sources: [{ id: sourceId, displayName: "Selects", createdAt: created.value.createdAt }] }} onPlacePhotos={vi.fn()} onOpenPhoto={() => {}} onAddSource={() => {}} onReconnectSource={reconnect} onPhotoError={() => {}} />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Reconnect" }));
+    expect(reconnect).toHaveBeenCalledWith(sourceId);
+    expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
+  });
+
   it("shows a clear loading state while a selected source has not returned photos", async () => {
     const projectStore = new MemoryProjectStore();
     const created = await projectStore.createProject({ id: projectId, name: "Sources", createdAt: "2026-09-01T00:00:00.000Z" });

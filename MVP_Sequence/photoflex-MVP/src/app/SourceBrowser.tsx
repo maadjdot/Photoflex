@@ -28,13 +28,15 @@ export interface SourceBrowserProps {
   readonly addingSource?: boolean;
   readonly onRemoveSource?: (sourceId: SourceId) => Promise<boolean>;
   readonly onOpenContactSheet?: (sourceId: SourceId) => void;
-  readonly onReconnectSource?: (sourceId: SourceId) => void;
+  readonly onReconnectSource?: (sourceId: SourceId) => Promise<boolean> | void;
+  readonly onReconnectSavedSources?: () => Promise<{ readonly reconnected: readonly SourceId[]; readonly unmatched: readonly SourceId[] } | undefined>;
+  readonly onReconnectAllSources?: () => Promise<{ readonly reconnected: readonly SourceId[]; readonly unmatched: readonly SourceId[] } | undefined>;
   readonly onPhotoError: (photoId: PhotoId, error: SourceError) => void;
   readonly onPanelModeChange?: (mode: SourcePanelMode) => void;
 }
 
 /** Photo Sources browser for Table. It owns only source browsing and pending selection. */
-export function SourceBrowser({ dependencies, workspace, onPlacePhotos, onOpenPhoto, onAddSource, addingSource = false, onRemoveSource, onOpenContactSheet, onReconnectSource, onPhotoError, onPanelModeChange }: SourceBrowserProps) {
+export function SourceBrowser({ dependencies, workspace, onPlacePhotos, onOpenPhoto, onAddSource, addingSource = false, onRemoveSource, onOpenContactSheet, onReconnectSource, onReconnectSavedSources, onReconnectAllSources, onPhotoError, onPanelModeChange }: SourceBrowserProps) {
   const { locale, t } = useLocale();
   const sources = workspace.sources;
   const connectedSources = useMemo(() => sources.filter((source) => !source.removedAt), [sources]);
@@ -44,6 +46,10 @@ export function SourceBrowser({ dependencies, workspace, onPlacePhotos, onOpenPh
   const [lastOpenMode, setLastOpenMode] = useState<"compact" | "expanded">(storedState.lastOpenMode);
   const [managing, setManaging] = useState(false);
   const [removing, setRemoving] = useState<SourceId>();
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [bulkReport, setBulkReport] = useState<{ readonly reconnected: readonly SourceId[]; readonly unmatched: readonly SourceId[] }>();
+  const [savedReconnectBusy, setSavedReconnectBusy] = useState(false);
+  const [savedReconnectReport, setSavedReconnectReport] = useState<{ readonly reconnected: readonly SourceId[]; readonly unmatched: readonly SourceId[] }>();
   const manageRef = useRef<HTMLDivElement>(null);
   useDialogKeyboard(manageRef, () => setManaging(false), managing);
   const [contactPickerOpen, setContactPickerOpen] = useState(false);
@@ -56,7 +62,7 @@ export function SourceBrowser({ dependencies, workspace, onPlacePhotos, onOpenPh
   const generationRef = useRef(0);
   const contactDialogRef = useRef<HTMLDivElement>(null);
   useDialogKeyboard(contactDialogRef, () => setContactPickerOpen(false), contactPickerOpen);
-  const { states, startScan } = useSourceMonitor(dependencies.photoSource, connectedSources);
+  const { states } = useSourceMonitor(dependencies.photoSource, connectedSources);
   const sourceLoadSignal = connectedSources.map((source) => {
     const state = states[source.id];
     return `${source.id}:${state?.status ?? "unknown"}:${state?.indexedCount ?? 0}:${state?.scanRevision ?? 0}`;
@@ -78,10 +84,7 @@ export function SourceBrowser({ dependencies, workspace, onPlacePhotos, onOpenPh
 
   useEffect(() => {
     if (sourceId !== "all" && !connectedSources.some((source) => source.id === sourceId)) setSourceId(connectedSources[0]?.id ?? "all");
-    connectedSources.forEach((source) => {
-      if (stateNeedsScan(states[source.id])) startScan(source.id);
-    });
-  }, [connectedSources, sourceId, startScan, states]);
+  }, [connectedSources, sourceId]);
 
   useEffect(() => {
     const generation = ++generationRef.current;
@@ -129,6 +132,31 @@ export function SourceBrowser({ dependencies, workspace, onPlacePhotos, onOpenPh
   const scanning = displayedSources.some((source) => stateNeedsScan(states[source.id]));
   const sourceBusy = addingSource || loading || scanning;
   const problemSources = displayedSources.filter((source) => ["error", "offline", "permission-lost"].includes(states[source.id]?.status ?? ""));
+  const reconnectableFolders = connectedSources.filter((source) => source.kind !== "external-files");
+  const reconnectAll = async () => {
+    if (!onReconnectAllSources || bulkBusy) return;
+    setBulkBusy(true);
+    try {
+      const report = await onReconnectAllSources();
+      if (report) setBulkReport(report);
+    } finally {
+      setBulkBusy(false);
+    }
+  };
+  const reconnectSavedSources = async () => {
+    if (!onReconnectSavedSources || savedReconnectBusy) return;
+    setSavedReconnectBusy(true);
+    try {
+      const report = await onReconnectSavedSources();
+      if (report) setSavedReconnectReport(report);
+    } finally {
+      setSavedReconnectBusy(false);
+    }
+  };
+  const reconnectOne = async (id: SourceId) => {
+    const succeeded = await onReconnectSource?.(id);
+    if (succeeded) setBulkReport((report) => report ? { reconnected: [...report.reconnected, id], unmatched: report.unmatched.filter((sourceId) => sourceId !== id) } : report);
+  };
 
   const toggle = (photoId: PhotoId) => setSelected((current) => {
     if (tableIds.has(photoId)) return current;
@@ -161,7 +189,7 @@ export function SourceBrowser({ dependencies, workspace, onPlacePhotos, onOpenPh
     {onOpenContactSheet && <><button type="button" className="table-source-contact" onClick={() => sourceId === "all" ? setContactPickerOpen(true) : onOpenContactSheet(sourceId)}><img src={contactIcon} alt="" /><span className="table-source-contact-label">{t("source.contactSheet")}</span></button></>}
     </div>
     {sourceBusy && <div className="source-loading-status" role="status" aria-live="polite"><span className="loading-mark" aria-hidden="true" /><span>{addingSource ? t("project.connecting") : locale === "zh-CN" ? `正在加载照片… 已找到 ${currentCount} 张` : `Loading photos… ${currentCount} found`}</span></div>}
-    {problemSources.map((source) => <p className="table-source-notice" role="alert" key={source.id}>{source.displayName}: {states[source.id]?.errorMessage ?? "Source unavailable."} <button type="button" onClick={() => states[source.id]?.status === "error" ? startScan(source.id) : onReconnectSource?.(source.id)}>{states[source.id]?.status === "error" ? "Retry" : "Reconnect"}</button></p>)}
+    {sourceId === "all" && problemSources.length > 0 && onReconnectSavedSources ? <p className="table-source-notice" role="alert">{locale === "zh-CN" ? `有 ${problemSources.length} 个资料夹需要恢复。` : `${problemSources.length} folders need to be restored.`} <button type="button" disabled={savedReconnectBusy} onClick={() => void reconnectSavedSources()}>{savedReconnectBusy ? t("source.reconnectingAll") : t("source.reconnect")}</button>{savedReconnectReport && <span> {t("source.reconnectAllResult", { count: savedReconnectReport.reconnected.length, unmatched: savedReconnectReport.unmatched.length })}</span>}</p> : problemSources.map((source) => <p className="table-source-notice" role="alert" key={source.id}>{source.displayName}: {states[source.id]?.errorMessage ?? "Source unavailable."} <button type="button" onClick={() => onReconnectSource?.(source.id)}>{t("source.reconnect")}</button></p>)}
     {!hasNativeDirectoryPicker() && <p className="table-source-notice">{t("source.temporaryFolderAccess")}</p>}
     {notice && <p className="table-source-notice" role="status">{notice}</p>}
     <SourcePhotoGrid
@@ -183,7 +211,7 @@ export function SourceBrowser({ dependencies, workspace, onPlacePhotos, onOpenPh
       {selected.size > 0 && <><button type="button" className="table-source-clear" onClick={() => setSelected(new Set())}>{t("source.clear")}</button><button type="button" className="button button-primary" disabled={!eligibleSelected.length} onClick={() => void placeSelected()}>{t("source.addToTable")}</button></>}
     </footer>}
     </div>
-    {managing && <div className="source-manager-backdrop"><div ref={manageRef} className="source-manager" role="dialog" aria-modal="true" aria-label={t("source.manage")}><header><strong>{t("table.photoSources")}</strong><button type="button" aria-label={t("table.closeSourceManager")} onClick={() => setManaging(false)}>×</button></header><p>{t("source.removeHelp")}</p>{sources.map((source) => <div className="source-manager-row" key={source.id}><span>{source.displayName}</span>{source.removedAt ? <button type="button" onClick={() => onReconnectSource?.(source.id)}>{t("source.reconnect")}</button> : <button type="button" disabled={Boolean(removing)} onClick={async () => { setRemoving(source.id); try { await onRemoveSource?.(source.id); } finally { setRemoving(undefined); } }}>{removing === source.id ? t("source.removing") : t("source.remove")}</button>}</div>)}</div></div>}
+    {managing && <div className="source-manager-backdrop"><div ref={manageRef} className="source-manager" role="dialog" aria-modal="true" aria-label={t("source.manage")}><header><strong>{t("table.photoSources")}</strong><button type="button" aria-label={t("table.closeSourceManager")} onClick={() => setManaging(false)}>×</button></header>{onReconnectAllSources && reconnectableFolders.length > 0 && <div className="source-manager-bulk"><p>{t("source.reconnectAllHelp")}</p><button type="button" disabled={bulkBusy} onClick={() => void reconnectAll()}>{bulkBusy ? t("source.reconnectingAll") : t("source.reconnectAll")}</button>{bulkReport && <p role="status">{t("source.reconnectAllResult", { count: bulkReport.reconnected.length, unmatched: bulkReport.unmatched.length })}</p>}{bulkReport?.unmatched.map((id) => { const source = sources.find((item) => item.id === id); return source && <div className="source-manager-row" key={id}><span>{source.displayName}</span><button type="button" onClick={() => void reconnectOne(id)}>{t("source.chooseChangedFolder")}</button></div>; })}</div>}<p>{t("source.removeHelp")}</p>{sources.map((source) => <div className="source-manager-row" key={source.id}><span>{source.displayName}</span>{source.removedAt ? <button type="button" onClick={() => void reconnectOne(source.id)}>{t("source.reconnect")}</button> : <button type="button" disabled={Boolean(removing)} onClick={async () => { setRemoving(source.id); try { await onRemoveSource?.(source.id); } finally { setRemoving(undefined); } }}>{removing === source.id ? t("source.removing") : t("source.remove")}</button>}</div>)}</div></div>}
     {previewPhoto && <SourcePreview photo={previewPhoto} photoSource={dependencies.photoSource} onClose={() => setPreviewPhoto(undefined)} onError={onPhotoError} />}
     {contactPickerOpen && <div ref={contactDialogRef} className="source-contact-picker" role="dialog" aria-modal="true" aria-label={t("source.choose")}><strong>{t("source.choose")}</strong>{connectedSources.map((source) => <button key={source.id} type="button" onClick={() => { setContactPickerOpen(false); onOpenContactSheet?.(source.id); }}>{source.displayName}</button>)}<button type="button" onClick={() => setContactPickerOpen(false)}>{t("common.cancel")}</button></div>}
   </aside></>;

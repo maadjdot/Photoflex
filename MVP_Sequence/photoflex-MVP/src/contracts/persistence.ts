@@ -112,7 +112,9 @@ export type SourceError =
 
 export interface PhotoSource {
   chooseFolder(existingSourceIds: readonly SourceId[]): Promise<Result<SourceGrant, SourceError>>;
-  restoreFolder(sourceId: SourceId): Promise<Result<SourceGrant, SourceError>>;
+  restoreFolder(sourceId: SourceId, options?: { readonly reselect?: boolean }): Promise<Result<SourceGrant, SourceError>>;
+  reconnectFoldersFromSavedAccess(sources: readonly SourceRecord[]): Promise<Result<{ readonly reconnected: readonly SourceId[]; readonly unmatched: readonly SourceId[] }, SourceError>>;
+  reconnectFoldersFromParent(sources: readonly SourceRecord[]): Promise<Result<{ readonly reconnected: readonly SourceId[]; readonly unmatched: readonly SourceId[] }, SourceError>>;
   removeSource(sourceId: SourceId): Promise<Result<RemovedSourceData, SourceError>>;
   scan(sourceId: SourceId, signal?: AbortSignal): AsyncIterable<Result<SourceScanEvent, SourceError>>;
   getSourceState(sourceId: SourceId): Promise<Result<SourceRuntimeState, SourceError>>;

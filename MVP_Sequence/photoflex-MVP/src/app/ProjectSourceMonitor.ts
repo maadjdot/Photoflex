@@ -24,7 +24,8 @@ export function startSharedScan(photoSource: AppDependencies["photoSource"], sou
     try {
       for await (const result of photoSource.scan(sourceId, controller.signal)) {
         if (!result.ok) {
-          notifyScanFailure(channel, sourceId);
+          const latest = await photoSource.getSourceState(sourceId).catch(() => undefined);
+          notifyScanFailure(channel, sourceId, latest?.ok ? latest.value : undefined);
           break;
         }
         channel.listeners.forEach((listener) => listener(result.value.state));
@@ -41,7 +42,7 @@ export function startSharedScan(photoSource: AppDependencies["photoSource"], sou
 export function stopSharedScan(photoSource: AppDependencies["photoSource"], sourceId: SourceId) { channelsFor(photoSource).get(sourceId)?.controller?.abort(); }
 export function useSourceMonitor(photoSource: AppDependencies["photoSource"], sources: readonly SourceRecord[]) { const [states, setStates] = useState<Record<string, SourceRuntimeState>>({}); const sourceKey = sources.map((source) => source.id).join(","); const startScan = (sourceId: SourceId) => startSharedScan(photoSource, sourceId); useEffect(() => { let active = true; const channels = channelsFor(photoSource); const unsubscribers = sources.map((source) => { const channel = channelFor(photoSource, source.id); const listener: ScanListener = (state) => { if (active) setStates((current) => ({ ...current, [source.id]: state })); }; channel.listeners.add(listener); void photoSource.getSourceState(source.id).then((result) => { if (!active || !result.ok) return; setStates((current) => ({ ...current, [source.id]: result.value })); if (stateNeedsScan(result.value)) startSharedScan(photoSource, source.id); }); return () => { channel.listeners.delete(listener); if (!channel.controller && channel.listeners.size === 0) channels.delete(source.id); }; }); return () => { active = false; unsubscribers.forEach((unsubscribe) => unsubscribe()); }; }, [photoSource, sourceKey]); return { states, startScan }; }
 
-function notifyScanFailure(scan: SourceMonitorChannel, sourceId: SourceId) {
-  const failed = { ...initialRuntimeState(sourceId), status: "error" as const, errorMessage: "扫描失败，请重试。" };
+function notifyScanFailure(scan: SourceMonitorChannel, sourceId: SourceId, latest?: SourceRuntimeState) {
+  const failed = { ...(latest ?? initialRuntimeState(sourceId)), status: latest?.status === "permission-lost" ? "permission-lost" as const : "error" as const, errorMessage: latest?.errorMessage ?? "扫描失败，请重新连接原照片文件夹。" };
   scan.listeners.forEach((listener) => listener(failed));
 }

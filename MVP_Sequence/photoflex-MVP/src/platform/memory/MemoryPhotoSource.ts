@@ -59,6 +59,27 @@ export class MemoryPhotoSource implements PhotoSource {
       : err({ kind: "source-not-found", sourceId });
   }
 
+  async reconnectFoldersFromSavedAccess(sources: readonly SourceRecord[]): Promise<Result<{ readonly reconnected: readonly SourceId[]; readonly unmatched: readonly SourceId[] }, SourceError>> {
+    const reconnected: SourceId[] = [];
+    const unmatched: SourceId[] = [];
+    for (const source of sources) {
+      if (source.removedAt || source.kind === "external-files") continue;
+      const restored = await this.restoreFolder(source.id);
+      (restored.ok ? reconnected : unmatched).push(source.id);
+    }
+    return ok({ reconnected, unmatched });
+  }
+
+  async reconnectFoldersFromParent(sources: readonly SourceRecord[]): Promise<Result<{ readonly reconnected: readonly SourceId[]; readonly unmatched: readonly SourceId[] }, SourceError>> {
+    const reconnected: SourceId[] = [];
+    const unmatched: SourceId[] = [];
+    for (const source of sources) {
+      const restored = await this.restoreFolder(source.id);
+      (restored.ok ? reconnected : unmatched).push(source.id);
+    }
+    return ok({ reconnected, unmatched });
+  }
+
   async removeSource(sourceId: SourceId): Promise<Result<RemovedSourceData, SourceError>> {
     if (!this.states.has(sourceId)) return ok({ photoIds: [] });
     const fixture = this.fixtures.find(({ grant }) => grant.sourceId === sourceId);

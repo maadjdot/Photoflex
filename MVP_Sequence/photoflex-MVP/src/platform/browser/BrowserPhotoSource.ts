@@ -210,7 +210,58 @@ export class BrowserPhotoSource implements PhotoSource {
     }
   }
 
-  async restoreFolder(sourceId: SourceId): Promise<Result<SourceGrant, SourceError>> {
+  async reconnectFoldersFromSavedAccess(sources: readonly SourceRecord[]): Promise<Result<{ readonly reconnected: readonly SourceId[]; readonly unmatched: readonly SourceId[] }, SourceError>> {
+    const opened = await this.database;
+    if (!opened.ok) return err(toSourceError());
+    const reconnected: SourceId[] = [];
+    const unmatched: SourceId[] = [];
+    for (const source of sources) {
+      if (source.removedAt || source.kind === "external-files") continue;
+      const handle = await this.loadHandle(source.id, opened.value);
+      if (!handle) {
+        unmatched.push(source.id);
+        continue;
+      }
+      const restored = await this.restoreFolder(source.id, { selectedHandle: handle, savedOnly: true });
+      (restored.ok ? reconnected : unmatched).push(source.id);
+    }
+    return ok({ reconnected, unmatched });
+  }
+
+  async reconnectFoldersFromParent(sources: readonly SourceRecord[]): Promise<Result<{ readonly reconnected: readonly SourceId[]; readonly unmatched: readonly SourceId[] }, SourceError>> {
+    if (!sources.length) return ok({ reconnected: [], unmatched: [] });
+    let parent: FileSystemDirectoryHandle;
+    try {
+      // Keep the picker as the first awaited operation: browser activation expires quickly.
+      parent = await this.picker();
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") return err({ kind: "cancelled" });
+      return err(error instanceof DOMException && error.name === "NotAllowedError" ? { kind: "permission-denied" } : toSourceError());
+    }
+
+    const reconnected: SourceId[] = [];
+    const unmatched: SourceId[] = [];
+    const nameCounts = new Map<string, number>();
+    for (const source of sources) {
+      if (!source.removedAt && source.kind !== "external-files") nameCounts.set(source.displayName, (nameCounts.get(source.displayName) ?? 0) + 1);
+    }
+    for (const source of sources) {
+      if (source.removedAt || source.kind === "external-files") continue;
+      // Two original locations can have the same leaf name. Do not bind both
+      // sources to one child folder just because their display names match.
+      if (nameCounts.get(source.displayName)! > 1) { unmatched.push(source.id); continue; }
+      try {
+        const candidate = parent.name === source.displayName ? parent : await parent.getDirectoryHandle(source.displayName);
+        const restored = await this.restoreFolder(source.id, { reselect: true, selectedHandle: candidate });
+        (restored.ok ? reconnected : unmatched).push(source.id);
+      } catch {
+        unmatched.push(source.id);
+      }
+    }
+    return ok({ reconnected, unmatched });
+  }
+
+  async restoreFolder(sourceId: SourceId, options?: { readonly reselect?: boolean; readonly selectedHandle?: FileSystemDirectoryHandle; readonly savedOnly?: boolean }): Promise<Result<SourceGrant, SourceError>> {
     const opened = await this.database;
     if (!opened.ok) return err(toSourceError());
     const sourceRecord = await this.findSourceRecord(opened.value, sourceId);
@@ -231,30 +282,35 @@ export class BrowserPhotoSource implements PhotoSource {
         ? err({ kind: "permission-lost", sourceId })
         : ok({ sourceId, displayName: sourceRecord.displayName, status, restored: true });
     }
-    let handle = await this.loadHandle(sourceId, opened.value);
+    let handle = options?.selectedHandle ?? (options?.reselect ? undefined : await this.loadHandle(sourceId, opened.value));
     if (!handle) {
+      if (options?.savedOnly) return err({ kind: "permission-lost", sourceId });
       // Backups contain paths and stable photo references, never directory grants.
       const projects = await requestValue<import("../../contracts").ProjectWorkspace[]>(opened.value.transaction(STORE_NAMES.projects, "readonly").objectStore(STORE_NAMES.projects).getAll());
       if (!projects.some((p) => p.sources.some((s) => s.id === sourceId))) return err({ kind: "source-not-found", sourceId });
       try {
         handle = await this.picker();
-        const photos = await this.readSourcePhotos(opened.value, sourceId);
-        if (photos.length) {
-          let matched = false;
-          for (const photo of photos) {
-            try {
-              let directory = handle;
-              const parts = photo.relativePath.split("/");
-              for (const part of parts.slice(0, -1)) directory = await directory.getDirectoryHandle(part);
-              await directory.getFileHandle(parts.at(-1)!);
-              matched = true;
-              break;
-            } catch { /* A moved/deleted image must not prevent partial recovery. */ }
-          }
-          if (!matched) return err({ kind: "folder-mismatch", sourceId });
-        }
       } catch (error) {
         return err(error instanceof DOMException && error.name === "AbortError" ? { kind: "cancelled" } : { kind: "permission-denied", sourceId });
+      }
+    }
+
+    if (options?.reselect || options?.savedOnly || !this.handles.has(sourceId)) {
+      const photos = await this.readSourcePhotos(opened.value, sourceId);
+      if (photos.length) {
+        let matched = false;
+        for (const photo of photos) {
+          try {
+            let directory = handle;
+            const parts = photo.relativePath.split("/");
+            for (const part of parts.slice(0, -1)) directory = await directory.getDirectoryHandle(part);
+            const fileHandle = await directory.getFileHandle(parts.at(-1)!);
+            if (photo.fileSize !== undefined && (await fileHandle.getFile()).size !== photo.fileSize) continue;
+            matched = true;
+            break;
+          } catch { /* A moved/deleted image must not prevent partial recovery. */ }
+        }
+        if (!matched) return err({ kind: "folder-mismatch", sourceId });
       }
     }
 
@@ -443,11 +499,18 @@ export class BrowserPhotoSource implements PhotoSource {
       this.states.set(sourceId, state);
       await this.saveState(opened.value, sourceId, state, handle);
       yield ok({ kind: "completed", state });
-    } catch {
-      state = { ...state, status: state.indexedCount ? "partial" : "error", errorMessage: "扫描失败，请重试。" };
+    } catch (error) {
+      const permissionLost = error instanceof DOMException && (error.name === "NotAllowedError" || error.name === "SecurityError");
+      state = {
+        ...state,
+        status: permissionLost ? "permission-lost" : "error",
+        indexedCount: Math.max(state.indexedCount, existing.length),
+        errorMessage: permissionLost ? "文件夹授权已失效，请重新连接。" : "扫描失败，请重新连接原照片文件夹。",
+      };
       this.states.set(sourceId, state);
-      await this.saveState(opened.value, sourceId, state, handle);
-      yield err({ kind: "io", retryable: true });
+      try { await this.saveState(opened.value, sourceId, state, handle); }
+      catch { /* The in-memory state still explains how to recover. */ }
+      yield err(permissionLost ? { kind: "permission-lost", sourceId } : { kind: "io", retryable: true });
     }
   }
 
@@ -461,7 +524,7 @@ export class BrowserPhotoSource implements PhotoSource {
         .objectStore(STORE_NAMES.sourceGrants)
         .get(sourceId),
     ).catch(() => undefined);
-    const storedState = grant?.state ?? cached;
+    const storedState = cached ?? grant?.state;
     if (!storedState) {
       const projects = await requestValue<import("../../contracts").ProjectWorkspace[]>(opened.value.transaction(STORE_NAMES.projects, "readonly").objectStore(STORE_NAMES.projects).getAll());
       const source = projects.flatMap((p) => p.sources).find((s) => s.id === sourceId);
