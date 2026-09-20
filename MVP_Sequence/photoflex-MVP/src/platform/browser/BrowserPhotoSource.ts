@@ -743,6 +743,43 @@ export class BrowserPhotoSource implements PhotoSource {
     return file.ok ? ok(this.createLease(`preview:${photoId}:${sourceVersion}`, file.value)) : err(file.error);
   }
 
+  async readOriginalFile(photoId: PhotoId): Promise<Result<Blob, SourceError>> {
+    const opened = await this.database;
+    if (!opened.ok) return err(toSourceError());
+    // This path only calls getFile() on the source handle. It never opens a
+    // writable handle and never changes anything in the connected source.
+    return this.readPhotoFile(opened.value, photoId);
+  }
+
+  async isExportDirectorySafe(directory: FileSystemDirectoryHandle): Promise<boolean> {
+    const opened = await this.database;
+    if (!opened.ok) return false;
+    const grants = await requestValue<StoredGrant[]>(
+      opened.value.transaction(STORE_NAMES.sourceGrants, "readonly").objectStore(STORE_NAMES.sourceGrants).getAll(),
+    ).catch(() => []);
+    // Check both the live handles and persisted grants. A live handle is
+    // authoritative while the app is open; IndexedDB may clone or omit
+    // platform-specific handle methods when it persists a grant.
+    const sources = [
+      ...this.handles.values(),
+      ...grants.map((grant) => grant.handle),
+    ];
+    for (const source of sources) {
+      if (!source) continue;
+      try {
+        if (await source.isSameEntry(directory)) return false;
+        // `resolve` is required to prove that the destination is not a
+        // descendant of this source. If it is unavailable, fail closed.
+        if (!source.resolve || (await source.resolve(directory)) !== null) return false;
+      } catch {
+        // If the browser cannot prove that the destination is outside this
+        // source, fail closed. The original folder must never be a write target.
+        return false;
+      }
+    }
+    return true;
+  }
+
   async derivedPreview(photoId: PhotoId, maxEdge: DerivedPreviewMaxEdge): Promise<Result<PreviewLease, SourceError>> {
     const opened = await this.database;
     if (!opened.ok) return err(toSourceError());

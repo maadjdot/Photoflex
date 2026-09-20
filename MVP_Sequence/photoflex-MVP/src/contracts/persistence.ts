@@ -134,6 +134,10 @@ export interface PhotoSource {
   /** A size-tiered derived image; never the original file. */
   derivedPreview(photoId: PhotoId, maxEdge: DerivedPreviewMaxEdge): Promise<Result<PreviewLease, SourceError>>;
   preview(photoId: PhotoId): Promise<Result<PreviewLease, SourceError>>;
+  /** Read the original file bytes without modifying the connected photo source. */
+  readOriginalFile(photoId: PhotoId): Promise<Result<Blob, SourceError>>;
+  /** Prevent an export from writing inside any connected original source folder. */
+  isExportDirectorySafe(directory: FileSystemDirectoryHandle): Promise<boolean>;
 }
 
 export interface ResumeContext {

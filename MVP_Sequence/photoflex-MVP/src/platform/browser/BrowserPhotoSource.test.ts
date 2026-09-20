@@ -110,6 +110,28 @@ describe("BrowserPhotoSource", () => {
     expect(await source.chooseFolder([])).toMatchObject({ ok: true, value: { displayName: "Native Photos" } });
     expect(nativePicker).toHaveBeenCalledOnce();
   });
+
+  it("reads original bytes without changing the connected source", async () => {
+    const directory = createDirectory("original-read", "Original Photos", ["source.jpg"]);
+    const source = new BrowserPhotoSource({
+      databaseName: `original-read-${crypto.randomUUID()}`,
+      picker: async () => directory.handle,
+    });
+    databases.push(source);
+    const grant = await source.chooseFolder([]);
+    if (!grant.ok) throw Error("folder grant failed");
+    await scanToEnd(source, grant.value.sourceId);
+    const page = await source.listPhotos(grant.value.sourceId);
+    if (!page.ok) throw Error("photo scan failed");
+
+    const original = await source.readOriginalFile(page.value.items[0].id);
+
+    expect(original.ok).toBe(true);
+    if (original.ok) expect(await original.value.text()).toBe("source.jpg");
+    expect(directory.files.has("source.jpg")).toBe(true);
+    expect(await source.isExportDirectorySafe(directory.handle)).toBe(false);
+    expect(await source.isExportDirectorySafe(createDirectory("other", "Other", []).handle)).toBe(true);
+  });
   it("imports an external JPEG once and reuses its source photo on a later drop", async () => {
     const sourceId = "external-source" as SourceId;
     const identity = "external-file-a";

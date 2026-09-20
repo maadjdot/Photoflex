@@ -978,6 +978,9 @@ h1, h2, p { margin-top: 0; }
 .sequence-overlay-header h1 { max-width: min(60vw, 720px); margin: 0; overflow: hidden; font-size: 26px; font-weight: 720; letter-spacing: -.035em; line-height: 32px; text-overflow: ellipsis; white-space: nowrap; }
 .sequence-overlay-header nav { display: flex; align-items: center; gap: 10px; }
 .sequence-overlay-header button { border: 0; font: 600 12px "Inter", sans-serif; }
+.sequence-overlay-folder { min-width: 172px; height: 40px; padding: 0 16px; border: 1px solid #deddd9 !important; border-radius: 20px; background: #fff; color: #1a1917; }
+.sequence-overlay-folder:hover:not(:disabled) { background: #f7f6f3; }
+.sequence-overlay-folder:disabled { opacity: .45; cursor: default; }
 .sequence-overlay-read { min-width: 88px; height: 40px; padding: 0 22px; border-radius: 20px; background: #1a1917; color: #fff; }
 .sequence-overlay-read:hover:not(:disabled) { background: #000; }
 .sequence-overlay-read:disabled { opacity: .35; cursor: default; }

@@ -12,6 +12,7 @@ import { SequencePhotoPreview } from "./SequencePhotoPreview";
 import { useSequenceReorderDrag } from "./useSequenceReorderDrag";
 import { sequenceItemInDirection, type SequenceArrow } from "./sequenceKeyboardNavigation";
 import { useSequenceSession } from "./sequenceSession";
+import { exportSequenceFolder, SequenceFolderExportError } from "../platform/browser/exportSequenceFolder";
 
 interface SequenceOverlayProps {
   readonly dependencies: AppDependencies;
@@ -33,6 +34,8 @@ export function SequenceOverlay({ dependencies, persistence, projectId, sequence
   const [readIndex, setReadIndex] = useState<number>();
   const [previewIndex, setPreviewIndex] = useState<number>();
   const [actionError, setActionError] = useState<string>();
+  const [folderExportNotice, setFolderExportNotice] = useState<string>();
+  const [folderExporting, setFolderExporting] = useState(false);
   const [photoShapes, setPhotoShapes] = useState<ReadonlyMap<PhotoId, "landscape" | "portrait">>(new Map());
   const rootRef = useRef<HTMLElement>(null);
   const gridRef = useRef<HTMLElement>(null);
@@ -69,6 +72,34 @@ export function SequenceOverlay({ dependencies, persistence, projectId, sequence
     const result = await sequenceSession.flush();
     if (result.ok) onClose();
   }, [onClose, sequenceSession]);
+
+  const createSequenceFolder = useCallback(async () => {
+    if (!sequence || !photos.length || folderExporting) return;
+    setFolderExporting(true);
+    setFolderExportNotice(t("sequence.folderChoosing"));
+    try {
+      const result = await exportSequenceFolder(sequence, dependencies.photoSource, ({ completed, total }) => {
+        setFolderExportNotice(t("sequence.folderCopying", { completed, total }));
+      });
+      setFolderExportNotice(result.failed.length
+        ? t("sequence.folderCreatedWithFailures", { folder: result.folderName, copied: result.copied, failed: result.failed.length })
+        : t("sequence.folderCreated", { folder: result.folderName, copied: result.copied }));
+    } catch (error) {
+      if (error instanceof SequenceFolderExportError && error.kind === "cancelled") {
+        setFolderExportNotice(undefined);
+      } else if (error instanceof SequenceFolderExportError && error.kind === "unsupported") {
+        setFolderExportNotice(t("sequence.folderUnsupported"));
+      } else if (error instanceof SequenceFolderExportError && error.kind === "permission-denied") {
+        setFolderExportNotice(t("sequence.folderPermissionDenied"));
+      } else if (error instanceof SequenceFolderExportError && error.kind === "unsafe-destination") {
+        setFolderExportNotice(t("sequence.folderUnsafeDestination"));
+      } else {
+        setFolderExportNotice(t("sequence.folderFailed"));
+      }
+    } finally {
+      setFolderExporting(false);
+    }
+  }, [dependencies.photoSource, folderExporting, photos.length, sequence, t]);
 
   const removePhotoItems = useCallback((ids: readonly SequenceItemId[]) => {
     if (!sequence || !ids.length) return false;
@@ -149,11 +180,13 @@ export function SequenceOverlay({ dependencies, persistence, projectId, sequence
     <header className="sequence-overlay-header">
       <div><span>SEQUENCE</span><h1>{sequence.name}</h1></div>
       <nav aria-label="Sequence controls">
+        <button className="sequence-overlay-folder" disabled={!photos.length || folderExporting} aria-busy={folderExporting} onClick={() => void createSequenceFolder()}>{folderExporting ? t("sequence.creatingFolder") : t("sequence.createFolder")}</button>
         <button className="sequence-overlay-read" title="R" disabled={!photos.length} onClick={() => setReadIndex(0)}>{t("sequence.read")}</button>
         <button ref={closeRef} className="sequence-overlay-close" aria-label={`${t("common.close")} Sequence`} onClick={() => void closeOverlay()}>×</button>
       </nav>
     </header>
     {(actionError || sequenceSession.error) && <div className="sequence-overlay-notice" role="status"><span>{actionError || sequenceSession.error}</span>{sequenceSession.saveState === "failed" && <button onClick={() => void sequenceSession.retry()}>{t("common.retry")}</button>}</div>}
+    {folderExportNotice && <div className="sequence-overlay-notice" role="status"><span>{folderExportNotice}</span><button onClick={() => setFolderExportNotice(undefined)} aria-label={t("common.close")}>×</button></div>}
     <section ref={gridRef} className="sequence-overlay-grid" role="grid" aria-label="Sequence photo order" onPointerDown={(event) => { if (event.target === event.currentTarget) { setSelected(new Set()); setAnchor(undefined); } }} onPointerMove={reorder.move} onPointerUp={reorder.end} onPointerCancel={reorder.cancel}>
       {photos.flatMap(({ item, photoIndex }) => [renderDropGhost(photoIndex), <button key={item.id}
         type="button"

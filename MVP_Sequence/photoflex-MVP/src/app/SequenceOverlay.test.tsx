@@ -65,6 +65,7 @@ it("opens a single-photo preview from the grid and enters continuous Read only f
   render(<App dependencies={{ projectStore, photoSource }} />);
   const overlay = await screen.findByRole("dialog", { name: "Sequence Complete photos" });
   const grid = within(overlay).getByRole("grid", { name: "Sequence photo order" });
+  expect(within(overlay).getByRole("button", { name: "Create Sequence Folder" })).toBeTruthy();
   expect(within(grid).getAllByRole("gridcell")).toHaveLength(2);
   expect(grid.textContent).not.toContain("Hidden note");
   await waitFor(() => expect(grid.querySelectorAll("img")).toHaveLength(2));
@@ -124,6 +125,15 @@ it("opens a single-photo preview from the grid and enters continuous Read only f
   fireEvent.keyDown(window, { key: "Escape" });
   await waitFor(() => expect(screen.queryByRole("dialog", { name: "Read Complete photos" })).toBeNull());
   expect(screen.getByRole("dialog", { name: "Sequence Complete photos" })).toBeTruthy();
+});
+
+it("responds when Create Sequence Folder is clicked", async () => {
+  const { projectStore, photoSource, projectId, sequenceId } = await createOverlayFixture();
+  window.location.hash = `#/projects/${projectId}/sequences/${sequenceId}`;
+  render(<App dependencies={{ projectStore, photoSource }} />);
+  const overlay = await screen.findByRole("dialog", { name: "Sequence Complete photos" });
+  fireEvent.click(within(overlay).getByRole("button", { name: "Create Sequence Folder" }));
+  expect(await screen.findByText("Folder export is not supported in this browser.")).toBeTruthy();
 });
 
 it("supports Space for the selected preview and R for Read mode", async () => {
