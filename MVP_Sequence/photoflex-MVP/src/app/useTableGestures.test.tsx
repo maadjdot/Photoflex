@@ -3,7 +3,7 @@
 import { act, renderHook } from "@testing-library/react";
 import type { PointerEvent as ReactPointerEvent, RefObject } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { ProjectId, WorktableDraft, WorktableViewport } from "../contracts";
+import type { PhotoId, ProjectId, WorktableDraft, WorktableItemId, WorktableViewport } from "../contracts";
 import { useTableGestures } from "./useTableGestures";
 
 afterEach(() => vi.unstubAllGlobals());
@@ -43,6 +43,46 @@ describe("useTableGestures marquee edge pan", () => {
     expect(setViewport).toHaveBeenCalledWith({ originX: -15, originY: -15, zoom: 1 });
     expect(result.current.preview.marquee).toMatchObject({ left: 100, top: 100, width: 290, height: 190 });
   });
+
+  it("keeps the marquee start anchored while edge pan changes the viewport", () => {
+    let scheduledFrame: FrameRequestCallback | undefined;
+    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
+      scheduledFrame = callback;
+      return 1;
+    });
+    vi.stubGlobal("cancelAnimationFrame", vi.fn());
+
+    const stage = document.createElement("div");
+    stage.getBoundingClientRect = () => ({ left: 0, top: 0, right: 400, bottom: 300, width: 400, height: 300, x: 0, y: 0, toJSON: () => ({}) });
+    Object.assign(stage, { setPointerCapture: vi.fn(), hasPointerCapture: vi.fn(() => false), releasePointerCapture: vi.fn() });
+    let viewport: WorktableViewport = { originX: 0, originY: 0, zoom: 1 };
+    const selectPhotos = vi.fn();
+    const { result, rerender } = renderHook(() => useTableGestures({
+      stageRef: ref(stage),
+      draft: {
+        ...emptyDraft(),
+        entryOrder: ["photo-1" as WorktableItemId],
+        placements: { ["photo-1" as WorktableItemId]: { id: "photo-1" as WorktableItemId, photoId: "photo-1" as PhotoId, filename: "one.jpg", x: 100, y: 100, width: 20, height: 20, z: 1, locked: false } },
+      },
+      viewport,
+      setViewport: (next) => { viewport = next; rerender(); },
+      execute: vi.fn(),
+      selectPhoto: vi.fn(),
+      selectPile: vi.fn(),
+      selectPhotos,
+      clearSelection: vi.fn(),
+      onDropPhotosOnSequence: vi.fn(),
+      visiblePhotoIds: new Set(),
+    }));
+
+    act(() => result.current.onStagePointerDown(pointerEvent(stage, 100, 100)));
+    act(() => result.current.onStagePointerMove(pointerEvent(stage, 390, 290)));
+    act(() => scheduledFrame?.(0));
+    act(() => result.current.finishGesture(pointerEvent(stage, 390, 290)));
+
+    expect(selectPhotos).toHaveBeenLastCalledWith(["photo-1"], false);
+  });
+
 });
 
 function ref<T>(current: T): RefObject<T> {

@@ -14,7 +14,7 @@ type Gesture =
   | { kind: "photo"; pointerId: number; start: WorktablePoint; ids: readonly WorktableItemId[]; startClient: WorktablePoint; moved: boolean }
   | { kind: "pile"; pointerId: number; start: WorktablePoint; ids: readonly SequenceId[]; openOnClick?: SequenceId; moved: boolean; startClient: WorktablePoint }
   | { kind: "pan"; pointerId: number; start: WorktablePoint; viewport: WorktableViewport }
-  | { kind: "marquee"; pointerId: number; start: WorktablePoint; additive: boolean }
+  | { kind: "marquee"; pointerId: number; start: WorktablePoint; startClient: WorktablePoint; additive: boolean }
   | { kind: "resize"; pointerId: number; start: WorktablePoint; photoId: WorktableItemId; width: number }
   | { kind: "resize-pile"; pointerId: number; start: WorktablePoint; sequenceId: SequenceId; width: number; height: number };
 
@@ -226,7 +226,13 @@ export function useTableGestures(options: TableGestureOptions) {
     stageRef.current.setPointerCapture(event.pointerId);
     const rect = stageRef.current.getBoundingClientRect();
     const additive = event.shiftKey || event.ctrlKey || event.metaKey;
-    const gesture: Gesture = { kind: "marquee", pointerId: event.pointerId, start: { x: event.clientX, y: event.clientY }, additive };
+    const gesture: Gesture = {
+      kind: "marquee",
+      pointerId: event.pointerId,
+      start: screenToWorld({ x: event.clientX, y: event.clientY }, rect, viewportRef.current),
+      startClient: { x: event.clientX, y: event.clientY },
+      additive,
+    };
     gestureRef.current = gesture;
     setMarquee({ left: event.clientX - rect.left, top: event.clientY - rect.top, width: 0, height: 0 });
     if (!additive) clearSelection();
@@ -298,12 +304,12 @@ export function useTableGestures(options: TableGestureOptions) {
     }
     if (gesture.kind === "marquee") {
       setMarquee({
-        left: Math.min(gesture.start.x, event.clientX) - rect.left,
-        top: Math.min(gesture.start.y, event.clientY) - rect.top,
-        width: Math.abs(event.clientX - gesture.start.x),
-        height: Math.abs(event.clientY - gesture.start.y),
+        left: Math.min(gesture.startClient.x, event.clientX) - rect.left,
+        top: Math.min(gesture.startClient.y, event.clientY) - rect.top,
+        width: Math.abs(event.clientX - gesture.startClient.x),
+        height: Math.abs(event.clientY - gesture.startClient.y),
       });
-      if (Math.hypot(event.clientX - gesture.start.x, event.clientY - gesture.start.y) > 5) {
+      if (Math.hypot(event.clientX - gesture.startClient.x, event.clientY - gesture.startClient.y) > 5) {
         edgePanPointRef.current = { x: event.clientX, y: event.clientY };
         scheduleEdgePan();
       }
@@ -380,7 +386,7 @@ export function useTableGestures(options: TableGestureOptions) {
     });
     if (!cancelled && gesture.kind === "marquee") {
       const rect = stage.getBoundingClientRect();
-      const a = screenToWorld(gesture.start, rect, viewportRef.current);
+      const a = gesture.start;
       const b = screenToWorld({ x: event.clientX, y: event.clientY }, rect, viewportRef.current);
       const box = { left: Math.min(a.x, b.x), top: Math.min(a.y, b.y), right: Math.max(a.x, b.x), bottom: Math.max(a.y, b.y) };
       const hits = draft.entryOrder.filter((id) => {
