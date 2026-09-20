@@ -993,7 +993,6 @@ h1, h2, p { margin-top: 0; }
 .sequence-overlay-card:focus, .sequence-overlay-card:focus-visible { outline: 0; }
 .sequence-overlay-card.is-selected { opacity: .84; filter: saturate(.94); }
 .sequence-overlay-card.is-selected img { opacity: .8; }
-.sequence-overlay-card.is-dragging { opacity: .28; filter: saturate(.55); transform: scale(.96); }
 .sequence-overlay-card.is-drop-shifted { transform: translateX(12px); }
 .sequence-overlay-card.is-drop-target::before, .sequence-overlay-drop-end { content: ""; position: absolute; z-index: 5; top: 0; bottom: 0; left: -6px; width: 2px; border-radius: 2px; background: #1a1917; }
 .sequence-overlay-drop-end { position: relative; left: -5px; height: 260px; }

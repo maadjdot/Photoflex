@@ -188,20 +188,29 @@ export function SequenceOverlay({ dependencies, persistence, projectId, sequence
     {(actionError || sequenceSession.error) && <div className="sequence-overlay-notice" role="status"><span>{actionError || sequenceSession.error}</span>{sequenceSession.saveState === "failed" && <button onClick={() => void sequenceSession.retry()}>{t("common.retry")}</button>}</div>}
     {folderExportNotice && <div className="sequence-overlay-notice" role="status"><span>{folderExportNotice}</span><button onClick={() => setFolderExportNotice(undefined)} aria-label={t("common.close")}>×</button></div>}
     <section ref={gridRef} className="sequence-overlay-grid" role="grid" aria-label="Sequence photo order" onPointerDown={(event) => { if (event.target === event.currentTarget) { setSelected(new Set()); setAnchor(undefined); } }} onPointerMove={reorder.move} onPointerUp={reorder.end} onPointerCancel={reorder.cancel}>
-      {photos.flatMap(({ item, photoIndex }) => [renderDropGhost(photoIndex), <button key={item.id}
-        type="button"
-        role="gridcell"
-        aria-selected={selected.has(item.id)}
-        aria-label={`Photo ${String(photoIndex + 1).padStart(2, "0")}`}
-        data-sequence-index={photoIndex}
-        data-item-id={item.id}
-        className={`sequence-overlay-card is-${photoShapes.get(item.photoId) ?? "landscape"}${selected.has(item.id) ? " is-selected" : ""}${reorder.draggingItemIds.includes(item.id) ? " is-dragging" : ""}${reorder.dropTarget !== undefined && reorder.dropTarget <= photoIndex && !reorder.draggingItemIds.includes(item.id) ? " is-drop-shifted" : ""}${reorder.dropTarget === photoIndex ? " is-drop-target" : ""}`}
-        onClick={(event) => { if (!reorder.consumeClickSuppression() && !event.shiftKey && !event.ctrlKey && !event.metaKey) setPreviewIndex(photoIndex); }}
-        {...pointerHandlers(item.id)}
-      >
-        <PhotoThumb resolution="table" progressiveTo={1536} fit="contain" photoSource={dependencies.photoSource} photoId={item.photoId} alt="" onError={onPhotoError} />
-        <b>{String(photoIndex + 1).padStart(2, "0")}</b>
-      </button>])}
+      {photos.flatMap(({ item, photoIndex }) => {
+        const isDragging = reorder.draggingItemIds.includes(item.id);
+        return [
+          renderDropGhost(photoIndex),
+          // The dragged photo is rendered only at the predicted insertion
+          // point. Its original slot is removed instead of showing a second
+          // faded copy there.
+          isDragging ? null : <button key={item.id}
+            type="button"
+            role="gridcell"
+            aria-selected={selected.has(item.id)}
+            aria-label={`Photo ${String(photoIndex + 1).padStart(2, "0")}`}
+            data-sequence-index={photoIndex}
+            data-item-id={item.id}
+            className={`sequence-overlay-card is-${photoShapes.get(item.photoId) ?? "landscape"}${selected.has(item.id) ? " is-selected" : ""}${reorder.dropTarget !== undefined && reorder.dropTarget <= photoIndex ? " is-drop-shifted" : ""}${reorder.dropTarget === photoIndex ? " is-drop-target" : ""}`}
+            onClick={(event) => { if (!reorder.consumeClickSuppression() && !event.shiftKey && !event.ctrlKey && !event.metaKey) setPreviewIndex(photoIndex); }}
+            {...pointerHandlers(item.id)}
+          >
+            <PhotoThumb resolution="table" progressiveTo={1536} fit="contain" photoSource={dependencies.photoSource} photoId={item.photoId} alt="" onError={onPhotoError} />
+            <b>{String(photoIndex + 1).padStart(2, "0")}</b>
+          </button>,
+        ];
+      })}
       {renderDropGhost(photos.length)}
       {!photos.length && <p className="sequence-overlay-empty">{t("sequence.noneOnTable")}</p>}
     </section>
