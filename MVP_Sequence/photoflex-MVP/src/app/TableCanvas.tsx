@@ -276,35 +276,24 @@ export const TableCanvas = forwardRef<TableCanvasHandle, TableCanvasProps>(funct
         tray.scrollLeft += event.deltaY + event.deltaX;
         return;
       }
-      if (!event.ctrlKey && !event.metaKey && (event.target as HTMLElement).closest(".table-memo textarea")) return;
+      if ((event.target as HTMLElement).closest(".table-memo textarea")) return;
       event.preventDefault();
-      if (event.ctrlKey || event.metaKey) {
-        setViewport(zoomAroundScreenPoint(
-          viewportRef.current,
-          { x: event.clientX, y: event.clientY },
-          stage.getBoundingClientRect(),
-          viewportRef.current.zoom * Math.exp(-event.deltaY * .002),
-        ));
-        return;
-      }
-      setViewport({
-        ...viewportRef.current,
-        originX: viewportRef.current.originX - event.deltaX,
-        originY: viewportRef.current.originY - event.deltaY,
-      });
+      const delta = event.deltaY || event.deltaX;
+      if (!delta) return;
+      setViewport(zoomAroundScreenPoint(
+        viewportRef.current,
+        { x: event.clientX, y: event.clientY },
+        stage.getBoundingClientRect(),
+        viewportRef.current.zoom * Math.exp(-delta * .002),
+      ));
     };
     stage.addEventListener("wheel", onWheel, { passive: false });
     return () => stage.removeEventListener("wheel", onWheel);
   }, [draft.projectId, setViewport]);
 
-  const fit = () => {
+  const fitItems = (cards: readonly { readonly x: number; readonly y: number; readonly width: number; readonly height: number }[]) => {
     const stage = stageRef.current;
     if (!stage) return;
-    const cards = [
-      ...draft.entryOrder.map((id) => draft.placements[id]),
-      ...draft.pileOrder.map((id) => draft.pilePlacements[id]),
-      ...(draft.memos ?? []),
-    ];
     if (!cards.length) return setViewport(initialViewport);
     const minX = Math.min(...cards.map((item) => item.x));
     const minY = Math.min(...cards.map((item) => item.y));
@@ -318,6 +307,29 @@ export const TableCanvas = forwardRef<TableCanvasHandle, TableCanvasProps>(funct
       zoom,
       originX: (stage.clientWidth - (maxX - minX) * zoom) / 2 - minX * zoom,
       originY: (stage.clientHeight - (maxY - minY) * zoom) / 2 - minY * zoom,
+    });
+  };
+
+  const fit = () => fitItems([
+    ...draft.entryOrder.map((id) => draft.placements[id]),
+    ...draft.pileOrder.map((id) => draft.pilePlacements[id]),
+    ...(draft.memos ?? []),
+  ]);
+
+  const framePhotos = () => fitItems(draft.entryOrder.map((id) => draft.placements[id]));
+
+  const centerSelectedPhotos = () => {
+    const stage = stageRef.current;
+    const cards = selectedPhotoIds.map((id) => draft.placements[id]).filter((item): item is NonNullable<typeof item> => Boolean(item));
+    if (!stage || !cards.length) return;
+    const minX = Math.min(...cards.map((item) => item.x));
+    const minY = Math.min(...cards.map((item) => item.y));
+    const maxX = Math.max(...cards.map((item) => item.x + item.width));
+    const maxY = Math.max(...cards.map((item) => item.y + item.height));
+    setViewport({
+      ...viewportRef.current,
+      originX: stage.clientWidth / 2 - ((minX + maxX) / 2) * viewportRef.current.zoom,
+      originY: stage.clientHeight / 2 - ((minY + maxY) / 2) * viewportRef.current.zoom,
     });
   };
 
@@ -341,6 +353,16 @@ export const TableCanvas = forwardRef<TableCanvasHandle, TableCanvasProps>(funct
     const plain = !event.ctrlKey && !event.metaKey && !event.altKey;
     const actions = deriveTableActions(draft, new Set(selectedPhotoIds), new Set(selectedPileIds));
     const selectedPhoto = selectedPhotoIds.length === 1 ? draft.placements[selectedPhotoIds[0]]?.photoId : undefined;
+    if (plain && event.key.startsWith("Arrow")) {
+      event.preventDefault();
+      const step = event.shiftKey ? 160 : 64;
+      const pan = event.key === "ArrowLeft" ? { x: step, y: 0 }
+        : event.key === "ArrowRight" ? { x: -step, y: 0 }
+          : event.key === "ArrowUp" ? { x: 0, y: step }
+            : { x: 0, y: -step };
+      setViewport({ ...viewportRef.current, originX: viewportRef.current.originX + pan.x, originY: viewportRef.current.originY + pan.y });
+      return;
+    }
     if (plain && event.key === " " && selectedPhoto) {
       event.preventDefault();
       onOpenPhoto(selectedPhoto);
@@ -374,6 +396,30 @@ export const TableCanvas = forwardRef<TableCanvasHandle, TableCanvasProps>(funct
     if (plain && key === "m" && onAddMemo) {
       event.preventDefault();
       onAddMemo();
+      return;
+    }
+    if (plain && event.shiftKey && key === "k") {
+      const lockedIds = draft.entryOrder.filter((id) => draft.placements[id].locked);
+      if (lockedIds.length) {
+        event.preventDefault();
+        session.execute({ type: "set-locked", photoIds: lockedIds, locked: false });
+      }
+      return;
+    }
+    if (plain && !event.shiftKey && key === "k" && selectedPhotoIds.length) {
+      event.preventDefault();
+      const locked = selectedPhotoIds.some((id) => !draft.placements[id]?.locked);
+      session.execute({ type: "set-locked", photoIds: selectedPhotoIds, locked });
+      return;
+    }
+    if (plain && key === "j" && selectedPhotoIds.length) {
+      event.preventDefault();
+      centerSelectedPhotos();
+      return;
+    }
+    if (plain && key === "b") {
+      event.preventDefault();
+      framePhotos();
       return;
     }
     if (plain && key === "y" && actions.canArrange) {
@@ -461,6 +507,7 @@ export const TableCanvas = forwardRef<TableCanvasHandle, TableCanvasProps>(funct
       ref={stageRef}
       className="worktable-stage"
       tabIndex={0}
+      aria-keyshortcuts="ArrowLeft ArrowRight ArrowUp ArrowDown J B K Shift+K"
       aria-label={t("table.worktable")}
       onPointerDown={(event) => { if (event.target === event.currentTarget || (event.target as HTMLElement).classList.contains("worktable-world")) props.onSelectMemo?.(undefined); gestures.onStagePointerDown(event); }}
       onPointerMove={gestures.onStagePointerMove}
@@ -516,8 +563,8 @@ export const TableCanvas = forwardRef<TableCanvasHandle, TableCanvasProps>(funct
             <div key={id} className="worktable-photo-position">
             <article
               data-worktable-photo-id={id}
-              aria-label={item.filename}
-              className={`worktable-card${chosen ? " is-selected" : ""}${dragging ? " is-dragging" : ""}${missingPhotoIds.has(item.photoId) ? " is-missing" : ""}`}
+              aria-label={`${item.filename}${item.locked ? ` · ${t("table.locked")}` : ""}`}
+              className={`worktable-card${chosen ? " is-selected" : ""}${dragging ? " is-dragging" : ""}${item.locked ? " is-locked" : ""}${missingPhotoIds.has(item.photoId) ? " is-missing" : ""}`}
               style={{ width: item.width * scale, height: item.height * scale, zIndex: item.z, transform: `translate3d(${item.x + delta.x}px,${item.y + delta.y}px,0)` }}
               onPointerDown={(event) => gestures.onPhotoPointerDown(event, id)}
               onDoubleClick={() => onOpenPhoto(item.photoId)}
@@ -527,6 +574,7 @@ export const TableCanvas = forwardRef<TableCanvasHandle, TableCanvasProps>(funct
                   ? <PhotoThumb photoSource={photoSource} photoId={item.photoId} alt={item.filename} onError={onPhotoError} resolution="table" progressiveTo={visiblePhotoIds.has(id) ? tablePreviewEdge(viewport.zoom, chosen) : 768} sourceRevision={sourceRevision} />
                   : <div className="thumb-placeholder" aria-hidden="true" />}
                 {missingPhotoIds.has(item.photoId) && <span className="worktable-missing">{t("status.missing")}</span>}
+                {item.locked && <span className="worktable-lock-badge" aria-label={t("table.locked")}>LOCK</span>}
               </div>
               {chosen && selectedPhotoIds.length === 1 && <button aria-label="Resize photo" className="worktable-resize-handle" onPointerDown={(event) => gestures.onPhotoResizePointerDown(event, id)} />}
             </article>
@@ -596,7 +644,7 @@ export const TableCanvas = forwardRef<TableCanvasHandle, TableCanvasProps>(funct
       )}
       <TableHeaderControl><div className="worktable-canvas-controls" aria-label={t("table.controls")}>
         <button className="table-tool-icon-button" aria-label={t("table.zoomOut")} title={`${t("table.zoomOut")} · -`} onClick={() => zoom(viewport.zoom - .25)}><img src={minusIcon} alt="" /></button>
-        <button className="table-zoom-label" aria-label={t("table.fit")} title={`${t("table.fitTitle")} · 0`} onClick={fit}>{Math.round(viewport.zoom * 100)}%</button>
+        <button className="table-zoom-label" aria-label={t("table.fit")} title={`${t("table.fitTitle")} · 0 · B = photos`} onClick={fit}>{Math.round(viewport.zoom * 100)}%</button>
         <button className="table-tool-icon-button" aria-label={t("table.zoomIn")} title={`${t("table.zoomIn")} · +`} onClick={() => zoom(viewport.zoom + .25)}><img src={plusIcon} alt="" /></button>
       </div></TableHeaderControl>
     </div>

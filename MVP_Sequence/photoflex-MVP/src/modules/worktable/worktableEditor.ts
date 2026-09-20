@@ -138,6 +138,7 @@ function applyCommand(
   if (command.type === "remove-sequence-piles") return removeSequencePiles(draft, command.sequenceIds);
   const validation = validateKnown(draft, command.photoIds);
   if (!validation.ok) return validation;
+  if (command.type === "set-locked") return setLocked(draft, command.photoIds, command.locked);
   if (command.type === "move") return move(draft, command.photoIds, command.by.x, command.by.y);
   if (command.type === "resize") return resize(draft, command.photoIds, command.scale);
   if (command.type === "arrange") return arrange(draft, command.photoIds, command.layout);
@@ -709,6 +710,22 @@ function resizeSequencePile(
   const baseHeight = baseSize?.height ?? pile.height;
   const width = Math.max(120, baseWidth * nextScale), height = Math.max(80, baseHeight * nextScale);
   return ok({ ...draft, pilePlacements: { ...draft.pilePlacements, [sequenceId]: { ...pile, width, height, x: pile.x + (baseWidth - width) / 2, y: pile.y + (baseHeight - height) / 2 } } });
+}
+
+function setLocked(
+  draft: WorktableDraft,
+  photoIds: readonly WorktableItemId[],
+  locked: boolean,
+): Result<WorktableDraft, WorktableCommandError> {
+  const placements = { ...draft.placements } as Record<WorktableItemId, WorktablePlacement>;
+  let changed = false;
+  photoIds.forEach((photoId) => {
+    const current = placements[photoId];
+    if (current.locked === locked) return;
+    placements[photoId] = { ...current, locked };
+    changed = true;
+  });
+  return ok(changed ? { ...draft, placements } : draft);
 }
 
 function bringSequencePilesToFront(

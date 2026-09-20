@@ -43,6 +43,13 @@ const zhCN: Record<string, string> = {
   "cloud.legacyTitle": "从旧 Supabase 账号迁移", "cloud.legacyDetail": "登录旧 Supabase 账号，把该账号的云端项目复制到当前 CloudBase 账号。不会覆盖已有项目，也不会在这里保存旧密码。", "cloud.legacyEmail": "旧账号邮箱", "cloud.legacyPassword": "旧账号密码", "cloud.legacyStart": "复制云端项目", "cloud.legacyWorking": "正在复制…", "cloud.legacySignInFailed": "旧账号登录失败，请检查邮箱和密码。", "cloud.legacyUnavailable": "无法读取旧云端项目，请稍后重试。", "cloud.legacyResult": "已复制 {imported} 个；已存在 {present} 个；冲突 {conflicts} 个；失败 {failed} 个。旧数据未删除。",
 };
 
+en["table.lock"] = "Lock";
+en["table.unlock"] = "Unlock";
+en["table.locked"] = "Locked";
+zhCN["table.lock"] = "锁定";
+zhCN["table.unlock"] = "解锁";
+zhCN["table.locked"] = "已锁定";
+
 export const translations: Record<Locale, Record<string, string>> = { en, "zh-CN": zhCN };
 
 export function translate(locale: Locale, key: string, variables?: TranslationVariables, fallback?: string) {

@@ -10,6 +10,7 @@ import { PhotoThumb } from "./PhotoThumb";
 import { SequenceReadMode } from "./SequenceReadMode";
 import { SequencePhotoPreview } from "./SequencePhotoPreview";
 import { useSequenceReorderDrag } from "./useSequenceReorderDrag";
+import { sequenceItemInDirection, type SequenceArrow } from "./sequenceKeyboardNavigation";
 import { useSequenceSession } from "./sequenceSession";
 
 interface SequenceOverlayProps {
@@ -121,6 +122,17 @@ export function SequenceOverlay({ dependencies, persistence, projectId, sequence
       }
       return;
     }
+    if (previewIndex === undefined && !event.ctrlKey && !event.metaKey && !event.altKey && event.key.startsWith("Arrow") && photos.length) {
+      event.preventDefault();
+      const currentId = selectedPhotoItemIds.at(-1);
+      const nextId = sequenceItemInDirection(gridRef.current, photoItemIds, currentId, event.key as SequenceArrow);
+      if (nextId) {
+        setSelected(new Set([nextId]));
+        setAnchor(nextId);
+        gridRef.current?.querySelector<HTMLElement>(`[data-item-id="${nextId}"]`)?.focus();
+      }
+      return;
+    }
     if (event.key !== "Delete" && event.key !== "Backspace") return;
     if (selectedPhotoItemIds.length) {
       event.preventDefault();
@@ -153,7 +165,7 @@ export function SequenceOverlay({ dependencies, persistence, projectId, sequence
       {reorder.dropTarget === photos.length && <i className="sequence-overlay-drop-end" aria-hidden="true" />}
       {!photos.length && <p className="sequence-overlay-empty">{t("sequence.noneOnTable")}</p>}
     </section>
-    {previewIndex !== undefined && photos[previewIndex] && <SequencePhotoPreview photoId={photos[previewIndex].item.photoId} index={previewIndex} total={photos.length} photoSource={dependencies.photoSource} onClose={() => setPreviewIndex(undefined)} onPhotoError={onPhotoError} />}
+    {previewIndex !== undefined && photos[previewIndex] && <SequencePhotoPreview key={photos[previewIndex].item.id} photoId={photos[previewIndex].item.photoId} index={previewIndex} total={photos.length} photoSource={dependencies.photoSource} onClose={() => setPreviewIndex(undefined)} onMove={(direction) => setPreviewIndex((current) => current === undefined ? current : Math.max(0, Math.min(photos.length - 1, current + direction)))} onPhotoError={onPhotoError} />}
     {readIndex !== undefined && <SequenceReadMode sequence={sequence} initialIndex={readIndex} photoSource={dependencies.photoSource} pinned={{}} onTogglePin={() => undefined} onClose={() => setReadIndex(undefined)} onPhotoError={onPhotoError} />}
   </section>;
 }

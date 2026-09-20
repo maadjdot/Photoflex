@@ -11,17 +11,27 @@ interface SequencePhotoPreviewProps {
   readonly total: number;
   readonly photoSource: PhotoSource;
   readonly onClose: () => void;
+  readonly onMove: (direction: -1 | 1) => void;
   readonly onPhotoError: (id: PhotoId, error: SourceError) => void;
 }
 
 /** A single-photo inspection layer, intentionally separate from continuous Read mode. */
-export function SequencePhotoPreview({ photoId, index, total, photoSource, onClose, onPhotoError }: SequencePhotoPreviewProps) {
+export function SequencePhotoPreview({ photoId, index, total, photoSource, onClose, onMove, onPhotoError }: SequencePhotoPreviewProps) {
   const { t } = useLocale();
   const rootRef = useRef<HTMLElement>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
   const interaction = usePhotoPreviewInteraction();
   useDialogKeyboard(rootRef, onClose);
   useEffect(() => { closeRef.current?.focus(); }, []);
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.ctrlKey || event.metaKey || event.altKey || (event.target instanceof HTMLElement && event.target.closest("input, textarea, [contenteditable='true']"))) return;
+      if (event.key === "ArrowLeft" && index > 0) { event.preventDefault(); onMove(-1); }
+      if (event.key === "ArrowRight" && index < total - 1) { event.preventDefault(); onMove(1); }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [index, onMove, total]);
 
   return <section ref={rootRef} className="sequence-photo-preview" role="dialog" aria-modal="true" aria-label={`Preview photo ${index + 1}`} onPointerDown={onClose}>
     <div

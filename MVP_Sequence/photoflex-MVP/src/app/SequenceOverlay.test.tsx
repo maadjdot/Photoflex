@@ -77,9 +77,15 @@ it("opens a single-photo preview from the grid and enters continuous Read only f
   fireEvent.pointerUp(firstCard, { pointerId: 51, clientX: 120, clientY: 180 });
   fireEvent.click(firstCard);
 
-  const preview = await screen.findByRole("dialog", { name: "Preview photo 1" });
+  let preview = await screen.findByRole("dialog", { name: "Preview photo 1" });
   expect(screen.queryByRole("dialog", { name: "Read Complete photos" })).toBeNull();
   expect(within(preview).getByText("01 / 02")).toBeTruthy();
+  fireEvent.keyDown(window, { key: "ArrowRight" });
+  const nextPreview = await screen.findByRole("dialog", { name: "Preview photo 2" });
+  expect(within(nextPreview).getByAltText("Sequence photograph 2")).toBeTruthy();
+  fireEvent.keyDown(window, { key: "ArrowLeft" });
+  expect(await screen.findByRole("dialog", { name: "Preview photo 1" })).toBeTruthy();
+  preview = screen.getByRole("dialog", { name: "Preview photo 1" });
   const previewImage = within(preview).getByAltText("Sequence photograph 1").parentElement as HTMLElement;
   const previewMedia = preview.querySelector(".sequence-photo-preview-media") as HTMLDivElement;
   previewMedia.getBoundingClientRect = () => ({ x: 0, y: 0, top: 0, left: 0, right: 400, bottom: 400, width: 400, height: 400, toJSON: () => ({}) });
@@ -134,6 +140,19 @@ it("supports Space for the selected preview and R for Read mode", async () => {
   fireEvent.click(within(screen.getByRole("dialog", { name: "Preview photo 1" })).getByRole("button", { name: "Close" }));
   fireEvent.keyDown(overlay, { key: "r" });
   expect(await screen.findByRole("dialog", { name: "Read Complete photos" })).toBeTruthy();
+});
+
+it("uses arrow keys to select the next Sequence photo", async () => {
+  const { projectStore, photoSource, projectId, sequenceId } = await createOverlayFixture();
+  window.location.hash = `#/projects/${projectId}/sequences/${sequenceId}`;
+  render(<App dependencies={{ projectStore, photoSource }} />);
+  const overlay = await screen.findByRole("dialog", { name: "Sequence Complete photos" });
+  const grid = within(overlay).getByRole("grid", { name: "Sequence photo order" });
+  const first = within(grid).getByRole("gridcell", { name: "Photo 01" });
+  fireEvent.pointerDown(first, { pointerId: 53, button: 0, ctrlKey: true, clientX: 100, clientY: 100 });
+  fireEvent.pointerUp(first, { pointerId: 53, button: 0, ctrlKey: true, clientX: 100, clientY: 100 });
+  fireEvent.keyDown(overlay, { key: "ArrowRight" });
+  expect(within(grid).getByRole("gridcell", { name: "Photo 02" }).getAttribute("aria-selected")).toBe("true");
 });
 
 it("removes a selected photo with Delete without deleting the source photo", async () => {

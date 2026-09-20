@@ -18,6 +18,9 @@ type Gesture =
   | { kind: "resize"; pointerId: number; start: WorktablePoint; photoId: WorktableItemId; width: number }
   | { kind: "resize-pile"; pointerId: number; start: WorktablePoint; sequenceId: SequenceId; width: number; height: number };
 
+const EDGE_PAN_MARGIN = 64;
+const EDGE_PAN_MAX_STEP = 18;
+
 export interface TableMarquee {
   readonly left: number;
   readonly top: number;
@@ -66,11 +69,14 @@ export function useTableGestures(options: TableGestureOptions) {
   const scaleRef = useRef(1);
   const viewportRef = useRef(viewport);
   const dragFrameRef = useRef<number | undefined>(undefined);
+  const edgePanFrameRef = useRef<number | undefined>(undefined);
+  const edgePanPointRef = useRef<{ readonly x: number; readonly y: number } | undefined>(undefined);
   const pendingDragDeltaRef = useRef<WorktablePoint>({ x: 0, y: 0 });
   viewportRef.current = viewport;
 
   useEffect(() => () => {
     if (dragFrameRef.current !== undefined) cancelAnimationFrame(dragFrameRef.current);
+    if (edgePanFrameRef.current !== undefined) cancelAnimationFrame(edgePanFrameRef.current);
   }, []);
 
   const identify = (gesture?: Gesture) => {
@@ -123,15 +129,16 @@ export function useTableGestures(options: TableGestureOptions) {
   };
 
   const onGroupPointerDown = (event: ReactPointerEvent<HTMLElement>, ids: readonly WorktableItemId[]) => {
-    if (disabled || event.button !== 0 || !stageRef.current || !ids.length) return;
+    const movableIds = ids.filter((id) => !draft.placements[id]?.locked);
+    if (disabled || event.button !== 0 || !stageRef.current || !movableIds.length) return;
     event.preventDefault();
     event.stopPropagation();
-    selectPhotos(ids);
+    selectPhotos(movableIds);
     beginDrag(event, {
       kind: "photo",
       pointerId: event.pointerId,
       start: screenToWorld({ x: event.clientX, y: event.clientY }, stageRef.current.getBoundingClientRect(), viewportRef.current),
-      ids,
+      ids: movableIds,
       startClient: { x: event.clientX, y: event.clientY },
       moved: false,
     });
@@ -219,6 +226,38 @@ export function useTableGestures(options: TableGestureOptions) {
     identify(gesture);
   };
 
+  const scheduleEdgePan = () => {
+    if (edgePanFrameRef.current !== undefined) return;
+    const tick = () => {
+      edgePanFrameRef.current = undefined;
+      const gesture = gestureRef.current;
+      const point = edgePanPointRef.current;
+      const stage = stageRef.current;
+      if (!gesture || !point || !stage || (gesture.kind !== "photo" && gesture.kind !== "pile")) return;
+      const rect = stage.getBoundingClientRect();
+      const panX = edgePanStep(point.x, rect.left, rect.right);
+      const panY = edgePanStep(point.y, rect.top, rect.bottom);
+      if (!panX && !panY) return;
+      setViewport({
+        ...viewportRef.current,
+        originX: viewportRef.current.originX + panX,
+        originY: viewportRef.current.originY + panY,
+      });
+      const world = screenToWorld(point, rect, viewportRef.current);
+      const delta = { x: world.x - gesture.start.x, y: world.y - gesture.start.y };
+      deltaRef.current = delta;
+      pendingDragDeltaRef.current = delta;
+      if (dragFrameRef.current === undefined) {
+        dragFrameRef.current = requestAnimationFrame(() => {
+          dragFrameRef.current = undefined;
+          setDragDelta(pendingDragDeltaRef.current);
+        });
+      }
+      edgePanFrameRef.current = requestAnimationFrame(tick);
+    };
+    edgePanFrameRef.current = requestAnimationFrame(tick);
+  };
+
   const onStagePointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
     const gesture = gestureRef.current;
     const stage = stageRef.current;
@@ -258,6 +297,10 @@ export function useTableGestures(options: TableGestureOptions) {
       return;
     }
     if ((gesture.kind === "pile" || gesture.kind === "photo") && Math.hypot(event.clientX - gesture.startClient.x, event.clientY - gesture.startClient.y) > 5) gesture.moved = true;
+    if ((gesture.kind === "photo" || gesture.kind === "pile") && gesture.moved) {
+      edgePanPointRef.current = { x: event.clientX, y: event.clientY };
+      scheduleEdgePan();
+    }
     if (gesture.kind === "photo") {
       const target = gesture.moved ? sequenceDropAt(stage, event.clientX, event.clientY) : undefined;
       setTargetSequenceId(target?.sequenceId);
@@ -281,6 +324,9 @@ export function useTableGestures(options: TableGestureOptions) {
     if (!gesture || gesture.pointerId !== event.pointerId || !stage) return;
     if (stage.hasPointerCapture(event.pointerId)) stage.releasePointerCapture(event.pointerId);
     gestureRef.current = undefined;
+    edgePanPointRef.current = undefined;
+    if (edgePanFrameRef.current !== undefined) cancelAnimationFrame(edgePanFrameRef.current);
+    edgePanFrameRef.current = undefined;
     if (dragFrameRef.current !== undefined) cancelAnimationFrame(dragFrameRef.current);
     dragFrameRef.current = undefined;
     const delta = deltaRef.current;
@@ -328,6 +374,9 @@ export function useTableGestures(options: TableGestureOptions) {
     if (!gesture || !stage) return false;
     if (stage.hasPointerCapture(gesture.pointerId)) stage.releasePointerCapture(gesture.pointerId);
     gestureRef.current = undefined;
+    edgePanPointRef.current = undefined;
+    if (edgePanFrameRef.current !== undefined) cancelAnimationFrame(edgePanFrameRef.current);
+    edgePanFrameRef.current = undefined;
     if (dragFrameRef.current !== undefined) cancelAnimationFrame(dragFrameRef.current);
     dragFrameRef.current = undefined;
     deltaRef.current = { x: 0, y: 0 };
@@ -362,6 +411,12 @@ export function useTableGestures(options: TableGestureOptions) {
     finishGesture,
     cancelActiveGesture,
   };
+}
+
+function edgePanStep(point: number, start: number, end: number): number {
+  if (point < start + EDGE_PAN_MARGIN) return Math.round(EDGE_PAN_MAX_STEP * Math.min(1, (start + EDGE_PAN_MARGIN - point) / EDGE_PAN_MARGIN));
+  if (point > end - EDGE_PAN_MARGIN) return -Math.round(EDGE_PAN_MAX_STEP * Math.min(1, (point - (end - EDGE_PAN_MARGIN)) / EDGE_PAN_MARGIN));
+  return 0;
 }
 
 function sequenceDropAt(stage: HTMLElement, clientX: number, clientY: number): { sequenceId: SequenceId; at?: number } | undefined {

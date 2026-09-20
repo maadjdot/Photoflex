@@ -244,6 +244,26 @@ describe("TablePage", () => {
     expect(world.style.transform).not.toBe(before);
   });
 
+  it("锁定照片后不会再被选择，并支持方向键平移画布", async () => {
+    const dependencies = await createFixture();
+    render(<App dependencies={dependencies} />);
+    const stage = await screen.findByLabelText("Photo worktable");
+    const cardA = within(stage).getByLabelText("A.jpg");
+    fireEvent.pointerDown(cardA, { pointerId: 33, button: 0, clientX: 120, clientY: 120 });
+    fireEvent.pointerUp(cardA, { pointerId: 33, button: 0, clientX: 120, clientY: 120 });
+    fireEvent.keyDown(stage, { key: "k" });
+    expect(within(stage).getByLabelText("A.jpg · Locked").className).toContain("is-locked");
+    fireEvent.pointerDown(within(stage).getByLabelText("B.jpg"), { pointerId: 34, button: 0, clientX: 320, clientY: 120 });
+    fireEvent.pointerUp(within(stage).getByLabelText("B.jpg"), { pointerId: 34, button: 0, clientX: 320, clientY: 120 });
+    fireEvent.keyDown(stage, { key: "a", ctrlKey: true });
+    expect(within(screen.getByRole("group", { name: "Table selection actions" })).getByText("1 photo")).toBeTruthy();
+    const world = stage.querySelector<HTMLElement>(".worktable-world");
+    if (!world) throw new Error("worktable world missing");
+    const before = world.style.transform;
+    fireEvent.keyDown(stage, { key: "ArrowRight" });
+    expect(world.style.transform).not.toBe(before);
+  });
+
   it("选中操作栏保持单行、使用精简文案且不显示 Clear", async () => {
     const dependencies = await createFixture();
     render(<App dependencies={dependencies} />);

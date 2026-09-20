@@ -19,6 +19,8 @@ export interface WorktablePlacement extends WorktablePoint {
   readonly width: number;
   readonly height: number;
   readonly filename: string;
+  /** Locked photos stay visible but are ignored by selection gestures. */
+  readonly locked?: boolean;
 }
 
 /** A strong Table-only relationship. Members never imply Sequence order. */
@@ -121,6 +123,7 @@ export type WorktableEditCommand =
   | { readonly type: "bring-sequence-piles-to-front"; readonly sequenceIds: readonly SequenceId[] }
   | { readonly type: "remove-sequence-piles"; readonly sequenceIds: readonly SequenceId[] }
   | { readonly type: "bring-to-front"; readonly photoIds: readonly WorktableItemId[] }
+  | { readonly type: "set-locked"; readonly photoIds: readonly WorktableItemId[]; readonly locked: boolean }
   | { readonly type: "remove"; readonly photoIds: readonly WorktableItemId[] };
 
 export type WorktableCommandError =

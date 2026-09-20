@@ -458,6 +458,8 @@ h1, h2, p { margin-top: 0; }
 .worktable-card.is-dragging { cursor: grabbing; transition: none; }
 .worktable-card.is-dragging .worktable-photo { box-shadow: 0 10px 28px rgb(28 24 20 / 22%); }
 .worktable-photo img, .worktable-photo .thumb-placeholder { display: block; width: 100%; height: 100%; object-fit: cover; image-rendering: auto; pointer-events: none; }
+.worktable-card.is-locked .worktable-photo { outline: 1px dashed #8a857d; outline-offset: -5px; }
+.worktable-lock-badge { position: absolute; top: 8px; left: 8px; padding: 3px 5px; border-radius: 3px; background: rgb(28 24 20 / 78%); color: #fff; font-size: 9px; font-weight: 700; letter-spacing: .08em; line-height: 1; }
 .worktable-card.is-missing .worktable-photo { background: repeating-linear-gradient(135deg, #d8d4cf, #d8d4cf 8px, #c8c3bd 8px, #c8c3bd 16px); }
 .sequence-pile { position: absolute; box-sizing: border-box; display: grid; grid-template-rows: minmax(72px, 41fr) minmax(104px, 59fr); min-width: 280px; min-height: 176px; overflow: visible; padding: 0; border: 0; border-radius: 18px; background: #fff; box-shadow: 0 4px 20px rgb(0 0 0 / 12%); color: #1a1917; cursor: grab; pointer-events: auto; }
 .sequence-pile:not(.is-selected):hover { box-shadow: 0 7px 26px rgb(0 0 0 / 16%); }

@@ -394,6 +394,17 @@ describe("WorktableEditor", () => {
     expect(removed.ok && removed.value.entryOrder).toEqual(["a"]);
   });
 
+  it("persists photo lock state as an undoable edit", () => {
+    const editor = createWorktableEditor(createEmptyWorktable(projectId));
+    editor.execute({ type: "place", items: [seed("a"), seed("b")] });
+    const locked = editor.execute({ type: "set-locked", photoIds: [photoId("a")], locked: true });
+    expect(locked.ok).toBe(true);
+    expect(editor.snapshot().placements[photoId("a")].locked).toBe(true);
+    expect(editor.snapshot().placements[photoId("b")].locked).toBeUndefined();
+    editor.undo();
+    expect(editor.snapshot().placements[photoId("a")].locked).toBeUndefined();
+  });
+
   it("resizes a legacy Sequence card from its rendered size and keeps its center", () => {
     const editor = createWorktableEditor(createEmptyWorktable(projectId));
     const sequenceId = "sequence-1" as SequenceId;

@@ -10,6 +10,7 @@ import gridIcon from "../assets/icons/table-grid.svg";
 import groupIcon from "../assets/icons/table-group.svg";
 import leaveGroupIcon from "../assets/icons/table-leave-group.svg";
 import linkIcon from "../assets/icons/table-link.svg";
+import lockIcon from "../assets/icons/table-lock.svg";
 import previewIcon from "../assets/icons/table-preview.svg";
 import redoIcon from "../assets/icons/table-redo.svg";
 import removeIcon from "../assets/icons/table-remove.svg";
@@ -126,6 +127,7 @@ export function TableContextToolbar({ draft, actions, canAddToSequence, onExecut
   const { t } = useLocale();
   const { photoIds, pileIds, selectedGroup: group, memberGroup, selectedLink } = actions;
   const sourcePhotoIds = photoIds.map((id) => draft.placements[id].photoId);
+  const allPhotosLocked = photoIds.length > 0 && photoIds.every((id) => draft.placements[id].locked);
   const compare = () => {
     if (actions.compareKind === "sequences") onCompareSequences([pileIds[0], pileIds[1]]);
     if (actions.compareKind === "photos") onComparePhotos([sourcePhotoIds[0], sourcePhotoIds[1]]);
@@ -136,6 +138,7 @@ export function TableContextToolbar({ draft, actions, canAddToSequence, onExecut
       {actions.canPreview && <TableToolButton icon={previewIcon} label={t("table.preview")} shortcut="P / Space" onClick={() => onPreview(sourcePhotoIds[0])} />}
       <TableToolButton icon={groupIcon} label={group ? t("table.ungroup") : t("table.group")} shortcut="G" disabled={!group && !actions.canGroup} onClick={() => group ? onExecute({ type: "remove-group", groupId: group.id }) : onExecute({ type: "create-group", photoIds })} />
       <TableToolButton icon={linkIcon} label={selectedLink ? t("table.unlink") : t("table.link")} shortcut="L" disabled={!selectedLink && !actions.canCreateLink} onClick={() => selectedLink ? onExecute({ type: "remove-link", linkId: selectedLink.id }) : onExecute({ type: "create-link", photoIds })} />
+      <TableToolButton icon={lockIcon} label={allPhotosLocked ? t("table.unlock") : t("table.lock")} shortcut="K" onClick={() => onExecute({ type: "set-locked", photoIds, locked: !allPhotosLocked })} />
     </>}
     <TableToolButton icon={compareIcon} label={t("table.compare")} shortcut="C" title={actions.compareDisabledReason} disabled={!actions.canCompare} onClick={compare} />
     {pileIds.length > 0 && <TableToolButton className="is-danger" icon={removeIcon} label={pileIds.length > 1 ? t("table.deleteSequences") : t("table.deleteSequence")} text={t("common.delete")} shortcut="Delete" disabled={!actions.canRemove} onClick={() => onRemovePiles(pileIds)} />}
