@@ -1,5 +1,9 @@
 node_modules/
 dist/
+dist-*.zip
+.env
+.env.local
+.env.*.local
 playwright-report/
 test-results/
 tests/fixtures/photos/*.jpg

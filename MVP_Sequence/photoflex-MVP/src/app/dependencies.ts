@@ -11,16 +11,28 @@ export interface AppDiagnosticEvent {
   readonly errorKind: string;
 }
 
+/** Browser-only dependencies. Projects and photo indexes stay on this device. */
 export interface AppDependencies {
   readonly projectStore: ProjectStore;
   readonly photoSource: PhotoSource;
   readonly diagnostics?: { report(event: AppDiagnosticEvent): void };
 }
 
-export function createBrowserDependencies(): AppDependencies {
+function createLocalWorkspace(databaseName = "photoflex-mvp"): Pick<AppDependencies, "projectStore" | "photoSource"> & { close(): Promise<void> } {
+  const projectStore = IndexedDbProjectStore.open({ databaseName });
+  const photoSource = new BrowserPhotoSource({ databaseName });
   return {
-    projectStore: IndexedDbProjectStore.open(),
-    photoSource: new BrowserPhotoSource(),
+    projectStore,
+    photoSource,
+    close: async () => { await Promise.all([projectStore.close(), photoSource.close()]); },
+  };
+}
+
+export function createBrowserDependencies(): AppDependencies {
+  const local = createLocalWorkspace();
+  return {
+    projectStore: local.projectStore,
+    photoSource: local.photoSource,
     ...(import.meta.env.DEV ? { diagnostics: { report: (event: AppDiagnosticEvent) => console.warn("[PhotoFlex]", event) } } : {}),
   };
 }

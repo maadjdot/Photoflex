@@ -15,11 +15,17 @@ export function orderPhotoIdsByTablePosition(
   draft: WorktableDraft,
   photoIds: readonly WorktableItemId[],
 ): PhotoId[] {
-  return orderWorktableItemIdsByTablePosition(draft, photoIds).map((id) => draft.placements[id].photoId);
+  return orderWorktableIdsByTablePosition(draft, photoIds)
+    .map((id) => draft.placements[id].photoId);
 }
 
-/** Keeps distinct Table occurrences identifiable while applying visual order. */
-export function orderWorktableItemIdsByTablePosition(
+/**
+ * Returns placement ids in the same visual reading order used when creating
+ * a Sequence from the Table. Keeping this as the shared primitive means
+ * Table layouts and Sequence creation agree even when a placement id differs
+ * from its source PhotoId (for example after copy/paste).
+ */
+export function orderWorktableIdsByTablePosition(
   draft: WorktableDraft,
   photoIds: readonly WorktableItemId[],
 ): WorktableItemId[] {
@@ -68,3 +74,6 @@ export function orderWorktableItemIdsByTablePosition(
 
   return ordered;
 }
+
+/** Backward-compatible name for callers that still use the original API. */
+export const orderWorktableItemIdsByTablePosition = orderWorktableIdsByTablePosition;

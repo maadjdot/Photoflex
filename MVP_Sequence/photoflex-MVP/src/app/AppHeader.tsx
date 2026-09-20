@@ -4,7 +4,7 @@ import type { AppDependencies } from "./dependencies";
 import type { AppRoute } from "./router";
 import { LanguageSwitcher, useLocale } from "./locale";
 
-export function AppHeader({ dependencies, route, projectId, contactSourceId, lastSequenceId, navigate, variant = "default", projectLabel, actions }: {
+export function AppHeader({ dependencies, route, projectId, contactSourceId, lastSequenceId, navigate, variant = "default", projectLabel, actions, projectSettingsProjectId, showProjectSettings = true }: {
   readonly dependencies: AppDependencies;
   readonly route: AppRoute;
   readonly projectId?: ProjectId;
@@ -14,6 +14,8 @@ export function AppHeader({ dependencies, route, projectId, contactSourceId, las
   readonly variant?: "default" | "table";
   readonly projectLabel?: string;
   readonly actions?: ReactNode;
+  readonly projectSettingsProjectId?: ProjectId;
+  readonly showProjectSettings?: boolean;
 }) {
   const [projectName, setProjectName] = useState<string>();
   const { t } = useLocale();
@@ -32,6 +34,7 @@ export function AppHeader({ dependencies, route, projectId, contactSourceId, las
 
   const brand = <button className="brand" onClick={() => navigate({ name: "home" })} aria-label={t("app.backHome")}>Photoflex</button>;
   const label = projectLabel ?? projectName ?? projectId;
+  const settingsProjectId = showProjectSettings ? projectSettingsProjectId ?? (route.name === "home" ? undefined : projectId) : undefined;
   return <header className={`topbar${variant === "table" ? " is-table" : ""}${route.name === "home" ? " is-home" : ""}`}>
     {variant === "table" ? <div className="table-header-project">{brand}{projectId && <><span className="table-header-slash" aria-hidden="true">/</span><span className="project-context-name" title={label}>{label}</span></>}</div> : <>{brand}{projectId && <span className="project-context-name" title={label}>{label}</span>}</>}
     {route.name !== "home" && route.name !== "table" && route.name !== "sequence" && <nav className="topnav" aria-label={t("nav.main")}>
@@ -50,7 +53,8 @@ export function AppHeader({ dependencies, route, projectId, contactSourceId, las
     </nav>}
     <div className={route.name === "home" ? "home-header-actions" : "topbar-actions"}>
       {route.name === "home" && <LanguageSwitcher />}
-      {actions ?? <button className="login-button" aria-label={t("nav.login")}>{t("nav.login")}</button>}
+      {actions}
+      {settingsProjectId && <NavButton onClick={() => navigate({ name: "project", projectId: settingsProjectId })}>{t("nav.projectSettings")}</NavButton>}
     </div>
   </header>;
 }

@@ -1,8 +1,8 @@
 import { BACKUP_FORMAT, BACKUP_SCHEMA_VERSION, err, ok, type BackupError, type PhotoId, type PhotoRef, type ProjectBackupV1, type ProjectId, type Result, type SequenceId, type SourceId, type VersionId, type WorkspaceRevision, type SequenceRevision, type WorktableItemId } from "../contracts";
 import { isWorkspace, migrateWorkspaceV7ToV8, validateSequenceForProject, validateVersionForProject } from "./projectStoreData";
 
-/** Validate before touching storage; every import is an independent project. */
-export function prepareBackupImport(bytes: Uint8Array): Result<{ backup: ProjectBackupV1; photos: PhotoRef[] }, BackupError> {
+/** Validate before touching storage. File imports are copies; cloud hydration retains IDs. */
+export function prepareBackupImport(bytes: Uint8Array, preserveIds = false): Result<{ backup: ProjectBackupV1; photos: PhotoRef[] }, BackupError> {
   try {
     const parsed = JSON.parse(new TextDecoder().decode(bytes)) as ProjectBackupV1;
     if (parsed?.format !== BACKUP_FORMAT) throw new Error("This is not a PhotoFlex project backup.");
@@ -31,6 +31,10 @@ export function prepareBackupImport(bytes: Uint8Array): Result<{ backup: Project
       if (!sources.has(photo.sourceId) || typeof photo.relativePath !== "string" || !photo.relativePath || photo.relativePath.split(/[\\/]/).some((part: string) => !part || part === "." || part === "..") || photo.relativePath.includes(":")) throw new Error("Invalid photo path or source.");
       if ([photo.width, photo.height, photo.fileSize, photo.fileLastModified].some((n) => n !== undefined && (!Number.isFinite(n) || n < 0))) throw new Error("Invalid photo metadata.");
     }
+    if (preserveIds) return ok({
+      backup: input,
+      photos: input.photoManifest.map(({ photoId: id, ...photo }) => ({ ...photo, id, width: photo.width ?? 0, height: photo.height ?? 0 })),
+    });
     const remap = <T extends string>() => {
       const ids = new Map<T, T>();
       return (id: T): T => { if (!ids.has(id)) ids.set(id, crypto.randomUUID() as T); return ids.get(id)!; };

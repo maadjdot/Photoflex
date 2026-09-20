@@ -20,6 +20,7 @@ import { fitSequenceCardFrame } from "./sequenceCardGeometry";
 import { useProjectWorkspaceSession } from "./useProjectWorkspace";
 import { useSequenceSession } from "./sequenceSession";
 import { useSequenceReorderDrag } from "./useSequenceReorderDrag";
+import { sequenceItemInDirection, type SequenceArrow } from "./sequenceKeyboardNavigation";
 import { SequenceReadMode, warmSequenceReadAt } from "./SequenceReadMode";
 import { SequencePdfExportButton } from "./SequencePdfExportButton";
 import { useLocale } from "./locale";
@@ -239,10 +240,14 @@ export function SequencePage({ dependencies, projectId, sequenceId, openVersionI
     if (event.key.toLowerCase() === "r" && sequence?.readingUnits.length) { event.preventDefault(); openRead(orderedSelection[0] ? readUnitForItem(orderedSelection[0].id) : 0); return; }
     if (event.key === "+" || event.key === "=") { event.preventDefault(); changeZoom(1, zoom, setZoom); return; }
     if (event.key === "-") { event.preventDefault(); changeZoom(-1, zoom, setZoom); return; }
-    if ((event.key === "ArrowLeft" || event.key === "ArrowRight") && sequence?.items.length) {
-      event.preventDefault(); const current = orderedSelection.at(-1); const index = current ? sequenceLookup?.itemIndexById.get(current.id) ?? 0 : 0; const next = sequence.items[Math.max(0, Math.min(sequence.items.length - 1, index + (event.key === "ArrowRight" ? 1 : -1)))]; if (next) { setSelected(new Set([next.id])); setAnchor(next.id); window.setTimeout(() => centerItem(next.id), 0); }
+    if (event.key.startsWith("Arrow") && sequence?.items.length) {
+      event.preventDefault();
+      const currentId = orderedSelection.at(-1)?.id;
+      const nextId = sequenceItemInDirection(overview ? overviewRef.current : stageRef.current, sequenceItemIds, currentId, event.key as SequenceArrow);
+      if (nextId) { setSelected(new Set([nextId])); setAnchor(nextId); window.setTimeout(() => centerItem(nextId), 0); }
+      return;
     }
-  }, [cancelDrag, centerItem, commit, history, openRead, orderedSelection, overview, readUnitForItem, selected.size, sequence, sequenceLookup, zoom]);
+  }, [cancelDrag, centerItem, commit, history, openRead, orderedSelection, overview, readUnitForItem, selected.size, sequence, sequenceItemIds, zoom]);
 
   const onWheel = useCallback((event: ReactWheelEvent<HTMLElement>) => {
     if (event.defaultPrevented) return;

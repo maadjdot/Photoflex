@@ -7,15 +7,19 @@ import type {
   WorktableViewport,
   WorktableItemId,
 } from "../contracts";
-import { screenToWorld } from "../modules/worktable";
+import { calculateAlignmentPreview, screenToWorld, type AlignmentGuide } from "../modules/worktable";
+import { sequenceStripInsertionIndex } from "../modules/sequence";
 
 type Gesture =
-  | { kind: "photo"; pointerId: number; start: WorktablePoint; ids: readonly WorktableItemId[] }
-  | { kind: "pile"; pointerId: number; start: WorktablePoint; ids: readonly SequenceId[] }
+  | { kind: "photo"; pointerId: number; start: WorktablePoint; ids: readonly WorktableItemId[]; startClient: WorktablePoint; moved: boolean }
+  | { kind: "pile"; pointerId: number; start: WorktablePoint; ids: readonly SequenceId[]; openOnClick?: SequenceId; moved: boolean; startClient: WorktablePoint }
   | { kind: "pan"; pointerId: number; start: WorktablePoint; viewport: WorktableViewport }
-  | { kind: "marquee"; pointerId: number; start: WorktablePoint; additive: boolean }
+  | { kind: "marquee"; pointerId: number; start: WorktablePoint; startClient: WorktablePoint; additive: boolean }
   | { kind: "resize"; pointerId: number; start: WorktablePoint; photoId: WorktableItemId; width: number }
-  | { kind: "resize-pile"; pointerId: number; start: WorktablePoint; sequenceId: SequenceId; width: number };
+  | { kind: "resize-pile"; pointerId: number; start: WorktablePoint; sequenceId: SequenceId; width: number; height: number };
+
+const EDGE_PAN_MARGIN = 64;
+const EDGE_PAN_MAX_STEP = 18;
 
 export interface TableMarquee {
   readonly left: number;
@@ -34,6 +38,9 @@ interface TableGestureOptions {
   readonly selectPile: (sequenceId: SequenceId, toggle: boolean) => readonly SequenceId[] | undefined;
   readonly selectPhotos: (photoIds: readonly WorktableItemId[], additive?: boolean) => unknown;
   readonly clearSelection: () => unknown;
+  readonly onOpenSequence?: (sequenceId: SequenceId) => void;
+  readonly onDropPhotosOnSequence: (photoIds: readonly WorktableItemId[], sequenceId: SequenceId, at?: number) => void;
+  readonly visiblePhotoIds: ReadonlySet<WorktableItemId>;
   readonly disabled?: boolean;
 }
 
@@ -45,25 +52,34 @@ export interface TableGesturePreview {
   readonly resizeScale: number;
   readonly pileResizeScale: number;
   readonly marquee?: TableMarquee;
+  readonly targetSequenceId?: SequenceId;
+  readonly insertIndex?: number;
+  readonly alignmentGuides: readonly AlignmentGuide[];
 }
 
 export function useTableGestures(options: TableGestureOptions) {
-  const { stageRef, draft, viewport, setViewport, execute, selectPhoto, selectPile, selectPhotos, clearSelection, disabled = false } = options;
+  const { stageRef, draft, viewport, setViewport, execute, selectPhoto, selectPile, selectPhotos, clearSelection, onOpenSequence, onDropPhotosOnSequence, visiblePhotoIds, disabled = false } = options;
   const [dragDelta, setDragDelta] = useState<WorktablePoint>({ x: 0, y: 0 });
   const [resizeScale, setResizeScale] = useState(1);
   const [pileResizeScale, setPileResizeScale] = useState(1);
   const [marquee, setMarquee] = useState<TableMarquee>();
   const [gestureIdentity, setGestureIdentity] = useState<Pick<TableGesturePreview, "kind" | "photoId" | "sequenceId">>({});
+  const [targetSequenceId, setTargetSequenceId] = useState<SequenceId>();
+  const [insertIndex, setInsertIndex] = useState<number>();
+  const [alignmentGuides, setAlignmentGuides] = useState<readonly AlignmentGuide[]>([]);
   const gestureRef = useRef<Gesture | undefined>(undefined);
   const deltaRef = useRef<WorktablePoint>({ x: 0, y: 0 });
   const scaleRef = useRef(1);
   const viewportRef = useRef(viewport);
   const dragFrameRef = useRef<number | undefined>(undefined);
+  const edgePanFrameRef = useRef<number | undefined>(undefined);
+  const edgePanPointRef = useRef<{ readonly x: number; readonly y: number } | undefined>(undefined);
   const pendingDragDeltaRef = useRef<WorktablePoint>({ x: 0, y: 0 });
   viewportRef.current = viewport;
 
   useEffect(() => () => {
     if (dragFrameRef.current !== undefined) cancelAnimationFrame(dragFrameRef.current);
+    if (edgePanFrameRef.current !== undefined) cancelAnimationFrame(edgePanFrameRef.current);
   }, []);
 
   const identify = (gesture?: Gesture) => {
@@ -94,6 +110,7 @@ export function useTableGestures(options: TableGestureOptions) {
     gestureRef.current = gesture;
     deltaRef.current = { x: 0, y: 0 };
     setDragDelta({ x: 0, y: 0 });
+    setAlignmentGuides([]);
     identify(gesture);
   };
 
@@ -101,15 +118,19 @@ export function useTableGestures(options: TableGestureOptions) {
     if (disabled) return;
     event.preventDefault();
     event.stopPropagation();
-    if (event.button === 2) return startPan(event);
+    if (event.button === 1 || event.button === 2) return startPan(event);
     if (event.button !== 0 || !stageRef.current) return;
-    const ids = selectPhoto(id, event.shiftKey || event.ctrlKey || event.metaKey);
+    const ids = selectPhoto(id, event.shiftKey || event.ctrlKey || event.metaKey)
+      ?.filter((photoId) => !draft.placements[photoId]?.locked);
     if (!ids?.length) return;
+    if (draft.placements[id]?.locked) return;
     beginDrag(event, {
       kind: "photo",
       pointerId: event.pointerId,
       start: screenToWorld({ x: event.clientX, y: event.clientY }, stageRef.current.getBoundingClientRect(), viewportRef.current),
       ids,
+      startClient: { x: event.clientX, y: event.clientY },
+      moved: false,
     });
   };
 
@@ -118,11 +139,15 @@ export function useTableGestures(options: TableGestureOptions) {
     event.preventDefault();
     event.stopPropagation();
     selectPhotos(ids);
+    const movableIds = ids.filter((id) => !draft.placements[id]?.locked);
+    if (!movableIds.length) return;
     beginDrag(event, {
       kind: "photo",
       pointerId: event.pointerId,
       start: screenToWorld({ x: event.clientX, y: event.clientY }, stageRef.current.getBoundingClientRect(), viewportRef.current),
-      ids,
+      ids: movableIds,
+      startClient: { x: event.clientX, y: event.clientY },
+      moved: false,
     });
   };
 
@@ -130,15 +155,19 @@ export function useTableGestures(options: TableGestureOptions) {
     if (disabled) return;
     event.preventDefault();
     event.stopPropagation();
-    if (event.button === 2) return startPan(event);
+    if (event.button === 1 || event.button === 2) return startPan(event);
     if (event.button !== 0 || !stageRef.current) return;
-    const ids = selectPile(id, event.shiftKey || event.ctrlKey || event.metaKey);
+    const modified = event.shiftKey || event.ctrlKey || event.metaKey;
+    const ids = selectPile(id, modified);
     if (!ids?.length) return;
     beginDrag(event, {
       kind: "pile",
       pointerId: event.pointerId,
       start: screenToWorld({ x: event.clientX, y: event.clientY }, stageRef.current.getBoundingClientRect(), viewportRef.current),
       ids,
+      openOnClick: modified ? undefined : id,
+      moved: false,
+      startClient: { x: event.clientX, y: event.clientY },
     });
   };
 
@@ -146,7 +175,7 @@ export function useTableGestures(options: TableGestureOptions) {
     if (disabled) return;
     const stage = stageRef.current;
     const item = draft.placements[id];
-    if (event.button !== 0 || !stage || !item) return;
+    if (event.button !== 0 || !stage || !item || item.locked) return;
     event.preventDefault();
     event.stopPropagation();
     stage.setPointerCapture(event.pointerId);
@@ -162,7 +191,11 @@ export function useTableGestures(options: TableGestureOptions) {
     identify(gesture);
   };
 
-  const onPileResizePointerDown = (event: ReactPointerEvent<HTMLButtonElement>, id: SequenceId) => {
+  const onPileResizePointerDown = (
+    event: ReactPointerEvent<HTMLButtonElement>,
+    id: SequenceId,
+    renderedSize?: { readonly width: number; readonly height: number },
+  ) => {
     if (disabled) return;
     const stage = stageRef.current;
     const pile = draft.pilePlacements[id];
@@ -175,7 +208,8 @@ export function useTableGestures(options: TableGestureOptions) {
       pointerId: event.pointerId,
       start: screenToWorld({ x: event.clientX, y: event.clientY }, stage.getBoundingClientRect(), viewportRef.current),
       sequenceId: id,
-      width: pile.width,
+      width: renderedSize?.width ?? pile.width,
+      height: renderedSize?.height ?? pile.height,
     };
     gestureRef.current = gesture;
     scaleRef.current = 1;
@@ -186,17 +220,73 @@ export function useTableGestures(options: TableGestureOptions) {
   const onStagePointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (disabled) return;
     if (event.target !== event.currentTarget || !stageRef.current) return;
-    if (event.button === 2) return startPan(event);
+    if (event.button === 1 || event.button === 2) return startPan(event);
     if (event.button !== 0) return;
     stageRef.current.focus();
     stageRef.current.setPointerCapture(event.pointerId);
     const rect = stageRef.current.getBoundingClientRect();
     const additive = event.shiftKey || event.ctrlKey || event.metaKey;
-    const gesture: Gesture = { kind: "marquee", pointerId: event.pointerId, start: { x: event.clientX, y: event.clientY }, additive };
+    const gesture: Gesture = {
+      kind: "marquee",
+      pointerId: event.pointerId,
+      start: screenToWorld({ x: event.clientX, y: event.clientY }, rect, viewportRef.current),
+      startClient: { x: event.clientX, y: event.clientY },
+      additive,
+    };
     gestureRef.current = gesture;
     setMarquee({ left: event.clientX - rect.left, top: event.clientY - rect.top, width: 0, height: 0 });
     if (!additive) clearSelection();
     identify(gesture);
+  };
+
+  const scheduleEdgePan = () => {
+    if (edgePanFrameRef.current !== undefined) return;
+    const tick = () => {
+      edgePanFrameRef.current = undefined;
+      const gesture = gestureRef.current;
+      const point = edgePanPointRef.current;
+      const stage = stageRef.current;
+      if (!gesture || !point || !stage || (gesture.kind !== "photo" && gesture.kind !== "pile" && gesture.kind !== "marquee")) return;
+      const rect = stage.getBoundingClientRect();
+      const panX = edgePanStep(point.x, rect.left, rect.right);
+      const panY = edgePanStep(point.y, rect.top, rect.bottom);
+      if (!panX && !panY) return;
+      setViewport({
+        ...viewportRef.current,
+        originX: viewportRef.current.originX + panX,
+        originY: viewportRef.current.originY + panY,
+      });
+      if (gesture.kind !== "marquee") {
+        const world = screenToWorld(point, rect, viewportRef.current);
+        const delta = { x: world.x - gesture.start.x, y: world.y - gesture.start.y };
+        if (gesture.kind === "photo") updatePhotoDragPreview(gesture, delta);
+        else {
+          deltaRef.current = delta;
+          pendingDragDeltaRef.current = delta;
+        }
+        if (dragFrameRef.current === undefined) {
+          dragFrameRef.current = requestAnimationFrame(() => {
+            dragFrameRef.current = undefined;
+            setDragDelta(pendingDragDeltaRef.current);
+          });
+        }
+      }
+      edgePanFrameRef.current = requestAnimationFrame(tick);
+    };
+    edgePanFrameRef.current = requestAnimationFrame(tick);
+  };
+
+  const updatePhotoDragPreview = (gesture: Extract<Gesture, { kind: "photo" }>, delta: WorktablePoint) => {
+    const preview = calculateAlignmentPreview({
+      draft,
+      movingIds: gesture.ids,
+      delta,
+      zoom: viewportRef.current.zoom,
+      referenceIds: [...visiblePhotoIds],
+    });
+    deltaRef.current = preview.delta;
+    pendingDragDeltaRef.current = preview.delta;
+    setAlignmentGuides(preview.guides);
   };
 
   const onStagePointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
@@ -214,11 +304,15 @@ export function useTableGestures(options: TableGestureOptions) {
     }
     if (gesture.kind === "marquee") {
       setMarquee({
-        left: Math.min(gesture.start.x, event.clientX) - rect.left,
-        top: Math.min(gesture.start.y, event.clientY) - rect.top,
-        width: Math.abs(event.clientX - gesture.start.x),
-        height: Math.abs(event.clientY - gesture.start.y),
+        left: Math.min(gesture.startClient.x, event.clientX) - rect.left,
+        top: Math.min(gesture.startClient.y, event.clientY) - rect.top,
+        width: Math.abs(event.clientX - gesture.startClient.x),
+        height: Math.abs(event.clientY - gesture.startClient.y),
       });
+      if (Math.hypot(event.clientX - gesture.startClient.x, event.clientY - gesture.startClient.y) > 5) {
+        edgePanPointRef.current = { x: event.clientX, y: event.clientY };
+        scheduleEdgePan();
+      }
       return;
     }
     if (gesture.kind === "resize") {
@@ -237,10 +331,25 @@ export function useTableGestures(options: TableGestureOptions) {
       setPileResizeScale(scaleRef.current);
       return;
     }
+    if ((gesture.kind === "pile" || gesture.kind === "photo") && Math.hypot(event.clientX - gesture.startClient.x, event.clientY - gesture.startClient.y) > 5) gesture.moved = true;
+    if ((gesture.kind === "photo" || gesture.kind === "pile") && gesture.moved) {
+      edgePanPointRef.current = { x: event.clientX, y: event.clientY };
+      scheduleEdgePan();
+    }
+    const sequenceTarget = gesture.kind === "photo" && gesture.moved ? sequenceDropAt(stage, event.clientX, event.clientY) : undefined;
+    if (gesture.kind === "photo") {
+      setTargetSequenceId(sequenceTarget?.sequenceId);
+      setInsertIndex(sequenceTarget?.at);
+    }
     const world = screenToWorld({ x: event.clientX, y: event.clientY }, rect, viewportRef.current);
     const delta = { x: world.x - gesture.start.x, y: world.y - gesture.start.y };
-    deltaRef.current = delta;
-    pendingDragDeltaRef.current = delta;
+    if (gesture.kind === "photo" && gesture.moved) updatePhotoDragPreview(gesture, delta);
+    else {
+      deltaRef.current = delta;
+      pendingDragDeltaRef.current = delta;
+      setAlignmentGuides([]);
+    }
+    if (sequenceTarget) setAlignmentGuides([]);
     if (dragFrameRef.current === undefined) {
       dragFrameRef.current = requestAnimationFrame(() => {
         dragFrameRef.current = undefined;
@@ -255,17 +364,29 @@ export function useTableGestures(options: TableGestureOptions) {
     if (!gesture || gesture.pointerId !== event.pointerId || !stage) return;
     if (stage.hasPointerCapture(event.pointerId)) stage.releasePointerCapture(event.pointerId);
     gestureRef.current = undefined;
+    edgePanPointRef.current = undefined;
+    if (edgePanFrameRef.current !== undefined) cancelAnimationFrame(edgePanFrameRef.current);
+    edgePanFrameRef.current = undefined;
     if (dragFrameRef.current !== undefined) cancelAnimationFrame(dragFrameRef.current);
     dragFrameRef.current = undefined;
     const delta = deltaRef.current;
-    const moved = Math.abs(delta.x) > .25 || Math.abs(delta.y) > .25;
-    if (!cancelled && moved && gesture.kind === "photo") execute({ type: "move", photoIds: gesture.ids, by: delta });
+    const moved = gesture.kind === "pile" || gesture.kind === "photo" ? gesture.moved : Math.abs(delta.x) > .25 || Math.abs(delta.y) > .25;
+    const sequenceTarget = !cancelled && moved && gesture.kind === "photo" ? sequenceDropAt(stage, event.clientX, event.clientY) : undefined;
+    if (sequenceTarget && gesture.kind === "photo") {
+      onDropPhotosOnSequence(gesture.ids, sequenceTarget.sequenceId, sequenceTarget.at);
+    } else if (!cancelled && moved && gesture.kind === "photo") execute({ type: "move", photoIds: gesture.ids, by: delta });
     if (!cancelled && moved && gesture.kind === "pile") execute({ type: "move-sequence-piles", sequenceIds: gesture.ids, by: delta });
+    if (!cancelled && !moved && gesture.kind === "pile" && gesture.openOnClick) onOpenSequence?.(gesture.openOnClick);
     if (!cancelled && gesture.kind === "resize" && Math.abs(scaleRef.current - 1) > .01) execute({ type: "resize", photoIds: [gesture.photoId], scale: scaleRef.current });
-    if (!cancelled && gesture.kind === "resize-pile" && Math.abs(scaleRef.current - 1) > .01) execute({ type: "resize-sequence-pile", sequenceId: gesture.sequenceId, scale: scaleRef.current });
+    if (!cancelled && gesture.kind === "resize-pile" && Math.abs(scaleRef.current - 1) > .01) execute({
+      type: "resize-sequence-pile",
+      sequenceId: gesture.sequenceId,
+      scale: scaleRef.current,
+      baseSize: { width: gesture.width, height: gesture.height },
+    });
     if (!cancelled && gesture.kind === "marquee") {
       const rect = stage.getBoundingClientRect();
-      const a = screenToWorld(gesture.start, rect, viewportRef.current);
+      const a = gesture.start;
       const b = screenToWorld({ x: event.clientX, y: event.clientY }, rect, viewportRef.current);
       const box = { left: Math.min(a.x, b.x), top: Math.min(a.y, b.y), right: Math.max(a.x, b.x), bottom: Math.max(a.y, b.y) };
       const hits = draft.entryOrder.filter((id) => {
@@ -282,7 +403,34 @@ export function useTableGestures(options: TableGestureOptions) {
     setResizeScale(1);
     setPileResizeScale(1);
     setMarquee(undefined);
+    setTargetSequenceId(undefined);
+    setInsertIndex(undefined);
+    setAlignmentGuides([]);
     identify(undefined);
+  };
+
+  const cancelActiveGesture = () => {
+    const gesture = gestureRef.current;
+    const stage = stageRef.current;
+    if (!gesture || !stage) return false;
+    if (stage.hasPointerCapture(gesture.pointerId)) stage.releasePointerCapture(gesture.pointerId);
+    gestureRef.current = undefined;
+    edgePanPointRef.current = undefined;
+    if (edgePanFrameRef.current !== undefined) cancelAnimationFrame(edgePanFrameRef.current);
+    edgePanFrameRef.current = undefined;
+    if (dragFrameRef.current !== undefined) cancelAnimationFrame(dragFrameRef.current);
+    dragFrameRef.current = undefined;
+    deltaRef.current = { x: 0, y: 0 };
+    scaleRef.current = 1;
+    setDragDelta({ x: 0, y: 0 });
+    setResizeScale(1);
+    setPileResizeScale(1);
+    setMarquee(undefined);
+    setTargetSequenceId(undefined);
+    setInsertIndex(undefined);
+    setAlignmentGuides([]);
+    identify(undefined);
+    return true;
   };
 
   return {
@@ -292,6 +440,9 @@ export function useTableGestures(options: TableGestureOptions) {
       resizeScale,
       pileResizeScale,
       marquee,
+      targetSequenceId,
+      insertIndex,
+      alignmentGuides,
     } satisfies TableGesturePreview,
     onPhotoPointerDown,
     onGroupPointerDown,
@@ -301,5 +452,32 @@ export function useTableGestures(options: TableGestureOptions) {
     onStagePointerDown,
     onStagePointerMove,
     finishGesture,
+    cancelActiveGesture,
   };
+}
+
+function edgePanStep(point: number, start: number, end: number): number {
+  if (point < start + EDGE_PAN_MARGIN) return Math.round(EDGE_PAN_MAX_STEP * Math.min(1, (start + EDGE_PAN_MARGIN - point) / EDGE_PAN_MARGIN));
+  if (point > end - EDGE_PAN_MARGIN) return -Math.round(EDGE_PAN_MAX_STEP * Math.min(1, (point - (end - EDGE_PAN_MARGIN)) / EDGE_PAN_MARGIN));
+  return 0;
+}
+
+function sequenceDropAt(stage: HTMLElement, clientX: number, clientY: number): { sequenceId: SequenceId; at?: number } | undefined {
+  const tray = stage.querySelector<HTMLElement>("[data-sequence-insert-tray]");
+  if (tray) {
+    const rect = tray.getBoundingClientRect();
+    if (clientX >= rect.left && clientX <= rect.right && clientY >= rect.top && clientY <= rect.bottom) {
+      return {
+        sequenceId: tray.dataset.sequenceId as SequenceId,
+        at: sequenceStripInsertionIndex(clientX, rect.left, tray.scrollLeft, Number(tray.dataset.itemCount), 12, 72, 10),
+      };
+    }
+  }
+  const piles = [...stage.querySelectorAll<HTMLElement>("[data-sequence-pile-id]")]
+    .sort((left, right) => Number(right.style.zIndex) - Number(left.style.zIndex));
+  const pile = piles.find((pile) => {
+    const rect = pile.getBoundingClientRect();
+    return clientX >= rect.left && clientX <= rect.right && clientY >= rect.top && clientY <= rect.bottom;
+  });
+  return pile ? { sequenceId: pile.dataset.sequencePileId as SequenceId } : undefined;
 }

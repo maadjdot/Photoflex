@@ -22,3 +22,10 @@ export function fitSequenceCardFrame(width: number, height: number): SequenceCar
   };
 }
 
+/** Matches the two observed Figma pile widths while capping the six-image preview. */
+export function sequencePileCardWidth(photoCount: number): number {
+  const count = Math.max(0, Math.min(6, Math.trunc(photoCount)));
+  if (count <= 4) return Math.round((280 + Math.max(0, count - 1) * (10 / 3)) * 100) / 100;
+  return 290 + (count - 4) * 56;
+}
+

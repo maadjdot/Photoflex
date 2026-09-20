@@ -40,10 +40,6 @@ export function NewProjectDialog({
       setError(t("project.enterName"));
       return;
     }
-    if (!grant) {
-      setError(t("project.chooseFolder"));
-      return;
-    }
     const expectedCount = expected.trim() ? Number(expected) : null;
     if (expectedCount !== null && (!Number.isInteger(expectedCount) || expectedCount <= 0)) {
       setError(t("project.invalidExpectedCount"));
@@ -52,12 +48,12 @@ export function NewProjectDialog({
     setBusy(true);
     const createdAt = now();
     const projectId = crypto.randomUUID() as ProjectId;
-    const source: SourceRecord = {
+    const source: SourceRecord | undefined = grant ? {
       id: grant.sourceId,
       displayName: grant.displayName,
       createdAt,
       kind: "folder",
-    };
+    } : undefined;
     const result = await dependencies.projectStore.createProject({
       id: projectId,
       name: trimmedName,
@@ -94,7 +90,7 @@ export function NewProjectDialog({
         {error && <p className="form-error" role="alert">{error}</p>}
         <footer className="modal-footer">
           <p className="modal-safe">{t("project.originalFilesNote")}</p>
-          <div className="modal-actions"><button className="button button-secondary" onClick={onClose}>{t("common.cancel")}</button><button className="button button-primary" disabled={busy || choosingFolder || !name.trim() || !grant} onClick={create}>{busy ? t("project.creating") : t("project.createProject")}</button></div>
+          <div className="modal-actions"><button className="button button-secondary" onClick={onClose}>{t("common.cancel")}</button><button className="button button-primary" disabled={busy || choosingFolder || !name.trim()} onClick={create}>{busy ? t("project.creating") : t("project.createProject")}</button></div>
         </footer>
       </section>
     </div>

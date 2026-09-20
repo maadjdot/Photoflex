@@ -68,7 +68,8 @@ test("first-use guidance, shared navigation and project backup round trip", asyn
   await page.goForward();
   await expect(nav.locator('[aria-current="page"]')).toHaveText("Sequence");
   await nav.getByRole("button", { name: "Home", exact: true }).click();
-  await expect(page.getByRole("button", { name: "Open Table", exact: true })).toBeVisible();
+  await expect(page.locator(".home-gallery-photo").first()).toBeVisible();
+  await expect(page.getByRole("button", { name: "Open Table", exact: true })).toHaveCount(0);
   await page.getByLabel("Project backup file").setInputFiles(filePath);
   await expect(page).toHaveURL(/#\/projects\/[^/]+$/);
   expect(page.url()).not.toBe(projectUrl);

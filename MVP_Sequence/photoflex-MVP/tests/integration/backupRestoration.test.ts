@@ -86,3 +86,24 @@ it("rolls back the entire IndexedDB import if writing a photo record fails", asy
   expect(await store.importBackup(backupBytes())).toMatchObject({ ok: false, error: { kind: "quota-exceeded" } });
   expect(await store.listProjects()).toMatchObject({ ok: true, value: [] });
 });
+
+it("installs a cloud snapshot under its stable project ID and replaces it atomically", async () => {
+  const store = browserStore();
+  const snapshot = backupFixture();
+  expect(await store.installCloudSnapshot(snapshot)).toEqual({ ok: true, value: undefined });
+  const id = snapshot.project.projectId;
+  const first = await store.exportBackup(id);
+  expect(first.ok).toBe(true);
+  if (!first.ok) return;
+  expect((JSON.parse(new TextDecoder().decode(first.value)) as ProjectBackupV1).project.name).toBe(snapshot.project.name);
+
+  const updated = { ...snapshot, project: { ...snapshot.project, name: "Cloud edit" }, photoManifest: snapshot.photoManifest.slice(0, 1) };
+  expect(await store.installCloudSnapshot(updated)).toEqual({ ok: true, value: undefined });
+  const exported = await store.exportBackup(id);
+  if (!exported.ok) throw new Error("Cloud snapshot missing");
+  const document = JSON.parse(new TextDecoder().decode(exported.value)) as ProjectBackupV1;
+  expect(document.project.projectId).toBe(id);
+  expect(document.project.name).toBe("Cloud edit");
+  expect(document.photoManifest).toHaveLength(1);
+  expect((await store.listProjects()).ok).toBe(true);
+});

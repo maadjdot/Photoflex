@@ -1,6 +1,6 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { createProjectWriteCoordinator, type ProjectWriteCoordinator } from "./projectWriteCoordinator";
-import { downloadBackup } from "./ProjectBackupControls";
+import { downloadRecoveryBackup } from "./downloadRecoveryBackup";
 import { AppHeader } from "./AppHeader";
 import { ContactSheetPage } from "./ContactSheetPage";
 import type { AppDependencies } from "./dependencies";
@@ -12,10 +12,10 @@ import { useAppRoute } from "./router";
 import { useAppNavigationState } from "./useAppNavigationState";
 import { ProjectWorkspaceProvider } from "./useProjectWorkspace";
 import { LocaleProvider, useLocale } from "./locale";
+import type { ProjectId } from "../contracts";
 
 export { VirtualPhotoGrid } from "./VirtualPhotoGrid";
 
-const SequencePage = lazy(() => import("./SequencePage").then((module) => ({ default: module.SequencePage })));
 const SequenceComparePage = lazy(() => import("./SequenceComparePages").then((module) => ({ default: module.SequenceComparePage })));
 const VersionComparePage = lazy(() => import("./SequenceComparePages").then((module) => ({ default: module.VersionComparePage })));
 
@@ -24,13 +24,14 @@ interface AppProps {
 }
 
 export function M1App(props: AppProps) {
-  return <LocaleProvider><M1AppContent {...props} /></LocaleProvider>;
+  return <LocaleProvider><M1AppContent dependencies={props.dependencies} /></LocaleProvider>;
 }
 
 function M1AppContent({ dependencies }: AppProps) {
   const { locale, t } = useLocale();
   const coordinatorRef = useRef<ProjectWriteCoordinator | undefined>(undefined);
   const [recovery, setRecovery] = useState(false);
+  const [homeProjectId, setHomeProjectId] = useState<ProjectId>();
   const [recovering, setRecovering] = useState(false);
   const [recoveryError, setRecoveryError] = useState<string>();
   const [route, navigate] = useAppRoute(async () => {
@@ -43,6 +44,9 @@ function M1AppContent({ dependencies }: AppProps) {
   const { currentProjectId, contactSourceId, lastSequenceId } = useAppNavigationState(dependencies, route);
   const coordinator = useMemo(() => currentProjectId ? createProjectWriteCoordinator(dependencies, currentProjectId) : undefined, [dependencies, currentProjectId]);
   coordinatorRef.current = coordinator;
+  useEffect(() => {
+    if (route.name !== "home") setHomeProjectId(undefined);
+  }, [route.name]);
   useEffect(() => {
     const beforeUnload = (event: BeforeUnloadEvent) => {
       if (coordinatorRef.current?.hasUnsavedWork()) { event.preventDefault(); event.returnValue = ""; }
@@ -57,7 +61,7 @@ function M1AppContent({ dependencies }: AppProps) {
     try {
       if (asFile) {
         const result = await coordinator.exportRecoveryBackup();
-        if (result.ok) downloadBackup(result.value, "PhotoFlex recovery");
+        if (result.ok) downloadRecoveryBackup(result.value);
         else setRecoveryError(locale === "zh-CN" ? "无法创建恢复备份，草稿仍保持打开。" : "Recovery backup could not be created. Your draft is still open.");
       } else {
         const result = await coordinator.restoreRecoveryCopy();
@@ -70,23 +74,22 @@ function M1AppContent({ dependencies }: AppProps) {
 
   const projectContent = currentProjectId ? (
     <ProjectWorkspaceProvider dependencies={dependencies} projectId={currentProjectId} coordinator={coordinator}>
-      {route.name === "table" && <TableHeader dependencies={dependencies} projectId={route.projectId} lastSequenceId={lastSequenceId} navigate={navigate} />}
+      {(route.name === "table" || route.name === "sequence") && <TableHeader dependencies={dependencies} projectId={route.projectId} lastSequenceId={lastSequenceId} navigate={navigate} />}
       {route.name === "project" && <ProjectPage dependencies={dependencies} projectId={route.projectId} navigate={navigate} />}
       {route.name === "contact-sheet" && <ContactSheetPage dependencies={dependencies} projectId={route.projectId} sourceId={route.sourceId} navigate={navigate} />}
-      {route.name === "table" && <TablePage dependencies={dependencies} projectId={route.projectId} navigate={navigate} />}
+      {(route.name === "table" || route.name === "sequence") && <TablePage dependencies={dependencies} projectId={route.projectId} navigate={navigate} sequenceOverlay={route.name === "sequence" ? { sequenceId: route.sequenceId, openVersionId: route.openVersionId } : undefined} />}
       <Suspense fallback={<main className="page centered-state"><div className="loading-mark" /><p>{t("status.loadingWorkspace")}</p></main>}>
-        {route.name === "sequence" && <SequencePage dependencies={dependencies} projectId={route.projectId} sequenceId={route.sequenceId} openVersionId={route.openVersionId} navigate={navigate} />}
         {route.name === "sequence-compare" && <SequenceComparePage dependencies={dependencies} projectId={route.projectId} leftSequenceId={route.leftSequenceId} rightSequenceId={route.rightSequenceId} navigate={navigate} />}
         {route.name === "version-compare" && <VersionComparePage dependencies={dependencies} projectId={route.projectId} leftVersionId={route.leftVersionId} rightVersionId={route.rightVersionId} navigate={navigate} />}
       </Suspense>
     </ProjectWorkspaceProvider>
   ) : (
-    <HomePage dependencies={dependencies} navigate={navigate} />
+    <HomePage dependencies={dependencies} navigate={navigate} onSelectedProjectIdChange={setHomeProjectId} />
   );
 
   return (
     <div className={`app-shell${usesTableChrome ? " is-table" : ""}`}>
-      {route.name !== "table" && route.name !== "sequence" && <AppHeader dependencies={dependencies} route={route} projectId={currentProjectId} contactSourceId={contactSourceId} lastSequenceId={lastSequenceId} navigate={navigate} variant={usesTableChrome ? "table" : "default"} />}
+      {route.name !== "table" && route.name !== "sequence" && <AppHeader dependencies={dependencies} route={route} projectId={currentProjectId} projectSettingsProjectId={route.name === "home" ? homeProjectId : undefined} contactSourceId={contactSourceId} lastSequenceId={lastSequenceId} navigate={navigate} variant={usesTableChrome ? "table" : "default"} />}
       {projectContent}
       {recovery && <div className="draft-recovery" role="alert"><strong>{t("backup.unsavedTitle")}</strong><p>{t("backup.unsavedDetail")}</p><div><button disabled={recovering} onClick={() => setRecovery(false)}>{t("backup.keepEditing")}</button><button disabled={recovering} onClick={() => void recover(true)}>{t("backup.downloadRecovery")}</button><button disabled={recovering} onClick={() => void recover(false)}>{recovering ? t("project.preparing") : t("backup.saveRecoveryCopy")}</button></div>{recoveryError && <p>{recoveryError}</p>}</div>}
     </div>

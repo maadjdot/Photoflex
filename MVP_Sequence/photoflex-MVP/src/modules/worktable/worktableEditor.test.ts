@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import type { PhotoId, ProjectId, SequenceId, WorktableDraft, WorktableItemId, WorktablePlacementSeed } from "../../contracts";
+import type { PhotoId, ProjectId, SequenceId, WorktableDraft, WorktableItemId, WorktablePlacement, WorktablePlacementSeed } from "../../contracts";
 import { createEmptyWorktable, createWorktableEditor } from "./worktableEditor";
 
 const projectId = "project-1" as ProjectId;
@@ -129,6 +129,36 @@ describe("WorktableEditor", () => {
     expect(result.value.placements[photoId("a")].y).toBeLessThan(result.value.placements[photoId("c")].y);
   });
 
+  it("uses Sequence spatial order when arranging Row and Grid layouts", () => {
+    const left = "left-instance" as WorktableItemId;
+    const right = "right-instance" as WorktableItemId;
+    const lower = "lower-instance" as WorktableItemId;
+    const makeDraft = (): WorktableDraft => ({
+      projectId,
+      entryOrder: [right, lower, left],
+      placements: {
+        [left]: { id: left, photoId: photoId("left"), x: 20, y: 20, z: 1, width: 100, height: 100, filename: "left.jpg" },
+        [right]: { id: right, photoId: photoId("right"), x: 300, y: 20, z: 1, width: 100, height: 100, filename: "right.jpg" },
+        [lower]: { id: lower, photoId: photoId("lower"), x: 20, y: 180, z: 1, width: 100, height: 100, filename: "lower.jpg" },
+      } satisfies Record<WorktableItemId, WorktablePlacement>,
+      groups: [], links: [], pileOrder: [], pilePlacements: {},
+    });
+
+    const row = createWorktableEditor(makeDraft()).execute({ type: "arrange", photoIds: [right, lower, left], layout: { type: "row", gap: 10 } });
+    expect(row.ok).toBe(true);
+    if (!row.ok) return;
+    expect(row.value.placements[left].x).toBe(20);
+    expect(row.value.placements[right].x).toBe(130);
+    expect(row.value.placements[lower].x).toBe(240);
+
+    const grid = createWorktableEditor(makeDraft()).execute({ type: "arrange", photoIds: [right, lower, left], layout: { type: "grid", columns: 2, gap: 10 } });
+    expect(grid.ok).toBe(true);
+    if (!grid.ok) return;
+    expect(grid.value.placements[left]).toMatchObject({ x: 20, y: 20 });
+    expect(grid.value.placements[right]).toMatchObject({ x: 130, y: 20 });
+    expect(grid.value.placements[lower]).toMatchObject({ x: 20, y: 150 });
+  });
+
   it("shuffles detected grid rows independently without changing photo geometry", () => {
     const editor = createWorktableEditor(createEmptyWorktable(projectId));
     editor.execute({ type: "place", items: [seed("a"), seed("b", 146, 196), seed("c"), seed("d", 160, 180)] });
@@ -159,6 +189,31 @@ describe("WorktableEditor", () => {
     ))).toBe(true);
     expect(editor.undo()).toEqual(before);
     expect(editor.redo()).toEqual(result.value);
+  });
+
+  it("keeps locked photos in place while shuffling the other selected photos", () => {
+    const editor = createWorktableEditor(createEmptyWorktable(projectId));
+    const ids = ["a", "b", "c", "d", "e"] as PhotoId[];
+    editor.execute({ type: "place", items: ids.map((id) => seed(id)) });
+    editor.execute({ type: "arrange", photoIds: ids, layout: { type: "row", gap: 24 } });
+    editor.execute({ type: "set-locked", photoIds: [photoId("c")], locked: true });
+    const before = editor.snapshot();
+    const random = vi.spyOn(Math, "random").mockReturnValue(.9);
+
+    const result = editor.execute({ type: "shuffle", photoIds: ids });
+    random.mockRestore();
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.placements[photoId("c")]).toMatchObject({
+      x: before.placements[photoId("c")].x,
+      y: before.placements[photoId("c")].y,
+      locked: true,
+    });
+    const freeSlots = ids.filter((id) => id !== "c").map((id) => before.placements[id as WorktableItemId].x).sort((a, b) => a - b);
+    const freePositions = ids.filter((id) => id !== "c").map((id) => result.value.placements[id as WorktableItemId].x).sort((a, b) => a - b);
+    expect(freePositions).toEqual(freeSlots);
+    expect(ids.filter((id) => id !== "c").every((id) => result.value.placements[id].x !== before.placements[id].x)).toBe(true);
   });
 
   it("does not create photo overlaps when differently sized photos change slots", () => {
@@ -352,6 +407,20 @@ describe("WorktableEditor", () => {
     expect(linked.value.placements).toEqual(before);
   });
 
+  it("does not move photos when creating a Link", () => {
+    const editor = createWorktableEditor(createEmptyWorktable(projectId));
+    editor.execute({ type: "place", items: [seed("a"), seed("b"), seed("c")] });
+    editor.execute({ type: "move", photoIds: [photoId("a")], by: { x: 120, y: 40 } });
+    const before = editor.snapshot().placements;
+
+    const linked = editor.execute({ type: "create-link", photoIds: [photoId("a"), photoId("c")] });
+
+    expect(linked.ok).toBe(true);
+    if (!linked.ok) return;
+    expect(linked.value.placements).toEqual(before);
+    expect(linked.value.links[0].photoIds).toEqual(["a", "c"]);
+  });
+
   it("adds one photo to an existing Group and lets one photo leave without changing table membership", () => {
     const editor = createWorktableEditor(createEmptyWorktable(projectId));
     editor.execute({ type: "place", items: [seed("a"), seed("b"), seed("c")] });
@@ -392,6 +461,46 @@ describe("WorktableEditor", () => {
     expect(editor.undo().pilePlacements[placement.sequenceId].x).toBe(80);
     const removed = editor.execute({ type: "remove-sequence-piles", sequenceIds: [placement.sequenceId] });
     expect(removed.ok && removed.value.entryOrder).toEqual(["a"]);
+  });
+
+  it("persists photo lock state as an undoable edit", () => {
+    const editor = createWorktableEditor(createEmptyWorktable(projectId));
+    editor.execute({ type: "place", items: [seed("a"), seed("b")] });
+    const locked = editor.execute({ type: "set-locked", photoIds: [photoId("a")], locked: true });
+    expect(locked.ok).toBe(true);
+    expect(editor.snapshot().placements[photoId("a")].locked).toBe(true);
+    expect(editor.snapshot().placements[photoId("b")].locked).toBeUndefined();
+    expect(editor.execute({ type: "move", photoIds: [photoId("a")], by: { x: 20, y: 20 } })).toMatchObject({ ok: false, error: { kind: "locked-placement" } });
+    const unlocked = editor.execute({ type: "set-locked", photoIds: [photoId("a")], locked: false });
+    expect(unlocked.ok).toBe(true);
+    expect(editor.execute({ type: "move", photoIds: [photoId("a")], by: { x: 20, y: 20 } }).ok).toBe(true);
+    editor.undo();
+    expect(editor.snapshot().placements[photoId("a")].locked).toBe(false);
+  });
+
+  it("resizes a legacy Sequence card from its rendered size and keeps its center", () => {
+    const editor = createWorktableEditor(createEmptyWorktable(projectId));
+    const sequenceId = "sequence-1" as SequenceId;
+    editor.execute({
+      type: "place-sequence-pile",
+      placement: { sequenceId, x: 80, y: 90, z: 1, width: 190, height: 118 },
+    });
+
+    const resized = editor.execute({
+      type: "resize-sequence-pile",
+      sequenceId,
+      scale: 1.15,
+      baseSize: { width: 402, height: 176 },
+    });
+
+    expect(resized.ok).toBe(true);
+    if (!resized.ok) return;
+    const placement = resized.value.pilePlacements[sequenceId];
+    expect(placement.width).toBeCloseTo(462.3);
+    expect(placement.height).toBeCloseTo(202.4);
+    expect(placement.x).toBeCloseTo(49.85);
+    expect(placement.y).toBeCloseTo(76.8);
+    expect(editor.undo().pilePlacements[sequenceId]).toMatchObject({ width: 190, height: 118, x: 80, y: 90 });
   });
 });
 

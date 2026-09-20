@@ -65,6 +65,17 @@ describe("存储回归行为", () => {
     ).toBe(false);
   });
 
+  it("创建带项目备注的空项目时在 Table 上生成同内容 Memo", () => {
+    const workspace = createWorkspace({ ...PROJECT_INPUT, memo: "Look for quiet gestures" });
+
+    expect(workspace.sources).toEqual([]);
+    expect(workspace.memo).toBe("Look for quiet gestures");
+    expect(workspace.worktableDraft.memos).toEqual([
+      expect.objectContaining({ text: "Look for quiet gestures", photoIds: [] }),
+    ]);
+    expect(isWorkspace(workspace)).toBe(true);
+  });
+
   it("打开已有高版本数据库时报告实际版本号", async () => {
     const databaseName = `photoflex-version-${crypto.randomUUID()}`;
     const created = await new Promise<IDBDatabase>((resolve, reject) => {

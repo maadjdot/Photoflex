@@ -9,8 +9,8 @@ import { deleteProjectWorkspace, projectDeletionErrorMessage } from "./ProjectWo
 import { useSourceMonitor, stopSharedScan } from "./ProjectSourceMonitor";
 import { useProjectWorkspaceSession, workspaceSaveErrorMessage, type WorkspaceUpdate } from "./useProjectWorkspace";
 import { ProjectInfoPanel } from "./ProjectInfoPanel";
-import { ProjectBackupControls } from "./ProjectBackupControls";
 import { useLocale } from "./locale";
+import { hasNativeDirectoryPicker } from "../platform/browser/webkitDirectoryPicker";
 
 function ProjectRail({
   dependencies,
@@ -149,10 +149,10 @@ export function ProjectPage({
     <main className="workspace-layout page">
       <ProjectRail dependencies={dependencies} currentProjectId={projectId} currentPhotoCount={totalIndexed(states)} navigate={navigate} />
       <ProjectInfoPanel workspace={workspace} photoSource={dependencies.photoSource} deleting={deletingProject} onUpdateName={updateName} onUpdateMemo={updateMemo} onDelete={() => void deleteProject()} onAddSource={() => void addSource()}>
-        <ProjectBackupControls dependencies={dependencies} projectId={projectId} name={workspace.name} />
         {addingSource && <div className="source-loading-status" role="status"><span className="loading-mark" aria-hidden="true" />{t("project.connecting")}</div>}
         {notice && <InlineNotice message={notice} />}
         <div className="section-heading"><span>{t("project.photoSources")}</span><span>{t("project.connectedFolders", { count: workspace.sources.filter((source) => !source.removedAt).length })}</span></div>
+        {!hasNativeDirectoryPicker() && <p className="source-access-note">{t("source.temporaryFolderAccess")}</p>}
         <section className="source-list" aria-label={t("project.photoSources")}>
           {visibleSources.map((source) => <SourceCard key={source.id} source={source} state={source.removedAt ? { sourceId: source.id, status: "offline", discoveredCount: 0, indexedCount: 0, skippedCount: 0, failedCount: 0 } : states[source.id]} onOpen={() => !source.removedAt && stateHasPhotos(states[source.id]) && navigate({ name: "contact-sheet", projectId, sourceId: source.id })} onRefresh={() => startScan(source.id)} onReconnect={() => void reconnectSource(dependencies, workspace, source, persist, startScan, locale, setNotice)} onRemove={() => void removeSource(source)} />)}
           {!visibleSources.length && <EmptyPanel title={t("project.noFolders")} detail={t("project.noFoldersDetail")} />}
@@ -168,7 +168,7 @@ function SourceCard({ source, state, onOpen, onRefresh, onReconnect, onRemove }:
   const canOpen = stateHasPhotos(state);
   return <article className={`source-card status-${status}`}>
     <div className="source-card-copy"><h2>{source.displayName.toUpperCase()}</h2><p className="source-count">{sourceCounts(state, locale)}</p><p className="source-status"><StatusDot status={status} />{statusText(status, locale)}</p>{state?.errorMessage && <p className="source-error">{state.errorMessage}</p>}</div>
-    <div className="source-card-actions">{status === "permission-lost" || status === "offline" ? <button className="text-button source-open" onClick={onReconnect}>{t("project.reconnectFolder")}</button> : <button className="text-button source-open" disabled={!canOpen} onClick={onOpen}>{t("common.open")}</button>}<details className="source-menu"><summary aria-label={t("project.actions", { name: source.displayName })}>…</summary><div><button onClick={onRefresh}>{t("project.refresh")}</button><button onClick={onRemove}>{t("project.removeSource")}</button></div></details></div>
+    <div className="source-card-actions">{status === "permission-lost" || status === "offline" || status === "error" ? <button className="text-button source-open" onClick={onReconnect}>{t("project.reconnectFolder")}</button> : <button className="text-button source-open" disabled={!canOpen} onClick={onOpen}>{t("common.open")}</button>}<details className="source-menu"><summary aria-label={t("project.actions", { name: source.displayName })}>…</summary><div><button onClick={onRefresh}>{t("project.refresh")}</button><button onClick={onRemove}>{t("project.removeSource")}</button></div></details></div>
     {status === "loading" && <div className="progress-bar"><span style={{ width: `${progressPercent(state)}%` }} /></div>}
   </article>;
 }
@@ -179,9 +179,9 @@ function statusText(status: SourceRuntimeState["status"], locale: import("./loca
 }
 
 async function reconnectSource(dependencies: AppDependencies, workspace: ProjectWorkspace, source: SourceRecord, persist: (update: WorkspaceUpdate) => Promise<boolean>, startScan: (sourceId: import("../contracts").SourceId) => void, locale: import("./localeDictionary").Locale, onError: (message: string) => void) {
-  const restored = await dependencies.photoSource.restoreFolder(source.id);
+  const restored = await dependencies.photoSource.restoreFolder(source.id, { reselect: true });
   if (restored.ok) {
-    const saved = await persist((current) => ({ ...current, sources: current.sources.map((item) => item.id === source.id ? { ...item, removedAt: undefined } : item), updatedAt: now() }));
+    const saved = await persist((current) => ({ ...current, sources: current.sources.map((item) => item.id === source.id ? { ...item, displayName: restored.value.displayName, removedAt: undefined } : item), updatedAt: now() }));
     if (saved) startScan(source.id);
     return;
   }

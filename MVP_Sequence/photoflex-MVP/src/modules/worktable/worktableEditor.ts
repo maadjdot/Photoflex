@@ -17,6 +17,7 @@ import {
   type WorktableItemId,
   type SequenceId,
 } from "../../contracts";
+import { orderWorktableIdsByTablePosition } from "./spatialOrder";
 
 // A deliberately generous working size keeps every card legible before the
 // photographer starts arranging it. New placements retain source proportions.
@@ -129,15 +130,24 @@ function applyCommand(
   if (command.type === "place") return place(draft, command);
   if (command.type === "remove-group") return removeGroup(draft, command.groupId);
   if (command.type === "remove-link") return removeLink(draft, command.linkId);
-  if (command.type === "add-to-group") return addToGroup(draft, command.groupId, command.photoId);
-  if (command.type === "remove-from-group") return removeFromGroup(draft, command.photoId);
+  if (command.type === "add-to-group") {
+    const validation = validateMutablePhoto(draft, command.photoId);
+    if (!validation.ok) return validation;
+    return addToGroup(draft, command.groupId, command.photoId);
+  }
+  if (command.type === "remove-from-group") {
+    const validation = validateMutablePhoto(draft, command.photoId);
+    if (!validation.ok) return validation;
+    return removeFromGroup(draft, command.photoId);
+  }
   if (command.type === "place-sequence-pile") return placeSequencePile(draft, command.placement);
   if (command.type === "move-sequence-piles") return moveSequencePiles(draft, command.sequenceIds, command.by.x, command.by.y);
-  if (command.type === "resize-sequence-pile") return resizeSequencePile(draft, command.sequenceId, command.scale);
+  if (command.type === "resize-sequence-pile") return resizeSequencePile(draft, command.sequenceId, command.scale, command.baseSize);
   if (command.type === "bring-sequence-piles-to-front") return bringSequencePilesToFront(draft, command.sequenceIds);
   if (command.type === "remove-sequence-piles") return removeSequencePiles(draft, command.sequenceIds);
-  const validation = validateKnown(draft, command.photoIds);
+  const validation = validateKnown(draft, command.photoIds, command.type === "set-locked" || command.type === "shuffle");
   if (!validation.ok) return validation;
+  if (command.type === "set-locked") return setLocked(draft, command.photoIds, command.locked);
   if (command.type === "move") return move(draft, command.photoIds, command.by.x, command.by.y);
   if (command.type === "resize") return resize(draft, command.photoIds, command.scale);
   if (command.type === "arrange") return arrange(draft, command.photoIds, command.layout);
@@ -188,7 +198,10 @@ function createGroup(
 }
 
 function removeGroup(draft: WorktableDraft, groupId: string): Result<WorktableDraft, WorktableCommandError> {
-  if (!draft.groups.some((group) => group.id === groupId)) return err({ kind: "invalid-relation" });
+  const group = draft.groups.find((candidate) => candidate.id === groupId);
+  if (!group) return err({ kind: "invalid-relation" });
+  const lockedPhotoId = group.photoIds.find((photoId) => draft.placements[photoId]?.locked);
+  if (lockedPhotoId) return err({ kind: "locked-placement", photoId: lockedPhotoId });
   return ok({ ...draft, groups: draft.groups.filter((group) => group.id !== groupId) });
 }
 
@@ -230,38 +243,18 @@ function createLink(
   if (photoIds.length < 2 || photoIds.length > 6 || new Set(photoIds).size !== photoIds.length) return err({ kind: "invalid-relation" });
   const ordered = draft.entryOrder.filter((photoId) => photoIds.includes(photoId));
   if (ordered.length !== photoIds.length) return err({ kind: "invalid-relation" });
-  const touchesGroup = draft.groups.some((group) => ordered.some((photoId) => group.photoIds.includes(photoId)));
-  const anchor = draft.placements[ordered.at(-1)!];
-  const packed = touchesGroup ? draft : packNearAnchor(draft, ordered, anchor.x, anchor.y, 28);
   return ok({
-    ...packed,
-    links: [...packed.links, { id: nextRelationId("link", packed.links), name: `LINK ${String(packed.links.length + 1).padStart(2, "0")}`, photoIds: ordered }],
+    ...draft,
+    links: [...draft.links, { id: nextRelationId("link", draft.links), name: `LINK ${String(draft.links.length + 1).padStart(2, "0")}`, photoIds: ordered }],
   });
 }
 
 function removeLink(draft: WorktableDraft, linkId: string): Result<WorktableDraft, WorktableCommandError> {
-  if (!draft.links.some((link) => link.id === linkId)) return err({ kind: "invalid-relation" });
+  const link = draft.links.find((candidate) => candidate.id === linkId);
+  if (!link) return err({ kind: "invalid-relation" });
+  const lockedPhotoId = link.photoIds.find((photoId) => draft.placements[photoId]?.locked);
+  if (lockedPhotoId) return err({ kind: "locked-placement", photoId: lockedPhotoId });
   return ok({ ...draft, links: draft.links.filter((link) => link.id !== linkId) });
-}
-
-function packNearAnchor(
-  draft: WorktableDraft,
-  photoIds: readonly WorktableItemId[],
-  anchorX: number,
-  anchorY: number,
-  gap: number,
-): WorktableDraft {
-  const placements = { ...draft.placements } as Record<WorktableItemId, WorktablePlacement>;
-  // The last selected/ordered member is the anchor. Pack earlier members to
-  // its left so creating a relation does not make the photographer lose it.
-  const widthBeforeAnchor = photoIds.slice(0, -1).reduce((sum, photoId) => sum + placements[photoId].width + gap, 0);
-  let x = anchorX - widthBeforeAnchor;
-  for (const photoId of photoIds) {
-    const placement = placements[photoId];
-    placements[photoId] = { ...placement, x, y: anchorY };
-    x += placement.width + gap;
-  }
-  return { ...draft, placements };
 }
 
 function packGroupGrid(
@@ -383,7 +376,7 @@ function arrange(
 ): Result<WorktableDraft, WorktableCommandError> {
   if (photoIds.length < 2) return ok(draft);
   const requested = new Set(photoIds);
-  const ordered = draft.entryOrder.filter((photoId) => requested.has(photoId));
+  const ordered = orderWorktableIdsByTablePosition(draft, [...requested]);
   const selected = ordered.map((photoId) => draft.placements[photoId]);
   const minX = Math.min(...selected.map((item) => item.x));
   const minY = Math.min(...selected.map((item) => item.y));
@@ -440,12 +433,18 @@ function shuffle(
   if (photoIds.length < 2) return ok(draft);
   const requested = new Set(photoIds);
   const ordered = draft.entryOrder.filter((photoId) => requested.has(photoId));
+  const movable = ordered.filter((photoId) => !draft.placements[photoId].locked);
+  if (movable.length < 2) return ok(draft);
   const horizontalRows = findHorizontalRows(draft, ordered).filter((row) => row.length > 1);
   const rowMembers = new Set(horizontalRows.flat());
-  const ungrouped = ordered.filter((photoId) => !rowMembers.has(photoId));
+  const ungrouped = ordered.filter((photoId) => !rowMembers.has(photoId) && !draft.placements[photoId].locked);
   const placements = { ...draft.placements } as Record<WorktableItemId, WorktablePlacement>;
 
-  horizontalRows.forEach((slotOwners) => {
+  horizontalRows.forEach((row) => {
+    // Locked photos remain both in the detected row and in their original
+    // slots. Only the unlocked owners are permuted into the other row slots.
+    const slotOwners = row.filter((photoId) => !draft.placements[photoId].locked);
+    if (slotOwners.length < 2) return;
     const shuffled = shuffleCycle(slotOwners);
     const slots = slotOwners.map((photoId) => ({ x: draft.placements[photoId].x, y: draft.placements[photoId].y }));
     placePhotosInSlots(placements, shuffled, slots);
@@ -650,14 +649,23 @@ function remove(
 function validateKnown(
   draft: WorktableDraft,
   photoIds: readonly WorktableItemId[],
+  allowLocked = false,
 ): Result<true, WorktableCommandError> {
   const seen = new Set<WorktableItemId>();
   for (const photoId of photoIds) {
     if (seen.has(photoId)) return err({ kind: "duplicate-photo-id", photoId });
     seen.add(photoId);
     if (!draft.placements[photoId]) return err({ kind: "unknown-placement", photoId });
+    if (!allowLocked && draft.placements[photoId].locked) return err({ kind: "locked-placement", photoId });
   }
   return ok(true);
+}
+
+function validateMutablePhoto(
+  draft: WorktableDraft,
+  photoId: WorktableItemId,
+): Result<true, WorktableCommandError> {
+  return validateKnown(draft, [photoId]);
 }
 
 function placeSequencePile(
@@ -692,13 +700,39 @@ function moveSequencePiles(
   return ok({ ...draft, pilePlacements });
 }
 
-function resizeSequencePile(draft: WorktableDraft, sequenceId: SequenceId, scale: number): Result<WorktableDraft, WorktableCommandError> {
+function resizeSequencePile(
+  draft: WorktableDraft,
+  sequenceId: SequenceId,
+  scale: number,
+  baseSize?: { readonly width: number; readonly height: number },
+): Result<WorktableDraft, WorktableCommandError> {
   const pile = draft.pilePlacements[sequenceId];
   if (!pile || !Number.isFinite(scale) || scale <= 0) return err({ kind: "unknown-sequence-pile", sequenceId });
+  if (baseSize && (!Number.isFinite(baseSize.width) || !Number.isFinite(baseSize.height) || baseSize.width <= 0 || baseSize.height <= 0)) {
+    return err({ kind: "invalid-coordinate" });
+  }
   const nextScale = Math.max(0.5, Math.min(2.5, scale));
   if (Math.abs(nextScale - 1) < 0.001) return ok(draft);
-  const width = Math.max(120, pile.width * nextScale), height = Math.max(80, pile.height * nextScale);
-  return ok({ ...draft, pilePlacements: { ...draft.pilePlacements, [sequenceId]: { ...pile, width, height, x: pile.x + (pile.width - width) / 2, y: pile.y + (pile.height - height) / 2 } } });
+  const baseWidth = baseSize?.width ?? pile.width;
+  const baseHeight = baseSize?.height ?? pile.height;
+  const width = Math.max(120, baseWidth * nextScale), height = Math.max(80, baseHeight * nextScale);
+  return ok({ ...draft, pilePlacements: { ...draft.pilePlacements, [sequenceId]: { ...pile, width, height, x: pile.x + (baseWidth - width) / 2, y: pile.y + (baseHeight - height) / 2 } } });
+}
+
+function setLocked(
+  draft: WorktableDraft,
+  photoIds: readonly WorktableItemId[],
+  locked: boolean,
+): Result<WorktableDraft, WorktableCommandError> {
+  const placements = { ...draft.placements } as Record<WorktableItemId, WorktablePlacement>;
+  let changed = false;
+  photoIds.forEach((photoId) => {
+    const current = placements[photoId];
+    if (current.locked === locked) return;
+    placements[photoId] = { ...current, locked };
+    changed = true;
+  });
+  return ok(changed ? { ...draft, placements } : draft);
 }
 
 function bringSequencePilesToFront(

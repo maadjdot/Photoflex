@@ -1,7 +1,6 @@
 import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import chevronIcon from "../assets/icons/table-chevron-down.svg";
 import openIcon from "../assets/icons/table-preview.svg";
-import removeIcon from "../assets/icons/table-remove.svg";
 import sequenceIcon from "../assets/icons/table-sequence.svg";
 import type { PhotoId, ProjectId, SequenceId, SequenceItemId, SourceError } from "../contracts";
 import { calculateSequenceStripVirtualRange, sequenceStripInsertionIndex, TABLE_SEQUENCE_STRIP_ITEM_GAP, TABLE_SEQUENCE_STRIP_ITEM_WIDTH } from "../modules/sequence";
@@ -22,7 +21,7 @@ interface SequenceOrderPanelProps {
   readonly navigate: (route: AppRoute) => void;
   readonly onPhotoError: (photoId: PhotoId, error: SourceError) => void;
   readonly onNotice: (message: string) => void;
-  readonly onItemCountChange?: (sequenceId: SequenceId, itemCount: number) => void;
+  readonly onItemCountChange?: (sequenceId: SequenceId, itemCount: number, photoCount: number) => void;
 }
 
 /** Owns the sequence strip's local UI and sequence-session interaction. */
@@ -90,7 +89,7 @@ function ActiveSequenceOrderPanel({ persistence, dependencies, projectId, sequen
   const removeItem = (itemId: SequenceItemId) => {
     const result = execute({ type: "remove", itemIds: [itemId] });
     if (!result.ok) { onNotice(t("sequence.removeItemFailed")); return; }
-    onItemCountChange?.(sequenceId, result.value.items.length);
+    onItemCountChange?.(sequenceId, result.value.items.length, result.value.items.filter((item) => item.kind === "photo").length);
     onNotice(t("sequence.removedOne"));
   };
 
@@ -106,11 +105,10 @@ function ActiveSequenceOrderPanel({ persistence, dependencies, projectId, sequen
         {sequence.items.slice(range.startIndex, range.endIndex).map((item, offset) => {
           const index = range.startIndex + offset;
           return <div key={item.id} className="sequence-strip-slot" style={{ left: index * range.itemStride }}>
-            <button ref={(element) => { if (element) itemRefs.current.set(item.id, element); else itemRefs.current.delete(item.id); }} className={`sequence-strip-item${dragId === item.id ? " is-dragging" : ""}${dropIndex === index ? " is-drop-target" : ""}`} disabled={sequenceSession.saveState !== "idle"} draggable={sequenceSession.saveState === "idle"} onDragStart={() => { setDragId(item.id); setDropIndex(index); }} onDragOver={(event) => { event.preventDefault(); setDropIndex(index); }} onDrop={(event) => { event.stopPropagation(); move(index); }} onDragEnd={() => { setDragId(undefined); setDropIndex(undefined); }} onKeyDown={(event) => { if (event.key === "Home") { event.preventDefault(); move(0); } else if (event.key === "End") { event.preventDefault(); move(sequence.items.length); } else if (event.key === "ArrowLeft" || event.key === "ArrowRight") { event.preventDefault(); if (event.altKey) move(Math.max(0, Math.min(sequence.items.length, index + (event.key === "ArrowLeft" ? -1 : 2)))); else { const next = Math.max(0, Math.min(sequence.items.length - 1, index + (event.key === "ArrowLeft" ? -1 : 1))); itemRefs.current.get(sequence.items[next]?.id)?.focus(); } } else if (event.key === "Escape") { setDragId(undefined); setDropIndex(undefined); } }}>
+            <button ref={(element) => { if (element) itemRefs.current.set(item.id, element); else itemRefs.current.delete(item.id); }} className={`sequence-strip-item${dragId === item.id ? " is-dragging" : ""}${dropIndex === index ? " is-drop-target" : ""}`} disabled={sequenceSession.saveState !== "idle"} draggable={sequenceSession.saveState === "idle"} onDragStart={() => { setDragId(item.id); setDropIndex(index); }} onDragOver={(event) => { event.preventDefault(); setDropIndex(index); }} onDrop={(event) => { event.stopPropagation(); move(index); }} onDragEnd={() => { setDragId(undefined); setDropIndex(undefined); }} onKeyDown={(event) => { if (event.key === "Delete" || event.key === "Backspace") { event.preventDefault(); removeItem(item.id); } else if (event.key === "Home") { event.preventDefault(); move(0); } else if (event.key === "End") { event.preventDefault(); move(sequence.items.length); } else if (event.key === "ArrowLeft" || event.key === "ArrowRight") { event.preventDefault(); if (event.altKey) move(Math.max(0, Math.min(sequence.items.length, index + (event.key === "ArrowLeft" ? -1 : 2)))); else { const next = Math.max(0, Math.min(sequence.items.length - 1, index + (event.key === "ArrowLeft" ? -1 : 1))); itemRefs.current.get(sequence.items[next]?.id)?.focus(); } } else if (event.key === "Escape") { setDragId(undefined); setDropIndex(undefined); } }}>
               {item.kind === "photo" ? <PhotoThumb photoSource={dependencies.photoSource} photoId={item.photoId} alt={`${t("nav.sequence")} ${index + 1}`} onError={onPhotoError} /> : item.kind === "text" ? <span className="sequence-text-thumb" style={{ fontSize: `${Math.max(8, Math.min(18, item.fontSize * .3))}px` }}>{item.text || t("sequence.textPlaceholder")}</span> : <span className="sequence-blank-thumb">{t("sequence.blank")}</span>}
               <span className="sequence-strip-index">{String(index + 1).padStart(2, "0")}</span>
             </button>
-            <button type="button" className="sequence-strip-remove" aria-label={t("sequence.removeItem", { index: index + 1 })} title={t("sequence.removeFrom")} disabled={sequenceSession.saveState !== "idle"} onClick={() => removeItem(item.id)}><img src={removeIcon} alt="" /></button>
           </div>;
         })}
         {dropIndex === sequence.items.length && dragId && <span className="sequence-strip-end-drop" style={{ left: range.totalWidth - range.itemStride + TABLE_SEQUENCE_STRIP_ITEM_WIDTH }} aria-label={t("sequence.dropAtEnd")} />}

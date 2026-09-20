@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, expect, it } from "vitest";
-import type { ProjectId, SequenceDocument, SequenceId, SequenceItemId, SequenceVersion, VersionId } from "../contracts";
+import type { PhotoId, ProjectId, ReadingUnitId, SequenceDocument, SequenceId, SequenceItemId, SequenceVersion, VersionId } from "../contracts";
 import { MemoryPhotoSource } from "../platform/memory/MemoryPhotoSource";
 import { MemoryProjectStore } from "../platform/memory/MemoryProjectStore";
 import { App } from "./App";
@@ -12,110 +12,56 @@ afterEach(() => {
   window.location.hash = "#/";
 });
 
-it("allows duplicating an unchanged Sequence after switching", async () => {
-  const projectStore = new MemoryProjectStore();
-  const projectId = "sequence-switch-project" as ProjectId;
-  const created = await projectStore.createProject({ id: projectId, name: "Sequence switch", createdAt: "2026-09-07T00:00:00.000Z" });
-  if (!created.ok) throw new Error("project fixture failed");
-  const first = sequenceFixture(projectId, "sequence-first", "First", "first-item", "first-version");
-  const second = sequenceFixture(projectId, "sequence-second", "Second", "second-item", "second-version");
-  const firstCreated = await projectStore.createSequence(projectId, created.value.revision, first.sequence, first.version, created.value.worktableDraft);
-  expect(firstCreated.ok).toBe(true);
-  const current = await projectStore.loadWorkspace(projectId);
-  if (!current.ok) throw new Error("workspace fixture failed");
-  const secondCreated = await projectStore.createSequence(projectId, current.value.revision, second.sequence, second.version, current.value.worktableDraft);
-  expect(secondCreated.ok).toBe(true);
-  window.location.hash = `#/projects/${projectId}/sequences/${first.sequence.id}`;
-
-  render(<App dependencies={{ projectStore, photoSource: new MemoryPhotoSource() }} />);
-  const picker = await screen.findByRole("combobox", { name: "Sequence" });
-  const duplicateButton = screen.getByRole("button", { name: "Duplicate New Sequence" }) as HTMLButtonElement;
-  await waitFor(() => expect(duplicateButton.disabled).toBe(false));
-
-  fireEvent.change(picker, { target: { value: second.sequence.id } });
-
-  await waitFor(() => expect((screen.getByRole("combobox", { name: "Sequence" }) as HTMLSelectElement).value).toBe(second.sequence.id));
-  expect((screen.getByRole("button", { name: "Duplicate New Sequence" }) as HTMLButtonElement).disabled).toBe(false);
-});
-
-it("opens Read as a keyboard-navigable modal and restores focus when it closes", async () => {
-  const projectStore = new MemoryProjectStore();
-  const projectId = "sequence-read-project" as ProjectId;
-  const created = await projectStore.createProject({ id: projectId, name: "Sequence read", createdAt: "2026-09-07T00:00:00.000Z" });
-  if (!created.ok) throw new Error("project fixture failed");
-  const sequenceId = "sequence-readable" as SequenceId;
-  const versionId = "sequence-readable-version" as VersionId;
-  const firstId = "read-first" as SequenceItemId;
-  const secondId = "read-second" as SequenceItemId;
-  const items = [{ id: firstId, kind: "blank" as const }, { id: secondId, kind: "blank" as const }];
-  const readingUnits = items.map((item, index) => ({ id: `read-unit-${index}` as SequenceDocument["readingUnits"][number]["id"], kind: "blank" as const, itemId: item.id }));
-  const sequence: SequenceDocument = { id: sequenceId, projectId, name: "Readable", items, segments: [], readingUnits, currentVersionId: versionId, revision: 0 as SequenceDocument["revision"], createdAt: "2026-09-07T00:00:00.000Z", updatedAt: "2026-09-07T00:00:00.000Z" };
-  const version: SequenceVersion = { id: versionId, projectId, sequenceId, name: "Initial · Readable", itemCount: 2, items, segments: [], readingUnits, createdAt: sequence.createdAt };
-  expect((await projectStore.createSequence(projectId, created.value.revision, sequence, version, created.value.worktableDraft)).ok).toBe(true);
+it("keeps a legacy Sequence deep link on the Table and closes back to that Table", async () => {
+  const { projectStore, projectId, sequenceId } = await createSequenceFixture("deep-link", [photoItem("photo-a", "item-a")]);
   window.location.hash = `#/projects/${projectId}/sequences/${sequenceId}`;
 
   render(<App dependencies={{ projectStore, photoSource: new MemoryPhotoSource() }} />);
-  const readButton = await screen.findByRole("button", { name: "Read" });
-  readButton.focus();
-  fireEvent.click(readButton);
+  const table = await screen.findByLabelText("Photo worktable");
+  expect(await screen.findByRole("dialog", { name: "Sequence Sequence deep-link" })).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Close Sequence" }));
 
-  const readDialog = await screen.findByRole("dialog", { name: "Read Readable" });
-  expect(document.activeElement).toBe(screen.getByRole("button", { name: "Close" }));
-  fireEvent.keyDown(window, { key: "ArrowRight" });
-  expect(readDialog.textContent).toContain("02 / 2 · 2 / 2");
-  fireEvent.keyDown(window, { key: "Escape" });
-  await waitFor(() => expect(screen.queryByRole("dialog", { name: "Read Readable" })).toBeNull());
-  expect(document.activeElement).toBe(readButton);
+  await waitFor(() => expect(screen.queryByRole("dialog", { name: "Sequence Sequence deep-link" })).toBeNull());
+  expect(window.location.hash).toBe(`#/projects/${projectId}/table`);
+  expect(screen.getByLabelText("Photo worktable")).toBe(table);
 });
 
-it("inserts an editable text page and exposes one Insert Blank action without Segment", async () => {
-  const projectStore = new MemoryProjectStore();
-  const projectId = "sequence-text-project" as ProjectId;
-  const created = await projectStore.createProject({ id: projectId, name: "Sequence text", createdAt: "2026-09-07T00:00:00.000Z" });
-  if (!created.ok) throw new Error("project fixture failed");
-  const fixture = sequenceFixture(projectId, "sequence-text", "Text pages", "first-blank", "text-version");
-  expect((await projectStore.createSequence(projectId, created.value.revision, fixture.sequence, fixture.version, created.value.worktableDraft)).ok).toBe(true);
-  window.location.hash = `#/projects/${projectId}/sequences/${fixture.sequence.id}`;
+it("hides legacy Blank and Text items and exposes no former Layout editing tools", async () => {
+  const items: SequenceDocument["items"] = [
+    { id: "blank" as SequenceItemId, kind: "blank" },
+    { id: "text" as SequenceItemId, kind: "text", text: "Legacy layout text", fontSize: 24 },
+  ];
+  const { projectStore, projectId, sequenceId } = await createSequenceFixture("legacy-layout", items);
+  window.location.hash = `#/projects/${projectId}/sequences/${sequenceId}`;
 
   render(<App dependencies={{ projectStore, photoSource: new MemoryPhotoSource() }} />);
-  await screen.findAllByText("BLANK");
-  const workspace = document.querySelector<HTMLElement>(".sequence-workspace");
-  if (!workspace) throw new Error("sequence workspace missing");
-  fireEvent.keyDown(workspace, { key: "ArrowRight" });
-  expect(await screen.findByRole("button", { name: "Insert Blank" })).toBeTruthy();
-  expect(screen.queryByRole("button", { name: /Insert Blank (Before|After)/ })).toBeNull();
-  expect(screen.queryByRole("button", { name: "Segment" })).toBeNull();
-
-  fireEvent.click(screen.getByRole("button", { name: "Insert Text" }));
-  const editor = await screen.findByRole("textbox", { name: "Text page content" });
-  editor.focus();
-  editor.textContent = "中文 English";
-  const liveTextNode = editor.firstChild;
-  fireEvent.input(editor);
-  await waitFor(() => expect(editor.firstChild).toBe(liveTextNode));
-  const range = document.createRange();
-  range.setStart(editor.firstChild!, 0);
-  range.setEnd(editor.firstChild!, 2);
-  window.getSelection()?.removeAllRanges();
-  window.getSelection()?.addRange(range);
-  fireEvent.mouseUp(editor);
-  fireEvent.change(screen.getByRole("spinbutton", { name: "Font size" }), { target: { value: "48" } });
-  expect(screen.getByRole("button", { name: "Remove Text" })).toBeTruthy();
-
-  await waitFor(async () => {
-    const saved = await projectStore.loadSequence(fixture.sequence.id);
-    expect(saved.ok && saved.value.items[1]).toMatchObject({ kind: "text", text: "中文 English", fontSize: 32 });
-    expect(saved.ok && saved.value.items[1].kind === "text" && saved.value.items[1].html).toContain("font-size: 48px");
-  });
+  const overlay = await screen.findByRole("dialog", { name: "Sequence Sequence legacy-layout" });
+  expect(within(overlay).queryAllByRole("gridcell")).toHaveLength(0);
+  expect((within(overlay).getByRole("button", { name: "Read" }) as HTMLButtonElement).disabled).toBe(true);
+  for (const removed of ["Insert Blank", "Insert Text", "Create Spread", "Export PDF", "Duplicate New Sequence"]) {
+    expect(within(overlay).queryByRole("button", { name: removed })).toBeNull();
+  }
+  expect(overlay.textContent).not.toContain("Legacy layout text");
 });
 
-function sequenceFixture(projectId: ProjectId, id: string, name: string, itemIdValue: string, versionIdValue: string) {
-  const sequenceId = id as SequenceId;
-  const itemId = itemIdValue as SequenceItemId;
-  const versionId = versionIdValue as VersionId;
-  const items = [{ id: itemId, kind: "blank" as const }];
-  const readingUnits = [{ id: `${itemIdValue}-unit` as SequenceDocument["readingUnits"][number]["id"], kind: "blank" as const, itemId }];
-  const sequence: SequenceDocument = { id: sequenceId, projectId, name, items, segments: [], readingUnits, currentVersionId: versionId, revision: 0 as SequenceDocument["revision"], createdAt: "2026-09-07T00:00:00.000Z", updatedAt: "2026-09-07T00:00:00.000Z" };
-  const version: SequenceVersion = { id: versionId, projectId, sequenceId, name: `Initial · ${name}`, itemCount: 1, items, segments: [], readingUnits, createdAt: sequence.createdAt };
-  return { sequence, version };
+async function createSequenceFixture(suffix: string, items: SequenceDocument["items"]) {
+  const projectStore = new MemoryProjectStore();
+  const projectId = `sequence-${suffix}-project` as ProjectId;
+  const sequenceId = `sequence-${suffix}` as SequenceId;
+  const versionId = `version-${suffix}` as VersionId;
+  const created = await projectStore.createProject({ id: projectId, name: `Project ${suffix}`, createdAt: "2026-09-16T00:00:00.000Z" });
+  if (!created.ok) throw new Error("project fixture failed");
+  const readingUnits: SequenceDocument["readingUnits"] = items.map((item, index) => ({
+    id: `unit-${suffix}-${index}` as ReadingUnitId,
+    kind: item.kind === "blank" ? "blank" as const : "single" as const,
+    itemId: item.id,
+  }));
+  const sequence: SequenceDocument = { id: sequenceId, projectId, name: `Sequence ${suffix}`, items, segments: [], readingUnits, currentVersionId: versionId, revision: 0 as SequenceDocument["revision"], createdAt: "2026-09-16T00:00:00.000Z", updatedAt: "2026-09-16T00:00:00.000Z" };
+  const version: SequenceVersion = { id: versionId, projectId, sequenceId, name: "Initial", itemCount: items.length, items, segments: [], readingUnits, createdAt: sequence.createdAt };
+  expect((await projectStore.createSequence(projectId, created.value.revision, sequence, version, created.value.worktableDraft)).ok).toBe(true);
+  return { projectStore, projectId, sequenceId };
+}
+
+function photoItem(photoId: string, itemId: string): Extract<SequenceDocument["items"][number], { kind: "photo" }> {
+  return { id: itemId as SequenceItemId, kind: "photo", photoId: photoId as PhotoId };
 }

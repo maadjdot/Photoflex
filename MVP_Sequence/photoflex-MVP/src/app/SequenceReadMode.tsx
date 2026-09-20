@@ -1,109 +1,117 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
-import type { PhotoId, PhotoState, ReadingUnit, SequenceDocument, SequenceItem } from "../contracts";
-import { createSequenceLookup, readingPaperLayout, readingUnitItemIds as unitItemIds, READING_PHOTO_INSET, type SequenceLookup } from "../modules/sequence";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type WheelEvent as ReactWheelEvent } from "react";
+import type { PhotoId, PhotoState, SequenceDocument, SourceError } from "../contracts";
+import { centerPhotoIndex, horizontalWheelIntent, projectSequencePhotos, sequenceScrollTarget, visiblePhotoRange, type HorizontalSequenceGeometry } from "../modules/sequence";
 import { PhotoThumb } from "./PhotoThumb";
 import { useDialogKeyboard } from "./AppPrimitives";
 import type { AppDependencies } from "./dependencies";
 import { useLocale } from "./locale";
-import { sequenceTextHtml } from "./sequenceTextFormatting";
 
 interface SequenceReadModeProps {
   readonly sequence: SequenceDocument;
   readonly initialIndex: number;
   readonly photoSource: AppDependencies["photoSource"];
-  readonly pinned: Readonly<Partial<Record<PhotoId, PhotoState>>>;
-  readonly onTogglePin: (id: PhotoId) => void;
+  /** Kept optional for source compatibility; pinning is intentionally not shown in Read. */
+  readonly pinned?: Readonly<Partial<Record<PhotoId, PhotoState>>>;
+  readonly onTogglePin?: (id: PhotoId) => void;
   readonly onClose: () => void;
-  readonly onPhotoError: (id: PhotoId) => void;
+  readonly onPhotoError: (id: PhotoId, error: SourceError) => void;
 }
 
 export async function warmSequenceReadAt(photoSource: AppDependencies["photoSource"], sequence: SequenceDocument, index: number): Promise<void> {
-  const { itemById } = createSequenceLookup(sequence);
-  const photoIds = [index, index + 1]
-    .flatMap((unitIndex) => sequence.readingUnits[unitIndex] ? unitItemIds(sequence.readingUnits[unitIndex]) : [])
-    .map((itemId) => itemById.get(itemId))
-    .filter((item): item is Extract<SequenceItem, { kind: "photo" }> => item?.kind === "photo")
-    .map((item) => item.photoId);
+  const photoIds = projectSequencePhotos(sequence.items).slice(Math.max(0, index), index + 3).map(({ item }) => item.photoId);
   const results = await Promise.all(photoIds.map((photoId) => photoSource.derivedPreview(photoId, 2048)));
   results.forEach((result) => result.ok && result.value.release());
 }
 
-/** Owns the Read-mode keyboard, focus and preview-lease lifecycle. */
-export function SequenceReadMode({ sequence, initialIndex, photoSource, pinned, onTogglePin, onClose, onPhotoError }: SequenceReadModeProps) {
+/** Continuous, photo-only horizontal reader. */
+export function SequenceReadMode({ sequence, initialIndex, photoSource, onClose, onPhotoError }: SequenceReadModeProps) {
   const { t } = useLocale();
-  const [index, setIndex] = useState(Math.max(0, Math.min(sequence.readingUnits.length - 1, initialIndex)));
-  const [background, setBackground] = useState<"dark" | "light">("dark");
-  const [controls, setControls] = useState(true);
-  const [viewport, setViewport] = useState({ width: window.innerWidth, height: window.innerHeight });
+  const photos = useMemo(() => projectSequencePhotos(sequence.items), [sequence.items]);
+  const safeInitial = Math.max(0, Math.min(photos.length - 1, initialIndex));
+  const [currentIndex, setCurrentIndex] = useState(safeInitial);
+  const [zoom, setZoom] = useState(55);
+  const [viewportWidth, setViewportWidth] = useState(() => globalThis.innerWidth || 1280);
+  const [visible, setVisible] = useState({ start: Math.max(0, safeInitial - 2), end: Math.min(photos.length, safeInitial + 3) });
+  const rootRef = useRef<HTMLElement>(null);
+  const trackRef = useRef<HTMLDivElement>(null);
+  const closeRef = useRef<HTMLButtonElement>(null);
+  useDialogKeyboard(rootRef, onClose);
+
+  const itemWidth = Math.min(viewportWidth * .44, 680) * (zoom / 55);
+  const sidePadding = Math.max(24, (viewportWidth - itemWidth) / 2);
+  const geometry: HorizontalSequenceGeometry = { count: photos.length, itemWidth, gap: 12, sidePadding, viewportWidth };
+  const geometryRef = useRef(geometry);
+  geometryRef.current = geometry;
+
+  const syncFromScroll = useCallback(() => {
+    const track = trackRef.current;
+    if (!track) return;
+    const nextGeometry = { ...geometryRef.current, viewportWidth: track.clientWidth || geometryRef.current.viewportWidth };
+    setCurrentIndex(centerPhotoIndex(track.scrollLeft, nextGeometry));
+    setVisible(visiblePhotoRange(track.scrollLeft, nextGeometry));
+  }, []);
+
+  const scrollToIndex = useCallback((index: number, behavior: ScrollBehavior = "auto") => {
+    const track = trackRef.current;
+    if (!track || !photos.length) return;
+    const targetIndex = Math.max(0, Math.min(photos.length - 1, index));
+    const nextGeometry = { ...geometryRef.current, viewportWidth: track.clientWidth || geometryRef.current.viewportWidth };
+    const totalWidth = nextGeometry.sidePadding * 2 + nextGeometry.count * nextGeometry.itemWidth + Math.max(0, nextGeometry.count - 1) * nextGeometry.gap;
+    const maximum = Math.max(0, (track.scrollWidth || totalWidth) - nextGeometry.viewportWidth);
+    const left = sequenceScrollTarget(targetIndex, nextGeometry, maximum);
+    setCurrentIndex(targetIndex);
+    setVisible(visiblePhotoRange(left, nextGeometry));
+    if (typeof track.scrollTo === "function") track.scrollTo({ left, behavior });
+    else track.scrollLeft = left;
+  }, [photos.length]);
+
+  useLayoutEffect(() => { scrollToIndex(safeInitial, "auto"); }, [safeInitial, scrollToIndex]);
+  useLayoutEffect(() => { scrollToIndex(currentIndex, "auto"); }, [itemWidth]);
   useEffect(() => {
-    const resize = () => setViewport({ width: window.innerWidth, height: window.innerHeight });
+    closeRef.current?.focus();
+    const resize = () => setViewportWidth(globalThis.innerWidth || 1280);
     window.addEventListener("resize", resize);
     return () => window.removeEventListener("resize", resize);
   }, []);
-  const timer = useRef<number | undefined>(undefined);
-  const rootRef = useRef<HTMLElement>(null);
-  const closeRef = useRef<HTMLButtonElement>(null);
-  useDialogKeyboard(rootRef, onClose);
-  const lookup = useMemo(() => createSequenceLookup(sequence), [sequence]);
-  const reveal = useCallback(() => {
-    setControls(true);
-    window.clearTimeout(timer.current);
-    timer.current = window.setTimeout(() => setControls(false), 2000);
-  }, []);
-
-  useEffect(() => {
-    closeRef.current?.focus();
-  }, []);
-
-  useEffect(() => {
-    reveal();
-    return () => window.clearTimeout(timer.current);
-  }, [reveal]);
-
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      reveal();
-      if (event.key === "ArrowLeft") { event.preventDefault(); setIndex((value) => Math.max(0, value - 1)); }
-      else if (event.key === "ArrowRight") { event.preventDefault(); setIndex((value) => Math.min(sequence.readingUnits.length - 1, value + 1)); }
-      else if (event.key === "Home") { event.preventDefault(); setIndex(0); }
-      else if (event.key === "End") { event.preventDefault(); setIndex(sequence.readingUnits.length - 1); }
+      if (event.key === "ArrowLeft") { event.preventDefault(); scrollToIndex(currentIndex - 1); }
+      else if (event.key === "ArrowRight") { event.preventDefault(); scrollToIndex(currentIndex + 1); }
+      else if (event.key === "Home") { event.preventDefault(); scrollToIndex(0); }
+      else if (event.key === "End") { event.preventDefault(); scrollToIndex(photos.length - 1); }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [reveal, sequence.readingUnits.length]);
+  }, [currentIndex, photos.length, scrollToIndex]);
 
-  useEffect(() => {
-    let live = true;
-    const neighborIds = [index - 1, index + 1, index + 2]
-      .flatMap((unitIndex) => sequence.readingUnits[unitIndex] ? unitItemIds(sequence.readingUnits[unitIndex]) : [])
-      .map((id) => lookup.itemById.get(id))
-      .filter((item): item is Extract<SequenceItem, { kind: "photo" }> => item?.kind === "photo")
-      .map((item) => item.photoId);
-    const leases: Array<{ release(): void }> = [];
-    void Promise.all(neighborIds.map((photoId) => photoSource.derivedPreview(photoId, 2048))).then((results) => {
-      if (!live) { results.forEach((result) => result.ok && result.value.release()); return; }
-      leases.push(...results.flatMap((result) => result.ok ? [result.value] : []));
-    });
-    return () => { live = false; leases.forEach((lease) => lease.release()); };
-  }, [index, lookup, photoSource, sequence.readingUnits]);
+  const onWheel = (event: ReactWheelEvent<HTMLDivElement>) => {
+    const intent = horizontalWheelIntent(event.deltaX, event.deltaY);
+    if (!intent.handled) return;
+    event.preventDefault();
+    event.currentTarget.scrollLeft += intent.delta;
+    syncFromScroll();
+  };
 
-  const unit = sequence.readingUnits[index];
-  if (!unit) return null;
-  const items = unitItemIds(unit).map((id) => lookup.itemById.get(id)).filter((item): item is SequenceItem => Boolean(item));
-  const layout = readingPaperLayout(viewport, items.length);
-  const paperStyle = { width: layout.width, height: layout.height, gap: layout.gap, "--reading-photo-size": `${(1 - READING_PHOTO_INSET * 2) * 100}%` } as CSSProperties;
-  return <section ref={rootRef} className={`sequence-read is-${background}${controls ? " has-controls" : ""}`} role="dialog" aria-modal="true" aria-label={`${t("sequence.read")} ${sequence.name}`} onMouseMove={reveal}>
-    <div className="sequence-read-pages" style={paperStyle}>{items.map((item) => <article key={item.id} className="sequence-read-page">{item.kind === "photo" ? <PhotoThumb resolution="read" eager photoSource={photoSource} photoId={item.photoId} alt="Sequence reading photograph" onError={onPhotoError} /> : item.kind === "text" ? <div className="sequence-read-text" style={{ fontSize: `${item.fontSize}px` }} dangerouslySetInnerHTML={{ __html: sequenceTextHtml(item.text, item.fontSize, item.html) }} /> : null}{controls && item.kind === "photo" && <button className="sequence-read-pin" onClick={() => onTogglePin(item.photoId)}>{pinned[item.photoId]?.pinned ? "Unpin" : "Pin"}</button>}</article>)}</div>
-    <button className="sequence-read-zone is-left" disabled={index === 0} aria-label={t("sequence.previousUnit")} onClick={() => setIndex((value) => Math.max(0, value - 1))} />
-    <button className="sequence-read-zone is-right" disabled={index === sequence.readingUnits.length - 1} aria-label={t("sequence.nextUnit")} onClick={() => setIndex((value) => Math.min(sequence.readingUnits.length - 1, value + 1))} />
-    <header><button ref={closeRef} onClick={onClose}>{t("common.close")}</button><strong>{sequence.name}</strong><button onClick={() => setBackground((value) => value === "dark" ? "light" : "dark")}>{background === "dark" ? t("sequence.whiteBackground") : t("sequence.darkBackground")}</button></header>
-    <footer>{pageLabel(sequence, unit, lookup)} · {index + 1} / {sequence.readingUnits.length}</footer>
+  if (!photos.length) return null;
+  const style = { "--sequence-read-width": `${itemWidth}px`, "--sequence-read-side": `${sidePadding}px`, "--sequence-read-scale": zoom / 55 } as CSSProperties;
+  return <section ref={rootRef} className="sequence-read" role="dialog" aria-modal="true" aria-label={`${t("sequence.read")} ${sequence.name}`} style={style}>
+    <div ref={trackRef} className="sequence-read-track" role="group" aria-label="Continuous photo reader" onScroll={syncFromScroll} onWheel={onWheel}>
+      {photos.map(({ item, photoIndex }) => <article key={item.id} className="sequence-read-photo" aria-label={`Photo ${photoIndex + 1} of ${photos.length}`}>
+        {photoIndex >= visible.start && photoIndex < visible.end
+          ? <PhotoThumb resolution="table" progressiveTo={2048} fit="contain" eager={Math.abs(photoIndex - currentIndex) <= 1} photoSource={photoSource} photoId={item.photoId} alt={`Sequence reading photograph ${photoIndex + 1}`} onError={onPhotoError} />
+          : <div className="thumb-placeholder" aria-hidden="true" />}
+      </article>)}
+    </div>
+    <div className="sequence-read-zoom" role="group" aria-label="Read zoom">
+      <button aria-label="Zoom out" disabled={zoom <= 35} onClick={() => setZoom((value) => Math.max(35, value - 5))}>−</button>
+      <output>{zoom}%</output>
+      <button aria-label="Zoom in" disabled={zoom >= 85} onClick={() => setZoom((value) => Math.min(85, value + 5))}>+</button>
+      <button ref={closeRef} className="sequence-read-close" aria-label={t("common.close")} onClick={onClose}>×</button>
+    </div>
+    <div className="sequence-read-navigation">
+      <output>{String(currentIndex + 1).padStart(2, "0")} / {String(photos.length).padStart(2, "0")}</output>
+      <button aria-label="Previous photo" disabled={currentIndex === 0} onClick={() => scrollToIndex(currentIndex - 1)}>‹</button>
+      <button aria-label="Next photo" disabled={currentIndex === photos.length - 1} onClick={() => scrollToIndex(currentIndex + 1)}>›</button>
+    </div>
   </section>;
-}
-
-function pageLabel(sequence: SequenceDocument, unit: ReadingUnit, lookup: SequenceLookup): string {
-  const indices = unitItemIds(unit).map((id) => (lookup.itemIndexById.get(id) ?? -1) + 1);
-  return indices.length === 2
-    ? `${String(indices[0]).padStart(2, "0")}–${String(indices[1]).padStart(2, "0")} / ${sequence.items.length}`
-    : `${String(indices[0]).padStart(2, "0")} / ${sequence.items.length}`;
 }

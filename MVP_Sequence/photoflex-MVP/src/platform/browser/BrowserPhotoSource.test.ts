@@ -1,8 +1,8 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { SourceId } from "../../contracts";
 import { BrowserPhotoSource } from "./BrowserPhotoSource";
 import { IndexedDbProjectStore } from "./IndexedDbProjectStore";
-import { backupBytes } from "../../../tests/helpers/projectBackup";
+import { backupBytes, backupFixture } from "../../../tests/helpers/projectBackup";
 
 const databases: BrowserPhotoSource[] = [];
 
@@ -10,6 +10,7 @@ afterEach(async () => {
   for (const source of databases.splice(0)) {
     await source.close();
   }
+  vi.unstubAllGlobals();
 });
 
 interface TestDirectory {
@@ -18,11 +19,13 @@ interface TestDirectory {
   fileHandle(name: string): FileSystemFileHandle;
   getFileReadCount(): number;
   setPermission(permission: PermissionState): void;
+  setScanFailure(fail: boolean): void;
 }
 
 function createDirectory(identity: string, displayName: string, names: readonly string[]): TestDirectory {
   const files = new Map(names.map((name) => [name, new File([name], name, { type: "image/jpeg" })]));
   let permission: PermissionState = "granted";
+  let failScan = false;
   let fileReadCount = 0;
   const makeFileHandle = (name: string): FileSystemFileHandle => ({
     kind: "file",
@@ -53,6 +56,7 @@ function createDirectory(identity: string, displayName: string, names: readonly 
       return permission;
     },
     async *entries() {
+      if (failScan) throw new DOMException("Folder cannot be read", "NotReadableError");
       for (const name of files.keys()) yield [name, makeFileHandle(name)] as [string, FileSystemFileHandle];
     },
     async resolve(candidate: FileSystemHandle) {
@@ -77,6 +81,9 @@ function createDirectory(identity: string, displayName: string, names: readonly 
     setPermission(next) {
       permission = next;
     },
+    setScanFailure(next) {
+      failScan = next;
+    },
   };
 }
 
@@ -86,7 +93,45 @@ async function scanToEnd(source: BrowserPhotoSource, sourceId: SourceId) {
   return events;
 }
 
+function selectedFile(relativePath: string): File {
+  const name = relativePath.split("/").at(-1)!;
+  const file = new File([name], name, { type: "image/jpeg" });
+  Object.defineProperty(file, "webkitRelativePath", { value: relativePath });
+  return file;
+}
+
 describe("BrowserPhotoSource", () => {
+  it("prefers the native directory picker when the browser provides it", async () => {
+    const directory = createDirectory("native", "Native Photos", ["one.jpg"]);
+    const nativePicker = vi.fn(async () => directory.handle);
+    vi.stubGlobal("showDirectoryPicker", nativePicker);
+    const source = new BrowserPhotoSource({ databaseName: `native-picker-${crypto.randomUUID()}` });
+    databases.push(source);
+    expect(await source.chooseFolder([])).toMatchObject({ ok: true, value: { displayName: "Native Photos" } });
+    expect(nativePicker).toHaveBeenCalledOnce();
+  });
+
+  it("reads original bytes without changing the connected source", async () => {
+    const directory = createDirectory("original-read", "Original Photos", ["source.jpg"]);
+    const source = new BrowserPhotoSource({
+      databaseName: `original-read-${crypto.randomUUID()}`,
+      picker: async () => directory.handle,
+    });
+    databases.push(source);
+    const grant = await source.chooseFolder([]);
+    if (!grant.ok) throw Error("folder grant failed");
+    await scanToEnd(source, grant.value.sourceId);
+    const page = await source.listPhotos(grant.value.sourceId);
+    if (!page.ok) throw Error("photo scan failed");
+
+    const original = await source.readOriginalFile(page.value.items[0].id);
+
+    expect(original.ok).toBe(true);
+    if (original.ok) expect(await original.value.text()).toBe("source.jpg");
+    expect(directory.files.has("source.jpg")).toBe(true);
+    expect(await source.isExportDirectorySafe(directory.handle)).toBe(false);
+    expect(await source.isExportDirectorySafe(createDirectory("other", "Other", []).handle)).toBe(true);
+  });
   it("imports an external JPEG once and reuses its source photo on a later drop", async () => {
     const sourceId = "external-source" as SourceId;
     const identity = "external-file-a";
@@ -169,10 +214,12 @@ describe("BrowserPhotoSource", () => {
     const workspace = await store.loadWorkspace(imported.value);
     if (!workspace.ok) throw Error("project missing");
     const sourceId = workspace.value.sources[0].id;
+    const photoId = workspace.value.worktableDraft.entryOrder.map((id) => workspace.value.worktableDraft.placements[id].photoId)[0];
     let directory = createDirectory("wrong", "Unrelated", ["other.jpg"]);
     const source = new BrowserPhotoSource({ databaseName, picker: async () => directory.handle });
     databases.push(source);
     expect(await source.getSourceState(sourceId)).toMatchObject({ ok: true, value: { status: "offline", indexedCount: 2 } });
+    expect((await source.preview(photoId)).ok).toBe(false);
     expect(await source.restoreFolder(sourceId)).toMatchObject({ ok: false, error: { kind: "folder-mismatch" } });
     directory = createDirectory("right", "Photos", ["one.jpg", "two.jpg"]);
     expect(await source.restoreFolder(sourceId)).toMatchObject({ ok: true, value: { sourceId } });
@@ -182,7 +229,183 @@ describe("BrowserPhotoSource", () => {
       workspace.value.worktableDraft.entryOrder.map((id) => workspace.value.worktableDraft.placements[id].photoId),
     );
     expect(page.ok && page.value.items.map((p) => p.relativePath)).toEqual(["one.jpg", "two.jpg"]);
+    const preview = await source.preview(photoId);
+    expect(preview.ok).toBe(true);
+    if (preview.ok) preview.value.release();
     await store.close();
+  });
+  it("reselects the original folder after a persistent scan failure without changing photo IDs", async () => {
+    const databaseName = `reselect-folder-${crypto.randomUUID()}`;
+    const store = IndexedDbProjectStore.open({ databaseName });
+    const imported = await store.importBackup(backupBytes());
+    if (!imported.ok) throw Error(JSON.stringify(imported));
+    const workspace = await store.loadWorkspace(imported.value);
+    if (!workspace.ok) throw Error("project missing");
+    const sourceId = workspace.value.sources[0].id;
+    const expectedIds = workspace.value.worktableDraft.entryOrder.map((id) => workspace.value.worktableDraft.placements[id].photoId);
+    const stale = createDirectory("stale-folder", "Photos", ["one.jpg", "two.jpg"]);
+    let selected = stale;
+    const source = new BrowserPhotoSource({ databaseName, picker: async () => selected.handle });
+    databases.push(source);
+
+    expect((await source.restoreFolder(sourceId)).ok).toBe(true);
+    expect((await scanToEnd(source, sourceId)).at(-1)).toMatchObject({ ok: true, value: { state: { status: "ready" } } });
+    stale.setScanFailure(true);
+    expect((await scanToEnd(source, sourceId)).at(-1)).toMatchObject({ ok: false, error: { kind: "io" } });
+    expect(await source.getSourceState(sourceId)).toMatchObject({ ok: true, value: { status: "error", indexedCount: 2 } });
+    expect((await scanToEnd(source, sourceId)).at(-1)).toMatchObject({ ok: false, error: { kind: "io" } });
+
+    selected = createDirectory("fresh-folder", "Photos", ["one.jpg", "two.jpg"]);
+    expect((await source.restoreFolder(sourceId, { reselect: true })).ok).toBe(true);
+    expect((await scanToEnd(source, sourceId)).at(-1)).toMatchObject({ ok: true, value: { state: { status: "ready" } } });
+    const page = await source.listPhotos(sourceId);
+    expect(page.ok && page.value.items.map((photo) => photo.id)).toEqual(expectedIds);
+    const preview = await source.preview(expectedIds[0]);
+    expect(preview.ok).toBe(true);
+    if (preview.ok) preview.value.release();
+    await store.close();
+  });
+  it("reconnects matching children from one parent selection and leaves renamed folders for individual selection", async () => {
+    const databaseName = `bulk-reconnect-${crypto.randomUUID()}`;
+    const backup = backupFixture();
+    const addedSourceId = "renamed-source" as SourceId;
+    const expanded = {
+      ...backup,
+      project: { ...backup.project, sources: [...backup.project.sources, { id: addedSourceId, displayName: "Old name", createdAt: backup.project.createdAt, kind: "folder" as const }] },
+      photoManifest: [...backup.photoManifest, { sourceId: addedSourceId, photoId: "renamed-photo" as import("../../contracts").PhotoId, relativePath: "changed.jpg", width: 800, height: 600 }],
+    };
+    const store = IndexedDbProjectStore.open({ databaseName });
+    const imported = await store.importBackup(backupBytes(expanded));
+    if (!imported.ok) throw Error("import failed");
+    const loaded = await store.loadWorkspace(imported.value);
+    if (!loaded.ok) throw Error("workspace missing");
+    const sources = loaded.value.sources;
+    const originalId = sources.find((item) => item.displayName === "Photos")!.id;
+    const renamedId = sources.find((item) => item.displayName === "Old name")!.id;
+    const original = createDirectory("bulk-original", "Photos", ["one.jpg", "two.jpg"]);
+    const renamed = createDirectory("bulk-renamed", "New name", ["changed.jpg"]);
+    const parent = {
+      kind: "directory",
+      name: "Collection",
+      async getDirectoryHandle(name: string) {
+        if (name === "Photos") return original.handle;
+        throw new DOMException("Directory not found", "NotFoundError");
+      },
+    } as unknown as FileSystemDirectoryHandle;
+    let selected = parent;
+    const picker = vi.fn(async () => selected);
+    const source = new BrowserPhotoSource({ databaseName, picker });
+    databases.push(source);
+
+    const report = await source.reconnectFoldersFromParent(sources);
+    expect(picker).toHaveBeenCalledOnce();
+    expect(report).toEqual({ ok: true, value: { reconnected: [originalId], unmatched: [renamedId] } });
+    expect((await source.getSourceState(renamedId)).ok).toBe(true);
+    selected = renamed.handle;
+    expect(await source.restoreFolder(renamedId, { reselect: true })).toMatchObject({ ok: true, value: { displayName: "New name" } });
+    expect((await scanToEnd(source, renamedId)).at(-1)).toMatchObject({ ok: true, value: { state: { status: "ready" } } });
+    await store.close();
+  });
+  it("does not bind a same-named child when its indexed photos do not match", async () => {
+    const databaseName = `bulk-mismatch-${crypto.randomUUID()}`;
+    const store = IndexedDbProjectStore.open({ databaseName });
+    const backup = backupFixture();
+    const imported = await store.importBackup(backupBytes({ ...backup, photoManifest: backup.photoManifest.map((photo) => ({ ...photo, fileSize: 100 })) }));
+    if (!imported.ok) throw Error("import failed");
+    const loaded = await store.loadWorkspace(imported.value);
+    if (!loaded.ok) throw Error("workspace missing");
+    const unrelated = createDirectory("unrelated", "Photos", ["one.jpg"]);
+    const parent = { name: "Collection", async getDirectoryHandle() { return unrelated.handle; } } as unknown as FileSystemDirectoryHandle;
+    const source = new BrowserPhotoSource({ databaseName, picker: async () => parent });
+    databases.push(source);
+    expect(await source.reconnectFoldersFromParent(loaded.value.sources)).toEqual({ ok: true, value: { reconnected: [], unmatched: [loaded.value.sources[0].id] } });
+    expect(await source.getSourceState(loaded.value.sources[0].id)).toMatchObject({ ok: true, value: { status: "offline" } });
+    await store.close();
+  });
+  it("reconnects a child folder through the webkitdirectory fallback", async () => {
+    const databaseName = `bulk-webkit-${crypto.randomUUID()}`;
+    const store = IndexedDbProjectStore.open({ databaseName });
+    const imported = await store.importBackup(backupBytes());
+    if (!imported.ok) throw Error("import failed");
+    const loaded = await store.loadWorkspace(imported.value);
+    if (!loaded.ok) throw Error("workspace missing");
+    const filePicker = vi.fn(async () => [selectedFile("Collection/Photos/one.jpg"), selectedFile("Collection/Photos/two.jpg")]);
+    const source = new BrowserPhotoSource({ databaseName, filePicker });
+    databases.push(source);
+
+    expect(await source.reconnectFoldersFromParent(loaded.value.sources)).toEqual({ ok: true, value: { reconnected: [loaded.value.sources[0].id], unmatched: [] } });
+    expect(filePicker).toHaveBeenCalledOnce();
+    expect((await scanToEnd(source, loaded.value.sources[0].id)).at(-1)).toMatchObject({ ok: true, value: { state: { status: "ready", indexedCount: 2 } } });
+    await store.close();
+  });
+  it("restores every saved folder without opening a picker", async () => {
+    const databaseName = `saved-access-reconnect-${crypto.randomUUID()}`;
+    const store = IndexedDbProjectStore.open({ databaseName });
+    const imported = await store.importBackup(backupBytes());
+    if (!imported.ok) throw Error("import failed");
+    const loaded = await store.loadWorkspace(imported.value);
+    if (!loaded.ok) throw Error("workspace missing");
+    const directory = createDirectory("saved-access", "Photos", ["one.jpg", "two.jpg"]);
+    const picker = vi.fn(async () => directory.handle);
+    const source = new BrowserPhotoSource({ databaseName, picker });
+    databases.push(source);
+    const sourceId = loaded.value.sources[0].id;
+    expect((await source.restoreFolder(sourceId)).ok).toBe(true);
+    picker.mockClear();
+
+    const report = await source.reconnectFoldersFromSavedAccess(loaded.value.sources);
+
+    expect(report).toEqual({ ok: true, value: { reconnected: [sourceId], unmatched: [] } });
+    expect(picker).not.toHaveBeenCalled();
+    await store.close();
+  });
+  it("uses selected directory files when native directory access is unavailable", async () => {
+    const databaseName = `webkit-folder-${crypto.randomUUID()}`;
+    const store = IndexedDbProjectStore.open({ databaseName });
+    const imported = await store.importBackup(backupBytes());
+    if (!imported.ok) throw Error(JSON.stringify(imported));
+    const workspace = await store.loadWorkspace(imported.value);
+    if (!workspace.ok) throw Error("project missing");
+    const sourceId = workspace.value.sources[0].id;
+    const expectedPhotoIds = workspace.value.worktableDraft.entryOrder.map((id) => workspace.value.worktableDraft.placements[id].photoId);
+    let files = [selectedFile("Wrong/other.jpg")];
+    const first = new BrowserPhotoSource({ databaseName, filePicker: async () => files });
+    databases.push(first);
+    expect(await first.restoreFolder(sourceId)).toMatchObject({ ok: false, error: { kind: "folder-mismatch" } });
+    files = [selectedFile("Photos/one.jpg"), selectedFile("Photos/two.jpg")];
+    expect(await first.restoreFolder(sourceId)).toMatchObject({ ok: true, value: { displayName: "Photos" } });
+    await scanToEnd(first, sourceId);
+    const page = await first.listPhotos(sourceId);
+    expect(page.ok && page.value.items.map((photo) => photo.id)).toEqual(expectedPhotoIds);
+    const preview = await first.preview(expectedPhotoIds[0]);
+    expect(preview.ok).toBe(true);
+    if (preview.ok) preview.value.release();
+
+    await first.close();
+    const reopened = new BrowserPhotoSource({ databaseName, filePicker: async () => files });
+    databases.push(reopened);
+    expect(await reopened.getSourceState(sourceId)).toMatchObject({ ok: true, value: { status: "offline", indexedCount: 2 } });
+    expect((await reopened.preview(expectedPhotoIds[0])).ok).toBe(false);
+    expect((await reopened.restoreFolder(sourceId)).ok).toBe(true);
+    expect((await reopened.preview(expectedPhotoIds[0])).ok).toBe(true);
+    await store.close();
+  });
+  it("scans nested paths from a directory file selection", async () => {
+    const source = new BrowserPhotoSource({
+      databaseName: `webkit-nested-${crypto.randomUUID()}`,
+      filePicker: async () => [selectedFile("Photos/Nested/image.jpg")],
+    });
+    databases.push(source);
+    const grant = await source.chooseFolder([]);
+    if (!grant.ok) throw Error(JSON.stringify(grant));
+    await scanToEnd(source, grant.value.sourceId);
+    const page = await source.listPhotos(grant.value.sourceId);
+    expect(page.ok && page.value.items.map((photo) => photo.relativePath)).toEqual(["Nested/image.jpg"]);
+    if (page.ok) {
+      const preview = await source.preview(page.value.items[0].id);
+      expect(preview.ok).toBe(true);
+      if (preview.ok) preview.value.release();
+    }
   });
   it("按相对路径稳定排列分页照片", async () => {
     const directory = createDirectory("ordered", "Ordered", ["Z.JPG", "A.JPG", "M.JPG"]);

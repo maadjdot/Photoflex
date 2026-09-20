@@ -21,6 +21,7 @@ interface MemorySourceFixture {
   readonly grant: SourceGrant;
   readonly photos?: readonly PhotoRef[];
   readonly previewUrls?: Readonly<Record<PhotoId, string>>;
+  readonly originalFiles?: Readonly<Record<PhotoId, Blob>>;
   readonly directoryHandle?: FileSystemDirectoryHandle;
 }
 
@@ -57,6 +58,27 @@ export class MemoryPhotoSource implements PhotoSource {
     return fixture
       ? ok({ ...fixture.grant, restored: true })
       : err({ kind: "source-not-found", sourceId });
+  }
+
+  async reconnectFoldersFromSavedAccess(sources: readonly SourceRecord[]): Promise<Result<{ readonly reconnected: readonly SourceId[]; readonly unmatched: readonly SourceId[] }, SourceError>> {
+    const reconnected: SourceId[] = [];
+    const unmatched: SourceId[] = [];
+    for (const source of sources) {
+      if (source.removedAt || source.kind === "external-files") continue;
+      const restored = await this.restoreFolder(source.id);
+      (restored.ok ? reconnected : unmatched).push(source.id);
+    }
+    return ok({ reconnected, unmatched });
+  }
+
+  async reconnectFoldersFromParent(sources: readonly SourceRecord[]): Promise<Result<{ readonly reconnected: readonly SourceId[]; readonly unmatched: readonly SourceId[] }, SourceError>> {
+    const reconnected: SourceId[] = [];
+    const unmatched: SourceId[] = [];
+    for (const source of sources) {
+      const restored = await this.restoreFolder(source.id);
+      (restored.ok ? reconnected : unmatched).push(source.id);
+    }
+    return ok({ reconnected, unmatched });
   }
 
   async removeSource(sourceId: SourceId): Promise<Result<RemovedSourceData, SourceError>> {
@@ -236,6 +258,26 @@ export class MemoryPhotoSource implements PhotoSource {
 
   async preview(photoId: PhotoId): Promise<Result<PreviewLease, SourceError>> {
     return this.fixturePreview(photoId);
+  }
+
+  async readOriginalFile(photoId: PhotoId): Promise<Result<Blob, SourceError>> {
+    const importedHandle = this.importedHandles.get(photoId);
+    if (importedHandle) {
+      try {
+        return ok(await importedHandle.getFile());
+      } catch {
+        return err({ kind: "photo-not-found", photoId });
+      }
+    }
+    for (const fixture of this.fixtures) {
+      const file = fixture.originalFiles?.[photoId];
+      if (file) return ok(file);
+    }
+    return err({ kind: "photo-not-found", photoId });
+  }
+
+  async isExportDirectorySafe(_directory: FileSystemDirectoryHandle): Promise<boolean> {
+    return true;
   }
 
   private fixturePreview(photoId: PhotoId): Result<PreviewLease, SourceError> {

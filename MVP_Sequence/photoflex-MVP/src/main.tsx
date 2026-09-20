@@ -10,8 +10,16 @@ if (!root) {
   throw new Error("Missing #root element");
 }
 
-createRoot(root).render(
-  <StrictMode>
-    <App dependencies={createBrowserDependencies()} />
-  </StrictMode>,
-);
+const reactRoot = createRoot(root);
+
+if (import.meta.env.DEV && window.location.pathname === "/prototype/layout") {
+  void import("./app/LayoutPrototype").then(({ LayoutPrototype }) => {
+    reactRoot.render(<StrictMode><LayoutPrototype /></StrictMode>);
+  });
+} else {
+  reactRoot.render(
+    <StrictMode>
+      <App dependencies={createBrowserDependencies()} />
+    </StrictMode>,
+  );
+}

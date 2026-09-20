@@ -8,6 +8,7 @@ import {
   type DeleteError,
   type LoadError,
   type ProjectId,
+  type ProjectBackupV1,
   type ProjectStore,
   type ProjectSummary,
   type ProjectWorkspace,
@@ -602,5 +603,41 @@ export class IndexedDbProjectStore implements ProjectStore {
         } catch (error) { writeError = error; tx.abort(); }
       });
     } catch { return err({ kind: "unavailable", retryable: true }); }
+  }
+
+  async installCloudSnapshot(document: ProjectBackupV1): Promise<Result<void, BackupError>> {
+    const prepared = prepareBackupImport(new TextEncoder().encode(JSON.stringify(document)), true);
+    if (!prepared.ok) return prepared;
+    const opened = await this.database;
+    if (!opened.ok) return opened;
+    const { backup, photos } = prepared.value;
+    return new Promise((resolve) => {
+      const tx = opened.value.transaction([STORE_NAMES.projects, STORE_NAMES.versions, STORE_NAMES.sequences, STORE_NAMES.photoIndex], "readwrite");
+      const projects = tx.objectStore(STORE_NAMES.projects);
+      const versions = tx.objectStore(STORE_NAMES.versions);
+      const sequences = tx.objectStore(STORE_NAMES.sequences);
+      const photoIndex = tx.objectStore(STORE_NAMES.photoIndex);
+      tx.oncomplete = () => resolve(ok(undefined));
+      tx.onabort = () => resolve(isQuotaError(tx.error) ? err({ kind: "quota-exceeded" }) : err({ kind: "unavailable", retryable: true }));
+      const existing = projects.get(backup.project.projectId);
+      existing.onsuccess = () => {
+        const previous = existing.result as ProjectWorkspace | undefined;
+        const allPhotos = photoIndex.getAll();
+        allPhotos.onsuccess = () => {
+          try {
+            if (previous) {
+              previous.versionIds.forEach((id) => versions.delete(id));
+              previous.sequenceIds.forEach((id) => sequences.delete(id));
+              const oldSources = new Set(previous.sources.map((source) => source.id));
+              (allPhotos.result as PhotoRef[]).filter((photo) => oldSources.has(photo.sourceId)).forEach((photo) => photoIndex.delete(photo.id));
+            }
+            projects.put(clone(backup.project));
+            backup.versions.forEach((version) => versions.put(clone(version)));
+            backup.sequences.forEach((sequence) => sequences.put(clone(sequence)));
+            photos.forEach((photo) => photoIndex.put(clone(photo)));
+          } catch { tx.abort(); }
+        };
+      };
+    });
   }
 }
