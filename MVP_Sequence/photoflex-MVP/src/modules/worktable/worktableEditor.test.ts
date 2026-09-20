@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import type { PhotoId, ProjectId, SequenceId, WorktableDraft, WorktableItemId, WorktablePlacementSeed } from "../../contracts";
+import type { PhotoId, ProjectId, SequenceId, WorktableDraft, WorktableItemId, WorktablePlacement, WorktablePlacementSeed } from "../../contracts";
 import { createEmptyWorktable, createWorktableEditor } from "./worktableEditor";
 
 const projectId = "project-1" as ProjectId;
@@ -127,6 +127,36 @@ describe("WorktableEditor", () => {
     expect(result.value.entryOrder).toEqual(["a", "b", "c"]);
     expect(result.value.placements[photoId("a")].x).toBe(result.value.placements[photoId("c")].x);
     expect(result.value.placements[photoId("a")].y).toBeLessThan(result.value.placements[photoId("c")].y);
+  });
+
+  it("uses Sequence spatial order when arranging Row and Grid layouts", () => {
+    const left = "left-instance" as WorktableItemId;
+    const right = "right-instance" as WorktableItemId;
+    const lower = "lower-instance" as WorktableItemId;
+    const makeDraft = (): WorktableDraft => ({
+      projectId,
+      entryOrder: [right, lower, left],
+      placements: {
+        [left]: { id: left, photoId: photoId("left"), x: 20, y: 20, z: 1, width: 100, height: 100, filename: "left.jpg" },
+        [right]: { id: right, photoId: photoId("right"), x: 300, y: 20, z: 1, width: 100, height: 100, filename: "right.jpg" },
+        [lower]: { id: lower, photoId: photoId("lower"), x: 20, y: 180, z: 1, width: 100, height: 100, filename: "lower.jpg" },
+      } satisfies Record<WorktableItemId, WorktablePlacement>,
+      groups: [], links: [], pileOrder: [], pilePlacements: {},
+    });
+
+    const row = createWorktableEditor(makeDraft()).execute({ type: "arrange", photoIds: [right, lower, left], layout: { type: "row", gap: 10 } });
+    expect(row.ok).toBe(true);
+    if (!row.ok) return;
+    expect(row.value.placements[left].x).toBe(20);
+    expect(row.value.placements[right].x).toBe(130);
+    expect(row.value.placements[lower].x).toBe(240);
+
+    const grid = createWorktableEditor(makeDraft()).execute({ type: "arrange", photoIds: [right, lower, left], layout: { type: "grid", columns: 2, gap: 10 } });
+    expect(grid.ok).toBe(true);
+    if (!grid.ok) return;
+    expect(grid.value.placements[left]).toMatchObject({ x: 20, y: 20 });
+    expect(grid.value.placements[right]).toMatchObject({ x: 130, y: 20 });
+    expect(grid.value.placements[lower]).toMatchObject({ x: 20, y: 150 });
   });
 
   it("shuffles detected grid rows independently without changing photo geometry", () => {
@@ -401,8 +431,12 @@ describe("WorktableEditor", () => {
     expect(locked.ok).toBe(true);
     expect(editor.snapshot().placements[photoId("a")].locked).toBe(true);
     expect(editor.snapshot().placements[photoId("b")].locked).toBeUndefined();
+    expect(editor.execute({ type: "move", photoIds: [photoId("a")], by: { x: 20, y: 20 } })).toMatchObject({ ok: false, error: { kind: "locked-placement" } });
+    const unlocked = editor.execute({ type: "set-locked", photoIds: [photoId("a")], locked: false });
+    expect(unlocked.ok).toBe(true);
+    expect(editor.execute({ type: "move", photoIds: [photoId("a")], by: { x: 20, y: 20 } }).ok).toBe(true);
     editor.undo();
-    expect(editor.snapshot().placements[photoId("a")].locked).toBeUndefined();
+    expect(editor.snapshot().placements[photoId("a")].locked).toBe(false);
   });
 
   it("resizes a legacy Sequence card from its rendered size and keeps its center", () => {

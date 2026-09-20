@@ -83,14 +83,14 @@ describe("TableSession", () => {
     expect(session.getSnapshot().selectedPileIds).toEqual([sequenceId]);
   });
 
-  it("does not select locked photos through clicks, marquee, or Select All", () => {
+  it("keeps locked photos selectable so they can be unlocked", () => {
     const { session } = createSession();
     session.execute({ type: "set-locked", photoIds: [photoA], locked: true });
-    expect(session.selectPhoto(photoA, false)).toBeUndefined();
+    expect(session.selectPhoto(photoA, false)).toEqual([photoA]);
     session.selectPhotos([photoA, photoB]);
-    expect(session.getSnapshot().selectedPhotoIds).toEqual([photoB]);
+    expect(session.getSnapshot().selectedPhotoIds).toEqual([photoA, photoB]);
     session.selectAllPhotos();
-    expect(session.getSnapshot().selectedPhotoIds).toEqual([photoB, photoC]);
+    expect(session.getSnapshot().selectedPhotoIds).toEqual([photoA, photoB, photoC]);
   });
 
   it("prepares structural changes without mutating history, then resets to the committed draft", () => {

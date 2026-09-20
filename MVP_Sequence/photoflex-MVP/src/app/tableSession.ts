@@ -145,7 +145,7 @@ class TableSessionController implements TableSession {
   };
 
   selectPhoto = (photoId: WorktableItemId, toggle: boolean): readonly WorktableItemId[] | undefined => {
-    if (!this.snapshotValue.draft.placements[photoId] || this.snapshotValue.draft.placements[photoId].locked) return undefined;
+    if (!this.snapshotValue.draft.placements[photoId]) return undefined;
     this.selectedPileIds.clear();
     if (toggle) {
       if (this.selectedPhotoIds.delete(photoId)) {
@@ -179,7 +179,7 @@ class TableSessionController implements TableSession {
   selectPhotos = (photoIds: readonly WorktableItemId[], additive = false): TableSessionSnapshot => {
     const next = additive ? new Set(this.selectedPhotoIds) : new Set<WorktableItemId>();
     photoIds.forEach((id) => {
-      if (this.snapshotValue.draft.placements[id] && !this.snapshotValue.draft.placements[id].locked) next.add(id);
+      if (this.snapshotValue.draft.placements[id]) next.add(id);
     });
     this.selectedPhotoIds = next;
     this.selectedPileIds.clear();
@@ -187,7 +187,7 @@ class TableSessionController implements TableSession {
   };
 
   selectAllPhotos = (): TableSessionSnapshot => {
-    this.selectedPhotoIds = new Set(this.snapshotValue.draft.entryOrder.filter((id) => !this.snapshotValue.draft.placements[id].locked));
+    this.selectedPhotoIds = new Set(this.snapshotValue.draft.entryOrder);
     this.selectedPileIds.clear();
     return this.publish();
   };
@@ -201,7 +201,7 @@ class TableSessionController implements TableSession {
 
   resetCommittedDraft = (draft: WorktableDraft, selection: TableSessionSelection = {}): TableSessionSnapshot => {
     this.editor = createWorktableEditor(draft);
-    this.selectedPhotoIds = new Set((selection.photoIds ?? []).filter((id) => Boolean(draft.placements[id]) && !draft.placements[id].locked));
+    this.selectedPhotoIds = new Set((selection.photoIds ?? []).filter((id) => Boolean(draft.placements[id])));
     this.selectedPileIds = new Set((selection.pileIds ?? []).filter((id) => Boolean(draft.pilePlacements[id])));
     return this.publish();
   };

@@ -118,6 +118,7 @@ export function useTableGestures(options: TableGestureOptions) {
     if (event.button !== 0 || !stageRef.current) return;
     const ids = selectPhoto(id, event.shiftKey || event.ctrlKey || event.metaKey);
     if (!ids?.length) return;
+    if (draft.placements[id]?.locked) return;
     beginDrag(event, {
       kind: "photo",
       pointerId: event.pointerId,
@@ -129,16 +130,16 @@ export function useTableGestures(options: TableGestureOptions) {
   };
 
   const onGroupPointerDown = (event: ReactPointerEvent<HTMLElement>, ids: readonly WorktableItemId[]) => {
-    const movableIds = ids.filter((id) => !draft.placements[id]?.locked);
-    if (disabled || event.button !== 0 || !stageRef.current || !movableIds.length) return;
+    if (disabled || event.button !== 0 || !stageRef.current || !ids.length) return;
     event.preventDefault();
     event.stopPropagation();
-    selectPhotos(movableIds);
+    selectPhotos(ids);
+    if (ids.some((id) => draft.placements[id]?.locked)) return;
     beginDrag(event, {
       kind: "photo",
       pointerId: event.pointerId,
       start: screenToWorld({ x: event.clientX, y: event.clientY }, stageRef.current.getBoundingClientRect(), viewportRef.current),
-      ids: movableIds,
+      ids,
       startClient: { x: event.clientX, y: event.clientY },
       moved: false,
     });
@@ -168,7 +169,7 @@ export function useTableGestures(options: TableGestureOptions) {
     if (disabled) return;
     const stage = stageRef.current;
     const item = draft.placements[id];
-    if (event.button !== 0 || !stage || !item) return;
+    if (event.button !== 0 || !stage || !item || item.locked) return;
     event.preventDefault();
     event.stopPropagation();
     stage.setPointerCapture(event.pointerId);

@@ -19,7 +19,7 @@ export interface WorktablePlacement extends WorktablePoint {
   readonly width: number;
   readonly height: number;
   readonly filename: string;
-  /** Locked photos stay visible but are ignored by selection gestures. */
+  /** Locked photos stay visible and selectable, but ignore manipulation gestures. */
   readonly locked?: boolean;
 }
 
@@ -128,6 +128,7 @@ export type WorktableEditCommand =
 
 export type WorktableCommandError =
   | { readonly kind: "unknown-placement"; readonly photoId: WorktableItemId }
+  | { readonly kind: "locked-placement"; readonly photoId: WorktableItemId }
   | { readonly kind: "unknown-sequence-pile"; readonly sequenceId: SequenceId }
   | { readonly kind: "duplicate-sequence-pile"; readonly sequenceId: SequenceId }
   | { readonly kind: "duplicate-photo-id"; readonly photoId: WorktableItemId }

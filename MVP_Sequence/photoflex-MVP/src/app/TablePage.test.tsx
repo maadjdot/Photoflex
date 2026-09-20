@@ -119,7 +119,7 @@ describe("TablePage", () => {
     const stage = await screen.findByLabelText("Photo worktable");
     vi.spyOn(dependencies.projectStore, "saveWorktable").mockResolvedValue(err({ kind: "quota-exceeded" }));
     fireEvent.keyDown(stage, { key: "a", ctrlKey: true });
-    fireEvent.click(screen.getByRole("button", { name: "Group" }));
+    fireEvent.click(within(screen.getByRole("group", { name: "Table arrangement tools" })).getByRole("button", { name: "Group selection" }));
     await screen.findByRole("button", { name: "Changes not saved · Retry" });
     fireEvent.click(screen.getByRole("button", { name: "Back to Home" }));
     await screen.findByText("Your latest edits have not been saved.");
@@ -244,7 +244,7 @@ describe("TablePage", () => {
     expect(world.style.transform).not.toBe(before);
   });
 
-  it("锁定照片后不会再被选择，并支持方向键平移画布", async () => {
+  it("锁定照片后仍可选中，但只提供解锁并支持方向键平移画布", async () => {
     const dependencies = await createFixture();
     render(<App dependencies={dependencies} />);
     const stage = await screen.findByLabelText("Photo worktable");
@@ -253,10 +253,21 @@ describe("TablePage", () => {
     fireEvent.pointerUp(cardA, { pointerId: 33, button: 0, clientX: 120, clientY: 120 });
     fireEvent.keyDown(stage, { key: "k" });
     expect(within(stage).getByLabelText("A.jpg · Locked").className).toContain("is-locked");
-    fireEvent.pointerDown(within(stage).getByLabelText("B.jpg"), { pointerId: 34, button: 0, clientX: 320, clientY: 120 });
-    fireEvent.pointerUp(within(stage).getByLabelText("B.jpg"), { pointerId: 34, button: 0, clientX: 320, clientY: 120 });
-    fireEvent.keyDown(stage, { key: "a", ctrlKey: true });
-    expect(within(screen.getByRole("group", { name: "Table selection actions" })).getByText("1 photo")).toBeTruthy();
+    const cardB = within(stage).getByLabelText("B.jpg");
+    fireEvent.pointerDown(cardB, { pointerId: 34, button: 0, clientX: 320, clientY: 120 });
+    fireEvent.pointerUp(cardB, { pointerId: 34, button: 0, clientX: 320, clientY: 120 });
+    const lockedCard = within(stage).getByLabelText("A.jpg · Locked");
+    fireEvent.pointerDown(lockedCard, { pointerId: 35, button: 0, clientX: 120, clientY: 120 });
+    fireEvent.pointerUp(lockedCard, { pointerId: 35, button: 0, clientX: 120, clientY: 120 });
+    const toolbar = within(screen.getByRole("group", { name: "Table selection actions" }));
+    expect(toolbar.getByText("1 photo")).toBeTruthy();
+    expect(toolbar.getByRole("button", { name: "Unlock" })).toBeTruthy();
+    expect(toolbar.queryByRole("button", { name: "Preview" })).toBeNull();
+    expect(toolbar.queryByRole("button", { name: "Link" })).toBeNull();
+    fireEvent.keyDown(stage, { key: "Delete" });
+    expect(within(stage).getByLabelText("A.jpg · Locked")).toBeTruthy();
+    fireEvent.keyDown(stage, { key: "k" });
+    expect(within(stage).getByLabelText("A.jpg")).toBeTruthy();
     const world = stage.querySelector<HTMLElement>(".worktable-world");
     if (!world) throw new Error("worktable world missing");
     const before = world.style.transform;
@@ -291,9 +302,10 @@ describe("TablePage", () => {
     expect(stage.querySelectorAll(".worktable-links line")).toHaveLength(1);
     fireEvent.click(toolbar.getByRole("button", { name: "Unlink" }));
     expect(stage.querySelectorAll(".worktable-links line")).toHaveLength(0);
-    fireEvent.click(toolbar.getByRole("button", { name: "Group" }));
-    expect(toolbar.getByRole("button", { name: "Ungroup" })).toBeTruthy();
-    fireEvent.click(toolbar.getByRole("button", { name: "Ungroup" }));
+    const arrangement = within(screen.getByRole("group", { name: "Table arrangement tools" }));
+    fireEvent.click(arrangement.getByRole("button", { name: "Group selection" }));
+    expect(arrangement.getByRole("button", { name: "Ungroup selection" })).toBeTruthy();
+    fireEvent.click(arrangement.getByRole("button", { name: "Ungroup selection" }));
     expect(toolbar.queryByText("More")).toBeNull();
     fireEvent.click(toolbar.getByRole("button", { name: "Front" }));
     expect(toolbar.getByText("2 photos")).toBeTruthy();
@@ -344,7 +356,7 @@ describe("TablePage", () => {
     expect(stage.querySelectorAll(".worktable-links line")).toHaveLength(0);
     fireEvent.click(screen.getByRole("button", { name: "Undo" }));
     expect(stage.querySelectorAll(".worktable-links line")).toHaveLength(1);
-    fireEvent.click(screen.getByRole("button", { name: "Ungroup" }));
+    fireEvent.click(within(screen.getByRole("group", { name: "Table arrangement tools" })).getByRole("button", { name: "Ungroup selection" }));
     expect(stage.querySelectorAll(".worktable-group-frame")).toHaveLength(0);
     fireEvent.click(screen.getByRole("button", { name: "Undo" }));
     expect(stage.querySelectorAll(".worktable-group-frame")).toHaveLength(1);
@@ -728,8 +740,7 @@ describe("TablePage", () => {
 
     const cardB = screen.getByLabelText("B.jpg");
     fireEvent.pointerDown(cardB, { pointerId: 21, button: 0, clientX: 320, clientY: 160 });
-    const selectionActions = screen.getByRole("group", { name: "Table arrangement tools" });
-    fireEvent.click(within(selectionActions).getByRole("button", { name: "Add to Sequence" }));
+    fireEvent.keyDown(screen.getByLabelText("Photo worktable"), { key: "n" });
     const addButton = await screen.findByRole("button", { name: "Add photos" });
     await waitFor(() => expect(addButton.hasAttribute("disabled")).toBe(false));
     fireEvent.click(addButton);
@@ -751,7 +762,7 @@ describe("TablePage", () => {
 
     await screen.findByLabelText("Sequence pile Sequence 01");
     fireEvent.pointerDown(screen.getByLabelText("B.jpg"), { pointerId: 22, button: 0, clientX: 320, clientY: 160 });
-    fireEvent.click(within(screen.getByRole("group", { name: "Table arrangement tools" })).getByRole("button", { name: "Add to Sequence" }));
+    fireEvent.keyDown(screen.getByLabelText("Photo worktable"), { key: "n" });
     const addButton = await screen.findByRole("button", { name: "Add photos" });
     await waitFor(() => expect(addButton.hasAttribute("disabled")).toBe(false));
     fireEvent.click(addButton);
@@ -769,9 +780,8 @@ describe("TablePage", () => {
 
     await screen.findByLabelText("Sequence pile Sequence 01");
     fireEvent.pointerDown(screen.getByLabelText("B.jpg"), { pointerId: 23, button: 0, clientX: 320, clientY: 160 });
-    const opener = within(screen.getByRole("group", { name: "Table arrangement tools" })).getByRole("button", { name: "Add to Sequence" });
-    opener.focus();
-    fireEvent.click(opener);
+    const stage = screen.getByLabelText("Photo worktable");
+    fireEvent.keyDown(stage, { key: "n" });
     const dialog = await screen.findByRole("dialog", { name: "Add to Sequence" });
     const addButton = within(dialog).getByRole("button", { name: "Add photos" });
     addButton.focus();
@@ -779,7 +789,7 @@ describe("TablePage", () => {
     expect(document.activeElement).toBe(within(dialog).getByRole("button", { name: "Close" }));
     fireEvent.keyDown(document.activeElement!, { key: "Escape" });
     expect(screen.queryByRole("dialog", { name: "Add to Sequence" })).toBeNull();
-    expect(document.activeElement).toBe(opener);
+    expect(document.activeElement).toBe(stage);
   });
 
   it("在 Sequence 中移除照片后返回 Table 会刷新序列卡片数量", async () => {

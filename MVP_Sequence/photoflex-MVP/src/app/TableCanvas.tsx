@@ -363,6 +363,28 @@ export const TableCanvas = forwardRef<TableCanvasHandle, TableCanvasProps>(funct
       setViewport({ ...viewportRef.current, originX: viewportRef.current.originX + pan.x, originY: viewportRef.current.originY + pan.y });
       return;
     }
+    const lockedSelectedIds = selectedPhotoIds.filter((id) => draft.placements[id]?.locked);
+    const hasLockedPhotoSelection = lockedSelectedIds.length > 0;
+    if (plain && key === "k") {
+      event.preventDefault();
+      if (event.shiftKey) {
+        const lockedIds = draft.entryOrder.filter((id) => draft.placements[id].locked);
+        if (lockedIds.length) session.execute({ type: "set-locked", photoIds: lockedIds, locked: false });
+      } else if (lockedSelectedIds.length) {
+        session.execute({ type: "set-locked", photoIds: lockedSelectedIds, locked: false });
+      } else if (selectedPhotoIds.length) {
+        session.execute({ type: "set-locked", photoIds: selectedPhotoIds, locked: true });
+      }
+      return;
+    }
+    if (hasLockedPhotoSelection) {
+      const historyShortcut = (event.ctrlKey || event.metaKey) && key === "z";
+      const viewShortcut = plain && ["j", "b", "+", "=", "-", "0"].includes(key);
+      if (!historyShortcut && !viewShortcut && event.key !== "Escape") {
+        event.preventDefault();
+        return;
+      }
+    }
     if (plain && event.key === " " && selectedPhoto) {
       event.preventDefault();
       onOpenPhoto(selectedPhoto);
@@ -396,20 +418,6 @@ export const TableCanvas = forwardRef<TableCanvasHandle, TableCanvasProps>(funct
     if (plain && key === "m" && onAddMemo) {
       event.preventDefault();
       onAddMemo();
-      return;
-    }
-    if (plain && event.shiftKey && key === "k") {
-      const lockedIds = draft.entryOrder.filter((id) => draft.placements[id].locked);
-      if (lockedIds.length) {
-        event.preventDefault();
-        session.execute({ type: "set-locked", photoIds: lockedIds, locked: false });
-      }
-      return;
-    }
-    if (plain && !event.shiftKey && key === "k" && selectedPhotoIds.length) {
-      event.preventDefault();
-      const locked = selectedPhotoIds.some((id) => !draft.placements[id]?.locked);
-      session.execute({ type: "set-locked", photoIds: selectedPhotoIds, locked });
       return;
     }
     if (plain && key === "j" && selectedPhotoIds.length) {
@@ -576,7 +584,7 @@ export const TableCanvas = forwardRef<TableCanvasHandle, TableCanvasProps>(funct
                 {missingPhotoIds.has(item.photoId) && <span className="worktable-missing">{t("status.missing")}</span>}
                 {item.locked && <span className="worktable-lock-badge" aria-label={t("table.locked")}>LOCK</span>}
               </div>
-              {chosen && selectedPhotoIds.length === 1 && <button aria-label="Resize photo" className="worktable-resize-handle" onPointerDown={(event) => gestures.onPhotoResizePointerDown(event, id)} />}
+              {chosen && !item.locked && selectedPhotoIds.length === 1 && <button aria-label="Resize photo" className="worktable-resize-handle" onPointerDown={(event) => gestures.onPhotoResizePointerDown(event, id)} />}
             </article>
             </div>
           );

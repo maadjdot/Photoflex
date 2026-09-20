@@ -8,6 +8,8 @@ import type {
 
 export interface TableActionState {
   readonly photoIds: readonly WorktableItemId[];
+  readonly lockedPhotoIds: readonly WorktableItemId[];
+  readonly hasLockedPhoto: boolean;
   readonly pileIds: readonly SequenceId[];
   readonly completeGroup?: WorktableGroup;
   readonly memberGroup?: WorktableGroup;
@@ -32,6 +34,8 @@ export function deriveTableActions(
   selectedPileIds: ReadonlySet<SequenceId>,
 ): TableActionState {
   const photoIds = draft.entryOrder.filter((id) => selectedPhotoIds.has(id));
+  const lockedPhotoIds = photoIds.filter((id) => Boolean(draft.placements[id]?.locked));
+  const hasLockedPhoto = lockedPhotoIds.length > 0;
   const pileIds = draft.pileOrder.filter((id) => selectedPileIds.has(id));
   const completeGroup = draft.groups.find((group) => (
     group.photoIds.length === photoIds.length
@@ -48,29 +52,31 @@ export function deriveTableActions(
     : [];
   const selectedLink = matchingLinks.find((link) => link.photoIds.length === photoIds.length)
     ?? (matchingLinks.length === 1 ? matchingLinks[0] : undefined);
-  const canComparePhotos = photoIds.length === 2 && pileIds.length === 0;
+  const canComparePhotos = photoIds.length === 2 && pileIds.length === 0 && !hasLockedPhoto;
   const canComparePiles = pileIds.length === 2 && photoIds.length === 0;
   const selectedCount = photoIds.length + pileIds.length;
 
   return {
     photoIds,
+    lockedPhotoIds,
+    hasLockedPhoto,
     pileIds,
     completeGroup,
     memberGroup,
     selectedGroup,
     matchingLinks,
     selectedLink,
-    canGroup: photoIds.length >= 2 && photoIds.every((id) => !draft.groups.some((group) => group.photoIds.includes(id))),
-    canJoinGroup: photoIds.length === 1 && !memberGroup && draft.groups.length > 0,
-    canCreateLink: photoIds.length >= 2 && photoIds.length <= 6,
+    canGroup: !hasLockedPhoto && photoIds.length >= 2 && photoIds.every((id) => !draft.groups.some((group) => group.photoIds.includes(id))),
+    canJoinGroup: !hasLockedPhoto && photoIds.length === 1 && !memberGroup && draft.groups.length > 0,
+    canCreateLink: !hasLockedPhoto && photoIds.length >= 2 && photoIds.length <= 6,
     canCompare: canComparePhotos || canComparePiles,
     compareKind: canComparePhotos ? "photos" : canComparePiles ? "sequences" : undefined,
     compareDisabledReason: selectedCount > 0 && !canComparePhotos && !canComparePiles
       ? "Compare requires exactly two photos or two Sequence piles."
       : undefined,
-    canArrange: photoIds.length >= 2,
-    canPreview: photoIds.length === 1 && pileIds.length === 0,
-    canBringToFront: selectedCount > 0,
-    canRemove: selectedCount > 0,
+    canArrange: !hasLockedPhoto && photoIds.length >= 2,
+    canPreview: !hasLockedPhoto && photoIds.length === 1 && pileIds.length === 0,
+    canBringToFront: !hasLockedPhoto && selectedCount > 0,
+    canRemove: !hasLockedPhoto && selectedCount > 0,
   };
 }

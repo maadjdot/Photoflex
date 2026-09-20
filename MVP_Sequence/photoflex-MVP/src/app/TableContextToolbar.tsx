@@ -2,7 +2,6 @@ import memoIcon from "../assets/icons/table-memo.svg";
 import { TableHeaderControl } from "./TableHeaderControl";
 import { useEffect, useLayoutEffect, useRef, useState, type ButtonHTMLAttributes, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent } from "react";
 import addToGroupIcon from "../assets/icons/table-add-to-group.svg";
-import addToSequenceIcon from "../assets/icons/table-add-to-sequence.svg";
 import alignIcon from "../assets/icons/table-align.svg";
 import compareIcon from "../assets/icons/table-compare.svg";
 import frontIcon from "../assets/icons/table-front.svg";
@@ -32,12 +31,10 @@ interface TableFloatingToolbarProps {
   readonly onUndo: () => void;
   readonly onRedo: () => void;
   readonly onExecute: (command: WorktableEditCommand) => void;
-  readonly canAddToSequence?: boolean;
-  readonly onAddToSequence?: () => void;
   readonly onRequestSequence?: (photoIds: readonly WorktableItemId[]) => void;
 }
 
-export function TableFloatingToolbar({ storageKey = "photoflex:table-toolbar", actions, canUndo, canRedo, onUndo, onRedo, onExecute, onAddMemo, selectedMemo, canAddToSequence = false, onAddToSequence, onRequestSequence }: TableFloatingToolbarProps) {
+export function TableFloatingToolbar({ storageKey = "photoflex:table-toolbar", actions, canUndo, canRedo, onUndo, onRedo, onExecute, onAddMemo, selectedMemo, onRequestSequence }: TableFloatingToolbarProps) {
   const { t } = useLocale();
   const toolbarRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<{ pointerId: number; offsetY: number } | undefined>(undefined);
@@ -91,14 +88,13 @@ export function TableFloatingToolbar({ storageKey = "photoflex:table-toolbar", a
   return <><TableHeaderControl><div className="table-history-controls" role="group" aria-label={`${t("table.undo")} / ${t("table.redo")}`}><TableToolButton icon={undoIcon} label={t("table.undo")} shortcut="Ctrl/Cmd+Z" disabled={!canUndo} onClick={onUndo} /><TableToolButton icon={redoIcon} label={t("table.redo")} shortcut="Ctrl/Cmd+Shift+Z" disabled={!canRedo} onClick={onRedo} /></div></TableHeaderControl><div ref={toolbarRef} className="table-floating-toolbar" role="group" aria-label={t("table.arrangementTools")} style={style}>
     <button type="button" className="table-floating-drag-handle" aria-label="Move toolbar vertically" title="Drag to move toolbar" onPointerDown={onDragStart} onPointerMove={onDragMove} onPointerUp={onDragEnd} onPointerCancel={onDragEnd} onKeyDown={onDragKeyDown}><span aria-hidden="true" /></button>
     {onAddMemo && <TableToolButton icon={memoIcon} label={t("table.addMemo")} text={t("table.memo")} shortcut="M" onClick={onAddMemo} />}
-    {selectedMemo && <div className="memo-toolbar-controls"><label>Size<input type="number" aria-label="Memo font size" min={10} max={72} value={selectedMemo.fontSize} onChange={(event) => { const size = Number(event.target.value); if (size >= 10 && size <= 72) onExecute({ type: "update-memo", memoId: selectedMemo.id, changes: { fontSize: size } }); }} /></label><TableToolButton icon={linkIcon} label="Link memo to selected photos" text="Link" disabled={!actions.photoIds.length} onClick={() => onExecute({ type: "update-memo", memoId: selectedMemo.id, changes: { photoIds: [...new Set([...selectedMemo.photoIds, ...actions.photoIds])] } })} />{selectedMemo.photoIds.length > 0 && <button type="button" className="memo-unlink" onClick={() => onExecute({ type: "update-memo", memoId: selectedMemo.id, changes: { photoIds: [] } })}>Unlink</button>}</div>}
+    {selectedMemo && <div className="memo-toolbar-controls"><label>Size<input type="number" aria-label="Memo font size" min={10} max={72} value={selectedMemo.fontSize} onChange={(event) => { const size = Number(event.target.value); if (size >= 10 && size <= 72) onExecute({ type: "update-memo", memoId: selectedMemo.id, changes: { fontSize: size } }); }} /></label><TableToolButton icon={linkIcon} label="Link memo to selected photos" text="Link" disabled={actions.hasLockedPhoto || !actions.photoIds.length} onClick={() => onExecute({ type: "update-memo", memoId: selectedMemo.id, changes: { photoIds: [...new Set([...selectedMemo.photoIds, ...actions.photoIds])] } })} />{selectedMemo.photoIds.length > 0 && <button type="button" className="memo-unlink" onClick={() => onExecute({ type: "update-memo", memoId: selectedMemo.id, changes: { photoIds: [] } })}>Unlink</button>}</div>}
     <TableToolButton icon={gridIcon} label={t("table.grid")} shortcut="Y" disabled={!actions.canArrange} onClick={() => arrange({ type: "arrange", photoIds: actions.photoIds, layout: { type: "grid" } })} />
     <TableToolButton icon={rowIcon} label={t("table.row")} shortcut="R" disabled={!actions.canArrange} onClick={() => arrange({ type: "arrange", photoIds: actions.photoIds, layout: { type: "row" } })} />
     <TableToolButton icon={shuffleIcon} label={t("table.shuffle")} shortcut="H" disabled={!actions.canArrange} onClick={() => arrange({ type: "shuffle", photoIds: actions.photoIds })} />
     <label className={`table-floating-align${actions.canArrange ? "" : " is-disabled"}`} title={`${t("table.align")} · A / Shift+A`}><img src={alignIcon} alt="" /><span>{t("table.align")}</span><select aria-label={t("table.align")} value="" disabled={!actions.canArrange} onChange={(event) => { const edge = event.target.value as WorktableAlignment; if (edge) arrange({ type: "arrange", photoIds: actions.photoIds, layout: { type: "align", edge } }); }}><option value="">{t("table.align")}</option><option value="left">{t("table.alignLeft")}</option><option value="center-x">{t("table.alignCenter")}</option><option value="right">{t("table.alignRight")}</option><option value="top">{t("table.alignTop")}</option><option value="center-y">{t("table.alignMiddle")}</option><option value="bottom">{t("table.alignBottom")}</option></select></label>
-    <TableToolButton icon={groupIcon} label={actions.selectedGroup ? t("table.ungroupSelection") : t("table.groupSelection")} text={actions.selectedGroup ? t("table.ungroup") : t("table.group")} shortcut="G" disabled={!actions.selectedGroup && !actions.canGroup} onClick={() => actions.selectedGroup ? onExecute({ type: "remove-group", groupId: actions.selectedGroup.id }) : onExecute({ type: "create-group", photoIds: actions.photoIds })} />
-    {onAddToSequence && <TableToolButton icon={addToSequenceIcon} label={t("table.addToSequence")} text={t("table.addToSequence")} shortcut="N" disabled={!actions.photoIds.length || !canAddToSequence} onClick={onAddToSequence} />}
-    {onRequestSequence && <TableToolButton icon={sequenceIcon} label={t("table.createSequence")} text={t("table.createSequence")} shortcut="S" disabled={!actions.photoIds.length} onClick={() => onRequestSequence(actions.photoIds)} />}
+    <TableToolButton icon={groupIcon} label={actions.selectedGroup ? t("table.ungroupSelection") : t("table.groupSelection")} text={actions.selectedGroup ? t("table.ungroup") : t("table.group")} shortcut="G" disabled={actions.hasLockedPhoto || (!actions.selectedGroup && !actions.canGroup)} onClick={() => actions.selectedGroup ? onExecute({ type: "remove-group", groupId: actions.selectedGroup.id }) : onExecute({ type: "create-group", photoIds: actions.photoIds })} />
+    {onRequestSequence && <TableToolButton icon={sequenceIcon} label={t("table.createSequence")} text={t("table.createSequence")} shortcut="S" disabled={actions.hasLockedPhoto || !actions.photoIds.length} onClick={() => onRequestSequence(actions.photoIds)} />}
   </div></>;
 }
 
@@ -112,10 +108,8 @@ function readToolbarTop(storageKey: string): number {
 export interface TableContextToolbarProps {
   readonly draft: WorktableDraft;
   readonly actions: TableActionState;
-  readonly canAddToSequence: boolean;
   readonly onExecute: (command: WorktableEditCommand) => void;
   readonly onRequestSequence: (photoIds: readonly WorktableItemId[]) => void;
-  readonly onAddToSequence: () => void;
   readonly onPreview: (photoId: PhotoId) => void;
   readonly onComparePhotos: (photoIds: readonly [PhotoId, PhotoId]) => void;
   readonly onCompareSequences: (sequenceIds: readonly [SequenceId, SequenceId]) => void;
@@ -123,22 +117,24 @@ export interface TableContextToolbarProps {
 }
 
 /** Both command surfaces emit the same intents as before; the canvas owns selection. */
-export function TableContextToolbar({ draft, actions, canAddToSequence, onExecute, onRequestSequence, onAddToSequence, onPreview, onComparePhotos, onCompareSequences, onRemovePiles }: TableContextToolbarProps) {
+export function TableContextToolbar({ draft, actions, onExecute, onRequestSequence, onPreview, onComparePhotos, onCompareSequences, onRemovePiles }: TableContextToolbarProps) {
   const { t } = useLocale();
-  const { photoIds, pileIds, selectedGroup: group, memberGroup, selectedLink } = actions;
+  const { photoIds, pileIds, memberGroup, selectedLink } = actions;
   const sourcePhotoIds = photoIds.map((id) => draft.placements[id].photoId);
-  const allPhotosLocked = photoIds.length > 0 && photoIds.every((id) => draft.placements[id].locked);
   const compare = () => {
     if (actions.compareKind === "sequences") onCompareSequences([pileIds[0], pileIds[1]]);
     if (actions.compareKind === "photos") onComparePhotos([sourcePhotoIds[0], sourcePhotoIds[1]]);
   };
   if (!photoIds.length && !pileIds.length) return null;
+  if (actions.hasLockedPhoto) return <div className="table-context-toolbar-position"><div className="table-context-toolbar" role="group" aria-label={t("table.selectionActions")}>
+    <TableToolButton icon={lockIcon} label={t("table.unlock")} shortcut="K" onClick={() => onExecute({ type: "set-locked", photoIds: actions.lockedPhotoIds, locked: false })} />
+    <span className="table-selection-summary">{t("common.photoCount", { count: photoIds.length })}</span>
+  </div></div>;
   return <div className="table-context-toolbar-position"><div className="table-context-toolbar" role="group" aria-label={t("table.selectionActions")}>
     {photoIds.length > 0 && <>
       {actions.canPreview && <TableToolButton icon={previewIcon} label={t("table.preview")} shortcut="P / Space" onClick={() => onPreview(sourcePhotoIds[0])} />}
-      <TableToolButton icon={groupIcon} label={group ? t("table.ungroup") : t("table.group")} shortcut="G" disabled={!group && !actions.canGroup} onClick={() => group ? onExecute({ type: "remove-group", groupId: group.id }) : onExecute({ type: "create-group", photoIds })} />
       <TableToolButton icon={linkIcon} label={selectedLink ? t("table.unlink") : t("table.link")} shortcut="L" disabled={!selectedLink && !actions.canCreateLink} onClick={() => selectedLink ? onExecute({ type: "remove-link", linkId: selectedLink.id }) : onExecute({ type: "create-link", photoIds })} />
-      <TableToolButton icon={lockIcon} label={allPhotosLocked ? t("table.unlock") : t("table.lock")} shortcut="K" onClick={() => onExecute({ type: "set-locked", photoIds, locked: !allPhotosLocked })} />
+      <TableToolButton icon={lockIcon} label={t("table.lock")} shortcut="K" onClick={() => onExecute({ type: "set-locked", photoIds, locked: true })} />
     </>}
     <TableToolButton icon={compareIcon} label={t("table.compare")} shortcut="C" title={actions.compareDisabledReason} disabled={!actions.canCompare} onClick={compare} />
     {pileIds.length > 0 && <TableToolButton className="is-danger" icon={removeIcon} label={pileIds.length > 1 ? t("table.deleteSequences") : t("table.deleteSequence")} text={t("common.delete")} shortcut="Delete" disabled={!actions.canRemove} onClick={() => onRemovePiles(pileIds)} />}
