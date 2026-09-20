@@ -238,7 +238,7 @@ export function useTableGestures(options: TableGestureOptions) {
       const gesture = gestureRef.current;
       const point = edgePanPointRef.current;
       const stage = stageRef.current;
-      if (!gesture || !point || !stage || (gesture.kind !== "photo" && gesture.kind !== "pile")) return;
+      if (!gesture || !point || !stage || (gesture.kind !== "photo" && gesture.kind !== "pile" && gesture.kind !== "marquee")) return;
       const rect = stage.getBoundingClientRect();
       const panX = edgePanStep(point.x, rect.left, rect.right);
       const panY = edgePanStep(point.y, rect.top, rect.bottom);
@@ -248,18 +248,20 @@ export function useTableGestures(options: TableGestureOptions) {
         originX: viewportRef.current.originX + panX,
         originY: viewportRef.current.originY + panY,
       });
-      const world = screenToWorld(point, rect, viewportRef.current);
-      const delta = { x: world.x - gesture.start.x, y: world.y - gesture.start.y };
-      if (gesture.kind === "photo") updatePhotoDragPreview(gesture, delta);
-      else {
-        deltaRef.current = delta;
-        pendingDragDeltaRef.current = delta;
-      }
-      if (dragFrameRef.current === undefined) {
-        dragFrameRef.current = requestAnimationFrame(() => {
-          dragFrameRef.current = undefined;
-          setDragDelta(pendingDragDeltaRef.current);
-        });
+      if (gesture.kind !== "marquee") {
+        const world = screenToWorld(point, rect, viewportRef.current);
+        const delta = { x: world.x - gesture.start.x, y: world.y - gesture.start.y };
+        if (gesture.kind === "photo") updatePhotoDragPreview(gesture, delta);
+        else {
+          deltaRef.current = delta;
+          pendingDragDeltaRef.current = delta;
+        }
+        if (dragFrameRef.current === undefined) {
+          dragFrameRef.current = requestAnimationFrame(() => {
+            dragFrameRef.current = undefined;
+            setDragDelta(pendingDragDeltaRef.current);
+          });
+        }
       }
       edgePanFrameRef.current = requestAnimationFrame(tick);
     };
@@ -299,6 +301,10 @@ export function useTableGestures(options: TableGestureOptions) {
         width: Math.abs(event.clientX - gesture.start.x),
         height: Math.abs(event.clientY - gesture.start.y),
       });
+      if (Math.hypot(event.clientX - gesture.start.x, event.clientY - gesture.start.y) > 5) {
+        edgePanPointRef.current = { x: event.clientX, y: event.clientY };
+        scheduleEdgePan();
+      }
       return;
     }
     if (gesture.kind === "resize") {
