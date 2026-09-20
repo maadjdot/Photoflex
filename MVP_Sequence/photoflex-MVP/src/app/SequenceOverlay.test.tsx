@@ -155,6 +155,20 @@ it("uses arrow keys to select the next Sequence photo", async () => {
   expect(within(grid).getByRole("gridcell", { name: "Photo 02" }).getAttribute("aria-selected")).toBe("true");
 });
 
+it("clears the current selection when the empty Sequence canvas is clicked", async () => {
+  const { projectStore, photoSource, projectId, sequenceId } = await createOverlayFixture();
+  window.location.hash = `#/projects/${projectId}/sequences/${sequenceId}`;
+  render(<App dependencies={{ projectStore, photoSource }} />);
+  const overlay = await screen.findByRole("dialog", { name: "Sequence Complete photos" });
+  const grid = within(overlay).getByRole("grid", { name: "Sequence photo order" });
+  const first = within(grid).getByRole("gridcell", { name: "Photo 01" });
+  fireEvent.pointerDown(first, { pointerId: 54, button: 0, ctrlKey: true, clientX: 100, clientY: 100 });
+  fireEvent.pointerUp(first, { pointerId: 54, button: 0, ctrlKey: true, clientX: 100, clientY: 100 });
+  expect(first.getAttribute("aria-selected")).toBe("true");
+  fireEvent.pointerDown(grid, { pointerId: 55, button: 0, clientX: 1400, clientY: 700 });
+  expect(first.getAttribute("aria-selected")).toBe("false");
+});
+
 it("removes a selected photo with Delete without deleting the source photo", async () => {
   const { projectStore, photoSource, projectId, sequenceId, portrait } = await createOverlayFixture();
   window.location.hash = `#/projects/${projectId}/sequences/${sequenceId}`;

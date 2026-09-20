@@ -99,6 +99,13 @@ export function SequenceOverlay({ dependencies, persistence, projectId, sequence
   if (sequenceSession.loading) return <section className="sequence-overlay is-loading" role="dialog" aria-modal="true" aria-label="Sequence"><div className="loading-mark" /></section>;
   if (!sequence) return <section className="sequence-overlay is-loading" role="dialog" aria-modal="true" aria-label="Sequence"><p>{sequenceSession.error ?? t("sequence.loading")}</p><button onClick={() => void closeOverlay()}>{t("common.close")}</button></section>;
 
+  const draggingPhoto = photos.find(({ item }) => reorder.draggingItemIds.includes(item.id));
+  const renderDropGhost = (index: number) => {
+    if (reorder.dropTarget !== index || !draggingPhoto) return null;
+    const shape = photoShapes.get(draggingPhoto.item.photoId) ?? "landscape";
+    return <div key={`drop-ghost-${index}`} className={`sequence-overlay-drag-ghost is-${shape}`} aria-hidden="true"><PhotoThumb resolution="table" progressiveTo={1536} photoSource={dependencies.photoSource} photoId={draggingPhoto.item.photoId} alt="" /></div>;
+  };
+
   const pointerHandlers = (itemId: SequenceItemId) => ({
     onPointerDown: (event: ReactPointerEvent<HTMLElement>) => reorder.begin(event, itemId, "overview"),
     onPointerMove: reorder.move,
@@ -147,22 +154,22 @@ export function SequenceOverlay({ dependencies, persistence, projectId, sequence
       </nav>
     </header>
     {(actionError || sequenceSession.error) && <div className="sequence-overlay-notice" role="status"><span>{actionError || sequenceSession.error}</span>{sequenceSession.saveState === "failed" && <button onClick={() => void sequenceSession.retry()}>{t("common.retry")}</button>}</div>}
-    <section ref={gridRef} className="sequence-overlay-grid" role="grid" aria-label="Sequence photo order" onPointerMove={reorder.move} onPointerUp={reorder.end} onPointerCancel={reorder.cancel}>
-      {photos.map(({ item, photoIndex }) => <button key={item.id}
+    <section ref={gridRef} className="sequence-overlay-grid" role="grid" aria-label="Sequence photo order" onPointerDown={(event) => { if (event.target === event.currentTarget) { setSelected(new Set()); setAnchor(undefined); } }} onPointerMove={reorder.move} onPointerUp={reorder.end} onPointerCancel={reorder.cancel}>
+      {photos.flatMap(({ item, photoIndex }) => [renderDropGhost(photoIndex), <button key={item.id}
         type="button"
         role="gridcell"
         aria-selected={selected.has(item.id)}
         aria-label={`Photo ${String(photoIndex + 1).padStart(2, "0")}`}
         data-sequence-index={photoIndex}
         data-item-id={item.id}
-        className={`sequence-overlay-card is-${photoShapes.get(item.photoId) ?? "landscape"}${selected.has(item.id) ? " is-selected" : ""}${reorder.dropTarget === photoIndex ? " is-drop-target" : ""}`}
+        className={`sequence-overlay-card is-${photoShapes.get(item.photoId) ?? "landscape"}${selected.has(item.id) ? " is-selected" : ""}${reorder.draggingItemIds.includes(item.id) ? " is-dragging" : ""}${reorder.dropTarget !== undefined && reorder.dropTarget <= photoIndex && !reorder.draggingItemIds.includes(item.id) ? " is-drop-shifted" : ""}${reorder.dropTarget === photoIndex ? " is-drop-target" : ""}`}
         onClick={(event) => { if (!reorder.consumeClickSuppression() && !event.shiftKey && !event.ctrlKey && !event.metaKey) setPreviewIndex(photoIndex); }}
         {...pointerHandlers(item.id)}
       >
         <PhotoThumb resolution="table" progressiveTo={1536} fit="contain" photoSource={dependencies.photoSource} photoId={item.photoId} alt="" onError={onPhotoError} />
         <b>{String(photoIndex + 1).padStart(2, "0")}</b>
-      </button>)}
-      {reorder.dropTarget === photos.length && <i className="sequence-overlay-drop-end" aria-hidden="true" />}
+      </button>])}
+      {renderDropGhost(photos.length)}
       {!photos.length && <p className="sequence-overlay-empty">{t("sequence.noneOnTable")}</p>}
     </section>
     {previewIndex !== undefined && photos[previewIndex] && <SequencePhotoPreview key={photos[previewIndex].item.id} photoId={photos[previewIndex].item.photoId} index={previewIndex} total={photos.length} photoSource={dependencies.photoSource} onClose={() => setPreviewIndex(undefined)} onMove={(direction) => setPreviewIndex((current) => current === undefined ? current : Math.max(0, Math.min(photos.length - 1, current + direction)))} onPhotoError={onPhotoError} />}

@@ -59,6 +59,7 @@ export function useSequenceReorderDrag({
   onActivate,
 }: UseSequenceReorderDragInput) {
   const [dropTarget, setDropTarget] = useState<number>();
+  const [draggingItemIds, setDraggingItemIds] = useState<readonly SequenceItemId[]>([]);
   const dragRef = useRef<DragState | undefined>(undefined);
   const dragFrameRef = useRef<number | undefined>(undefined);
   const pendingPointRef = useRef<{ readonly x: number; readonly y: number; readonly pointerId: number } | undefined>(undefined);
@@ -130,6 +131,7 @@ export function useSequenceReorderDrag({
     if (Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY) > 4) {
       drag.moved = true;
       suppressClickRef.current = true;
+      setDraggingItemIds(drag.itemIds);
     }
     pendingPointRef.current = { x: event.clientX, y: event.clientY, pointerId: event.pointerId };
     if (dragFrameRef.current !== undefined) return;
@@ -168,6 +170,7 @@ export function useSequenceReorderDrag({
     dragRef.current = undefined;
     pendingPointRef.current = undefined;
     setDropTarget(undefined);
+    setDraggingItemIds([]);
     if (drag.moved) onMove(drag.itemIds, drag.target);
     else if (drag.collapseOnClick) onSelectionChange(new Set([drag.clickedId]), drag.clickedId);
     else if (drag.activateOnClick) onActivate?.(drag.clickedId, drag.source);
@@ -179,6 +182,7 @@ export function useSequenceReorderDrag({
     dragRef.current = undefined;
     pendingPointRef.current = undefined;
     setDropTarget(undefined);
+    setDraggingItemIds([]);
   }, []);
 
   useEffect(() => () => {
@@ -186,6 +190,7 @@ export function useSequenceReorderDrag({
     dragFrameRef.current = undefined;
     dragRef.current = undefined;
     pendingPointRef.current = undefined;
+    setDraggingItemIds([]);
   }, []);
 
   const consumeClickSuppression = useCallback(() => {
@@ -194,7 +199,7 @@ export function useSequenceReorderDrag({
     return suppressed;
   }, []);
 
-  return { dropTarget, begin, move, end, cancel, consumeClickSuppression };
+  return { dropTarget, draggingItemIds, begin, move, end, cancel, consumeClickSuppression };
 }
 
 function selectionAfterPointer(
