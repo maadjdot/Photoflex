@@ -12,7 +12,6 @@ import { useAppRoute } from "./router";
 import { useAppNavigationState } from "./useAppNavigationState";
 import { ProjectWorkspaceProvider } from "./useProjectWorkspace";
 import { LocaleProvider, useLocale } from "./locale";
-import { AccountWorkspaceGate } from "./AccountWorkspaceGate";
 import type { ProjectId } from "../contracts";
 
 export { VirtualPhotoGrid } from "./VirtualPhotoGrid";
@@ -25,7 +24,7 @@ interface AppProps {
 }
 
 export function M1App(props: AppProps) {
-  return <LocaleProvider><AccountWorkspaceGate dependencies={props.dependencies}>{(dependencies) => <M1AppContent dependencies={dependencies} />}</AccountWorkspaceGate></LocaleProvider>;
+  return <LocaleProvider><M1AppContent dependencies={props.dependencies} /></LocaleProvider>;
 }
 
 function M1AppContent({ dependencies }: AppProps) {
@@ -50,11 +49,11 @@ function M1AppContent({ dependencies }: AppProps) {
   }, [route.name]);
   useEffect(() => {
     const beforeUnload = (event: BeforeUnloadEvent) => {
-      if (coordinatorRef.current?.hasUnsavedWork() || dependencies.cloudSave?.hasPending?.()) { event.preventDefault(); event.returnValue = ""; }
+      if (coordinatorRef.current?.hasUnsavedWork()) { event.preventDefault(); event.returnValue = ""; }
     };
     window.addEventListener("beforeunload", beforeUnload);
     return () => window.removeEventListener("beforeunload", beforeUnload);
-  }, [dependencies.cloudSave]);
+  }, []);
   const recover = async (asFile: boolean) => {
     if (!coordinator || recovering) return;
     setRecovering(true);

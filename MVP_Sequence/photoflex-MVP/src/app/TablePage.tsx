@@ -19,7 +19,6 @@ import { useTableWorkspaceLifecycle } from "./useTableWorkspaceLifecycle";
 import { useLocale } from "./locale";
 import { SequenceOverlay } from "./SequenceOverlay";
 import { sequencePileCardWidth } from "./sequenceCardGeometry";
-import { CloudSaveStatus } from "./CloudControls";
 
 const PILE_HEIGHT = 176;
 interface SequenceConfirmation { name: string; photoIds: readonly PhotoId[] }
@@ -280,7 +279,6 @@ export function TablePage({ dependencies, projectId, navigate, sequenceOverlay }
 
   return <main className="table-page page">
     {notice && <p className="table-notice" role="status">{notice}</p>}
-    <div className="table-cloud-save-status"><CloudSaveStatus dependencies={dependencies} projectId={projectId} /></div>
     <TableWorkspace sidebar={sourceBrowser} sidebarMode={sourcePanelMode} storageKey={`photoflex:table-sidebar:${projectId}`}>
     <div className="table-canvas-area" aria-label={t("table.toolbar")}>
     <TableCanvas

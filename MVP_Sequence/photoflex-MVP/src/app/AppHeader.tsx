@@ -3,9 +3,8 @@ import type { ProjectId, SequenceId, SourceId } from "../contracts";
 import type { AppDependencies } from "./dependencies";
 import type { AppRoute } from "./router";
 import { LanguageSwitcher, useLocale } from "./locale";
-import { CloudControls } from "./CloudControls";
 
-export function AppHeader({ dependencies, route, projectId, contactSourceId, lastSequenceId, navigate, variant = "default", projectLabel, actions, projectSettingsProjectId, showProjectSettings = true, showCloudSaveStatus = true }: {
+export function AppHeader({ dependencies, route, projectId, contactSourceId, lastSequenceId, navigate, variant = "default", projectLabel, actions, projectSettingsProjectId, showProjectSettings = true }: {
   readonly dependencies: AppDependencies;
   readonly route: AppRoute;
   readonly projectId?: ProjectId;
@@ -17,7 +16,6 @@ export function AppHeader({ dependencies, route, projectId, contactSourceId, las
   readonly actions?: ReactNode;
   readonly projectSettingsProjectId?: ProjectId;
   readonly showProjectSettings?: boolean;
-  readonly showCloudSaveStatus?: boolean;
 }) {
   const [projectName, setProjectName] = useState<string>();
   const { t } = useLocale();
@@ -57,7 +55,6 @@ export function AppHeader({ dependencies, route, projectId, contactSourceId, las
       {route.name === "home" && <LanguageSwitcher />}
       {actions}
       {settingsProjectId && <NavButton onClick={() => navigate({ name: "project", projectId: settingsProjectId })}>{t("nav.projectSettings")}</NavButton>}
-      <CloudControls dependencies={dependencies} projectId={projectId} showSaveStatus={showCloudSaveStatus} />
     </div>
   </header>;
 }
