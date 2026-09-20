@@ -57,8 +57,8 @@ export function TablePage({ dependencies, projectId, navigate, sequenceOverlay }
   const tableSession = useTableSession(projectId, persistTableCommit);
   const { draft, selectedPhotoIds: photoIds, selectedPileIds: pileIds, actions } = tableSession;
   const selectedSourcePhotoIds = useMemo(
-    () => photoIds.map((id) => draft.placements[id]?.photoId).filter((id): id is PhotoId => Boolean(id)),
-    [draft.placements, photoIds],
+    () => actions.mutablePhotoIds.map((id) => draft.placements[id]?.photoId).filter((id): id is PhotoId => Boolean(id)),
+    [actions.mutablePhotoIds, draft.placements],
   );
   const selectedPileId = pileIds.length === 1 ? pileIds[0] : undefined;
   const onTableInitialized = useCallback(({ summaries: restoredSummaries, activeSequenceId: restoredSequenceId }: { summaries: readonly SequenceSummary[]; activeSequenceId?: SequenceId }) => {

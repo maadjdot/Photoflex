@@ -104,6 +104,7 @@ class TableSessionController implements TableSession {
     this.clipboard = this.snapshotValue.draft.entryOrder.flatMap((id) => {
       if (!selected.has(id)) return [];
       const placement = this.snapshotValue.draft.placements[id];
+      if (placement.locked) return [];
       return [{
         photoId: placement.photoId,
         width: placement.width,

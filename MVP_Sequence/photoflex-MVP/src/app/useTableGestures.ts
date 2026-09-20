@@ -120,7 +120,8 @@ export function useTableGestures(options: TableGestureOptions) {
     event.stopPropagation();
     if (event.button === 1 || event.button === 2) return startPan(event);
     if (event.button !== 0 || !stageRef.current) return;
-    const ids = selectPhoto(id, event.shiftKey || event.ctrlKey || event.metaKey);
+    const ids = selectPhoto(id, event.shiftKey || event.ctrlKey || event.metaKey)
+      ?.filter((photoId) => !draft.placements[photoId]?.locked);
     if (!ids?.length) return;
     if (draft.placements[id]?.locked) return;
     beginDrag(event, {
@@ -138,12 +139,13 @@ export function useTableGestures(options: TableGestureOptions) {
     event.preventDefault();
     event.stopPropagation();
     selectPhotos(ids);
-    if (ids.some((id) => draft.placements[id]?.locked)) return;
+    const movableIds = ids.filter((id) => !draft.placements[id]?.locked);
+    if (!movableIds.length) return;
     beginDrag(event, {
       kind: "photo",
       pointerId: event.pointerId,
       start: screenToWorld({ x: event.clientX, y: event.clientY }, stageRef.current.getBoundingClientRect(), viewportRef.current),
-      ids,
+      ids: movableIds,
       startClient: { x: event.clientX, y: event.clientY },
       moved: false,
     });

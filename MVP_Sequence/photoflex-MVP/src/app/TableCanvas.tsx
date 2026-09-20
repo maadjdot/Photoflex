@@ -354,7 +354,8 @@ export const TableCanvas = forwardRef<TableCanvasHandle, TableCanvasProps>(funct
     const key = event.key.toLowerCase();
     const plain = !event.ctrlKey && !event.metaKey && !event.altKey;
     const actions = deriveTableActions(draft, new Set(selectedPhotoIds), new Set(selectedPileIds));
-    const selectedPhoto = selectedPhotoIds.length === 1 ? draft.placements[selectedPhotoIds[0]]?.photoId : undefined;
+    const mutableSelectedIds = actions.mutablePhotoIds;
+    const selectedPhoto = mutableSelectedIds.length === 1 ? draft.placements[mutableSelectedIds[0]]?.photoId : undefined;
     if (plain && event.key.startsWith("Arrow")) {
       event.preventDefault();
       const step = event.shiftKey ? 160 : 64;
@@ -366,7 +367,7 @@ export const TableCanvas = forwardRef<TableCanvasHandle, TableCanvasProps>(funct
       return;
     }
     const lockedSelectedIds = selectedPhotoIds.filter((id) => draft.placements[id]?.locked);
-    const hasLockedPhotoSelection = lockedSelectedIds.length > 0;
+    const allSelectedPhotosLocked = selectedPhotoIds.length > 0 && !mutableSelectedIds.length && !selectedPileIds.length;
     if (plain && key === "k") {
       event.preventDefault();
       if (event.shiftKey) {
@@ -379,7 +380,7 @@ export const TableCanvas = forwardRef<TableCanvasHandle, TableCanvasProps>(funct
       }
       return;
     }
-    if (hasLockedPhotoSelection) {
+    if (allSelectedPhotosLocked) {
       const historyShortcut = (event.ctrlKey || event.metaKey) && key === "z";
       const viewShortcut = plain && ["j", "b", "+", "=", "-", "0"].includes(key);
       if (!historyShortcut && !viewShortcut && event.key !== "Escape") {
@@ -405,14 +406,14 @@ export const TableCanvas = forwardRef<TableCanvasHandle, TableCanvasProps>(funct
     if (plain && key === "c" && actions.canCompare) {
       event.preventDefault();
       if (actions.compareKind === "photos") {
-        const ids = selectedPhotoIds.map((id) => draft.placements[id]?.photoId).filter((id): id is PhotoId => Boolean(id));
+        const ids = mutableSelectedIds.map((id) => draft.placements[id]?.photoId).filter((id): id is PhotoId => Boolean(id));
         if (ids.length === 2) onComparePhotos([ids[0], ids[1]]);
       } else if (actions.compareKind === "sequences") {
         onCompareSequences([selectedPileIds[0], selectedPileIds[1]]);
       }
       return;
     }
-    if (plain && key === "n" && selectedPhotoIds.length && summaries.length && onAddToSequence) {
+    if (plain && key === "n" && mutableSelectedIds.length && summaries.length && onAddToSequence) {
       event.preventDefault();
       onAddToSequence();
       return;
@@ -422,7 +423,7 @@ export const TableCanvas = forwardRef<TableCanvasHandle, TableCanvasProps>(funct
       onAddMemo();
       return;
     }
-    if (plain && key === "j" && selectedPhotoIds.length) {
+    if (plain && key === "j" && mutableSelectedIds.length) {
       event.preventDefault();
       centerSelectedPhotos();
       return;
@@ -434,12 +435,12 @@ export const TableCanvas = forwardRef<TableCanvasHandle, TableCanvasProps>(funct
     }
     if (plain && key === "y" && actions.canArrange) {
       event.preventDefault();
-      session.execute({ type: "arrange", photoIds: selectedPhotoIds, layout: { type: "grid" } });
+      session.execute({ type: "arrange", photoIds: mutableSelectedIds, layout: { type: "grid" } });
       return;
     }
     if (plain && key === "r" && actions.canArrange) {
       event.preventDefault();
-      session.execute({ type: "arrange", photoIds: selectedPhotoIds, layout: { type: "row" } });
+      session.execute({ type: "arrange", photoIds: mutableSelectedIds, layout: { type: "row" } });
       return;
     }
     if (plain && key === "h" && actions.canArrange) {
@@ -449,12 +450,12 @@ export const TableCanvas = forwardRef<TableCanvasHandle, TableCanvasProps>(funct
     }
     if (plain && key === "a" && actions.canArrange) {
       event.preventDefault();
-      session.execute({ type: "arrange", photoIds: selectedPhotoIds, layout: { type: "align", edge: event.shiftKey ? "right" : "left" } });
+      session.execute({ type: "arrange", photoIds: mutableSelectedIds, layout: { type: "align", edge: event.shiftKey ? "right" : "left" } });
       return;
     }
     if (plain && key === "f" && actions.canBringToFront) {
       event.preventDefault();
-      session.execute(selectedPileIds.length ? { type: "bring-sequence-piles-to-front", sequenceIds: selectedPileIds } : { type: "bring-to-front", photoIds: selectedPhotoIds });
+      session.execute(selectedPileIds.length ? { type: "bring-sequence-piles-to-front", sequenceIds: selectedPileIds } : { type: "bring-to-front", photoIds: mutableSelectedIds });
       return;
     }
     if (plain && (event.key === "+" || event.key === "=")) {
@@ -493,21 +494,21 @@ export const TableCanvas = forwardRef<TableCanvasHandle, TableCanvasProps>(funct
     if (!event.ctrlKey && !event.metaKey && !event.altKey && ["g", "l"].includes(key)) {
       event.preventDefault();
       if (key === "g") {
-        if (event.shiftKey && actions.selectedGroup) session.execute({ type: "remove-group", groupId: actions.selectedGroup.id });
-        else if (!event.shiftKey && actions.canGroup) session.execute({ type: "create-group", photoIds: selectedPhotoIds });
+        if (event.shiftKey && actions.selectedGroup && !actions.selectedGroupLocked) session.execute({ type: "remove-group", groupId: actions.selectedGroup.id });
+        else if (!event.shiftKey && actions.canGroup) session.execute({ type: "create-group", photoIds: mutableSelectedIds });
       } else {
         if (event.shiftKey && actions.selectedLink) session.execute({ type: "remove-link", linkId: actions.selectedLink.id });
-        else if (!event.shiftKey && actions.canCreateLink && !actions.selectedLink) session.execute({ type: "create-link", photoIds: selectedPhotoIds });
+        else if (!event.shiftKey && actions.canCreateLink && !actions.selectedLink) session.execute({ type: "create-link", photoIds: mutableSelectedIds });
       }
     }
     if (event.key === "Escape") {
       if (!gestures.cancelActiveGesture()) session.clearSelection();
       return;
     }
-    if (event.key.toLowerCase() === "s" && selectedPhotoIds.length) onRequestSequence(selectedPhotoIds);
+    if (event.key.toLowerCase() === "s" && mutableSelectedIds.length) onRequestSequence(mutableSelectedIds);
     if (event.key === "Delete" || event.key === "Backspace") {
       if (selectedPileIds.length) onRemovePiles(selectedPileIds);
-      else if (selectedPhotoIds.length) session.execute({ type: "remove", photoIds: selectedPhotoIds });
+      else if (mutableSelectedIds.length) session.execute({ type: "remove", photoIds: mutableSelectedIds });
     }
   };
 
@@ -567,8 +568,8 @@ export const TableCanvas = forwardRef<TableCanvasHandle, TableCanvasProps>(funct
         {draft.entryOrder.filter((id) => renderedPhotoIds.has(id)).map((id) => {
           const item = draft.placements[id];
           const chosen = selected.has(id);
-          const dragging = chosen && preview.kind === "photo";
-          const delta = chosen && preview.kind === "photo" ? preview.dragDelta : { x: 0, y: 0 };
+          const dragging = chosen && !item.locked && preview.kind === "photo";
+          const delta = dragging ? preview.dragDelta : { x: 0, y: 0 };
           const scale = preview.kind === "resize" && preview.photoId === id ? preview.resizeScale : 1;
           return (
             <div key={id} className="worktable-photo-position">

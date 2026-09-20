@@ -191,6 +191,31 @@ describe("WorktableEditor", () => {
     expect(editor.redo()).toEqual(result.value);
   });
 
+  it("keeps locked photos in place while shuffling the other selected photos", () => {
+    const editor = createWorktableEditor(createEmptyWorktable(projectId));
+    const ids = ["a", "b", "c", "d", "e"] as PhotoId[];
+    editor.execute({ type: "place", items: ids.map((id) => seed(id)) });
+    editor.execute({ type: "arrange", photoIds: ids, layout: { type: "row", gap: 24 } });
+    editor.execute({ type: "set-locked", photoIds: [photoId("c")], locked: true });
+    const before = editor.snapshot();
+    const random = vi.spyOn(Math, "random").mockReturnValue(.9);
+
+    const result = editor.execute({ type: "shuffle", photoIds: ids });
+    random.mockRestore();
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.placements[photoId("c")]).toMatchObject({
+      x: before.placements[photoId("c")].x,
+      y: before.placements[photoId("c")].y,
+      locked: true,
+    });
+    const freeSlots = ids.filter((id) => id !== "c").map((id) => before.placements[id as WorktableItemId].x).sort((a, b) => a - b);
+    const freePositions = ids.filter((id) => id !== "c").map((id) => result.value.placements[id as WorktableItemId].x).sort((a, b) => a - b);
+    expect(freePositions).toEqual(freeSlots);
+    expect(ids.filter((id) => id !== "c").every((id) => result.value.placements[id].x !== before.placements[id].x)).toBe(true);
+  });
+
   it("does not create photo overlaps when differently sized photos change slots", () => {
     const editor = createWorktableEditor(createEmptyWorktable(projectId));
     editor.execute({ type: "place", items: [seed("a", 100, 100), seed("b", 10, 10), seed("c", 10, 10)] });
@@ -380,6 +405,20 @@ describe("WorktableEditor", () => {
     expect(linked.ok).toBe(true);
     if (!linked.ok) return;
     expect(linked.value.placements).toEqual(before);
+  });
+
+  it("does not move photos when creating a Link", () => {
+    const editor = createWorktableEditor(createEmptyWorktable(projectId));
+    editor.execute({ type: "place", items: [seed("a"), seed("b"), seed("c")] });
+    editor.execute({ type: "move", photoIds: [photoId("a")], by: { x: 120, y: 40 } });
+    const before = editor.snapshot().placements;
+
+    const linked = editor.execute({ type: "create-link", photoIds: [photoId("a"), photoId("c")] });
+
+    expect(linked.ok).toBe(true);
+    if (!linked.ok) return;
+    expect(linked.value.placements).toEqual(before);
+    expect(linked.value.links[0].photoIds).toEqual(["a", "c"]);
   });
 
   it("adds one photo to an existing Group and lets one photo leave without changing table membership", () => {

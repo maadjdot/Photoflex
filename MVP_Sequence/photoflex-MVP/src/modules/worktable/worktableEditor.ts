@@ -145,7 +145,7 @@ function applyCommand(
   if (command.type === "resize-sequence-pile") return resizeSequencePile(draft, command.sequenceId, command.scale, command.baseSize);
   if (command.type === "bring-sequence-piles-to-front") return bringSequencePilesToFront(draft, command.sequenceIds);
   if (command.type === "remove-sequence-piles") return removeSequencePiles(draft, command.sequenceIds);
-  const validation = validateKnown(draft, command.photoIds, command.type === "set-locked");
+  const validation = validateKnown(draft, command.photoIds, command.type === "set-locked" || command.type === "shuffle");
   if (!validation.ok) return validation;
   if (command.type === "set-locked") return setLocked(draft, command.photoIds, command.locked);
   if (command.type === "move") return move(draft, command.photoIds, command.by.x, command.by.y);
@@ -243,12 +243,9 @@ function createLink(
   if (photoIds.length < 2 || photoIds.length > 6 || new Set(photoIds).size !== photoIds.length) return err({ kind: "invalid-relation" });
   const ordered = draft.entryOrder.filter((photoId) => photoIds.includes(photoId));
   if (ordered.length !== photoIds.length) return err({ kind: "invalid-relation" });
-  const touchesGroup = draft.groups.some((group) => ordered.some((photoId) => group.photoIds.includes(photoId)));
-  const anchor = draft.placements[ordered.at(-1)!];
-  const packed = touchesGroup ? draft : packNearAnchor(draft, ordered, anchor.x, anchor.y, 28);
   return ok({
-    ...packed,
-    links: [...packed.links, { id: nextRelationId("link", packed.links), name: `LINK ${String(packed.links.length + 1).padStart(2, "0")}`, photoIds: ordered }],
+    ...draft,
+    links: [...draft.links, { id: nextRelationId("link", draft.links), name: `LINK ${String(draft.links.length + 1).padStart(2, "0")}`, photoIds: ordered }],
   });
 }
 
@@ -258,26 +255,6 @@ function removeLink(draft: WorktableDraft, linkId: string): Result<WorktableDraf
   const lockedPhotoId = link.photoIds.find((photoId) => draft.placements[photoId]?.locked);
   if (lockedPhotoId) return err({ kind: "locked-placement", photoId: lockedPhotoId });
   return ok({ ...draft, links: draft.links.filter((link) => link.id !== linkId) });
-}
-
-function packNearAnchor(
-  draft: WorktableDraft,
-  photoIds: readonly WorktableItemId[],
-  anchorX: number,
-  anchorY: number,
-  gap: number,
-): WorktableDraft {
-  const placements = { ...draft.placements } as Record<WorktableItemId, WorktablePlacement>;
-  // The last selected/ordered member is the anchor. Pack earlier members to
-  // its left so creating a relation does not make the photographer lose it.
-  const widthBeforeAnchor = photoIds.slice(0, -1).reduce((sum, photoId) => sum + placements[photoId].width + gap, 0);
-  let x = anchorX - widthBeforeAnchor;
-  for (const photoId of photoIds) {
-    const placement = placements[photoId];
-    placements[photoId] = { ...placement, x, y: anchorY };
-    x += placement.width + gap;
-  }
-  return { ...draft, placements };
 }
 
 function packGroupGrid(
@@ -456,12 +433,18 @@ function shuffle(
   if (photoIds.length < 2) return ok(draft);
   const requested = new Set(photoIds);
   const ordered = draft.entryOrder.filter((photoId) => requested.has(photoId));
+  const movable = ordered.filter((photoId) => !draft.placements[photoId].locked);
+  if (movable.length < 2) return ok(draft);
   const horizontalRows = findHorizontalRows(draft, ordered).filter((row) => row.length > 1);
   const rowMembers = new Set(horizontalRows.flat());
-  const ungrouped = ordered.filter((photoId) => !rowMembers.has(photoId));
+  const ungrouped = ordered.filter((photoId) => !rowMembers.has(photoId) && !draft.placements[photoId].locked);
   const placements = { ...draft.placements } as Record<WorktableItemId, WorktablePlacement>;
 
-  horizontalRows.forEach((slotOwners) => {
+  horizontalRows.forEach((row) => {
+    // Locked photos remain both in the detected row and in their original
+    // slots. Only the unlocked owners are permuted into the other row slots.
+    const slotOwners = row.filter((photoId) => !draft.placements[photoId].locked);
+    if (slotOwners.length < 2) return;
     const shuffled = shuffleCycle(slotOwners);
     const slots = slotOwners.map((photoId) => ({ x: draft.placements[photoId].x, y: draft.placements[photoId].y }));
     placePhotosInSlots(placements, shuffled, slots);
