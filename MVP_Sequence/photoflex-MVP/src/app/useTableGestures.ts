@@ -108,7 +108,7 @@ export function useTableGestures(options: TableGestureOptions) {
     if (disabled) return;
     event.preventDefault();
     event.stopPropagation();
-    if (event.button === 2) return startPan(event);
+    if (event.button === 1 || event.button === 2) return startPan(event);
     if (event.button !== 0 || !stageRef.current) return;
     const ids = selectPhoto(id, event.shiftKey || event.ctrlKey || event.metaKey);
     if (!ids?.length) return;
@@ -141,7 +141,7 @@ export function useTableGestures(options: TableGestureOptions) {
     if (disabled) return;
     event.preventDefault();
     event.stopPropagation();
-    if (event.button === 2) return startPan(event);
+    if (event.button === 1 || event.button === 2) return startPan(event);
     if (event.button !== 0 || !stageRef.current) return;
     const modified = event.shiftKey || event.ctrlKey || event.metaKey;
     const ids = selectPile(id, modified);
@@ -206,7 +206,7 @@ export function useTableGestures(options: TableGestureOptions) {
   const onStagePointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (disabled) return;
     if (event.target !== event.currentTarget || !stageRef.current) return;
-    if (event.button === 2) return startPan(event);
+    if (event.button === 1 || event.button === 2) return startPan(event);
     if (event.button !== 0) return;
     stageRef.current.focus();
     stageRef.current.setPointerCapture(event.pointerId);
@@ -287,7 +287,6 @@ export function useTableGestures(options: TableGestureOptions) {
     const moved = gesture.kind === "pile" || gesture.kind === "photo" ? gesture.moved : Math.abs(delta.x) > .25 || Math.abs(delta.y) > .25;
     const sequenceTarget = !cancelled && moved && gesture.kind === "photo" ? sequenceDropAt(stage, event.clientX, event.clientY) : undefined;
     if (sequenceTarget && gesture.kind === "photo") {
-      animatePhotoIntoPile(stage, gesture.ids, sequenceTarget.sequenceId);
       onDropPhotosOnSequence(gesture.ids, sequenceTarget.sequenceId, sequenceTarget.at);
     } else if (!cancelled && moved && gesture.kind === "photo") execute({ type: "move", photoIds: gesture.ids, by: delta });
     if (!cancelled && moved && gesture.kind === "pile") execute({ type: "move-sequence-piles", sequenceIds: gesture.ids, by: delta });
@@ -383,28 +382,4 @@ function sequenceDropAt(stage: HTMLElement, clientX: number, clientY: number): {
     return clientX >= rect.left && clientX <= rect.right && clientY >= rect.top && clientY <= rect.bottom;
   });
   return pile ? { sequenceId: pile.dataset.sequencePileId as SequenceId } : undefined;
-}
-
-function animatePhotoIntoPile(stage: HTMLElement, ids: readonly WorktableItemId[], sequenceId: SequenceId) {
-  const pile = [...stage.querySelectorAll<HTMLElement>("[data-sequence-pile-id]")].find((item) => item.dataset.sequencePileId === sequenceId);
-  if (!pile || window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches) return;
-  const target = pile.getBoundingClientRect();
-  ids.slice(0, 3).forEach((id, index) => {
-    const card = [...stage.querySelectorAll<HTMLElement>("[data-worktable-photo-id]")].find((item) => item.dataset.worktablePhotoId === id);
-    const source = card?.querySelector(".worktable-photo img");
-    if (!card || !source) return;
-    const rect = card.getBoundingClientRect();
-    const image = source.cloneNode(true) as HTMLImageElement;
-    Object.assign(image.style, { position: "fixed", left: `${rect.left}px`, top: `${rect.top}px`, width: `${rect.width}px`, height: `${rect.height}px`, objectFit: "cover", borderRadius: "5px", boxShadow: "0 14px 32px rgb(28 24 20 / 24%)", pointerEvents: "none", zIndex: "99999" });
-    document.body.appendChild(image);
-    if (typeof image.animate !== "function") { image.remove(); return; }
-    const dx = target.left + target.width / 2 - rect.left - rect.width / 2 + index * 8;
-    const dy = target.top + target.height * .7 - rect.top - rect.height / 2;
-    const animation = image.animate([
-      { transform: "translate3d(0, 0, 0) scale(1)", opacity: 1 },
-      { transform: `translate3d(${dx}px, ${dy}px, 0) scale(.32)`, opacity: .2 },
-    ], { duration: 280 + index * 35, easing: "cubic-bezier(.22,.8,.24,1)", fill: "forwards" });
-    animation.onfinish = () => image.remove();
-    animation.oncancel = () => image.remove();
-  });
 }

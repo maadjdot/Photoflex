@@ -120,6 +120,22 @@ it("opens a single-photo preview from the grid and enters continuous Read only f
   expect(screen.getByRole("dialog", { name: "Sequence Complete photos" })).toBeTruthy();
 });
 
+it("supports Space for the selected preview and R for Read mode", async () => {
+  const { projectStore, photoSource, projectId, sequenceId } = await createOverlayFixture();
+  window.location.hash = `#/projects/${projectId}/sequences/${sequenceId}`;
+  render(<App dependencies={{ projectStore, photoSource }} />);
+  const overlay = await screen.findByRole("dialog", { name: "Sequence Complete photos" });
+  const first = within(overlay).getByRole("gridcell", { name: "Photo 01" });
+  fireEvent.pointerDown(first, { pointerId: 52, button: 0, clientX: 100, clientY: 100 });
+  fireEvent.pointerUp(first, { pointerId: 52, clientX: 100, clientY: 100 });
+  fireEvent.click(within(await screen.findByRole("dialog", { name: "Preview photo 1" })).getByRole("button", { name: "Close" }));
+  fireEvent.keyDown(overlay, { key: " " });
+  expect(await screen.findByRole("dialog", { name: "Preview photo 1" })).toBeTruthy();
+  fireEvent.click(within(screen.getByRole("dialog", { name: "Preview photo 1" })).getByRole("button", { name: "Close" }));
+  fireEvent.keyDown(overlay, { key: "r" });
+  expect(await screen.findByRole("dialog", { name: "Read Complete photos" })).toBeTruthy();
+});
+
 it("removes a selected photo with Delete without deleting the source photo", async () => {
   const { projectStore, photoSource, projectId, sequenceId, portrait } = await createOverlayFixture();
   window.location.hash = `#/projects/${projectId}/sequences/${sequenceId}`;

@@ -71,7 +71,11 @@ interface TableCanvasProps {
   readonly onViewportChange: (viewport: WorktableViewport) => void;
   readonly onOpenPhoto: (photoId: PhotoId) => void;
   readonly onOpenSequence: (sequenceId: SequenceId) => void;
+  readonly onComparePhotos: (photoIds: readonly [PhotoId, PhotoId]) => void;
+  readonly onCompareSequences: (sequenceIds: readonly [SequenceId, SequenceId]) => void;
   readonly onRequestSequence: (photoIds: readonly WorktableItemId[]) => void;
+  readonly onAddToSequence?: () => void;
+  readonly onAddMemo?: () => void;
   readonly onDropPhotos: (photoIds: readonly PhotoId[], point: WorktablePoint) => void;
   readonly onDropExternalFiles: (handles: readonly FileSystemHandle[], point: WorktablePoint) => void;
   readonly onDropPhotosOnSequence: (photoIds: readonly WorktableItemId[], sequenceId: SequenceId, at?: number) => void;
@@ -97,7 +101,11 @@ export const TableCanvas = forwardRef<TableCanvasHandle, TableCanvasProps>(funct
     onViewportChange,
     onOpenPhoto,
     onOpenSequence,
+    onComparePhotos,
+    onCompareSequences,
     onRequestSequence,
+    onAddToSequence,
+    onAddMemo,
     onDropPhotos,
     onDropExternalFiles,
     onDropPhotosOnSequence,
@@ -329,6 +337,85 @@ export const TableCanvas = forwardRef<TableCanvasHandle, TableCanvasProps>(funct
     if (interactionDisabled) return;
     const target = event.target as HTMLElement;
     if (target.matches("input, textarea, [contenteditable='true']")) return;
+    const key = event.key.toLowerCase();
+    const plain = !event.ctrlKey && !event.metaKey && !event.altKey;
+    const actions = deriveTableActions(draft, new Set(selectedPhotoIds), new Set(selectedPileIds));
+    const selectedPhoto = selectedPhotoIds.length === 1 ? draft.placements[selectedPhotoIds[0]]?.photoId : undefined;
+    if (plain && event.key === " " && selectedPhoto) {
+      event.preventDefault();
+      onOpenPhoto(selectedPhoto);
+      return;
+    }
+    if (plain && key === "p" && selectedPhoto) {
+      event.preventDefault();
+      onOpenPhoto(selectedPhoto);
+      return;
+    }
+    if (plain && key === "o" && selectedPileIds.length === 1) {
+      event.preventDefault();
+      onOpenSequence(selectedPileIds[0]);
+      return;
+    }
+    if (plain && key === "c" && actions.canCompare) {
+      event.preventDefault();
+      if (actions.compareKind === "photos") {
+        const ids = selectedPhotoIds.map((id) => draft.placements[id]?.photoId).filter((id): id is PhotoId => Boolean(id));
+        if (ids.length === 2) onComparePhotos([ids[0], ids[1]]);
+      } else if (actions.compareKind === "sequences") {
+        onCompareSequences([selectedPileIds[0], selectedPileIds[1]]);
+      }
+      return;
+    }
+    if (plain && key === "n" && selectedPhotoIds.length && summaries.length && onAddToSequence) {
+      event.preventDefault();
+      onAddToSequence();
+      return;
+    }
+    if (plain && key === "m" && onAddMemo) {
+      event.preventDefault();
+      onAddMemo();
+      return;
+    }
+    if (plain && key === "y" && actions.canArrange) {
+      event.preventDefault();
+      session.execute({ type: "arrange", photoIds: selectedPhotoIds, layout: { type: "grid" } });
+      return;
+    }
+    if (plain && key === "r" && actions.canArrange) {
+      event.preventDefault();
+      session.execute({ type: "arrange", photoIds: selectedPhotoIds, layout: { type: "row" } });
+      return;
+    }
+    if (plain && key === "h" && actions.canArrange) {
+      event.preventDefault();
+      session.execute({ type: "shuffle", photoIds: selectedPhotoIds });
+      return;
+    }
+    if (plain && key === "a" && actions.canArrange) {
+      event.preventDefault();
+      session.execute({ type: "arrange", photoIds: selectedPhotoIds, layout: { type: "align", edge: event.shiftKey ? "right" : "left" } });
+      return;
+    }
+    if (plain && key === "f" && actions.canBringToFront) {
+      event.preventDefault();
+      session.execute(selectedPileIds.length ? { type: "bring-sequence-piles-to-front", sequenceIds: selectedPileIds } : { type: "bring-to-front", photoIds: selectedPhotoIds });
+      return;
+    }
+    if (plain && (event.key === "+" || event.key === "=")) {
+      event.preventDefault();
+      zoom(viewport.zoom + .25);
+      return;
+    }
+    if (plain && event.key === "-") {
+      event.preventDefault();
+      zoom(viewport.zoom - .25);
+      return;
+    }
+    if (plain && event.key === "0") {
+      event.preventDefault();
+      fit();
+      return;
+    }
     if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "c") {
       if (session.copySelection()) event.preventDefault();
       return;
@@ -347,10 +434,9 @@ export const TableCanvas = forwardRef<TableCanvasHandle, TableCanvasProps>(funct
       if (event.shiftKey) session.redo();
       else session.undo();
     }
-    if (!event.ctrlKey && !event.metaKey && !event.altKey && ["g", "l"].includes(event.key.toLowerCase())) {
+    if (!event.ctrlKey && !event.metaKey && !event.altKey && ["g", "l"].includes(key)) {
       event.preventDefault();
-      const actions = deriveTableActions(draft, new Set(selectedPhotoIds), new Set(selectedPileIds));
-      if (event.key.toLowerCase() === "g") {
+      if (key === "g") {
         if (event.shiftKey && actions.selectedGroup) session.execute({ type: "remove-group", groupId: actions.selectedGroup.id });
         else if (!event.shiftKey && actions.canGroup) session.execute({ type: "create-group", photoIds: selectedPhotoIds });
       } else {
@@ -428,9 +514,6 @@ export const TableCanvas = forwardRef<TableCanvasHandle, TableCanvasProps>(funct
           const scale = preview.kind === "resize" && preview.photoId === id ? preview.resizeScale : 1;
           return (
             <div key={id} className="worktable-photo-position">
-            {dragging && <div className="worktable-drag-origin" aria-hidden="true" style={{ width: item.width, height: item.height, zIndex: item.z, transform: `translate3d(${item.x}px,${item.y}px,0)` }}>
-              <PhotoThumb photoSource={photoSource} photoId={item.photoId} alt="" resolution="table" sourceRevision={sourceRevision} />
-            </div>}
             <article
               data-worktable-photo-id={id}
               aria-label={item.filename}
@@ -471,7 +554,6 @@ export const TableCanvas = forwardRef<TableCanvasHandle, TableCanvasProps>(funct
             >
               <header><div><small>SEQUENCE</small><strong>{summary?.name ?? "Missing Sequence"}</strong></div><span>{summary?.photoCount ?? 0}</span></header>
               <div className="sequence-pile-thumbs">{summary?.previewPhotoIds.map((photoId, index) => <span key={`${photoId}-${index}`}><PhotoThumb fit="cover" photoSource={photoSource} photoId={photoId} alt="" onError={onPhotoError} sourceRevision={sourceRevision} /></span>)}</div>
-              {preview.targetSequenceId === id && <div className="sequence-pile-add-cue" aria-live="polite"><strong>{t("table.addToSequence")}</strong><small>{t("common.photoCount", { count: selectedPhotoIds.length })}</small></div>}
               <button
                 type="button"
                 aria-label="Resize sequence pile"
@@ -513,9 +595,9 @@ export const TableCanvas = forwardRef<TableCanvasHandle, TableCanvasProps>(funct
         </section>
       )}
       <TableHeaderControl><div className="worktable-canvas-controls" aria-label={t("table.controls")}>
-        <button className="table-tool-icon-button" aria-label={t("table.zoomOut")} onClick={() => zoom(viewport.zoom - .25)}><img src={minusIcon} alt="" /></button>
-        <button className="table-zoom-label" aria-label={t("table.fit")} title={t("table.fitTitle")} onClick={fit}>{Math.round(viewport.zoom * 100)}%</button>
-        <button className="table-tool-icon-button" aria-label={t("table.zoomIn")} onClick={() => zoom(viewport.zoom + .25)}><img src={plusIcon} alt="" /></button>
+        <button className="table-tool-icon-button" aria-label={t("table.zoomOut")} title={`${t("table.zoomOut")} · -`} onClick={() => zoom(viewport.zoom - .25)}><img src={minusIcon} alt="" /></button>
+        <button className="table-zoom-label" aria-label={t("table.fit")} title={`${t("table.fitTitle")} · 0`} onClick={fit}>{Math.round(viewport.zoom * 100)}%</button>
+        <button className="table-tool-icon-button" aria-label={t("table.zoomIn")} title={`${t("table.zoomIn")} · +`} onClick={() => zoom(viewport.zoom + .25)}><img src={plusIcon} alt="" /></button>
       </div></TableHeaderControl>
     </div>
   );

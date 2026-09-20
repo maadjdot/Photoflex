@@ -64,6 +64,7 @@ export function usePhotoPreviewInteraction() {
       if (event.key === "+" || event.key === "=") { event.preventDefault(); zoomIn(); }
       if (event.key === "-") { event.preventDefault(); zoomOut(); }
       if (event.key === "0") { event.preventDefault(); resetView(); }
+      if (event.key === " ") { event.preventDefault(); resetZoom(); }
       if (!event.ctrlKey && !event.metaKey && !event.altKey && event.key.toLowerCase() === "r") {
         event.preventDefault();
         event.shiftKey ? rotateLeft() : rotateRight();
@@ -71,7 +72,7 @@ export function usePhotoPreviewInteraction() {
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [resetView, rotateLeft, rotateRight, zoomIn, zoomOut]);
+  }, [resetView, resetZoom, rotateLeft, rotateRight, zoomIn, zoomOut]);
 
   const onPointerDown = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
     if (!event.currentTarget.classList.contains("is-pannable") || event.button > 0) return;

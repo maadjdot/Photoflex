@@ -129,7 +129,7 @@ function sameVirtualGrid(left: ContactSheetVirtualGrid, right: ContactSheetVirtu
 function PhotoTile({ photoSource, photo, sourceRevision, selected, inTable, missing, index, columns, style, onToggle, onOpen, onMoveFocus, onPhotoSourceError }: { readonly photoSource: AppDependencies["photoSource"]; readonly photo: PhotoRef; readonly sourceRevision?: number; readonly selected: boolean; readonly inTable: boolean; readonly missing: boolean; readonly index: number; readonly columns: number; readonly style: CSSProperties; readonly onToggle: (event?: ReactMouseEvent<HTMLElement>) => void; readonly onOpen: () => void; readonly onMoveFocus: (index: number, delta: number) => void; readonly onPhotoSourceError: (photoId: PhotoId, error: SourceError) => void; }) {
   const { locale, t } = useLocale();
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
-    if (event.key === " ") { event.preventDefault(); onToggle(); }
+    if (event.key === " ") { event.preventDefault(); if (event.ctrlKey || event.metaKey) onToggle(); else onOpen(); }
     if (event.key === "Enter") { event.preventDefault(); onOpen(); }
     if (event.key === "ArrowLeft") { event.preventDefault(); onMoveFocus(index, -1); }
     if (event.key === "ArrowRight") { event.preventDefault(); onMoveFocus(index, 1); }

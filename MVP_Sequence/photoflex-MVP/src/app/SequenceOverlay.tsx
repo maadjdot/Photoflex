@@ -106,8 +106,22 @@ export function SequenceOverlay({ dependencies, persistence, projectId, sequence
   });
 
   return <section ref={rootRef} className="sequence-overlay" role="dialog" aria-modal="true" aria-label={`Sequence ${sequence.name}`} tabIndex={-1} onKeyDown={(event) => {
-    if (readIndex !== undefined || (event.key !== "Delete" && event.key !== "Backspace")) return;
+    if (readIndex !== undefined) return;
     if ((event.target as HTMLElement).closest("input, textarea, [contenteditable='true']")) return;
+    if (previewIndex === undefined && !event.ctrlKey && !event.metaKey && !event.altKey && event.key === "r" && photos.length) {
+      event.preventDefault();
+      setReadIndex(0);
+      return;
+    }
+    if (previewIndex === undefined && !event.ctrlKey && !event.metaKey && !event.altKey && event.key === " " && selectedPhotoItemIds.length === 1) {
+      const index = photos.findIndex(({ item }) => item.id === selectedPhotoItemIds[0]);
+      if (index >= 0) {
+        event.preventDefault();
+        setPreviewIndex(index);
+      }
+      return;
+    }
+    if (event.key !== "Delete" && event.key !== "Backspace") return;
     if (selectedPhotoItemIds.length) {
       event.preventDefault();
       if (removePhotoItems(selectedPhotoItemIds) && previewIndex !== undefined) setPreviewIndex(undefined);
@@ -116,7 +130,7 @@ export function SequenceOverlay({ dependencies, persistence, projectId, sequence
     <header className="sequence-overlay-header">
       <div><span>SEQUENCE</span><h1>{sequence.name}</h1></div>
       <nav aria-label="Sequence controls">
-        <button className="sequence-overlay-read" disabled={!photos.length} onClick={() => setReadIndex(0)}>{t("sequence.read")}</button>
+        <button className="sequence-overlay-read" title="R" disabled={!photos.length} onClick={() => setReadIndex(0)}>{t("sequence.read")}</button>
         <button ref={closeRef} className="sequence-overlay-close" aria-label={`${t("common.close")} Sequence`} onClick={() => void closeOverlay()}>×</button>
       </nav>
     </header>

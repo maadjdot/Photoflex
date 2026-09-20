@@ -215,6 +215,35 @@ describe("TablePage", () => {
 
   });
 
+  it("用 Space 预览选中照片，用 C 打开比较", async () => {
+    const dependencies = await createFixture();
+    render(<App dependencies={dependencies} />);
+    const stage = await screen.findByLabelText("Photo worktable");
+    const cardA = within(stage).getByLabelText("A.jpg");
+    fireEvent.pointerDown(cardA, { pointerId: 31, button: 0, clientX: 120, clientY: 120 });
+    fireEvent.pointerUp(cardA, { pointerId: 31, clientX: 120, clientY: 120 });
+    fireEvent.keyDown(stage, { key: " " });
+    const preview = await screen.findByRole("dialog", { name: "Preview A.jpg" });
+    fireEvent.click(within(preview).getByRole("button", { name: "Close preview" }));
+
+    fireEvent.keyDown(stage, { key: "a", ctrlKey: true });
+    fireEvent.keyDown(stage, { key: "c" });
+    expect(await screen.findByRole("dialog", { name: "Compare two photos" })).toBeTruthy();
+  });
+
+  it("用鼠标中键拖动画布，与右键平移保持一致", async () => {
+    const dependencies = await createFixture();
+    render(<App dependencies={dependencies} />);
+    const stage = await screen.findByLabelText("Photo worktable");
+    const world = stage.querySelector<HTMLElement>(".worktable-world");
+    if (!world) throw new Error("worktable world missing");
+    const before = world.style.transform;
+    fireEvent.pointerDown(stage, { pointerId: 32, button: 1, clientX: 200, clientY: 200 });
+    fireEvent.pointerMove(stage, { pointerId: 32, button: 1, clientX: 260, clientY: 240 });
+    fireEvent.pointerUp(stage, { pointerId: 32, button: 1, clientX: 260, clientY: 240 });
+    expect(world.style.transform).not.toBe(before);
+  });
+
   it("选中操作栏保持单行、使用精简文案且不显示 Clear", async () => {
     const dependencies = await createFixture();
     render(<App dependencies={dependencies} />);
@@ -422,7 +451,7 @@ describe("TablePage", () => {
     expect(saved.value.sequenceIds).toEqual([]);
   });
 
-  it("拖到序列卡片时加入照片，Table 原位不变", async () => {
+  it("拖到序列卡片时加入照片，并从 Table 原位移除", async () => {
     const { projectStore, photoSource, sequenceId } = await createPileFixture();
     const saveWorktable = vi.spyOn(projectStore, "saveWorktable");
     render(<App dependencies={{ projectStore, photoSource }} />);
@@ -433,24 +462,23 @@ describe("TablePage", () => {
       configurable: true,
       value: () => ({ left: 350, top: 180, width: 280, height: 176, right: 630, bottom: 356, x: 350, y: 180, toJSON() {} }),
     });
-    const before = await projectStore.loadWorkspace(projectId);
-    if (!before.ok) throw new Error("workspace not loaded");
-    const original = before.value.worktableDraft.placements[photoB];
     saveWorktable.mockClear();
 
     fireEvent.pointerDown(card, { pointerId: 71, button: 0, clientX: 100, clientY: 100 });
     fireEvent.pointerMove(stage, { pointerId: 71, clientX: 430, clientY: 245 });
     expect(pile.classList.contains("is-add-target")).toBe(true);
-    expect(within(pile).getByText("Add to Sequence")).toBeTruthy();
     fireEvent.pointerUp(stage, { pointerId: 71, clientX: 430, clientY: 245 });
 
     await waitFor(async () => {
       const sequence = await projectStore.loadSequence(sequenceId);
       expect(sequence.ok && sequence.value.items.map((item) => item.kind === "photo" && item.photoId)).toEqual([photoA, photoB]);
     });
-    const after = await projectStore.loadWorkspace(projectId);
-    expect(after.ok && after.value.worktableDraft.placements[photoB]).toEqual(original);
-    expect(saveWorktable).not.toHaveBeenCalled();
+    await waitFor(async () => {
+      const after = await projectStore.loadWorkspace(projectId);
+      expect(after.ok && after.value.worktableDraft.entryOrder).not.toContain(photoB);
+    });
+    expect(saveWorktable).toHaveBeenCalled();
+    expect(within(stage).queryByLabelText("B.jpg")).toBeNull();
     await waitFor(() => expect(within(pile).getByText("2")).toBeTruthy());
     expect(pile.classList.contains("is-add-target")).toBe(false);
   });
@@ -529,7 +557,7 @@ describe("TablePage", () => {
     fireEvent.keyDown(stage, { key: "a", ctrlKey: true });
     fireEvent.pointerDown(screen.getByLabelText("B.jpg"), { pointerId: 74, button: 0, clientX: 100, clientY: 100 });
     fireEvent.pointerMove(stage, { pointerId: 74, clientX: 430, clientY: 245 });
-    expect(within(pile).getByText("2 photos")).toBeTruthy();
+    expect(pile.classList.contains("is-add-target")).toBe(true);
     fireEvent.pointerUp(stage, { pointerId: 74, clientX: 430, clientY: 245 });
 
     await waitFor(async () => {
