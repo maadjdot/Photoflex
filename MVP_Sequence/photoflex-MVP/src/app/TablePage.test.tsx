@@ -511,15 +511,17 @@ describe("TablePage", () => {
     fireEvent.pointerMove(stage, { pointerId: 7, clientX: 120, clientY: 115 });
     expect(card.className).toContain("is-dragging");
     fireEvent.pointerMove(stage, { pointerId: 7, clientX: 145, clientY: 130 });
+    expect(stage.querySelectorAll(".worktable-alignment-guides line").length).toBeGreaterThan(0);
     fireEvent.pointerUp(stage, { pointerId: 7, clientX: 145, clientY: 130 });
     expect(card.className).not.toContain("is-dragging");
+    expect(stage.querySelectorAll(".worktable-alignment-guides line")).toHaveLength(0);
 
     await waitFor(() => expect(saveSpy).toHaveBeenCalledTimes(1));
     const saved = await dependencies.projectStore.loadWorkspace(projectId);
     expect(saved.ok).toBe(true);
     if (!saved.ok) return;
     expect(saved.value.worktableDraft.placements[photoA].x).toBe(109);
-    expect(saved.value.worktableDraft.placements[photoA].y).toBe(94);
+    expect(saved.value.worktableDraft.placements[photoA].y).toBe(89);
     expect(saved.value.sequenceIds).toEqual([]);
   });
 

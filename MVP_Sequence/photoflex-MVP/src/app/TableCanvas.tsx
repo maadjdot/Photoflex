@@ -29,6 +29,7 @@ import type {
 import {
   clampWorktableZoom,
   screenToWorld,
+  type AlignmentGuide,
   visibleWorktablePhotoIds,
   zoomAroundScreenPoint,
 } from "../modules/worktable";
@@ -170,6 +171,7 @@ export const TableCanvas = forwardRef<TableCanvasHandle, TableCanvasProps>(funct
     clearSelection: session.clearSelection,
     onOpenSequence,
     onDropPhotosOnSequence,
+    visiblePhotoIds,
     disabled: interactionDisabled,
   });
   const trayRange = useMemo(() => calculateSequenceStripVirtualRange({
@@ -550,6 +552,7 @@ export const TableCanvas = forwardRef<TableCanvasHandle, TableCanvasProps>(funct
     >
       <div className="worktable-world" style={{ transform: `translate3d(${viewport.originX}px,${viewport.originY}px,0) scale(${viewport.zoom})` }}>
         <TableMemos draft={draft} zoom={viewport.zoom} selectedId={props.selectedMemoId} onSelect={(id) => props.onSelectMemo?.(id)} onExecute={session.execute} disabled={interactionDisabled} />
+        <TableAlignmentGuides guides={preview.alignmentGuides} />
         <svg className="worktable-links">
           {draft.links.flatMap((link) => link.photoIds.slice(1).map((id, index) => {
             const left = draft.placements[link.photoIds[index]];
@@ -673,6 +676,19 @@ function groupBounds(draft: WorktableDraft, ids: readonly WorktableItemId[]) {
     width: Math.max(240, contentRight - contentLeft + 26),
     height: contentBottom - contentTop + 57,
   };
+}
+
+function TableAlignmentGuides({ guides }: { readonly guides: readonly AlignmentGuide[] }) {
+  if (!guides.length) return null;
+  return <svg className="worktable-alignment-guides" aria-hidden="true">
+    {guides.map((guide, index) => guide.kind === "alignment"
+      ? guide.axis === "x"
+        ? <line key={`alignment-x-${index}`} className="worktable-alignment-line" x1={guide.value} y1={guide.from} x2={guide.value} y2={guide.to} />
+        : <line key={`alignment-y-${index}`} className="worktable-alignment-line" x1={guide.from} y1={guide.value} x2={guide.to} y2={guide.value} />
+      : guide.axis === "x"
+        ? <g key={`spacing-x-${index}`} className="worktable-spacing-guide"><line x1={guide.first} y1={guide.cross} x2={guide.middleStart} y2={guide.cross} /><line x1={guide.middleEnd} y1={guide.cross} x2={guide.last} y2={guide.cross} /><text x={(guide.first + guide.middleStart) / 2} y={guide.cross - 7}>{Math.round(Math.abs(guide.distance))}</text></g>
+        : <g key={`spacing-y-${index}`} className="worktable-spacing-guide"><line x1={guide.cross} y1={guide.first} x2={guide.cross} y2={guide.middleStart} /><line x1={guide.cross} y1={guide.middleEnd} x2={guide.cross} y2={guide.last} /><text x={guide.cross + 7} y={(guide.first + guide.middleStart) / 2}>{Math.round(Math.abs(guide.distance))}</text></g>)}
+  </svg>;
 }
 
 function setsEqual(left: ReadonlySet<WorktableItemId>, right: ReadonlySet<WorktableItemId>) {

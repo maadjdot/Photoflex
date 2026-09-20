@@ -7,7 +7,7 @@ import type {
   WorktableViewport,
   WorktableItemId,
 } from "../contracts";
-import { screenToWorld } from "../modules/worktable";
+import { calculateAlignmentPreview, screenToWorld, type AlignmentGuide } from "../modules/worktable";
 import { sequenceStripInsertionIndex } from "../modules/sequence";
 
 type Gesture =
@@ -40,6 +40,7 @@ interface TableGestureOptions {
   readonly clearSelection: () => unknown;
   readonly onOpenSequence?: (sequenceId: SequenceId) => void;
   readonly onDropPhotosOnSequence: (photoIds: readonly WorktableItemId[], sequenceId: SequenceId, at?: number) => void;
+  readonly visiblePhotoIds: ReadonlySet<WorktableItemId>;
   readonly disabled?: boolean;
 }
 
@@ -53,10 +54,11 @@ export interface TableGesturePreview {
   readonly marquee?: TableMarquee;
   readonly targetSequenceId?: SequenceId;
   readonly insertIndex?: number;
+  readonly alignmentGuides: readonly AlignmentGuide[];
 }
 
 export function useTableGestures(options: TableGestureOptions) {
-  const { stageRef, draft, viewport, setViewport, execute, selectPhoto, selectPile, selectPhotos, clearSelection, onOpenSequence, onDropPhotosOnSequence, disabled = false } = options;
+  const { stageRef, draft, viewport, setViewport, execute, selectPhoto, selectPile, selectPhotos, clearSelection, onOpenSequence, onDropPhotosOnSequence, visiblePhotoIds, disabled = false } = options;
   const [dragDelta, setDragDelta] = useState<WorktablePoint>({ x: 0, y: 0 });
   const [resizeScale, setResizeScale] = useState(1);
   const [pileResizeScale, setPileResizeScale] = useState(1);
@@ -64,6 +66,7 @@ export function useTableGestures(options: TableGestureOptions) {
   const [gestureIdentity, setGestureIdentity] = useState<Pick<TableGesturePreview, "kind" | "photoId" | "sequenceId">>({});
   const [targetSequenceId, setTargetSequenceId] = useState<SequenceId>();
   const [insertIndex, setInsertIndex] = useState<number>();
+  const [alignmentGuides, setAlignmentGuides] = useState<readonly AlignmentGuide[]>([]);
   const gestureRef = useRef<Gesture | undefined>(undefined);
   const deltaRef = useRef<WorktablePoint>({ x: 0, y: 0 });
   const scaleRef = useRef(1);
@@ -107,6 +110,7 @@ export function useTableGestures(options: TableGestureOptions) {
     gestureRef.current = gesture;
     deltaRef.current = { x: 0, y: 0 };
     setDragDelta({ x: 0, y: 0 });
+    setAlignmentGuides([]);
     identify(gesture);
   };
 
@@ -246,8 +250,11 @@ export function useTableGestures(options: TableGestureOptions) {
       });
       const world = screenToWorld(point, rect, viewportRef.current);
       const delta = { x: world.x - gesture.start.x, y: world.y - gesture.start.y };
-      deltaRef.current = delta;
-      pendingDragDeltaRef.current = delta;
+      if (gesture.kind === "photo") updatePhotoDragPreview(gesture, delta);
+      else {
+        deltaRef.current = delta;
+        pendingDragDeltaRef.current = delta;
+      }
       if (dragFrameRef.current === undefined) {
         dragFrameRef.current = requestAnimationFrame(() => {
           dragFrameRef.current = undefined;
@@ -257,6 +264,19 @@ export function useTableGestures(options: TableGestureOptions) {
       edgePanFrameRef.current = requestAnimationFrame(tick);
     };
     edgePanFrameRef.current = requestAnimationFrame(tick);
+  };
+
+  const updatePhotoDragPreview = (gesture: Extract<Gesture, { kind: "photo" }>, delta: WorktablePoint) => {
+    const preview = calculateAlignmentPreview({
+      draft,
+      movingIds: gesture.ids,
+      delta,
+      zoom: viewportRef.current.zoom,
+      referenceIds: [...visiblePhotoIds],
+    });
+    deltaRef.current = preview.delta;
+    pendingDragDeltaRef.current = preview.delta;
+    setAlignmentGuides(preview.guides);
   };
 
   const onStagePointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
@@ -302,15 +322,20 @@ export function useTableGestures(options: TableGestureOptions) {
       edgePanPointRef.current = { x: event.clientX, y: event.clientY };
       scheduleEdgePan();
     }
+    const sequenceTarget = gesture.kind === "photo" && gesture.moved ? sequenceDropAt(stage, event.clientX, event.clientY) : undefined;
     if (gesture.kind === "photo") {
-      const target = gesture.moved ? sequenceDropAt(stage, event.clientX, event.clientY) : undefined;
-      setTargetSequenceId(target?.sequenceId);
-      setInsertIndex(target?.at);
+      setTargetSequenceId(sequenceTarget?.sequenceId);
+      setInsertIndex(sequenceTarget?.at);
     }
     const world = screenToWorld({ x: event.clientX, y: event.clientY }, rect, viewportRef.current);
     const delta = { x: world.x - gesture.start.x, y: world.y - gesture.start.y };
-    deltaRef.current = delta;
-    pendingDragDeltaRef.current = delta;
+    if (gesture.kind === "photo" && gesture.moved) updatePhotoDragPreview(gesture, delta);
+    else {
+      deltaRef.current = delta;
+      pendingDragDeltaRef.current = delta;
+      setAlignmentGuides([]);
+    }
+    if (sequenceTarget) setAlignmentGuides([]);
     if (dragFrameRef.current === undefined) {
       dragFrameRef.current = requestAnimationFrame(() => {
         dragFrameRef.current = undefined;
@@ -366,6 +391,7 @@ export function useTableGestures(options: TableGestureOptions) {
     setMarquee(undefined);
     setTargetSequenceId(undefined);
     setInsertIndex(undefined);
+    setAlignmentGuides([]);
     identify(undefined);
   };
 
@@ -388,6 +414,7 @@ export function useTableGestures(options: TableGestureOptions) {
     setMarquee(undefined);
     setTargetSequenceId(undefined);
     setInsertIndex(undefined);
+    setAlignmentGuides([]);
     identify(undefined);
     return true;
   };
@@ -401,6 +428,7 @@ export function useTableGestures(options: TableGestureOptions) {
       marquee,
       targetSequenceId,
       insertIndex,
+      alignmentGuides,
     } satisfies TableGesturePreview,
     onPhotoPointerDown,
     onGroupPointerDown,

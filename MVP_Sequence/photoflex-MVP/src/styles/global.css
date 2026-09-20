@@ -448,6 +448,10 @@ h1, h2, p { margin-top: 0; }
 .worktable-world { position: absolute; inset: 0; transform-origin: 0 0; pointer-events: none; }
 .worktable-links { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; }
 .worktable-links line { stroke: #6b6966; stroke-width: 1px; stroke-linecap: round; vector-effect: non-scaling-stroke; opacity: .72; }
+.worktable-alignment-guides { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; }
+.worktable-alignment-line { fill: none; stroke: #9c4f42; stroke-width: 1px; stroke-dasharray: 6 4; vector-effect: non-scaling-stroke; opacity: .9; }
+.worktable-spacing-guide line { fill: none; stroke: #4d6f76; stroke-width: 1px; stroke-dasharray: 3 3; vector-effect: non-scaling-stroke; opacity: .9; }
+.worktable-spacing-guide text { fill: #31535a; font-size: 10px; font-weight: 650; paint-order: stroke; stroke: rgb(242 242 242 / 94%); stroke-width: 4px; stroke-linejoin: round; text-anchor: middle; dominant-baseline: middle; }
 .worktable-group-frame { position: absolute; box-sizing: border-box; border: 1px solid #c8c6c0; border-radius: 8px; background: rgb(255 255 255 / 40%); pointer-events: none; }
 .worktable-group-frame span { position: absolute; top: 12px; left: 12px; padding: 2px 5px; border-radius: 3px; background: rgb(255 255 255 / 88%); color: #6b6966; font-size: 10px; font-weight: 600; line-height: 15px; white-space: nowrap; pointer-events: auto; cursor: grab; }
 .worktable-group-frame span:active { cursor: grabbing; }
