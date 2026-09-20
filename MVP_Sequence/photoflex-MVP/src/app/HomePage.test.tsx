@@ -51,6 +51,23 @@ it("shows only the selected Table's photos, keeps the layout stable during rende
   }
 });
 
+it("shows an Open Table action when the selected Table has no photos", async () => {
+  const projectStore = new MemoryProjectStore();
+  const photoSource = new MemoryPhotoSource();
+  const projectId = "empty-table" as ProjectId;
+  const created = await projectStore.createProject({ id: projectId, name: "Empty Table", createdAt: "2026-09-08T00:00:00.000Z" });
+  if (!created.ok) throw new Error("Fixture creation failed");
+  const navigate = vi.fn();
+
+  render(<HomePage dependencies={{ projectStore, photoSource }} navigate={navigate} />);
+
+  expect(await screen.findByText("No photos on this Table yet")).toBeTruthy();
+  const openTable = screen.getByRole("button", { name: "Open Table" });
+  expect(openTable.className).toContain("button-primary");
+  fireEvent.click(openTable);
+  expect(navigate).toHaveBeenLastCalledWith({ name: "table", projectId });
+});
+
 it("renames a project from the Home project index and persists it", async () => {
   const projectStore = new MemoryProjectStore();
   const projectId = "rename-project" as ProjectId;

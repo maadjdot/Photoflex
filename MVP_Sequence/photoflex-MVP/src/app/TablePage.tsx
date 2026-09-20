@@ -309,9 +309,9 @@ export function TablePage({ dependencies, projectId, navigate, sequenceOverlay }
       missingPhotoIds={missing}
       sourceRevision={sourceRevision}
       interactionDisabled={writeSnapshot.writeState === "failed"}
-      emptyAction={{
-        label: firstSource ? t("table.openPhotos") : t("table.addFolder"),
-        onClick: () => firstSource ? navigate({ name: "contact-sheet", projectId, sourceId: firstSource.id }) : navigate({ name: "project", projectId }),
+      emptyAction={firstSource ? undefined : {
+        label: t("table.addFolder"),
+        onClick: () => void addSource(),
       }}
     />
     <TableFloatingToolbar onAddMemo={addMemo} selectedMemo={selectedMemo} storageKey={`photoflex:table-toolbar:${projectId}`} actions={actions} canUndo={tableSession.canUndo} canRedo={tableSession.canRedo} onUndo={() => history("undo")} onRedo={() => history("redo")} onExecute={execute} onRequestSequence={requestSequence} />

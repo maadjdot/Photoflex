@@ -88,7 +88,7 @@ interface TableCanvasProps {
   readonly missingPhotoIds: ReadonlySet<PhotoId>;
   readonly sourceRevision?: number;
   readonly interactionDisabled?: boolean;
-  readonly emptyAction: { readonly label: string; readonly onClick: () => void };
+  readonly emptyAction?: { readonly label: string; readonly onClick: () => void };
 }
 
 export const TableCanvas = forwardRef<TableCanvasHandle, TableCanvasProps>(function TableCanvas(props, forwardedRef) {
@@ -647,7 +647,7 @@ export const TableCanvas = forwardRef<TableCanvasHandle, TableCanvasProps>(funct
           <span>{t("table.emptyLabel")}</span>
           <h1>{t("table.empty")}</h1>
           <p>{t("table.emptyDetail")}</p>
-          <button className="button button-primary" onClick={emptyAction.onClick}>{emptyAction.label}</button>
+          {emptyAction && <button className="button button-primary" onClick={emptyAction.onClick}>{emptyAction.label}</button>}
         </section>
       )}
       <TableHeaderControl><div className="worktable-canvas-controls" aria-label={t("table.controls")}>

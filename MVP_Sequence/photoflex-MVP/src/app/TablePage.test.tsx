@@ -64,6 +64,46 @@ async function createPileFixture() {
 }
 
 describe("TablePage", () => {
+  it("does not show Open Photos for an empty Table", async () => {
+    const projectStore = new MemoryProjectStore();
+    const created = await projectStore.createProject({
+      id: projectId,
+      name: "Empty Table",
+      createdAt: "2026-08-31T08:00:00.000Z",
+      initialSource: { id: sourceId, displayName: "Selects", createdAt: "2026-08-31T08:00:00.000Z" },
+    });
+    if (!created.ok) throw new Error("fixture project not created");
+    const photoSource = new MemoryPhotoSource([{
+      grant: { sourceId, displayName: "Selects", status: "ready", restored: true },
+      photos: [],
+      previewUrls: {},
+    }]);
+
+    render(<App dependencies={{ projectStore, photoSource }} />);
+
+    expect(await screen.findByLabelText("Photo worktable")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Open Photos" })).toBeNull();
+  });
+
+  it("opens the photo folder picker from an empty Table without leaving Table", async () => {
+    const projectStore = new MemoryProjectStore();
+    const created = await projectStore.createProject({ id: projectId, name: "Empty Table", createdAt: "2026-08-31T08:00:00.000Z" });
+    if (!created.ok) throw new Error("fixture project not created");
+    const photoSource = new MemoryPhotoSource([{
+      grant: { sourceId, displayName: "Selects", status: "ready", restored: true },
+      photos: [],
+      previewUrls: {},
+    }]);
+    const chooseFolder = vi.spyOn(photoSource, "chooseFolder");
+
+    render(<App dependencies={{ projectStore, photoSource }} />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Add a photo folder" }));
+
+    await waitFor(() => expect(chooseFolder).toHaveBeenCalledWith([]));
+    expect(window.location.hash).toContain(`/projects/${projectId}/table`);
+  });
+
   it("copies selected photos into independent Table instances", async () => {
     const dependencies = await createFixture();
     render(<App dependencies={dependencies} />);

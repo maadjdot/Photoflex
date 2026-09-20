@@ -239,6 +239,9 @@ export function HomePage({
             ) : (
               <div className="home-gallery-empty">
                 <p>{t("home.noPhotos")}</p>
+                <button type="button" className="button button-primary home-gallery-empty-action" onClick={() => navigate({ name: "table", projectId: selectedProject.id })}>
+                  {t("home.openTable")}
+                </button>
               </div>
             )}
             <div className="home-project-feature-copy">
