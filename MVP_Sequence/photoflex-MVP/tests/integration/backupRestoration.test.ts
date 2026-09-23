@@ -1,7 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { IndexedDbProjectStore } from "../../src/platform/browser/IndexedDbProjectStore";
 import { MemoryProjectStore } from "../../src/platform/memory/MemoryProjectStore";
-import type { ProjectBackupV1, ProjectStore } from "../../src/contracts";
+import type { FrameId, FrameSlotId, PhotoId, ProjectBackupV1, ProjectStore } from "../../src/contracts";
+import { createWorktableEditor } from "../../src/modules/worktable/worktableEditor";
+import { defaultFrameCrop, frameTemplateRects, frameTemplateSource, FRAME_MM_TO_PT } from "../../src/modules/worktable/frameLayout";
 import { backupBytes, backupFixture } from "../helpers/projectBackup";
 
 const opened: IndexedDbProjectStore[] = [];
@@ -9,6 +11,42 @@ afterEach(async () => { vi.restoreAllMocks(); await Promise.all(opened.splice(0)
 function browserStore() { const s = IndexedDbProjectStore.open({ databaseName: `backup-${crypto.randomUUID()}` }); opened.push(s); return s; }
 
 for (const [name, factory] of [["memory", () => new MemoryProjectStore()], ["IndexedDB", browserStore]] as const) describe(name, () => {
+  it("restores Frame IDs and photo references independently of the original project", async () => {
+    const source = factory();
+    const imported = await source.importBackup(backupBytes());
+    expect(imported.ok).toBe(true);
+    if (!imported.ok) return;
+    const loaded = await source.loadWorkspace(imported.value);
+    expect(loaded.ok).toBe(true);
+    if (!loaded.ok) return;
+    const photoId = loaded.value.worktableDraft.placements[loaded.value.worktableDraft.entryOrder[0]].photoId;
+    const template = frameTemplateSource("single");
+    const widthPt = 210 * FRAME_MM_TO_PT, heightPt = 297 * FRAME_MM_TO_PT;
+    const editor = createWorktableEditor(loaded.value.worktableDraft);
+    const created = editor.execute({ type: "create-frame", frame: { id: "original-frame" as FrameId, name: "Test Frame", x: 10, y: 20, z: 10, displayScale: .5,
+      page: { widthPt, heightPt, templateSource: template, slots: [{ id: "original-slot" as FrameSlotId, rect: frameTemplateRects(widthPt, heightPt, template)[0], photoId, crop: defaultFrameCrop("single") }] } } });
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
+    expect((await source.saveWorktable(imported.value, created.value, loaded.value.revision)).ok).toBe(true);
+    const exported = await source.exportBackup(imported.value);
+    expect(exported.ok).toBe(true);
+    if (!exported.ok) return;
+    const copyStore = factory();
+    const copy = await copyStore.importBackup(exported.value);
+    expect(copy.ok).toBe(true);
+    if (!copy.ok) return;
+    const restored = await copyStore.loadWorkspace(copy.value);
+    expect(restored.ok).toBe(true);
+    if (!restored.ok) return;
+    const nextFrameId = restored.value.worktableDraft.frameOrder?.[0];
+    expect(nextFrameId).toBeTruthy();
+    expect(nextFrameId).not.toBe("original-frame");
+    const slot = restored.value.worktableDraft.frames?.[nextFrameId!].page.slots[0];
+    expect(slot?.id).not.toBe("original-slot");
+    expect(slot?.photoId).not.toBe(photoId);
+    expect(slot?.photoId).toBe(restored.value.worktableDraft.placements[restored.value.worktableDraft.entryOrder[0]].photoId as PhotoId);
+  });
+
   it("round-trips the project, versions and photo manifest into a fresh store without ID collisions", async () => {
     const source: ProjectStore = factory();
     const first = await source.importBackup(backupBytes());
@@ -70,7 +108,9 @@ for (const [name, factory] of [["memory", () => new MemoryProjectStore()], ["Ind
     if (!exported.ok) return;
     const copy = JSON.parse(new TextDecoder().decode(exported.value)) as ProjectBackupV1;
     const [itemId] = copy.project.worktableDraft.entryOrder;
-    expect(copy.project.schemaVersion).toBe(8);
+    expect(copy.project.schemaVersion).toBe(9);
+    expect(copy.project.worktableDraft.frameOrder).toEqual([]);
+    expect(copy.project.worktableDraft.frames).toEqual({});
     expect(copy.project.worktableDraft.placements[itemId]).toMatchObject({ id: itemId });
   });
 });

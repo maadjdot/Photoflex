@@ -150,8 +150,8 @@ async function seedSequence(page: Page) {
     const readingUnits = items.map((item, index) => ({ id: `sequence-unit-${index + 1}`, kind: "single", itemId: item.id }));
     const transaction = database.transaction(["projects", "sequences", "versions", "photo-index", "photo-thumbnails", "photo-derived-previews"], "readwrite");
     transaction.objectStore("projects").put({
-      schemaVersion: 8, projectId, name: "Sequence Visual", memo: "", expectedPhotoCount: null, sources: [], photoStates: {},
-      worktableDraft: { projectId, entryOrder: [], placements: {}, groups: [], links: [], pileOrder: [sequenceId], pilePlacements: { [sequenceId]: { sequenceId, x: 120, y: 110, z: 1, width: 402, height: 176 } } },
+      schemaVersion: 9, projectId, name: "Sequence Visual", memo: "", expectedPhotoCount: null, sources: [], photoStates: {},
+      worktableDraft: { projectId, entryOrder: [], placements: {}, groups: [], links: [], pileOrder: [sequenceId], pilePlacements: { [sequenceId]: { sequenceId, x: 120, y: 110, z: 1, width: 402, height: 176 } }, frameOrder: [], frames: {} },
       sequenceIds: [sequenceId], versionIds: [versionId], revision: 0, createdAt, updatedAt: createdAt, lastOpenedAt: createdAt,
     });
     transaction.objectStore("sequences").put({ id: sequenceId, projectId, name: "Street Edit", items, segments: [], readingUnits, currentVersionId: versionId, revision: 0, createdAt, updatedAt: createdAt });

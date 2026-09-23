@@ -519,7 +519,7 @@ export function createProjectWriteCoordinator(dependencies: AppDependencies, pro
 }
 
 function maximumWorktableZ(draft: WorktableDraft) {
-  return Math.max(-1, ...Object.values(draft.placements).map((item) => item.z), ...Object.values(draft.pilePlacements).map((item) => item.z));
+  return Math.max(-1, ...Object.values(draft.placements).map((item) => item.z), ...Object.values(draft.pilePlacements).map((item) => item.z), ...Object.values(draft.frames ?? {}).map((item) => item.z));
 }
 
 function sameWorktableDraft(left: WorktableDraft, right: WorktableDraft): boolean {

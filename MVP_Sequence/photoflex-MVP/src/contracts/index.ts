@@ -1,6 +1,7 @@
 export * from "./backup";
 export * from "./cloud";
 export * from "./ids";
+export * from "./frame";
 export * from "./persistence";
 export * from "./sequence";
 export * from "./sequenceExport";

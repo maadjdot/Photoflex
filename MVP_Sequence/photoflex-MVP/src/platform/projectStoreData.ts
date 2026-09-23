@@ -24,6 +24,7 @@ import {
   type WorkspaceRevision,
 } from "../contracts";
 import { createEmptyWorktable, migratePoolToWorktable } from "../modules/worktable";
+import { validFrameCollection } from "../modules/worktable/frameCommands";
 
 export function createWorkspace(input: CreateProjectInput): ProjectWorkspace {
   const createdAt = input.createdAt;
@@ -146,6 +147,7 @@ export function isWorkspace(value: unknown): value is ProjectWorkspace {
     const table = draft as ProjectWorkspace["worktableDraft"];
     if (table.projectId !== workspace.projectId || !Array.isArray(table.entryOrder)) return false;
     if (!table.placements || typeof table.placements !== "object") return false;
+    if (!Array.isArray(table.frameOrder) || !table.frames || !validFrameCollection(table)) return false;
     const isRelation = (relation: unknown, minimum: number, maximum = Number.POSITIVE_INFINITY): boolean => {
       if (!relation || typeof relation !== "object") return false;
       const value = relation as Record<string, unknown>;
@@ -307,7 +309,12 @@ export function migrateWorkspaceV7ToV8(value: Record<string, unknown>): Record<s
   const sources = Array.isArray(value.sources)
     ? value.sources.map((source) => source && typeof source === "object" ? { kind: "folder", ...(source as Record<string, unknown>) } : source)
     : value.sources;
-  return { ...value, schemaVersion: WORKSPACE_SCHEMA_VERSION, sources, worktableDraft: table ? { ...table, placements } : table };
+  return { ...value, schemaVersion: 8, sources, worktableDraft: table ? { ...table, placements } : table };
+}
+
+export function migrateWorkspaceV8ToV9(value: Record<string, unknown>): Record<string, unknown> {
+  const table = value.worktableDraft && typeof value.worktableDraft === "object" ? value.worktableDraft as Record<string, unknown> : undefined;
+  return { ...value, schemaVersion: 9, worktableDraft: table ? { ...table, frameOrder: [], frames: {} } : table };
 }
 
 export function legacySequenceFromWorkspace(value: Record<string, unknown>): SequenceDocument | undefined {

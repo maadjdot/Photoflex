@@ -1,4 +1,5 @@
 import type { PhotoId, ProjectId, Result, SequenceId, WorktableItemId } from "./ids";
+import type { FrameCommandError, FrameEditCommand, FrameId, WorktableFrame } from "./frame";
 
 export interface WorktablePoint {
   readonly x: number;
@@ -65,6 +66,9 @@ export interface WorktableDraft {
   readonly links: readonly WorktableLink[];
   readonly pileOrder: readonly SequenceId[];
   readonly pilePlacements: Readonly<Record<SequenceId, WorktableSequencePilePlacement>>;
+  /** Optional only while reading pre-Frame fixtures and older documents. */
+  readonly frameOrder?: readonly FrameId[];
+  readonly frames?: Readonly<Record<FrameId, WorktableFrame>>;
 }
 
 export interface WorktablePlacementSeed {
@@ -93,6 +97,7 @@ export type WorktableLayout =
   | { readonly type: "align"; readonly edge: WorktableAlignment };
 
 export type WorktableEditCommand =
+  | FrameEditCommand
   | { readonly type: "create-memo"; readonly memo: WorktableMemo }
   | { readonly type: "update-memo"; readonly memoId: string; readonly changes: Partial<Omit<WorktableMemo, "id">> }
   | { readonly type: "remove-memo"; readonly memoId: string }
@@ -127,6 +132,7 @@ export type WorktableEditCommand =
   | { readonly type: "remove"; readonly photoIds: readonly WorktableItemId[] };
 
 export type WorktableCommandError =
+  | FrameCommandError
   | { readonly kind: "unknown-placement"; readonly photoId: WorktableItemId }
   | { readonly kind: "locked-placement"; readonly photoId: WorktableItemId }
   | { readonly kind: "unknown-sequence-pile"; readonly sequenceId: SequenceId }

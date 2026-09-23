@@ -64,6 +64,149 @@ async function createPileFixture() {
 }
 
 describe("TablePage", () => {
+  it("creates a Diptych Frame from selected photos and restores it from the workspace", async () => {
+    const dependencies = await createFixture();
+    const view = render(<App dependencies={dependencies} />);
+    const stage = await screen.findByLabelText("Photo worktable");
+    fireEvent.keyDown(stage, { key: "a", ctrlKey: true });
+    expect(screen.queryByRole("combobox", { name: "Place selected photos in Frame" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Frame templates" }));
+    fireEvent.click(screen.getByRole("button", { name: /Diptych 2 slots/ }));
+    await waitFor(() => expect(stage.querySelectorAll("[data-frame-id]")).toHaveLength(1));
+    await waitFor(async () => {
+      const workspace = await dependencies.projectStore.loadWorkspace(projectId);
+      expect(workspace.ok && workspace.value.worktableDraft.frameOrder).toHaveLength(1);
+      if (!workspace.ok) return;
+      const saved = workspace.value.worktableDraft.frames?.[workspace.value.worktableDraft.frameOrder![0]];
+      expect(saved?.page.slots.map((slot) => slot.photoId)).toEqual([photoA, photoB]);
+      expect(workspace.value.worktableDraft.entryOrder).toHaveLength(2);
+    });
+    view.unmount();
+    render(<App dependencies={dependencies} />);
+    const restoredStage = await screen.findByLabelText("Photo worktable");
+    await waitFor(() => expect(restoredStage.querySelectorAll("[data-frame-id]")).toHaveLength(1));
+  });
+
+  it("keeps a loaded photo visible when its photo box is brought to front", async () => {
+    const dependencies = await createFixture();
+    render(<App dependencies={dependencies} />);
+    const stage = await screen.findByLabelText("Photo worktable");
+    fireEvent.keyDown(stage, { key: "a", ctrlKey: true });
+    fireEvent.click(screen.getByRole("button", { name: "Frame templates" }));
+    fireEvent.click(screen.getByRole("button", { name: /Diptych 2 slots/ }));
+    const frame = stage.querySelector<HTMLElement>("[data-frame-id]")!;
+    const first = frame.querySelector<HTMLElement>("[data-frame-slot-id]")!;
+    const image = await waitFor(() => {
+      const value = first.querySelector<HTMLImageElement>("img");
+      expect(value?.getAttribute("src")).toContain("data:image");
+      return value!;
+    });
+    Object.defineProperty(image, "naturalWidth", { configurable: true, value: 1200 });
+    Object.defineProperty(image, "naturalHeight", { configurable: true, value: 900 });
+    fireEvent.load(image);
+    await waitFor(() => expect(first.querySelector(".table-frame-loading")).toBeNull());
+    expect(first.querySelector("img")?.classList.contains("table-frame-image-enter")).toBe(true);
+    fireEvent.pointerDown(first, { pointerId: 37, button: 0, clientX: 420, clientY: 240 });
+    fireEvent.pointerUp(frame, { pointerId: 37, button: 0, clientX: 420, clientY: 240 });
+    fireEvent.click(screen.getByRole("button", { name: "Front photo box" }));
+    expect(frame.querySelector("[data-frame-slot-id]:last-child")?.getAttribute("data-frame-slot-id")).toBe(first.getAttribute("data-frame-slot-id"));
+    expect(first.querySelector(".table-frame-loading")).toBeNull();
+    expect(first.querySelector("img")?.getAttribute("src")).toBe(image.getAttribute("src"));
+  });
+
+  it("places Table photos above a Frame by default and honors Frame Front", async () => {
+    const dependencies = await createFixture();
+    render(<App dependencies={dependencies} />);
+    const stage = await screen.findByLabelText("Photo worktable");
+    fireEvent.keyDown(stage, { key: "a", ctrlKey: true });
+    fireEvent.click(screen.getByRole("button", { name: "Frame templates" }));
+    fireEvent.click(screen.getByRole("button", { name: /Diptych 2 slots/ }));
+    const frame = stage.querySelector<HTMLElement>("[data-frame-id]")!;
+    const photos = [...stage.querySelectorAll<HTMLElement>("[data-worktable-photo-id]")];
+    const lowestPhotoZ = Math.min(...photos.map((photo) => Number(photo.style.zIndex)));
+    expect(Number(frame.style.zIndex)).toBeLessThan(lowestPhotoZ);
+    const settings = within(screen.getByRole("complementary", { name: "Frame settings" }));
+    fireEvent.click(settings.getByRole("button", { name: /^Front$/ }));
+    expect(Number(frame.style.zIndex)).toBeGreaterThan(Math.max(...photos.map((photo) => Number(photo.style.zIndex))));
+    fireEvent.click(settings.getByRole("button", { name: "Duplicate" }));
+    const duplicate = [...stage.querySelectorAll<HTMLElement>("[data-frame-id]")].find((item) => item !== frame)!;
+    expect(Number(duplicate.style.zIndex)).toBeLessThan(lowestPhotoZ);
+  });
+
+  it("drops a Table photo into a Frame without moving its original card", async () => {
+    const dependencies = await createFixture();
+    render(<App dependencies={dependencies} />);
+    const stage = await screen.findByLabelText("Photo worktable");
+    fireEvent.click(screen.getByRole("button", { name: "Frame templates" }));
+    fireEvent.click(screen.getByRole("button", { name: /Single 1 slots/ }));
+    const frame = stage.querySelector<HTMLElement>("[data-frame-id]")!;
+    const page = frame.querySelector<HTMLElement>(".table-frame-page")!;
+    const slot = frame.querySelector<HTMLElement>("[data-frame-slot-id]")!;
+    const rect = (left: number, top: number, width: number, height: number) => ({ left, top, width, height, right: left + width, bottom: top + height, x: left, y: top, toJSON() {} });
+    Object.defineProperty(page, "getBoundingClientRect", { configurable: true, value: () => rect(350, 100, 300, 420) });
+    Object.defineProperty(slot, "getBoundingClientRect", { configurable: true, value: () => rect(370, 120, 260, 380) });
+    const before = await dependencies.projectStore.loadWorkspace(projectId);
+    expect(before.ok).toBe(true);
+    if (!before.ok) return;
+    const cardId = before.value.worktableDraft.entryOrder[0];
+    const placement = before.value.worktableDraft.placements[cardId];
+    const card = screen.getByLabelText("A.jpg");
+    fireEvent.pointerDown(card, { pointerId: 91, button: 0, clientX: 100, clientY: 100 });
+    fireEvent.pointerMove(stage, { pointerId: 91, clientX: 430, clientY: 245 });
+    fireEvent.pointerUp(stage, { pointerId: 91, clientX: 430, clientY: 245 });
+    await waitFor(async () => {
+      const after = await dependencies.projectStore.loadWorkspace(projectId);
+      expect(after.ok).toBe(true);
+      if (!after.ok) return;
+      const id = after.value.worktableDraft.frameOrder![0];
+      expect(after.value.worktableDraft.frames?.[id].page.slots[0].photoId).toBe(photoA);
+      expect(after.value.worktableDraft.placements[cardId]).toEqual(placement);
+    });
+  });
+
+  it("moves a Fill photo crop with a right-button drag and saves it on release", async () => {
+    const dependencies = await createFixture();
+    render(<App dependencies={dependencies} />);
+    const stage = await screen.findByLabelText("Photo worktable");
+    fireEvent.keyDown(stage, { key: "a", ctrlKey: true });
+    fireEvent.click(screen.getByRole("button", { name: "Frame templates" }));
+    fireEvent.click(screen.getByRole("button", { name: /Diptych 2 slots/ }));
+    const frame = await waitFor(() => {
+      const value = stage.querySelector<HTMLElement>("[data-frame-id]");
+      expect(value).toBeTruthy();
+      return value!;
+    });
+    const slot = frame.querySelector<HTMLElement>("[data-frame-slot-id]")!;
+    fireEvent.pointerDown(slot, { pointerId: 81, button: 2, clientX: 200, clientY: 200 });
+    fireEvent.pointerMove(frame, { pointerId: 81, button: 2, clientX: 235, clientY: 200 });
+    fireEvent.pointerUp(frame, { pointerId: 81, button: 2, clientX: 235, clientY: 200 });
+    await waitFor(async () => {
+      const workspace = await dependencies.projectStore.loadWorkspace(projectId);
+      expect(workspace.ok).toBe(true);
+      if (!workspace.ok) return;
+      const id = workspace.value.worktableDraft.frameOrder![0];
+      expect(workspace.value.worktableDraft.frames?.[id].page.slots[0].crop.focal.x).toBeLessThan(.5);
+    });
+  });
+
+  it("requires an explicit choice before using only the first selected photo", async () => {
+    const dependencies = await createFixture();
+    render(<App dependencies={dependencies} />);
+    const stage = await screen.findByLabelText("Photo worktable");
+    fireEvent.keyDown(stage, { key: "a", ctrlKey: true });
+    fireEvent.click(screen.getByRole("button", { name: "Frame templates" }));
+    fireEvent.click(screen.getByRole("button", { name: /Single 1 slots/ }));
+    expect(stage.querySelectorAll("[data-frame-id]")).toHaveLength(0);
+    fireEvent.click(within(screen.getByRole("button", { name: /Single 1 slots/ }).closest(".table-frame-template-choice") as HTMLElement).getByRole("button", { name: "Use first 1 of 2" }));
+    await waitFor(() => expect(stage.querySelectorAll("[data-frame-id]")).toHaveLength(1));
+    const workspace = await dependencies.projectStore.loadWorkspace(projectId);
+    expect(workspace.ok).toBe(true);
+    if (!workspace.ok) return;
+    const id = workspace.value.worktableDraft.frameOrder![0];
+    expect(workspace.value.worktableDraft.frames?.[id].page.slots[0].photoId).toBe(photoA);
+    expect(workspace.value.worktableDraft.entryOrder).toHaveLength(2);
+  });
+
   it("does not show Open Photos for an empty Table", async () => {
     const projectStore = new MemoryProjectStore();
     const created = await projectStore.createProject({

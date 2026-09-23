@@ -6,7 +6,7 @@ import {
   type Result,
   type StorageAccessError,
 } from "../../contracts";
-import { createInitialVersion, legacySequenceFromWorkspace, migrateWorkspaceV2ToV3, migrateWorkspaceV3ToV4, migrateWorkspaceV4ToV5, migrateWorkspaceV7ToV8, upgradeSequenceDocument } from "../projectStoreData";
+import { createInitialVersion, legacySequenceFromWorkspace, migrateWorkspaceV2ToV3, migrateWorkspaceV3ToV4, migrateWorkspaceV4ToV5, migrateWorkspaceV7ToV8, migrateWorkspaceV8ToV9, upgradeSequenceDocument } from "../projectStoreData";
 
 export const STORE_NAMES = {
   projects: "projects",
@@ -104,7 +104,7 @@ export function migrateToV6(database: IDBDatabase, transaction: IDBTransaction):
       versions.put(initial);
       workspace.versionIds = [...(Array.isArray(workspace.versionIds) ? workspace.versionIds : []), initial.id];
     }
-    cursor.update(migrateWorkspaceV7ToV8(workspace));
+    cursor.update(migrateWorkspaceV8ToV9(migrateWorkspaceV7ToV8(workspace)));
     cursor.continue();
   };
 }
@@ -117,7 +117,7 @@ export function migrateToV7(transaction: IDBTransaction, workspaceSchemaVersion:
   workspaceCursor.onsuccess = () => {
     const cursor = workspaceCursor.result;
     if (!cursor) return;
-    cursor.update(migrateWorkspaceV7ToV8({ ...(cursor.value as Record<string, unknown>), schemaVersion: workspaceSchemaVersion }));
+    cursor.update(migrateWorkspaceV8ToV9(migrateWorkspaceV7ToV8({ ...(cursor.value as Record<string, unknown>), schemaVersion: workspaceSchemaVersion })));
     cursor.continue();
   };
   const versionCursor = versions.openCursor();
@@ -155,7 +155,7 @@ export function migrateToV7(transaction: IDBTransaction, workspaceSchemaVersion:
     const projectRequest = projects.get(upgraded.projectId);
     projectRequest.onsuccess = () => {
       const workspace = projectRequest.result as Record<string, unknown> | undefined;
-      if (workspace) projects.put({ ...workspace, schemaVersion: workspaceSchemaVersion, versionIds: [...new Set([...(Array.isArray(workspace.versionIds) ? workspace.versionIds : []), initial.id])] });
+      if (workspace) projects.put(migrateWorkspaceV8ToV9({ ...workspace, schemaVersion: workspaceSchemaVersion, versionIds: [...new Set([...(Array.isArray(workspace.versionIds) ? workspace.versionIds : []), initial.id])] }));
       cursor.continue();
     };
   };
@@ -188,7 +188,7 @@ export function migrateToV10(database: IDBDatabase, transaction: IDBTransaction,
     cursorRequest.onsuccess = () => {
       const cursor = cursorRequest.result;
       if (!cursor) return;
-      cursor.update(migrateWorkspaceV7ToV8(cursor.value as Record<string, unknown>));
+      cursor.update(migrateWorkspaceV8ToV9(migrateWorkspaceV7ToV8(cursor.value as Record<string, unknown>)));
       cursor.continue();
     };
   }
@@ -198,6 +198,16 @@ export function migrateToV10(database: IDBDatabase, transaction: IDBTransaction,
     const cursor = photoCursor.result;
     if (!cursor) return;
     cursor.update({ locationKind: "folder-relative", ...(cursor.value as Record<string, unknown>) });
+    cursor.continue();
+  };
+}
+
+export function migrateToV11(transaction: IDBTransaction): void {
+  const cursorRequest = transaction.objectStore(STORE_NAMES.projects).openCursor();
+  cursorRequest.onsuccess = () => {
+    const cursor = cursorRequest.result;
+    if (!cursor) return;
+    cursor.update(migrateWorkspaceV8ToV9(cursor.value as Record<string, unknown>));
     cursor.continue();
   };
 }
@@ -257,6 +267,7 @@ export function openPhotoFlexDatabase(
           // them finish the workspace normalization so v10 cannot overwrite a
           // richer migrated row with a concurrent cursor update.
           if (migrationFrom < 10) migrateToV10(request.result, request.transaction!, migrationFrom >= 7);
+          if (migrationFrom >= 10 && migrationFrom < 11) migrateToV11(request.transaction!);
         } catch {
           migrationFailed = true;
           request.transaction?.abort();

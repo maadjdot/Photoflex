@@ -17,13 +17,16 @@ import rowIcon from "../assets/icons/table-row.svg";
 import sequenceIcon from "../assets/icons/table-sequence.svg";
 import shuffleIcon from "../assets/icons/table-swap.svg";
 import undoIcon from "../assets/icons/table-undo.svg";
-import type { PhotoId, SequenceId, WorktableAlignment, WorktableDraft, WorktableEditCommand, WorktableItemId, WorktableMemo } from "../contracts";
+import type { FrameTemplateId, PhotoId, SequenceId, WorktableAlignment, WorktableDraft, WorktableEditCommand, WorktableItemId, WorktableMemo } from "../contracts";
+import { FRAME_TEMPLATE_LABELS, FRAME_TEMPLATES } from "../modules/worktable/frameLayout";
 import type { TableActionState } from "./tableActionPolicy";
 import { useLocale } from "./locale";
 
 interface TableFloatingToolbarProps {
   readonly storageKey?: string;
   readonly onAddMemo?: () => void;
+  readonly onCreateFrame?: (template: FrameTemplateId, useFirst?: boolean) => boolean;
+  readonly selectedPhotoCount?: number;
   readonly selectedMemo?: WorktableMemo;
   readonly actions: TableActionState;
   readonly canUndo: boolean;
@@ -34,11 +37,14 @@ interface TableFloatingToolbarProps {
   readonly onRequestSequence?: (photoIds: readonly WorktableItemId[]) => void;
 }
 
-export function TableFloatingToolbar({ storageKey = "photoflex:table-toolbar", actions, canUndo, canRedo, onUndo, onRedo, onExecute, onAddMemo, selectedMemo, onRequestSequence }: TableFloatingToolbarProps) {
+export function TableFloatingToolbar({ storageKey = "photoflex:table-toolbar", actions, canUndo, canRedo, onUndo, onRedo, onExecute, onAddMemo, onCreateFrame, selectedPhotoCount = 0, selectedMemo, onRequestSequence }: TableFloatingToolbarProps) {
   const { t } = useLocale();
   const toolbarRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<{ pointerId: number; offsetY: number } | undefined>(undefined);
   const [top, setTop] = useState(() => readToolbarTop(storageKey));
+  const [frameOpen, setFrameOpen] = useState(false);
+  const [frameAbove, setFrameAbove] = useState(false);
+  const frameButtonRef = useRef<HTMLButtonElement>(null);
   const arrange = (layout: WorktableEditCommand) => actions.canArrange && onExecute(layout);
   const clampTop = (value: number) => {
     const toolbar = toolbarRef.current;
@@ -47,6 +53,18 @@ export function TableFloatingToolbar({ storageKey = "photoflex:table-toolbar", a
     return Math.max(12, Math.min(Math.max(12, parent.clientHeight - toolbar.offsetHeight - 12), value));
   };
   useEffect(() => { setTop(readToolbarTop(storageKey)); }, [storageKey]);
+  useEffect(() => {
+    if (!frameOpen) return;
+    const closeOutside = (event: PointerEvent) => { if (!toolbarRef.current?.contains(event.target as Node)) setFrameOpen(false); };
+    const closeEscape = (event: globalThis.KeyboardEvent) => { if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); setFrameOpen(false); frameButtonRef.current?.focus(); } };
+    document.addEventListener("pointerdown", closeOutside);
+    document.addEventListener("keydown", closeEscape, true);
+    return () => { document.removeEventListener("pointerdown", closeOutside); document.removeEventListener("keydown", closeEscape, true); };
+  }, [frameOpen]);
+  const toggleFrame = () => {
+    if (!frameOpen) setFrameAbove((frameButtonRef.current?.getBoundingClientRect().bottom ?? 0) + 320 > window.innerHeight);
+    setFrameOpen((open) => !open);
+  };
   useEffect(() => {
     try { window.sessionStorage.setItem(storageKey, String(Math.round(top))); } catch { /* Position is disposable UI state. */ }
   }, [storageKey, top]);
@@ -88,6 +106,7 @@ export function TableFloatingToolbar({ storageKey = "photoflex:table-toolbar", a
   return <><TableHeaderControl><div className="table-history-controls" role="group" aria-label={`${t("table.undo")} / ${t("table.redo")}`}><TableToolButton icon={undoIcon} label={t("table.undo")} shortcut="Ctrl/Cmd+Z" disabled={!canUndo} onClick={onUndo} /><TableToolButton icon={redoIcon} label={t("table.redo")} shortcut="Ctrl/Cmd+Shift+Z" disabled={!canRedo} onClick={onRedo} /></div></TableHeaderControl><div ref={toolbarRef} className="table-floating-toolbar" role="group" aria-label={t("table.arrangementTools")} style={style}>
     <button type="button" className="table-floating-drag-handle" aria-label="Move toolbar vertically" title="Drag to move toolbar" onPointerDown={onDragStart} onPointerMove={onDragMove} onPointerUp={onDragEnd} onPointerCancel={onDragEnd} onKeyDown={onDragKeyDown}><span aria-hidden="true" /></button>
     {onAddMemo && <TableToolButton icon={memoIcon} label={t("table.addMemo")} text={t("table.memo")} shortcut="M" onClick={onAddMemo} />}
+    {onCreateFrame && <><button ref={frameButtonRef} type="button" className={`table-tool-button table-frame-tool${frameOpen ? " is-active" : ""}`} aria-label="Frame templates" aria-expanded={frameOpen} onClick={toggleFrame}><span aria-hidden="true" className="table-frame-tool-glyph">▣</span><span>Frame</span></button>{frameOpen && <div className={`table-frame-popover${frameAbove ? " is-above" : ""}`} role="dialog" aria-label="Frame templates"><header>Frame templates <small>{FRAME_TEMPLATES.length} layouts</small></header><div>{FRAME_TEMPLATES.map((id) => { const capacity = id === "square-nine-grid" ? 9 : id === "quad-grid" ? 4 : id === "triptych" ? 3 : id === "diptych" ? 2 : 1; const overflow = selectedPhotoCount > capacity; return <div className="table-frame-template-choice" key={id}><button type="button" onClick={() => { if (onCreateFrame(id)) setFrameOpen(false); }}><span className={`table-frame-mini mini-${id}`} aria-hidden="true" /><strong>{FRAME_TEMPLATE_LABELS[id]}</strong><small>{capacity} slots</small></button>{overflow && <button type="button" className="table-frame-use-first" onClick={() => { if (onCreateFrame(id, true)) setFrameOpen(false); }}>Use first {capacity} of {selectedPhotoCount}</button>}</div>; })}</div></div>}</>}
     {selectedMemo && <div className="memo-toolbar-controls"><label>Size<input type="number" aria-label="Memo font size" min={10} max={72} value={selectedMemo.fontSize} onChange={(event) => { const size = Number(event.target.value); if (size >= 10 && size <= 72) onExecute({ type: "update-memo", memoId: selectedMemo.id, changes: { fontSize: size } }); }} /></label><TableToolButton icon={linkIcon} label="Link memo to selected photos" text="Link" disabled={!actions.mutablePhotoIds.length} onClick={() => onExecute({ type: "update-memo", memoId: selectedMemo.id, changes: { photoIds: [...new Set([...selectedMemo.photoIds, ...actions.mutablePhotoIds])] } })} />{selectedMemo.photoIds.length > 0 && <button type="button" className="memo-unlink" onClick={() => onExecute({ type: "update-memo", memoId: selectedMemo.id, changes: { photoIds: [] } })}>Unlink</button>}</div>}
     <TableToolButton icon={gridIcon} label={t("table.grid")} shortcut="Y" disabled={!actions.canArrange} onClick={() => arrange({ type: "arrange", photoIds: actions.mutablePhotoIds, layout: { type: "grid" } })} />
     <TableToolButton icon={rowIcon} label={t("table.row")} shortcut="R" disabled={!actions.canArrange} onClick={() => arrange({ type: "arrange", photoIds: actions.mutablePhotoIds, layout: { type: "row" } })} />

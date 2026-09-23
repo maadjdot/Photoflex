@@ -1,9 +1,10 @@
 import { onSharedScanCompleted, startSharedScan, stopSharedScan } from "./ProjectSourceMonitor";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { PhotoId, PhotoRef, ProjectId, SequenceDocument, SequenceId, SequenceItemId, SequenceSummary, SourceError, SourceId, SourceRecord, VersionId, WorktableDraft, WorktableEditCommand, WorktableItemId } from "../contracts";
+import type { FrameId, FrameSlotId, FrameTemplateId, PhotoId, PhotoRef, ProjectId, SequenceDocument, SequenceId, SequenceItemId, SequenceSummary, SourceError, SourceId, SourceRecord, VersionId, WorktableDraft, WorktableEditCommand, WorktableItemId, WorktableFrame } from "../contracts";
 import type { AppDependencies } from "./dependencies";
 import { createInitialSequenceBundle, createSequenceEditor } from "../modules/sequence";
 import { orderPhotoIdsByTablePosition } from "../modules/worktable";
+import { defaultFrameCrop, frameTemplateRects, frameTemplateSource, FRAME_MM_TO_PT } from "../modules/worktable/frameLayout";
 import { sourceErrorMessage, useDialogKeyboard, worktableDisplaySize } from "./AppPrimitives";
 import { PhotoThumb } from "./PhotoThumb";
 import type { AppRoute } from "./router";
@@ -41,6 +42,8 @@ export function TablePage({ dependencies, projectId, navigate, sequenceOverlay }
   const [addToSequenceId, setAddToSequenceId] = useState<SequenceId>();
   const [confirmationDragId, setConfirmationDragId] = useState<PhotoId>();
   const [selectedMemoId, setSelectedMemoId] = useState<string>();
+  const [selectedFrameId, setSelectedFrameId] = useState<FrameId>();
+  const [frameSettingsHost, setFrameSettingsHost] = useState<HTMLElement | null>(null);
   const [addingSource, setAddingSource] = useState(false);
   const [sourcePanelMode, setSourcePanelMode] = useState<"compact" | "expanded" | "closed">("compact");
   const canvasRef = useRef<TableCanvasHandle>(null);
@@ -84,8 +87,51 @@ export function TablePage({ dependencies, projectId, navigate, sequenceOverlay }
   }, [selectedPileId]);
   const execute = useCallback((command: WorktableEditCommand) => {
     const result = tableSession.execute(command);
-    if (!result.ok) setNotice(t("table.operationFailed"));
+    if (!result.ok) setNotice("kind" in result.error && result.error.kind === "frame-capacity" ? "This Frame has too few empty photo slots." : t("table.operationFailed"));
+    else if (command.type === "remove-frame") setSelectedFrameId(undefined);
   }, [t, tableSession.execute]);
+  const createFrame = (templateId: FrameTemplateId, useFirst = false) => {
+    const selectedPhotos = orderPhotoIdsByTablePosition(draft, actions.mutablePhotoIds);
+    const template = frameTemplateSource(templateId);
+    const widthPt = 210 * FRAME_MM_TO_PT, heightPt = (templateId === "square-nine-grid" ? 210 : 297) * FRAME_MM_TO_PT;
+    const rects = frameTemplateRects(widthPt, heightPt, template);
+    if (selectedPhotos.length > rects.length && !useFirst) { setNotice(`Selected ${selectedPhotos.length} photos; ${templateId} has ${rects.length} slots. Select fewer photos or choose Use first ${rects.length}.`); return false; }
+    const center = canvasRef.current?.getViewportCenter() ?? { x: 200, y: 160 };
+    const scale = 420 / heightPt;
+    const selectedCards = actions.mutablePhotoIds.map((itemId) => draft.placements[itemId]).filter((item): item is NonNullable<typeof item> => Boolean(item));
+    const start = selectedCards.length ? { x: Math.max(...selectedCards.map((item) => item.x + item.width)) + 40, y: Math.min(...selectedCards.map((item) => item.y)) }
+      : { x: center.x - widthPt * scale / 2, y: center.y - heightPt * scale / 2 };
+    const obstacles = [...Object.values(draft.placements), ...Object.values(draft.pilePlacements), ...(draft.memos ?? []),
+      ...Object.values(draft.frames ?? {}).map((item) => ({ x: item.x, y: item.y, width: item.page.widthPt * item.displayScale, height: item.page.heightPt * item.displayScale }))];
+    const pageWidth = widthPt * scale, pageHeight = heightPt * scale;
+    const intersects = (x: number, y: number) => obstacles.some((item) => x < item.x + item.width + 24 && x + pageWidth + 24 > item.x && y < item.y + item.height + 24 && y + pageHeight + 24 > item.y);
+    const position = Array.from({ length: 40 }, (_, index) => ({ x: start.x + (index % 4) * (pageWidth + 36), y: start.y + Math.floor(index / 4) * (pageHeight + 36) })).find((item) => !intersects(item.x, item.y)) ?? start;
+    const id = crypto.randomUUID() as FrameId;
+    const frame: WorktableFrame = {
+      id, name: `Frame ${String((draft.frameOrder?.length ?? 0) + 1).padStart(2, "0")}`,
+      x: position.x, y: position.y,
+      z: Math.min(1, ...Object.values(draft.placements).map((item) => item.z)) - 1,
+      displayScale: scale,
+      page: { widthPt, heightPt, background: "white", templateSource: template, slots: rects.map((rect, index) => ({ id: crypto.randomUUID() as FrameSlotId, rect,
+        photoId: selectedPhotos[index] ?? null, crop: defaultFrameCrop(templateId) })) },
+    };
+    const result = tableSession.execute({ type: "create-frame", frame });
+    if (!result.ok) { setNotice("Frame could not be created."); return false; }
+    tableSession.clearSelection(); setSelectedMemoId(undefined); setSelectedFrameId(id);
+    canvasRef.current?.centerOnFrame({ x: frame.x, y: frame.y, width: pageWidth, height: pageHeight });
+    return true;
+  };
+  const dropOnFrame = useCallback((photoIds: readonly PhotoId[], frameId: FrameId, slotId?: FrameSlotId) => {
+    let command: WorktableEditCommand;
+    if (slotId) {
+      if (photoIds.length !== 1) { setNotice("Drop one photo on a photo slot, or drop multiple photos on the page."); return; }
+      command = { type: "replace-frame-photo", frameId, slotId, photoId: photoIds[0] };
+    } else command = { type: "fill-frame-slots", frameId, photoIds };
+    const result = tableSession.execute(command);
+    if (!result.ok) { setNotice(result.error.kind === "frame-capacity" ? "This Frame has too few empty photo slots." : "Could not place photos in this Frame."); return; }
+    tableSession.clearSelection(); setSelectedMemoId(undefined);
+    setSelectedFrameId(frameId);
+  }, [tableSession.clearSelection, tableSession.execute]);
   const history = useCallback((direction: "undo" | "redo") => {
     if (direction === "undo") tableSession.undo();
     else tableSession.redo();
@@ -281,7 +327,7 @@ export function TablePage({ dependencies, projectId, navigate, sequenceOverlay }
   return <main className="table-page page">
     {notice && <p className="table-notice" role="status">{notice}</p>}
     <div className="table-cloud-save-status"><CloudSaveStatus dependencies={dependencies} projectId={projectId} /></div>
-    <TableWorkspace sidebar={sourceBrowser} sidebarMode={sourcePanelMode} storageKey={`photoflex:table-sidebar:${projectId}`}>
+    <TableWorkspace sidebar={selectedFrameId ? <aside className="table-frame-settings" aria-label="Frame settings"><div ref={setFrameSettingsHost} className="table-frame-settings-content" /></aside> : sourceBrowser} sidebarMode={selectedFrameId ? "compact" : sourcePanelMode} storageKey={`photoflex:table-sidebar:${projectId}`}>
     <div className="table-canvas-area" aria-label={t("table.toolbar")}>
     <TableCanvas
       ref={canvasRef}
@@ -292,6 +338,11 @@ export function TablePage({ dependencies, projectId, navigate, sequenceOverlay }
       onViewportChange={tableLifecycle.onViewportChange}
       selectedMemoId={selectedMemoId}
       onSelectMemo={setSelectedMemoId}
+      selectedFrameId={selectedFrameId}
+      frameSettingsHost={frameSettingsHost}
+      onSelectFrame={(id) => { setSelectedFrameId(id); if (id) { tableSession.clearSelection(); setSelectedMemoId(undefined); } }}
+      onDropPhotosOnFrame={(ids, frameId, slotId) => dropOnFrame(orderPhotoIdsByTablePosition(draft, ids), frameId, slotId)}
+      onDropSourcePhotosOnFrame={dropOnFrame}
       onSelectPile={(id) => { setSelectedMemoId(undefined); setActiveSequenceId(id); }}
       onOpenPhoto={setPreviewPhotoId}
       onOpenSequence={(sequenceId) => navigate({ name: "sequence", projectId, sequenceId })}
@@ -314,7 +365,8 @@ export function TablePage({ dependencies, projectId, navigate, sequenceOverlay }
         onClick: () => void addSource(),
       }}
     />
-    <TableFloatingToolbar onAddMemo={addMemo} selectedMemo={selectedMemo} storageKey={`photoflex:table-toolbar:${projectId}`} actions={actions} canUndo={tableSession.canUndo} canRedo={tableSession.canRedo} onUndo={() => history("undo")} onRedo={() => history("redo")} onExecute={execute} onRequestSequence={requestSequence} />
+    <TableFloatingToolbar onAddMemo={addMemo} onCreateFrame={createFrame} selectedPhotoCount={actions.mutablePhotoIds.length}
+      selectedMemo={selectedMemo} storageKey={`photoflex:table-toolbar:${projectId}`} actions={actions} canUndo={tableSession.canUndo} canRedo={tableSession.canRedo} onUndo={() => history("undo")} onRedo={() => history("redo")} onExecute={execute} onRequestSequence={requestSequence} />
     <TableContextToolbar draft={draft} actions={actions} onExecute={execute} onRequestSequence={requestSequence} onPreview={setPreviewPhotoId} onComparePhotos={setComparePhotoIds} onCompareSequences={(ids) => navigate({ name: "sequence-compare", projectId, leftSequenceId: ids[0], rightSequenceId: ids[1] })} onRemovePiles={(ids) => setDeleteConfirmation(ids)} />
     </div>
     {confirmation && <section ref={createSequenceDialogRef} className="sequence-confirmation sequence-pile-confirmation" role="dialog" aria-modal="true" aria-label={t("sequence.createPileAria")}><header><h2>{t("table.createSequence")}</h2><button type="button" aria-label={t("common.close")} onClick={() => setConfirmation(undefined)}>×</button></header><label><span>{t("table.name")}</span><input autoFocus value={confirmation.name} onChange={(event) => setConfirmation({ ...confirmation, name: event.target.value })} onKeyDown={(event) => event.key === "Enter" && void createPile()} /></label><div className="sequence-confirmation-order">{confirmation.photoIds.map((id, index) => <button key={`${id}-${index}`} draggable onDragStart={() => setConfirmationDragId(id)} onDragOver={(event) => event.preventDefault()} onDrop={() => { if (confirmationDragId) setConfirmation({ ...confirmation, photoIds: movePhoto(confirmation.photoIds, confirmationDragId, index) }); setConfirmationDragId(undefined); }}><PhotoThumb photoSource={dependencies.photoSource} photoId={id} alt={t("sequence.orderItem", { index: index + 1, filename: draft.entryOrder.map((itemId) => draft.placements[itemId]).find((placement) => placement.photoId === id)?.filename ?? id })} onError={onPhotoError} sourceRevision={sourceRevision} /><span>{index + 1}</span></button>)}</div><div><button onClick={() => setConfirmation(undefined)}>{t("common.cancel")}</button><button className="button button-primary" onClick={() => void createPile()}>{t("table.createPile")}</button></div></section>}

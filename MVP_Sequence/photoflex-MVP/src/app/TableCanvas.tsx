@@ -14,6 +14,8 @@ import {
 import minusIcon from "../assets/icons/table-minus.svg";
 import plusIcon from "../assets/icons/table-plus.svg";
 import type {
+  FrameId,
+  FrameSlotId,
   DerivedPreviewMaxEdge,
   PhotoId,
   SequenceDocument,
@@ -26,6 +28,9 @@ import type {
   WorktablePoint,
   WorktableViewport,
 } from "../contracts";
+import { frameWorldSize } from "../modules/worktable/frameLayout";
+import { TableFrameCard } from "./TableFrames";
+import { findFrameDropTarget } from "./frameDropTarget";
 import {
   clampWorktableZoom,
   screenToWorld,
@@ -46,6 +51,7 @@ const TABLE_RETAINED_IMAGE_LIMIT = 72;
 
 export interface TableCanvasHandle {
   getViewportCenter(): WorktablePoint;
+  centerOnFrame(rect: { x: number; y: number; width: number; height: number }): void;
 }
 
 interface TableCanvasSession {
@@ -82,6 +88,11 @@ interface TableCanvasProps {
   readonly onDropPhotosOnSequence: (photoIds: readonly WorktableItemId[], sequenceId: SequenceId, at?: number) => void;
   readonly onReadSequence: (sequenceId: SequenceId) => Promise<SequenceDocument | undefined>;
   readonly selectedMemoId?: string;
+  readonly selectedFrameId?: FrameId;
+  readonly frameSettingsHost?: HTMLElement | null;
+  readonly onSelectFrame?: (id: FrameId | undefined) => void;
+  readonly onDropPhotosOnFrame?: (ids: readonly WorktableItemId[], frameId: FrameId, slotId?: FrameSlotId) => void;
+  readonly onDropSourcePhotosOnFrame?: (photoIds: readonly PhotoId[], frameId: FrameId, slotId?: FrameSlotId) => void;
   readonly onSelectMemo?: (id: string | undefined) => void;
   readonly onSelectPile?: (sequenceId: SequenceId) => void;
   readonly onRemovePiles: (sequenceIds: readonly SequenceId[]) => void;
@@ -125,6 +136,8 @@ export const TableCanvas = forwardRef<TableCanvasHandle, TableCanvasProps>(funct
   const [sequenceTray, setSequenceTray] = useState<{ readonly sequence: SequenceDocument; readonly left: number; readonly top: number; readonly width: number }>();
   const [trayScrollLeft, setTrayScrollLeft] = useState(0);
   const stageRef = useRef<HTMLDivElement>(null);
+  const frameClipboard = useRef<FrameId | undefined>(undefined);
+  const [selectedFrameSlot, setSelectedFrameSlot] = useState<{ frameId: FrameId; slotId: FrameSlotId }>();
   const viewportRef = useRef(viewport);
   const photoRetentionRef = useRef(new Map<WorktableItemId, number>());
   const photoRetentionTimerRef = useRef<number | undefined>(undefined);
@@ -171,6 +184,7 @@ export const TableCanvas = forwardRef<TableCanvasHandle, TableCanvasProps>(funct
     clearSelection: session.clearSelection,
     onOpenSequence,
     onDropPhotosOnSequence,
+    onDropPhotosOnFrame: props.onDropPhotosOnFrame,
     visiblePhotoIds,
     disabled: interactionDisabled,
   });
@@ -214,7 +228,16 @@ export const TableCanvas = forwardRef<TableCanvasHandle, TableCanvasProps>(funct
       const rect = stage.getBoundingClientRect();
       return screenToWorld({ x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 }, rect, viewportRef.current);
     },
-  }), []);
+    centerOnFrame(rect) {
+      const stage = stageRef.current;
+      if (!stage) return;
+      const current = viewportRef.current;
+      setViewport({ ...current,
+        originX: stage.clientWidth / 2 - (rect.x + rect.width / 2) * current.zoom,
+        originY: stage.clientHeight / 2 - (rect.y + rect.height / 2) * current.zoom,
+      });
+    },
+  }), [setViewport]);
 
   useLayoutEffect(() => {
     const stage = stageRef.current;
@@ -316,6 +339,7 @@ export const TableCanvas = forwardRef<TableCanvasHandle, TableCanvasProps>(funct
     ...draft.entryOrder.map((id) => draft.placements[id]),
     ...draft.pileOrder.map((id) => draft.pilePlacements[id]),
     ...(draft.memos ?? []),
+    ...(draft.frameOrder ?? []).map((id) => { const frame = draft.frames![id], size = frameWorldSize(frame); return { x: frame.x, y: frame.y, ...size }; }),
   ]);
 
   const framePhotos = () => fitItems(draft.entryOrder.map((id) => draft.placements[id]));
@@ -350,9 +374,27 @@ export const TableCanvas = forwardRef<TableCanvasHandle, TableCanvasProps>(funct
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (interactionDisabled) return;
     const target = event.target as HTMLElement;
-    if (target.matches("input, textarea, [contenteditable='true']")) return;
+    if (event.nativeEvent.isComposing || target.closest("input, textarea, select, [contenteditable='true']")) return;
     const key = event.key.toLowerCase();
     const plain = !event.ctrlKey && !event.metaKey && !event.altKey;
+    if (props.selectedFrameId) {
+      const frame = draft.frames?.[props.selectedFrameId];
+      const slot = selectedFrameSlot?.frameId === frame?.id ? frame?.page.slots.find((item) => item.id === selectedFrameSlot?.slotId) : undefined;
+      if (frame && (event.key === "Delete" || event.key === "Backspace")) {
+        event.preventDefault();
+        if (slot) { session.execute({ type: "remove-frame-slot", frameId: frame.id, slotId: slot.id }); setSelectedFrameSlot(undefined); }
+        else { session.execute({ type: "remove-frame", frameId: frame.id }); props.onSelectFrame?.(undefined); }
+        return;
+      }
+      if (frame && (event.ctrlKey || event.metaKey) && key === "c") { event.preventDefault(); frameClipboard.current = frame.id; return; }
+      if ((event.ctrlKey || event.metaKey) && key === "v" && frameClipboard.current && draft.frames?.[frameClipboard.current]) {
+        event.preventDefault(); const source = draft.frames[frameClipboard.current];
+        const id = crypto.randomUUID() as FrameId;
+        session.execute({ type: "duplicate-frame", frameId: source.id, copyId: id, slotIds: source.page.slots.map(() => crypto.randomUUID() as FrameSlotId) });
+        props.onSelectFrame?.(id); return;
+      }
+      if (event.key === "Escape") { event.preventDefault(); if (slot) setSelectedFrameSlot(undefined); else props.onSelectFrame?.(undefined); return; }
+    }
     const actions = deriveTableActions(draft, new Set(selectedPhotoIds), new Set(selectedPileIds));
     const mutableSelectedIds = actions.mutablePhotoIds;
     const selectedPhoto = mutableSelectedIds.length === 1 ? draft.placements[mutableSelectedIds[0]]?.photoId : undefined;
@@ -513,6 +555,7 @@ export const TableCanvas = forwardRef<TableCanvasHandle, TableCanvasProps>(funct
   };
 
   const preview = gestures.preview;
+  const lowestPhotoZ = Math.min(...Object.values(draft.placements).map((item) => item.z));
   return (
     <div
       ref={stageRef}
@@ -520,7 +563,7 @@ export const TableCanvas = forwardRef<TableCanvasHandle, TableCanvasProps>(funct
       tabIndex={0}
       aria-keyshortcuts="ArrowLeft ArrowRight ArrowUp ArrowDown J B K Shift+K"
       aria-label={t("table.worktable")}
-      onPointerDown={(event) => { if (event.target === event.currentTarget || (event.target as HTMLElement).classList.contains("worktable-world")) props.onSelectMemo?.(undefined); gestures.onStagePointerDown(event); }}
+      onPointerDown={(event) => { if (event.target === event.currentTarget || (event.target as HTMLElement).classList.contains("worktable-world")) { props.onSelectMemo?.(undefined); props.onSelectFrame?.(undefined); setSelectedFrameSlot(undefined); } gestures.onStagePointerDown(event); }}
       onPointerMove={gestures.onStagePointerMove}
       onPointerUp={(event) => gestures.finishGesture(event)}
       onPointerCancel={(event) => gestures.finishGesture(event, true)}
@@ -538,6 +581,8 @@ export const TableCanvas = forwardRef<TableCanvasHandle, TableCanvasProps>(funct
         }, rect, viewportRef.current);
         if (raw) {
           const photoIds = raw.split(",").map((id) => id.trim()).filter(Boolean) as PhotoId[];
+          const frameTarget = findFrameDropTarget(stageRef.current, event.clientX, event.clientY);
+          if (photoIds.length && frameTarget && props.onDropSourcePhotosOnFrame) { props.onDropSourcePhotosOnFrame(photoIds, frameTarget.frameId, frameTarget.slotId); return; }
           if (photoIds.length) onDropPhotos(photoIds, point);
           return;
         }
@@ -565,6 +610,14 @@ export const TableCanvas = forwardRef<TableCanvasHandle, TableCanvasProps>(funct
           const box = groupBounds(draft, group.photoIds);
           return <div key={group.id} className="worktable-group-frame" style={{ left: box.left, top: box.top, width: box.width, height: box.height }}><span onPointerDown={(event) => gestures.onGroupPointerDown(event, group.photoIds)}>{group.name} · {t("common.photoCount", { count: group.photoIds.length })}</span></div>;
         })}
+        {(draft.frameOrder ?? []).filter((id) => {
+          const frame = draft.frames?.[id]; if (!frame) return false;
+          const size = frameWorldSize(frame), left = (-viewport.originX - 192) / viewport.zoom, top = (-viewport.originY - 192) / viewport.zoom;
+          return id === props.selectedFrameId || (frame.x + size.width >= left && frame.y + size.height >= top && frame.x <= left + (stageSize.width + 384) / viewport.zoom && frame.y <= top + (stageSize.height + 384) / viewport.zoom);
+        }).map((id) => <TableFrameCard key={id} frame={draft.frames![id]} layerZ={draft.frames![id].frontOfPhotos ? draft.frames![id].z : Math.min(draft.frames![id].z, lowestPhotoZ - 1)} selected={props.selectedFrameId === id} settingsHost={props.frameSettingsHost} selectedSlotId={selectedFrameSlot?.frameId === id ? selectedFrameSlot.slotId : undefined}
+          onSelectSlot={(slotId) => { setSelectedFrameSlot(slotId ? { frameId: id, slotId } : undefined); if (slotId) stageRef.current?.focus(); }} viewportZoom={viewport.zoom} photoSource={photoSource}
+          sourceRevision={sourceRevision} missingPhotoIds={missingPhotoIds} onPhotoError={onPhotoError} onSelect={(frameId) => { if (frameId !== props.selectedFrameId) setSelectedFrameSlot(undefined); props.onSelectFrame?.(frameId); }} onClose={() => { setSelectedFrameSlot(undefined); props.onSelectFrame?.(undefined); }}
+          onExecute={(command) => { execute(command); if (command.type === "remove-frame") props.onSelectFrame?.(undefined); }} dropTarget={preview.targetFrameId === id} />)}
         {draft.entryOrder.filter((id) => renderedPhotoIds.has(id)).map((id) => {
           const item = draft.placements[id];
           const chosen = selected.has(id);
@@ -578,7 +631,7 @@ export const TableCanvas = forwardRef<TableCanvasHandle, TableCanvasProps>(funct
               aria-label={`${item.filename}${item.locked ? ` · ${t("table.locked")}` : ""}`}
               className={`worktable-card${chosen ? " is-selected" : ""}${dragging ? " is-dragging" : ""}${item.locked ? " is-locked" : ""}${missingPhotoIds.has(item.photoId) ? " is-missing" : ""}`}
               style={{ width: item.width * scale, height: item.height * scale, zIndex: item.z, transform: `translate3d(${item.x + delta.x}px,${item.y + delta.y}px,0)` }}
-              onPointerDown={(event) => gestures.onPhotoPointerDown(event, id)}
+              onPointerDown={(event) => { props.onSelectFrame?.(undefined); gestures.onPhotoPointerDown(event, id); }}
               onDoubleClick={() => onOpenPhoto(item.photoId)}
             >
               <div className="worktable-photo" style={{ height: item.height * scale }}>
@@ -610,7 +663,7 @@ export const TableCanvas = forwardRef<TableCanvasHandle, TableCanvasProps>(funct
               aria-label={`Sequence pile ${summary?.name ?? "Missing Sequence"}`}
               className={`sequence-pile${chosen ? " is-selected" : ""}${dragging ? " is-dragging" : ""}${preview.targetSequenceId === id ? " is-add-target" : ""}`}
               style={{ width: cardWidth * scale, height: cardHeight * scale, zIndex: pile.z, transform: `translate3d(${pile.x + delta.x - (cardWidth * (scale - 1)) / 2}px,${pile.y + delta.y - (cardHeight * (scale - 1)) / 2}px,0)` }}
-              onPointerDown={(event) => { if (event.button === 0 && !event.ctrlKey && !event.metaKey && !interactionDisabled) props.onSelectPile?.(id); gestures.onPilePointerDown(event, id); }}
+              onPointerDown={(event) => { props.onSelectFrame?.(undefined); if (event.button === 0 && !event.ctrlKey && !event.metaKey && !interactionDisabled) props.onSelectPile?.(id); gestures.onPilePointerDown(event, id); }}
             >
               <header><div><small>SEQUENCE</small><strong>{summary?.name ?? "Missing Sequence"}</strong></div><span>{summary?.photoCount ?? 0}</span></header>
               <div className="sequence-pile-thumbs">{summary?.previewPhotoIds.map((photoId, index) => <span key={`${photoId}-${index}`}><PhotoThumb fit="cover" photoSource={photoSource} photoId={photoId} alt="" onError={onPhotoError} sourceRevision={sourceRevision} /></span>)}</div>
@@ -646,7 +699,7 @@ export const TableCanvas = forwardRef<TableCanvasHandle, TableCanvasProps>(funct
           {preview.insertIndex !== undefined && <span className="sequence-insert-marker" style={{ left: 8 + preview.insertIndex * trayRange.itemStride }} />}
         </div>
       </div>}
-      {!draft.entryOrder.length && !draft.pileOrder.length && !draft.memos?.length && (
+      {!draft.entryOrder.length && !draft.pileOrder.length && !draft.memos?.length && !draft.frameOrder?.length && (
         <section className="worktable-empty">
           <span>{t("table.emptyLabel")}</span>
           <h1>{t("table.empty")}</h1>

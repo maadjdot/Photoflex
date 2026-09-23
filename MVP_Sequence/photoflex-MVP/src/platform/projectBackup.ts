@@ -1,5 +1,6 @@
 import { BACKUP_FORMAT, BACKUP_SCHEMA_VERSION, err, ok, type BackupError, type PhotoId, type PhotoRef, type ProjectBackupV1, type ProjectId, type Result, type SequenceId, type SourceId, type VersionId, type WorkspaceRevision, type SequenceRevision, type WorktableItemId } from "../contracts";
-import { isWorkspace, migrateWorkspaceV7ToV8, validateSequenceForProject, validateVersionForProject } from "./projectStoreData";
+import { isWorkspace, migrateWorkspaceV7ToV8, migrateWorkspaceV8ToV9, validateSequenceForProject, validateVersionForProject } from "./projectStoreData";
+import type { FrameId, FrameSlotId } from "../contracts";
 
 /** Validate before touching storage. File imports are copies; cloud hydration retains IDs. */
 export function prepareBackupImport(bytes: Uint8Array, preserveIds = false): Result<{ backup: ProjectBackupV1; photos: PhotoRef[] }, BackupError> {
@@ -7,9 +8,8 @@ export function prepareBackupImport(bytes: Uint8Array, preserveIds = false): Res
     const parsed = JSON.parse(new TextDecoder().decode(bytes)) as ProjectBackupV1;
     if (parsed?.format !== BACKUP_FORMAT) throw new Error("This is not a PhotoFlex project backup.");
     if (parsed.schemaVersion !== 2 && parsed.schemaVersion !== BACKUP_SCHEMA_VERSION) return err({ kind: "unsupported-schema", found: parsed.schemaVersion, supported: [2, BACKUP_SCHEMA_VERSION] });
-    const project = Number(parsed.project?.schemaVersion) < 8
-      ? migrateWorkspaceV7ToV8(parsed.project as unknown as Record<string, unknown>) as unknown as ProjectBackupV1["project"]
-      : parsed.project;
+    const legacy = Number(parsed.project?.schemaVersion) < 8 ? migrateWorkspaceV7ToV8(parsed.project as unknown as Record<string, unknown>) : parsed.project as unknown as Record<string, unknown>;
+    const project = Number(legacy.schemaVersion) < 9 ? migrateWorkspaceV8ToV9(legacy) as unknown as ProjectBackupV1["project"] : parsed.project;
     const input = { ...parsed, schemaVersion: BACKUP_SCHEMA_VERSION, project } as ProjectBackupV1;
     if (!isWorkspace(input.project) || !Array.isArray(input.sequences) || !Array.isArray(input.versions) || !Array.isArray(input.photoManifest)) throw new Error("The project backup is incomplete.");
     const normalizedProject = input.project;
@@ -40,6 +40,7 @@ export function prepareBackupImport(bytes: Uint8Array, preserveIds = false): Res
       return (id: T): T => { if (!ids.has(id)) ids.set(id, crypto.randomUUID() as T); return ids.get(id)!; };
     };
     const photoId = remap<PhotoId>(), itemId = remap<WorktableItemId>(), sourceId = remap<SourceId>(), sequenceId = remap<SequenceId>(), versionId = remap<VersionId>();
+    const frameId = remap<FrameId>(), slotId = remap<FrameSlotId>();
     const projectId = crypto.randomUUID() as ProjectId;
     const draft = normalizedProject.worktableDraft;
     const manifest = input.photoManifest.map((p) => ({ ...p, photoId: photoId(p.photoId), sourceId: sourceId(p.sourceId) }));
@@ -64,6 +65,10 @@ export function prepareBackupImport(bytes: Uint8Array, preserveIds = false): Res
           memos: draft.memos?.map((m) => ({ ...m, photoIds: m.photoIds.map(itemId) })),
           pileOrder: draft.pileOrder.map(sequenceId),
           pilePlacements: Object.fromEntries(Object.entries(draft.pilePlacements).map(([id, p]) => [sequenceId(id as SequenceId), { ...p, sequenceId: sequenceId(p.sequenceId) }])),
+          frameOrder: draft.frameOrder?.map(frameId) ?? [],
+          frames: Object.fromEntries(Object.entries(draft.frames ?? {}).map(([id, frame]) => [frameId(id as FrameId), {
+            ...frame, id: frameId(frame.id), page: { ...frame.page, slots: frame.page.slots.map((slot) => ({ ...slot, id: slotId(slot.id), photoId: slot.photoId ? photoId(slot.photoId) : null })) },
+          }])),
         },
       },
       sequences: input.sequences.map((s) => ({ ...content(s), id: sequenceId(s.id), currentVersionId: versionId(s.currentVersionId), revision: 0 as SequenceRevision })),

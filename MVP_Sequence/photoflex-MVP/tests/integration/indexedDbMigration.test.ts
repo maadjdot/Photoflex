@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { createWorkspace } from "../../src/platform/projectStoreData";
+import type { ProjectId } from "../../src/contracts";
 import {
   migrateToV1,
   migrateToV2,
@@ -75,7 +77,7 @@ describe("IndexedDB schema 0 → 1", () => {
     const migrated = await requestValue<Record<string, unknown>>(
       opened.value.transaction(STORE_NAMES.projects, "readonly").objectStore(STORE_NAMES.projects).get("legacy-project"),
     );
-    expect(migrated.schemaVersion).toBe(8);
+    expect(migrated.schemaVersion).toBe(9);
     expect(migrated.memo).toBe("");
     expect(migrated.expectedPhotoCount).toBeNull();
     expect(migrated.lastOpenedAt).toBe("2026-08-26T08:10:00.000Z");
@@ -171,12 +173,35 @@ describe("IndexedDB schema 0 → 1", () => {
     const version = await requestValue<Record<string, unknown>>(opened.value.transaction(STORE_NAMES.versions, "readonly").objectStore(STORE_NAMES.versions).get(currentVersionId));
     expect(version).toMatchObject({ name: "Initial · Street Edit", sequenceId: "sequence-a" });
     const workspace = await requestValue<Record<string, unknown>>(opened.value.transaction(STORE_NAMES.projects, "readonly").objectStore(STORE_NAMES.projects).get("sequence-project"));
-    expect(workspace).toMatchObject({ schemaVersion: 8, versionIds: [currentVersionId] });
+    expect(workspace).toMatchObject({ schemaVersion: 9, versionIds: [currentVersionId], worktableDraft: { frameOrder: [], frames: {} } });
     opened.value.close(); await deleteDatabase(databaseName);
   });
 });
 
-describe("IndexedDB schema 8 → 10", () => {
+describe("IndexedDB schema 10 → 11", () => {
+  it("adds empty Frame collections while retaining existing Table content", async () => {
+    const databaseName = `photoflex-frame-migration-${crypto.randomUUID()}`;
+    const old = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open(databaseName, 10);
+      request.onupgradeneeded = () => request.result.createObjectStore(STORE_NAMES.projects, { keyPath: "projectId" });
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    const workspace = createWorkspace({ id: "frame-migration" as ProjectId, name: "Older project", createdAt: "2026-09-01T00:00:00.000Z" });
+    const { frameOrder: _frameOrder, frames: _frames, ...oldDraft } = workspace.worktableDraft;
+    const transaction = old.transaction(STORE_NAMES.projects, "readwrite");
+    transaction.objectStore(STORE_NAMES.projects).put({ ...workspace, schemaVersion: 8, worktableDraft: oldDraft });
+    await transactionResult(transaction); old.close();
+    const opened = await openPhotoFlexDatabase({ databaseName });
+    expect(opened.ok).toBe(true);
+    if (!opened.ok) return;
+    const migrated = await requestValue<Record<string, unknown>>(opened.value.transaction(STORE_NAMES.projects, "readonly").objectStore(STORE_NAMES.projects).get(workspace.projectId));
+    expect(migrated).toMatchObject({ schemaVersion: 9, name: "Older project", worktableDraft: { frameOrder: [], frames: {} } });
+    opened.value.close(); await deleteDatabase(databaseName);
+  });
+});
+
+describe("IndexedDB schema 8 → 11", () => {
   it("upgrades schema 6 workspaces for persistent deletion recovery", async () => {
     const databaseName = `photoflex-deletion-recovery-${crypto.randomUUID()}`;
     const legacy = await new Promise<IDBDatabase>((resolve, reject) => {
@@ -217,7 +242,7 @@ describe("IndexedDB schema 8 → 10", () => {
     const migrated = await requestValue<Record<string, unknown>>(
       opened.value.transaction(STORE_NAMES.projects, "readonly").objectStore(STORE_NAMES.projects).get("pending-deletion-project"),
     );
-    expect(migrated.schemaVersion).toBe(8);
+    expect(migrated.schemaVersion).toBe(9);
     expect(opened.value.objectStoreNames.contains(STORE_NAMES.photoFileHandles)).toBe(true);
     expect(migrated).not.toHaveProperty("deletionPendingAt");
     opened.value.close();

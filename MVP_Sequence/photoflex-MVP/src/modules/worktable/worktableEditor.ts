@@ -18,6 +18,7 @@ import {
   type SequenceId,
 } from "../../contracts";
 import { orderWorktableIdsByTablePosition } from "./spatialOrder";
+import { applyFrameCommand, copyFrame } from "./frameCommands";
 
 // A deliberately generous working size keeps every card legible before the
 // photographer starts arranging it. New placements retain source proportions.
@@ -37,7 +38,7 @@ const HORIZONTAL_ROW_OVERLAP_RATIO = 0.4;
 const HORIZONTAL_ROW_GAP_FACTOR = 2;
 
 export function createEmptyWorktable(projectId: WorktableDraft["projectId"]): WorktableDraft {
-  return { projectId, entryOrder: [], placements: {}, groups: [], links: [], pileOrder: [], pilePlacements: {} };
+  return { projectId, entryOrder: [], placements: {}, groups: [], links: [], pileOrder: [], pilePlacements: {}, frameOrder: [], frames: {} };
 }
 
 export function migratePoolToWorktable(
@@ -126,6 +127,7 @@ function applyCommand(
   draft: WorktableDraft,
   command: WorktableEditCommand,
 ): Result<WorktableDraft, WorktableCommandError> {
+  if (command.type === "create-frame" || "frameId" in command) return applyFrameCommand(draft, command);
   if (command.type === "create-memo" || command.type === "update-memo" || command.type === "remove-memo") return editMemo(draft, command);
   if (command.type === "place") return place(draft, command);
   if (command.type === "remove-group") return removeGroup(draft, command.groupId);
@@ -773,7 +775,7 @@ function validateKnownPiles(draft: WorktableDraft, sequenceIds: readonly Sequenc
 
 function maximumZ(draft: WorktableDraft): number {
   const graphicZ = Math.max(-1, ...Object.values(draft.placements).map((item) => item.z), ...Object.values(draft.pilePlacements).map((item) => item.z));
-  return Math.max(graphicZ, ...(draft.memos ?? []).map((memo, index) => memo.z ?? graphicZ + index + 1));
+  return Math.max(graphicZ, ...(draft.memos ?? []).map((memo, index) => memo.z ?? graphicZ + index + 1), ...Object.values(draft.frames ?? {}).map((frame) => frame.z));
 }
 
 interface WorktableRect { readonly x: number; readonly y: number; readonly width: number; readonly height: number }
@@ -829,6 +831,8 @@ function copyDraft(draft: WorktableDraft): WorktableDraft {
   ) as Record<SequenceId, WorktableSequencePilePlacement>;
   return {
     ...draft,
+    frameOrder: [...(draft.frameOrder ?? [])],
+    frames: Object.fromEntries(Object.entries(draft.frames ?? {}).map(([id, frame]) => [id, copyFrame(frame)])),
     ...(draft.memos ? { memos: draft.memos.map((memo) => ({ ...memo, photoIds: [...memo.photoIds] })) } : {}),
     entryOrder: [...draft.entryOrder],
     placements,
