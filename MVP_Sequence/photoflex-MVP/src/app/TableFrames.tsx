@@ -100,6 +100,13 @@ export function TableFrameCard({ frame, layerZ, selected, settingsHost, selected
   cropDraftRef.current = cropDraft;
   const size = frameWorldSize(frame);
   const slot = frame.page.slots.find((item) => item.id === selectedSlotId);
+  const selectSlot = (nextSlotId: FrameSlotId | undefined) => {
+    if (nextSlotId !== selectedSlotId) {
+      cropDraftRef.current = undefined;
+      setCropDraft(undefined);
+    }
+    onSelectSlot(nextSlotId);
+  };
   useEffect(() => { if (!selected) setCropDraft(undefined); }, [selected]);
   useEffect(() => {
     if (!cropDraft) return;
@@ -117,8 +124,8 @@ export function TableFrameCard({ frame, layerZ, selected, settingsHost, selected
     if (event.button !== (kind === "quick-crop" ? 2 : 0)) return;
     event.preventDefault(); event.stopPropagation();
     onSelect(frame.id);
-    if (kind === "frame") onSelectSlot(undefined);
-    else if (kind !== "scale") onSelectSlot(targetSlot?.id);
+    if (kind === "frame") selectSlot(undefined);
+    else if (kind !== "scale") selectSlot(targetSlot?.id);
     if (kind === "quick-crop") { cropDraftRef.current = targetSlot?.crop; setCropDraft(targetSlot?.crop); }
     drag.current = { kind, pointerId: event.pointerId, startX: event.clientX, startY: event.clientY, slotId: targetSlot?.id, handle, baseRect: targetSlot?.rect, baseCrop: kind === "quick-crop" ? targetSlot?.crop : kind === "crop" ? cropDraft : undefined };
     articleRef.current?.setPointerCapture(event.pointerId);
@@ -191,7 +198,7 @@ export function TableFrameCard({ frame, layerZ, selected, settingsHost, selected
           style={{ left: drawn.x, top: drawn.y, width: drawn.width, height: drawn.height, borderRadius: item.cornerRadiusPt ?? frame.page.cornerRadiusPt ?? 0 }}
           onPointerDown={(event) => { event.stopPropagation(); if (event.button === 2 && item.photoId && item.crop.mode === "fill") { begin(event, "quick-crop", item); return; } if (!selected) { onSelect(frame.id); return; } begin(event, cropDraft && chosen ? "crop" : "slot", item); }}
           onContextMenu={(event) => { if (item.photoId && item.crop.mode === "fill") event.preventDefault(); }}
-          onDoubleClick={(event) => { event.stopPropagation(); onSelect(frame.id); onSelectSlot(item.id); if (item.photoId) setCropDraft(item.crop); }}>
+          onDoubleClick={(event) => { event.stopPropagation(); onSelect(frame.id); selectSlot(item.id); if (item.photoId) setCropDraft(item.crop); }}>
           <div className="table-frame-photo-clip" style={{ borderRadius: item.cornerRadiusPt ?? frame.page.cornerRadiusPt ?? 0 }}>{item.photoId ? <FrameImage photoId={item.photoId} slot={displayed} preview={previews[item.photoId]} onSize={(id, next) => setPreviews((current) => !current[id] || (current[id].size?.width === next.width && current[id].size?.height === next.height) ? current : { ...current, [id]: { ...current[id], size: next } })} missing={missingPhotoIds.has(item.photoId)} /> : <span className="table-frame-empty-slot">{String(index + 1).padStart(2, "0")}<small>DROP PHOTO</small></span>}</div>
           {chosen && !cropDraft && handles.map((handle) => <button key={handle} type="button" className={`table-frame-slot-handle handle-${handle}`} aria-label={`Resize photo frame ${handle}`} onPointerDown={(event) => begin(event, "resize-slot", item, handle)} />)}
         </div>;
@@ -200,6 +207,6 @@ export function TableFrameCard({ frame, layerZ, selected, settingsHost, selected
     </div>
     <div className="table-frame-title" onPointerDown={(event) => begin(event, "frame")}><strong>{frame.name}</strong><span>{Math.round(frame.page.widthPt / FRAME_MM_TO_PT)} × {Math.round(frame.page.heightPt / FRAME_MM_TO_PT)} mm</span></div>
     {selected && <button type="button" className="table-frame-scale-handle" aria-label="Resize Frame display" onPointerDown={(event) => begin(event, "scale")}>◢</button>}
-    {selected && settingsHost && createPortal(<FrameSettingsPanel frame={frame} slot={slot} cropDraft={cropDraft} onCropDraft={setCropDraft} onFinishCrop={finishCrop} onSelectSlot={onSelectSlot} onClose={onClose} onExecute={onExecute} />, settingsHost)}
+    {selected && settingsHost && createPortal(<FrameSettingsPanel frame={frame} slot={slot} cropDraft={cropDraft} onCropDraft={setCropDraft} onFinishCrop={finishCrop} onSelectSlot={selectSlot} onClose={onClose} onExecute={onExecute} />, settingsHost)}
   </article>;
 }

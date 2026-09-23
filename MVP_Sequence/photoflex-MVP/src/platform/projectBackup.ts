@@ -30,6 +30,7 @@ export function prepareBackupImport(bytes: Uint8Array, preserveIds = false): Res
     for (const photo of input.photoManifest) {
       if (!sources.has(photo.sourceId) || typeof photo.relativePath !== "string" || !photo.relativePath || photo.relativePath.split(/[\\/]/).some((part: string) => !part || part === "." || part === "..") || photo.relativePath.includes(":")) throw new Error("Invalid photo path or source.");
       if ([photo.width, photo.height, photo.fileSize, photo.fileLastModified].some((n) => n !== undefined && (!Number.isFinite(n) || n < 0))) throw new Error("Invalid photo metadata.");
+      if (photo.contentFingerprint !== undefined && (typeof photo.contentFingerprint !== "string" || !/^sha256-sample-v1:[0-9a-f]{64}$/.test(photo.contentFingerprint))) throw new Error("Invalid photo fingerprint.");
     }
     if (preserveIds) return ok({
       backup: input,

@@ -60,6 +60,8 @@ export interface PhotoRef {
   readonly height: number;
   readonly fileSize?: number;
   readonly fileLastModified?: number;
+  /** Sampled content hash used to identify originals after a folder reconnect. */
+  readonly contentFingerprint?: string;
   /** Missing on legacy rows and treated as folder-relative. */
   readonly locationKind?: "folder-relative" | "file-handle";
 }

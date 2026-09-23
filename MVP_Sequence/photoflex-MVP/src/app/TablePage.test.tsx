@@ -189,6 +189,32 @@ describe("TablePage", () => {
     });
   });
 
+  it("discards an unfinished crop when another photo box is selected", async () => {
+    const dependencies = await createFixture();
+    render(<App dependencies={dependencies} />);
+    const stage = await screen.findByLabelText("Photo worktable");
+    fireEvent.keyDown(stage, { key: "a", ctrlKey: true });
+    fireEvent.click(screen.getByRole("button", { name: "Frame templates" }));
+    fireEvent.click(screen.getByRole("button", { name: /Diptych 2 slots/ }));
+    const frame = await waitFor(() => {
+      const value = stage.querySelector<HTMLElement>("[data-frame-id]");
+      expect(value).toBeTruthy();
+      return value!;
+    });
+    const [first, second] = frame.querySelectorAll<HTMLElement>("[data-frame-slot-id]");
+    fireEvent.pointerDown(first, { pointerId: 82, button: 0, clientX: 200, clientY: 200 });
+    fireEvent.pointerUp(frame, { pointerId: 82, button: 0, clientX: 200, clientY: 200 });
+    fireEvent.click(screen.getByRole("button", { name: "Adjust crop" }));
+    fireEvent.change(screen.getByRole("slider", { name: /Zoom/ }), { target: { value: "2" } });
+    expect(screen.getByRole("button", { name: "Done" })).toBeTruthy();
+
+    fireEvent.pointerDown(second, { pointerId: 83, button: 0, clientX: 400, clientY: 200 });
+    fireEvent.pointerUp(frame, { pointerId: 83, button: 0, clientX: 400, clientY: 200 });
+
+    expect(screen.getByRole("heading", { name: /PHOTO BOX 02/ })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Done" })).toBeNull();
+  });
+
   it("requires an explicit choice before using only the first selected photo", async () => {
     const dependencies = await createFixture();
     render(<App dependencies={dependencies} />);

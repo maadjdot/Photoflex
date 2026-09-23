@@ -22,6 +22,7 @@ export interface ProjectBackupV1 {
     readonly height?: number;
     readonly fileSize?: number;
     readonly fileLastModified?: number;
+    readonly contentFingerprint?: string;
     readonly locationKind?: "folder-relative" | "file-handle";
   }>;
 }
