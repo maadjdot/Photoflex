@@ -347,6 +347,7 @@ describe("TablePage", () => {
   });
   beforeEach(() => {
     window.location.hash = `#/projects/${projectId}/table`;
+    window.sessionStorage.removeItem(`photoflex:table-toolbar:${projectId}:visible`);
     if (!("PointerEvent" in window)) Object.defineProperty(window, "PointerEvent", { value: MouseEvent });
     Object.defineProperties(HTMLElement.prototype, {
       setPointerCapture: { configurable: true, value: vi.fn() },
@@ -422,6 +423,48 @@ describe("TablePage", () => {
     expect(preview.querySelector(".table-photo-preview-image")?.getAttribute("data-rotation")).toBe("90");
     fireEvent.click(screen.getByRole("button", { name: "Close preview" }));
 
+  });
+
+  it("hides and restores the left toolbar, keeping its visibility for the current session", async () => {
+    const dependencies = await createFixture();
+    const view = render(<App dependencies={dependencies} />);
+    await screen.findByLabelText("Photo worktable");
+
+    fireEvent.click(screen.getByRole("button", { name: "Hide left toolbar" }));
+    expect(screen.queryByRole("group", { name: "Table arrangement tools" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Show left toolbar" })).toBeTruthy();
+    view.unmount();
+
+    render(<App dependencies={dependencies} />);
+    await screen.findByLabelText("Photo worktable");
+    expect(screen.queryByRole("group", { name: "Table arrangement tools" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Show left toolbar" }));
+    expect(screen.getByRole("group", { name: "Table arrangement tools" })).toBeTruthy();
+  });
+
+  it("arranges selected photos using the chosen photos-per-row count", async () => {
+    const dependencies = await createFixture();
+    render(<App dependencies={dependencies} />);
+    const stage = await screen.findByLabelText("Photo worktable");
+    fireEvent.keyDown(stage, { key: "a", ctrlKey: true });
+
+    fireEvent.click(screen.getByRole("button", { name: "Grid" }));
+    fireEvent.click(within(screen.getByRole("dialog", { name: "Grid layout" })).getByRole("button", { name: "1 per row" }));
+    await waitFor(async () => {
+      const workspace = await dependencies.projectStore.loadWorkspace(projectId);
+      if (!workspace.ok) throw new Error("workspace not loaded");
+      expect(new Set(Object.values(workspace.value.worktableDraft.placements).map((photo) => photo.y)).size).toBe(2);
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Grid" }));
+    const grid = within(screen.getByRole("dialog", { name: "Grid layout" }));
+    fireEvent.change(grid.getByRole("spinbutton", { name: "Photos per row" }), { target: { value: "2" } });
+    fireEvent.click(grid.getByRole("button", { name: "Apply" }));
+    await waitFor(async () => {
+      const workspace = await dependencies.projectStore.loadWorkspace(projectId);
+      if (!workspace.ok) throw new Error("workspace not loaded");
+      expect(new Set(Object.values(workspace.value.worktableDraft.placements).map((photo) => photo.y)).size).toBe(1);
+    });
   });
 
   it("用 Space 预览选中照片，用 C 打开比较", async () => {

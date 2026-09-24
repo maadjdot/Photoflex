@@ -20,6 +20,21 @@
 .table-frame-mini.mini-quad-grid { background: linear-gradient(90deg, transparent 47%, #eeeae4 47% 53%, transparent 53%), linear-gradient(transparent 47%, #eeeae4 47% 53%, transparent 53%), #aaa6a0; }
 .table-frame-mini.mini-full-page { border-width: 1px; }
 .table-frame-mini.mini-square-nine-grid { width: 42px; height: 42px; margin: auto; border: 1px solid #eeeae4; background: linear-gradient(90deg, transparent 32%, #eeeae4 32% 35%, transparent 35% 65%, #eeeae4 65% 68%, transparent 68%), linear-gradient(transparent 32%, #eeeae4 32% 35%, transparent 35% 65%, #eeeae4 65% 68%, transparent 68%), #aaa6a0; }
+.table-grid-tool.is-active { background: #eae8e2; }
+.table-grid-popover { position: absolute; z-index: 30; left: 62px; width: 192px; box-sizing: border-box; padding: 10px; border: 1px solid #d4d2cc; border-radius: 10px; background: #fff; box-shadow: 0 14px 34px rgb(0 0 0 / 18%); color: #282622; }
+.table-grid-popover header { display: flex; align-items: baseline; justify-content: space-between; gap: 6px; margin-bottom: 8px; font-size: 12px; font-weight: 700; white-space: nowrap; }
+.table-grid-popover header small { color: #88847e; font-size: 10px; font-weight: 400; }
+.table-grid-choices { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; }
+.table-grid-choices button { display: grid; justify-items: center; gap: 4px; min-height: 52px; padding: 5px 2px; border: 1px solid #e6e3de; border-radius: 6px; background: #fff; color: #33312e; font-size: 10px; cursor: pointer; }
+.table-grid-choices button:hover, .table-grid-choices button:focus-visible { border-color: #33312e; background: #f6f5f2; }
+.table-grid-mini { display: grid; gap: 2px; width: 30px; height: 18px; align-items: stretch; }
+.table-grid-mini i { border-radius: 2px; background: #aaa6a0; }
+.table-grid-popover form { display: flex; align-items: end; gap: 6px; margin-top: 9px; }
+.table-grid-popover form label { display: grid; flex: 1; gap: 4px; color: #77736d; font-size: 10px; }
+.table-grid-popover form input { box-sizing: border-box; width: 100%; height: 28px; padding: 3px 6px; border: 1px solid #d4d2cc; border-radius: 5px; font: inherit; }
+.table-grid-popover form button { height: 28px; padding: 0 8px; border: 1px solid #34322d; border-radius: 5px; background: #34322d; color: #fff; font-size: 10px; cursor: pointer; }
+.table-grid-popover form button:hover:not(:disabled) { background: #514e48; }
+.table-grid-popover form button:disabled { opacity: .45; cursor: default; }
 .table-frame { position: absolute; overflow: visible; pointer-events: auto; user-select: none; }
 .table-frame-page { position: absolute; top: 0; left: 0; overflow: hidden; transform-origin: left top; border: 1px solid #d6d3ce; background: #fff; box-shadow: 0 6px 22px rgb(0 0 0 / 14%); cursor: grab; }
 .table-frame.is-selected .table-frame-page { outline: 2px solid #34322d; outline-offset: 3px; }

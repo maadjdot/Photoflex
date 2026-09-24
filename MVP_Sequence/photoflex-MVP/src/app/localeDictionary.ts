@@ -2,6 +2,7 @@ export type Locale = "en" | "zh-CN";
 export type TranslationVariables = Readonly<Record<string, string | number>>;
 
 const en: Record<string, string> = {
+  "table.hideTools": "Hide left toolbar", "table.showTools": "Show left toolbar", "table.gridSettings": "Grid layout", "table.gridColumns": "{count} per row", "table.photosPerRow": "Photos per row", "table.applyGrid": "Apply",
   "language.label": "Language", "language.english": "English", "language.chinese": "中文",
   "app.backHome": "Back to Home", "nav.main": "Main navigation", "nav.home": "Home", "nav.project": "Project", "nav.projectSettings": "Project settings", "nav.contactSheet": "Contact Sheet", "nav.table": "Table", "nav.sequence": "Sequence", "nav.login": "Login", "nav.backToTable": "Back to Table", "nav.openLastSequence": "Open the last Sequence",
   "common.retry": "Retry", "common.cancel": "Cancel", "common.close": "Close", "common.save": "Save", "common.delete": "Delete", "common.open": "Open", "common.create": "Create", "common.loading": "Loading…", "common.updated": "Updated", "common.photos": "photos", "common.items": "items", "common.current": "Current", "common.selectedPhotos": "{count} selected photos", "common.photoCount": "{count} photos", "common.itemCount": "{count} items", "common.sequenceCount": "{count} sequences", "common.thumbnailLoading": "{name} thumbnail loading", "common.resizePhotoSources": "Resize Photo Sources",
@@ -23,6 +24,7 @@ const en: Record<string, string> = {
 };
 
 const zhCN: Record<string, string> = {
+  "table.hideTools": "隐藏左侧工具栏", "table.showTools": "显示左侧工具栏", "table.gridSettings": "网格排列", "table.gridColumns": "每行 {count} 张", "table.photosPerRow": "每行照片数", "table.applyGrid": "应用",
   "language.label": "语言", "language.english": "English", "language.chinese": "中文",
   "app.backHome": "返回首页", "nav.main": "主导航", "nav.home": "首页", "nav.project": "项目", "nav.projectSettings": "项目设置", "nav.contactSheet": "照片库", "nav.table": "桌面", "nav.sequence": "序列", "nav.login": "登录", "nav.backToTable": "返回桌面", "nav.openLastSequence": "打开最近使用的序列",
   "common.retry": "重试", "common.cancel": "取消", "common.close": "关闭", "common.save": "保存", "common.delete": "删除", "common.open": "打开", "common.create": "创建", "common.loading": "加载中…", "common.updated": "更新于", "common.photos": "张照片", "common.items": "项", "common.current": "当前", "common.selectedPhotos": "已选择 {count} 张照片", "common.photoCount": "{count} 张照片", "common.itemCount": "{count} 项", "common.sequenceCount": "{count} 个序列", "common.thumbnailLoading": "正在加载{name}缩略图", "common.resizePhotoSources": "调整照片来源面板宽度",
