@@ -1,7 +1,7 @@
 # Layout 技术方案与架构评估
 
 日期：2026-09-24
-状态：`Layout-Develop` 开发设计基线；L0–L3 已实施
+状态：`Layout-Develop` 开发设计基线；L0–L4 已实施
 关联：[产品需求](./Layout_PRD.md) · [实施计划](./Layout_Implementation_Plan.md)
 
 ## 1. 现状和结论

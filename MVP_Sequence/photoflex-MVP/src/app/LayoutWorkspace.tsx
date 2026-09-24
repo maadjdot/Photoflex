@@ -29,6 +29,9 @@ export function LayoutWorkspace({ dependencies, persistence, projectId, sequence
   const [dropPageId, setDropPageId] = useState<LayoutPageId>();
   const [saveState, setSaveState] = useState<"idle" | "saving" | "failed">("idle");
   const [historyPosition, setHistoryPosition] = useState(0);
+  const [reading, setReading] = useState(false);
+  const readingOrigin = useRef(0);
+  const lastMergeKey = useRef<string | undefined>(undefined);
   const history = useRef<LayoutDocument[]>([]);
   const historyIndex = useRef(0);
   const editSequence = useRef(0);
@@ -74,21 +77,27 @@ export function LayoutWorkspace({ dependencies, persistence, projectId, sequence
       setSaveState("idle");
     });
   };
-  const commit = (next: LayoutDocument) => {
-    history.current = [...history.current.slice(0, historyIndex.current + 1), next];
-    historyIndex.current = history.current.length - 1;
+  const commit = (next: LayoutDocument, mergeKey?: string) => {
+    if (mergeKey && lastMergeKey.current === mergeKey && historyIndex.current > 0) {
+      history.current[historyIndex.current] = next;
+    } else {
+      history.current = [...history.current.slice(0, historyIndex.current + 1), next];
+      historyIndex.current = history.current.length - 1;
+    }
+    lastMergeKey.current = mergeKey;
     setHistoryPosition(historyIndex.current);
     save(next);
   };
-  const command = (edit: LayoutEditCommand) => {
+  const command = (edit: LayoutEditCommand, mergeKey?: string) => {
     const current = documentRef.current;
     if (!current) return false;
     const changed = applyLayoutCommand(current, edit);
     if (!changed.ok) return false;
-    commit(changed.value);
+    commit(changed.value, mergeKey);
     return true;
   };
   const travel = (step: number) => {
+    lastMergeKey.current = undefined;
     const nextIndex = historyIndex.current + step;
     if (nextIndex < 0 || nextIndex >= history.current.length) return;
     const selectedPageId = documentRef.current?.pages[selectedIndex]?.id;
@@ -111,6 +120,8 @@ export function LayoutWorkspace({ dependencies, persistence, projectId, sequence
 
   const page = document?.pages[selectedIndex];
   const back = () => navigate({ name: "sequence", projectId, sequenceId });
+  const startReading = () => { if (window.document.activeElement instanceof HTMLElement) window.document.activeElement.blur(); readingOrigin.current = selectedIndex; setReading(true); };
+  const stopReading = () => { setReading(false); setSelectedIndex(readingOrigin.current); };
   const refreshPhotos = async () => {
     const loaded = await persistence.loadSequence(sequenceId);
     if (loaded.ok && loaded.value.projectId === projectId) setSequence(loaded.value);
@@ -144,13 +155,13 @@ export function LayoutWorkspace({ dependencies, persistence, projectId, sequence
     reordered.splice(to, 0, moving);
     if (command({ type: "move-page", pageId: sourceId, to })) setSelectedIndex(reordered.findIndex((entry) => entry.id === selectedPageId));
   };
-  return <main className="layout-workspace" aria-label="Layout workspace">
+  return <main className={`layout-workspace${reading ? " layout-reading" : ""}`} aria-label="Layout workspace">
     <header className="layout-workspace-header">
-      <button onClick={back}>{zh ? "← Sequence" : "← Sequence"}</button>
+      <button onClick={reading ? stopReading : back}>{reading ? (zh ? "← 退出阅读" : "← Exit reading") : "← Sequence"}</button>
       <div><small>LAYOUT</small><strong>{document.name}</strong></div>
       <span className="layout-save-status" role="status">{saveState === "failed" ? (zh ? "保存失败" : "Save failed") : saveState === "saving" || projectWrite.saving ? (zh ? "正在保存…" : "Saving…") : (zh ? "本地已保存" : "Saved locally")}{saveState === "failed" && <button onClick={() => void retry()}>{zh ? "重试" : "Retry"}</button>}</span>
       <CloudSaveStatus dependencies={dependencies} projectId={projectId} />
-      <div className="layout-header-actions"><button disabled={historyPosition === 0} onClick={() => travel(-1)}>{zh ? "撤销" : "Undo"}</button><button disabled={historyPosition >= history.current.length - 1} onClick={() => travel(1)}>{zh ? "重做" : "Redo"}</button><button disabled title={zh ? "阅读模式将在 L4 提供" : "Reading mode arrives in L4"}>{zh ? "阅读" : "Read"}</button><button disabled title={zh ? "PDF 导出将在 L5 提供" : "PDF export arrives in L5"}>PDF</button></div>
+      {!reading && <div className="layout-header-actions"><button disabled={historyPosition === 0} onClick={() => travel(-1)}>{zh ? "撤销" : "Undo"}</button><button disabled={historyPosition >= history.current.length - 1} onClick={() => travel(1)}>{zh ? "重做" : "Redo"}</button><button onClick={startReading}>{zh ? "阅读" : "Read"}</button><button disabled title={zh ? "PDF 导出将在 L5 提供" : "PDF export arrives in L5"}>PDF</button></div>}
     </header>
     <div className="layout-workspace-body">
       <aside className="layout-pages-panel" aria-label={zh ? "页面" : "Pages"}>
@@ -158,7 +169,7 @@ export function LayoutWorkspace({ dependencies, persistence, projectId, sequence
         <div className="layout-pages-list">{document.pages.map((entry, index) => { const firstImage = entry.objects.find((object) => object.kind === "image-frame" && object.photoId); const photoId = firstImage?.kind === "image-frame" ? firstImage.photoId : null; return <button key={entry.id} draggable className={`${index === selectedIndex ? "is-selected" : ""}${dropPageId === entry.id && draggedPageId !== entry.id ? " is-drop-target" : ""}`} onClick={() => setSelectedIndex(index)} aria-current={index === selectedIndex ? "page" : undefined} onDragStart={(event) => { setDraggedPageId(entry.id); event.dataTransfer.setData("application/x-photoflex-layout-page-id", entry.id); event.dataTransfer.effectAllowed = "move"; }} onDragOver={(event) => { if (draggedPageId) { event.preventDefault(); setDropPageId(entry.id); } }} onDragLeave={() => setDropPageId((current) => current === entry.id ? undefined : current)} onDrop={(event) => { event.preventDefault(); dropPage(entry.id); }} onDragEnd={() => { setDraggedPageId(undefined); setDropPageId(undefined); }}><span className="layout-page-mini" style={{ aspectRatio: `${document.pageSpec.widthPt} / ${document.pageSpec.heightPt}` }}>{photoId ? <PhotoThumb photoSource={dependencies.photoSource} photoId={photoId} alt="" fit="contain" /> : entry.objects.length > 0 && <i />}</span><span>{zh ? `第 ${index + 1} 页` : `Page ${index + 1}`}</span><span className="layout-page-grip" aria-hidden="true">⠿</span></button>; })}</div>
         <div className="layout-page-actions"><button onClick={addPage}>{zh ? "＋ 空白页" : "+ Blank page"}</button><button onClick={duplicatePage}>{zh ? "复制页" : "Duplicate"}</button><button disabled={document.pages.length <= 1} onClick={removePage}>{zh ? "删除页" : "Delete"}</button><button disabled={selectedIndex === 0} onClick={() => movePage(-1)}>{zh ? "前移" : "Move earlier"}</button><button disabled={selectedIndex === document.pages.length - 1} onClick={() => movePage(1)}>{zh ? "后移" : "Move later"}</button></div>
       </aside>
-      <LayoutEditor document={document} sequence={sequence} dependencies={dependencies} selectedIndex={selectedIndex} setSelectedIndex={setSelectedIndex} command={command} onRefreshPhotos={refreshPhotos} />
+      <LayoutEditor document={document} sequence={sequence} dependencies={dependencies} selectedIndex={selectedIndex} setSelectedIndex={setSelectedIndex} command={command} onRefreshPhotos={refreshPhotos} reading={reading} />
     </div>
   </main>;
 }

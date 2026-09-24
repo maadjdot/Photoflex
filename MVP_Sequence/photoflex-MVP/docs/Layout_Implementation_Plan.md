@@ -1,7 +1,7 @@
 # Layout 实施计划
 
 日期：2026-09-24
-状态：L0–L3 已完成；L4–L5 待实施
+状态：L0–L4 已完成；L5 待实施
 工作分支：`Layout-Develop`（从 `develop` 的 `5325e09` 创建）
 依据：[产品需求](./Layout_PRD.md) · [技术方案](./Layout_Technical_Assessment.md)
 
@@ -19,7 +19,7 @@
 | L1 数据闭环 | 定义 LayoutDocument、命令、验证；扩展 ProjectStore、本地/内存/云包装、备份、迁移、项目复制、关联删除；接入 ProjectWriteCoordinator | 已完成，证据见 [L1 记录](./Layout_L1_Verification.md) |
 | L2 入口与页面骨架 | 在 SequenceOverlay 增加入口与创建面板；接路由、返回和保存屏障；工作区的顶/左/右/下栏及页面显示；页面增删、复制、前后排序、单页/对页查看 | 已完成，证据见 [L2 记录](./Layout_L2_Verification.md) |
 | L3 图像编辑 | Sequence 照片条、预览 lease、空框/拖图建框、框移动缩放、替换、Fit/Fill、焦点裁切、撤销/重做；五种模板生成普通框 | 已完成，证据见 [L3 记录](./Layout_L3_Verification.md) |
-| L4 文字与阅读 | 纯文本框、中文输入法、共同文字排版与字体；溢出/缺字提示；无编辑装饰的阅读视图 | 中文输入、刷新恢复、阅读与编辑行距/换行一致；退出阅读返回原位置 |
+| L4 文字与阅读 | 纯文本框、中文输入法、共同文字排版与字体；溢出/缺字提示；无编辑装饰的阅读视图 | 已完成，证据见 [L4 记录](./Layout_L4_Verification.md) |
 | L5 PDF 与首版收尾 | 预检、固定快照、真实文本和逐页照片、取消/失败处理；完成端到端回归与真实数据性能测量 | 第 4 节全部验收门槛通过，尤其中文在目标阅读器中的显示、复制和搜索 |
 
 原计划引用的 `Layout_Validation.md` 当前工作区已不存在；L0 使用当前代码和新的 [验证记录](./Layout_L0_Verification.md)。L0 不代替 L5 的正式 PDF 文本验收。

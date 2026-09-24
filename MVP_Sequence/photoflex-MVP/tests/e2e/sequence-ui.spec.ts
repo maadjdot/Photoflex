@@ -153,11 +153,11 @@ test("Layout opens from Sequence and keeps page order at 1280 and 1440", async (
   await layout.getByRole("button", { name: "+ Blank page" }).click();
   await expect(layout.locator(".layout-pages-list button")).toHaveCount(9);
   await layout.getByRole("button", { name: "Move earlier" }).click();
-  await layout.getByRole("button", { name: "Single" }).click();
+  await layout.getByRole("button", { name: "Single", exact: true }).click();
   await expect(layout.locator(".layout-paper")).toHaveCount(1);
   await page.setViewportSize({ width: 1280, height: 720 });
   for (const name of ["+ Blank page", "Duplicate", "Delete", "Move earlier", "Move later", "Single", "Facing pages"]) {
-    const control = layout.getByRole("button", { name });
+    const control = layout.getByRole("button", { name, exact: true });
     await expect(control).toBeVisible();
     const bounds = await control.boundingBox();
     expect(bounds!.x).toBeGreaterThanOrEqual(0);
@@ -295,6 +295,66 @@ test("Layout edits frames, drops photos, crops and applies a template as one und
   await expect(layout.getByRole("status")).toContainText("Saved locally");
   await page.reload();
   await expect(layout.locator(".layout-paper.is-current .layout-object-image-frame")).toHaveCount(1);
+});
+
+test("Layout text survives refresh and reading uses the same lines", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.getByRole("heading", { name: "Projects" })).toBeVisible();
+  await seedSequence(page);
+  await page.goto(`/#/projects/${PROJECT_ID}/sequences/${SEQUENCE_ID}`);
+  await page.getByRole("dialog", { name: "Sequence Street Edit" }).getByRole("button", { name: "Layout" }).click();
+  await page.getByRole("dialog", { name: "Create Layout" }).getByRole("button", { name: "Create Layout" }).click();
+  const layout = page.getByRole("main", { name: "Layout workspace" });
+  await layout.getByRole("button", { name: "Add text box" }).click();
+  const input = layout.getByRole("textbox", { name: "Text content" });
+  const sample = "摄影集：上海街景，人物与光影。\n第二页 2026 / Café";
+  await input.fill(sample);
+  await layout.getByRole("button", { name: "Centre" }).click();
+  await expect(layout.locator(".layout-text-content")).toHaveCSS("text-align", "center");
+  await layout.getByRole("spinbutton", { name: "Size pt" }).fill("14");
+  await layout.getByRole("spinbutton", { name: "Size pt" }).press("Tab");
+  await expect(layout.getByRole("spinbutton", { name: "Size pt" })).toHaveValue("14");
+  await layout.getByRole("spinbutton", { name: "H mm" }).fill("90");
+  await layout.getByRole("spinbutton", { name: "H mm" }).press("Tab");
+  await expect(layout.getByRole("spinbutton", { name: "H mm" })).toHaveValue("90");
+  await expect(layout.locator(".layout-object-text-box .layout-text-line")).toHaveCount(2);
+  const editLines = await layout.locator(".layout-object-text-box .layout-text-line").allTextContents();
+  const editLineHeight = await layout.locator(".layout-text-content").evaluate((element) => getComputedStyle(element).lineHeight);
+  expect(await page.evaluate(() => document.fonts.check('16px "PhotoFlex Noto Sans SC"'))).toBe(true);
+  await expect(layout.locator(".layout-save-status")).toContainText("Saved locally");
+
+  await input.evaluate((element: HTMLTextAreaElement) => {
+    element.dispatchEvent(new CompositionEvent("compositionstart", { bubbles: true }));
+    const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!;
+    setter.call(element, `${element.value}中`);
+    element.dispatchEvent(new InputEvent("input", { bubbles: true, data: "中", inputType: "insertCompositionText", isComposing: true }));
+  });
+  expect(await layout.locator(".layout-object-text-box .layout-text-line").allTextContents()).toEqual(editLines);
+  await input.evaluate((element: HTMLTextAreaElement) => element.dispatchEvent(new CompositionEvent("compositionend", { bubbles: true, data: "中" })));
+  await expect(layout.locator(".layout-object-text-box")).toContainText("Café中");
+
+  await input.fill("中文排版".repeat(200));
+  await expect(layout.getByRole("alert")).toContainText("Text overflows");
+  await layout.getByRole("button", { name: "Locate" }).click();
+  expect(await input.evaluate((element: HTMLTextAreaElement) => element.selectionStart)).toBeGreaterThan(0);
+
+  await input.fill("A🦄");
+  await expect(layout.getByRole("alert")).toContainText("Missing glyph");
+  await layout.getByRole("button", { name: "Locate" }).click();
+  expect(await input.evaluate((element: HTMLTextAreaElement) => element.selectionStart)).toBe(1);
+  await input.fill(sample);
+  await layout.getByRole("button", { name: "Read", exact: true }).click();
+  await expect(layout.locator(".layout-properties-panel")).toHaveCount(0);
+  expect(await layout.locator(".layout-object-text-box .layout-text-line").allTextContents()).toEqual(editLines);
+  await expect(layout.locator(".layout-text-content")).toHaveCSS("line-height", editLineHeight);
+  await layout.getByRole("button", { name: "Next" }).click();
+  await expect(layout.locator(".layout-reader-navigation")).toContainText("2 / 8");
+  await layout.getByRole("button", { name: "Exit reading" }).click();
+  await expect(layout.locator(".layout-pages-list button[aria-current=page]")).toContainText("Page 1");
+  await expect(layout.locator(".layout-save-status")).toContainText("Saved locally");
+  await page.reload();
+  await expect(layout.locator(".layout-object-text-box .layout-text-line")).toHaveCount(2);
+  expect(await layout.locator(".layout-object-text-box .layout-text-line").allTextContents()).toEqual(editLines);
 });
 
 async function seedSequence(page: Page) {
