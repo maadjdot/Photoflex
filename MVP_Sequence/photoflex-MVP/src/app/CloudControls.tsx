@@ -3,7 +3,7 @@ import type { AccountUser, ProjectId } from "../contracts";
 import type { AppDependencies } from "./dependencies";
 import { useLocale } from "./locale";
 
-export function CloudControls({ dependencies, projectId, showSaveStatus = true }: { readonly dependencies: AppDependencies; readonly projectId?: ProjectId; readonly showSaveStatus?: boolean }) {
+export function CloudControls({ dependencies, projectId, showSaveStatus = true, beforeSignOut }: { readonly dependencies: AppDependencies; readonly projectId?: ProjectId; readonly showSaveStatus?: boolean; readonly beforeSignOut?: () => Promise<boolean> }) {
   const { t } = useLocale();
   const account = dependencies.accountSession;
   const save = dependencies.cloudSave;
@@ -32,7 +32,7 @@ export function CloudControls({ dependencies, projectId, showSaveStatus = true }
     {showSaveStatus && user && projectId && save && <span role="status" className={`cloud-save-status is-${status}`}>{t(`cloud.save.${status}`)}</span>}
     {user && <button className="login-button" type="button" disabled={busy} title={user.email} onClick={() => {
       setBusy(true);
-      void account.signOut().finally(() => setBusy(false));
+      void (async () => { if (!beforeSignOut || await beforeSignOut()) await account.signOut(); })().finally(() => setBusy(false));
     }}>{t("cloud.signOut")}</button>}
   </>;
 }

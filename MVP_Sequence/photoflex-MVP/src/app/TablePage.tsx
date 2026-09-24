@@ -375,7 +375,7 @@ export function TablePage({ dependencies, projectId, navigate, sequenceOverlay }
     </TableWorkspace>
     {previewPhotoId && previewPlacement && <TablePhotoPreview photoId={previewPhotoId} filename={previewPlacement.filename} photoSource={dependencies.photoSource} onClose={() => setPreviewPhotoId(undefined)} onError={onPhotoError} />}
     {comparePhotoIds && <TablePhotoCompare ids={comparePhotoIds} draft={draft} photoSource={dependencies.photoSource} onClose={() => setComparePhotoIds(undefined)} />}
-    {sequenceOverlay && <SequenceOverlay dependencies={dependencies} persistence={coordinator} projectId={projectId} sequenceId={sequenceOverlay.sequenceId} openVersionId={sequenceOverlay.openVersionId} onClose={() => { void listSequences().then((latest) => { if (latest.ok) setSummaries(latest.value); navigate({ name: "table", projectId }); }); }} onPhotoError={onPhotoError} />}
+    {sequenceOverlay && <SequenceOverlay dependencies={dependencies} persistence={coordinator} projectId={projectId} sequenceId={sequenceOverlay.sequenceId} openVersionId={sequenceOverlay.openVersionId} onClose={() => { void listSequences().then((latest) => { if (latest.ok) setSummaries(latest.value); navigate({ name: "table", projectId }); }); }} onOpenLayout={(layoutId) => navigate({ name: "layout", projectId, sequenceId: sequenceOverlay.sequenceId, layoutId })} onPhotoError={onPhotoError} />}
   </main>;
 }
 

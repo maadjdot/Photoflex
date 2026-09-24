@@ -136,6 +136,46 @@ it("responds when Create Sequence Folder is clicked", async () => {
   expect(await screen.findByText("Folder export is not supported in this browser.")).toBeTruthy();
 });
 
+it("creates a Layout from a real Sequence, saves page order, and reopens the same Layout", async () => {
+  const { projectStore, photoSource, projectId, sequenceId } = await createOverlayFixture();
+  window.location.hash = `#/projects/${projectId}/sequences/${sequenceId}`;
+  render(<App dependencies={{ projectStore, photoSource }} />);
+  const overlay = await screen.findByRole("dialog", { name: "Sequence Complete photos" });
+  fireEvent.click(within(overlay).getByRole("button", { name: "Layout" }));
+  const creator = await screen.findByRole("dialog", { name: "Create Layout" });
+  expect(within(creator).getByText(/From Sequence \(4 pages\)/)).toBeTruthy();
+  fireEvent.click(within(creator).getByRole("button", { name: "Create Layout" }));
+  const workspace = await screen.findByRole("main", { name: "Layout workspace" });
+  await waitFor(() => expect(within(workspace).getByText("Saved locally")).toBeTruthy());
+  const layouts = await projectStore.listLayouts(projectId);
+  expect(layouts.ok && layouts.value).toHaveLength(1);
+  const layoutId = layouts.ok && layouts.value[0].id;
+  expect(window.location.hash).toContain(`/layout/${layoutId}`);
+  fireEvent.click(within(workspace).getByRole("button", { name: "+ Blank page" }));
+  await waitFor(() => expect(within(workspace).getByText("5", { selector: ".layout-panel-heading span" })).toBeTruthy());
+  fireEvent.click(within(workspace).getByRole("button", { name: "Move earlier" }));
+  fireEvent.click(within(workspace).getByRole("button", { name: "Single" }));
+  expect(within(workspace).getByRole("button", { name: "Single" }).getAttribute("aria-pressed")).toBe("true");
+  fireEvent.click(within(workspace).getByRole("button", { name: "← Sequence" }));
+  await screen.findByRole("dialog", { name: "Sequence Complete photos" });
+  fireEvent.click(screen.getByRole("button", { name: "Layout" }));
+  await screen.findByRole("main", { name: "Layout workspace" });
+  const loaded = layoutId && await projectStore.loadLayout(layoutId);
+  expect(loaded && loaded.ok && loaded.value.pages).toHaveLength(5);
+  const listed = await projectStore.listLayouts(projectId);
+  expect(listed.ok && listed.value).toHaveLength(1);
+});
+
+it("offers a return path for a missing Layout deep link", async () => {
+  const { projectStore, photoSource, projectId, sequenceId } = await createOverlayFixture();
+  window.location.hash = `#/projects/${projectId}/sequences/${sequenceId}/layout/missing-layout`;
+  render(<App dependencies={{ projectStore, photoSource }} />);
+  const error = await screen.findByRole("alert");
+  expect(error.textContent).toContain("Layout or its Sequence was not found");
+  fireEvent.click(screen.getByRole("button", { name: "Back to Sequence" }));
+  await screen.findByRole("dialog", { name: "Sequence Complete photos" });
+});
+
 it("supports Space for the selected preview and R for Read mode", async () => {
   const { projectStore, photoSource, projectId, sequenceId } = await createOverlayFixture();
   window.location.hash = `#/projects/${projectId}/sequences/${sequenceId}`;

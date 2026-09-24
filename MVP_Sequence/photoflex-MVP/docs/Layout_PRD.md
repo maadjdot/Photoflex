@@ -1,7 +1,7 @@
 # Layout 产品需求文档
 
 日期：2026-09-24
-状态：首版开发基线；L0–L1 已实施，L2–L5 待实施
+状态：首版开发基线；L0–L2 已实施，L3–L5 待实施
 开发分支：`Layout-Develop`；起点：`develop` 的 `5325e09`
 
 配套文档：[技术方案](./Layout_Technical_Assessment.md) · [实施计划](./Layout_Implementation_Plan.md)。本文定义产品行为；技术方案定义模块接口与数据流；实施计划定义交付顺序和验收门槛。文档中的默认值是实施建议，不代替用户后续明确决策。

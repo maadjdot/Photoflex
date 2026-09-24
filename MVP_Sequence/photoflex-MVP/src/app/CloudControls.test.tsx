@@ -32,4 +32,17 @@ describe("CloudControls", () => {
     screen.getByRole("button", { name: "Sign out" }).click();
     await waitFor(() => expect(accountSession.signOut).toHaveBeenCalled());
   });
+
+  it("waits for the save barrier before signing out", async () => {
+    const user = { id: "user-1", email: "photo@example.com" };
+    const accountSession: AccountSession = {
+      getCurrentUser: vi.fn(async () => ok(user)), subscribe: vi.fn(() => () => undefined),
+      signIn: vi.fn(), signUp: vi.fn(), signOut: vi.fn(async () => ok(undefined)),
+    };
+    const beforeSignOut = vi.fn(async () => false);
+    render(<LocaleProvider><CloudControls dependencies={{ projectStore: new MemoryProjectStore(), photoSource: new MemoryPhotoSource(), accountSession }} beforeSignOut={beforeSignOut} /></LocaleProvider>);
+    (await screen.findByRole("button", { name: "Sign out" })).click();
+    await waitFor(() => expect(beforeSignOut).toHaveBeenCalledOnce());
+    expect(accountSession.signOut).not.toHaveBeenCalled();
+  });
 });

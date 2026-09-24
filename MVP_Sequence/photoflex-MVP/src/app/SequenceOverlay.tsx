@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
-import type { PhotoId, ProjectId, SequenceId, SequenceItemId, SourceError, VersionId } from "../contracts";
+import type { LayoutId, PhotoId, ProjectId, SequenceId, SequenceItemId, SourceError, VersionId } from "../contracts";
 import { photoInsertionToItemIndex, projectSequencePhotos } from "../modules/sequence";
 import { openVersionAsDraft } from "../modules/versioning";
 import { useDialogKeyboard } from "./AppPrimitives";
@@ -13,6 +13,7 @@ import { useSequenceReorderDrag } from "./useSequenceReorderDrag";
 import { sequenceItemInDirection, type SequenceArrow } from "./sequenceKeyboardNavigation";
 import { useSequenceSession } from "./sequenceSession";
 import { exportSequenceFolder, SequenceFolderExportError } from "../platform/browser/exportSequenceFolder";
+import { LayoutCreateDialog } from "./LayoutCreateDialog";
 
 interface SequenceOverlayProps {
   readonly dependencies: AppDependencies;
@@ -21,11 +22,12 @@ interface SequenceOverlayProps {
   readonly sequenceId: SequenceId;
   readonly openVersionId?: VersionId;
   readonly onClose: () => void;
+  readonly onOpenLayout: (layoutId: LayoutId) => void;
   readonly onPhotoError: (photoId: PhotoId, error: SourceError) => void;
 }
 
 /** Photo-only Sequence sorting surface embedded over the persistent Table. */
-export function SequenceOverlay({ dependencies, persistence, projectId, sequenceId, openVersionId, onClose, onPhotoError }: SequenceOverlayProps) {
+export function SequenceOverlay({ dependencies, persistence, projectId, sequenceId, openVersionId, onClose, onOpenLayout, onPhotoError }: SequenceOverlayProps) {
   const { t } = useLocale();
   const sequenceSession = useSequenceSession(persistence, projectId, sequenceId);
   const { sequence } = sequenceSession;
@@ -36,6 +38,8 @@ export function SequenceOverlay({ dependencies, persistence, projectId, sequence
   const [actionError, setActionError] = useState<string>();
   const [folderExportNotice, setFolderExportNotice] = useState<string>();
   const [folderExporting, setFolderExporting] = useState(false);
+  const [layoutBusy, setLayoutBusy] = useState(false);
+  const [createLayoutOpen, setCreateLayoutOpen] = useState(false);
   const [photoShapes, setPhotoShapes] = useState<ReadonlyMap<PhotoId, "landscape" | "portrait">>(new Map());
   const rootRef = useRef<HTMLElement>(null);
   const gridRef = useRef<HTMLElement>(null);
@@ -43,7 +47,7 @@ export function SequenceOverlay({ dependencies, persistence, projectId, sequence
   const unusedStripRef = useRef<HTMLElement>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
   const openedVersionRef = useRef<VersionId | undefined>(undefined);
-  useDialogKeyboard(rootRef, () => void closeOverlay(), readIndex === undefined && previewIndex === undefined);
+  useDialogKeyboard(rootRef, () => void closeOverlay(), readIndex === undefined && previewIndex === undefined && !createLayoutOpen);
 
   const photos = useMemo(() => projectSequencePhotos(sequence?.items ?? []), [sequence?.items]);
   const photoItemIds = useMemo(() => photos.map(({ item }) => item.id), [photos]);
@@ -72,6 +76,20 @@ export function SequenceOverlay({ dependencies, persistence, projectId, sequence
     const result = await sequenceSession.flush();
     if (result.ok) onClose();
   }, [onClose, sequenceSession]);
+
+  const openLayout = useCallback(async () => {
+    if (layoutBusy || !sequence) return;
+    setLayoutBusy(true);
+    setActionError(undefined);
+    const saved = await sequenceSession.flush();
+    if (!saved.ok) { setActionError(t("sequence.saveFailed", "Sequence could not be saved. Retry before opening Layout.")); setLayoutBusy(false); return; }
+    const listed = await persistence.listLayouts();
+    if (!listed.ok) { setActionError(t("layout.listFailed", "Layout could not be loaded. Please retry.")); setLayoutBusy(false); return; }
+    const existing = listed.value.find((entry) => entry.sequenceId === sequence.id);
+    if (existing) onOpenLayout(existing.id);
+    else setCreateLayoutOpen(true);
+    setLayoutBusy(false);
+  }, [layoutBusy, onOpenLayout, persistence, sequence, sequenceSession, t]);
 
   const createSequenceFolder = useCallback(async () => {
     if (!sequence || !photos.length || folderExporting) return;
@@ -180,6 +198,7 @@ export function SequenceOverlay({ dependencies, persistence, projectId, sequence
     <header className="sequence-overlay-header">
       <div><span>SEQUENCE</span><h1>{sequence.name}</h1></div>
       <nav aria-label="Sequence controls">
+        <button className="sequence-overlay-folder" disabled={layoutBusy} onClick={() => void openLayout()}>{layoutBusy ? t("common.loading") : "Layout"}</button>
         <button className="sequence-overlay-folder" disabled={!photos.length || folderExporting} aria-busy={folderExporting} onClick={() => void createSequenceFolder()}>{folderExporting ? t("sequence.creatingFolder") : t("sequence.createFolder")}</button>
         <button className="sequence-overlay-read" title="R" disabled={!photos.length} onClick={() => setReadIndex(0)}>{t("sequence.read")}</button>
         <button ref={closeRef} className="sequence-overlay-close" aria-label={`${t("common.close")} Sequence`} onClick={() => void closeOverlay()}>×</button>
@@ -216,5 +235,6 @@ export function SequenceOverlay({ dependencies, persistence, projectId, sequence
     </section>
     {previewIndex !== undefined && photos[previewIndex] && <SequencePhotoPreview key={photos[previewIndex].item.id} photoId={photos[previewIndex].item.photoId} index={previewIndex} total={photos.length} photoSource={dependencies.photoSource} onClose={() => setPreviewIndex(undefined)} onMove={(direction) => setPreviewIndex((current) => current === undefined ? current : Math.max(0, Math.min(photos.length - 1, current + direction)))} onPhotoError={onPhotoError} />}
     {readIndex !== undefined && <SequenceReadMode sequence={sequence} initialIndex={readIndex} photoSource={dependencies.photoSource} pinned={{}} onTogglePin={() => undefined} onClose={() => setReadIndex(undefined)} onPhotoError={onPhotoError} />}
+    {createLayoutOpen && <LayoutCreateDialog sequence={sequence} persistence={persistence} onClose={() => setCreateLayoutOpen(false)} onCreated={onOpenLayout} />}
   </section>;
 }

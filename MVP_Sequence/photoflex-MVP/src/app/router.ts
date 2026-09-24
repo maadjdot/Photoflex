@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import type { ProjectId, SequenceId, SourceId, VersionId } from "../contracts";
+import type { LayoutId, ProjectId, SequenceId, SourceId, VersionId } from "../contracts";
 
 export type AppRoute =
   | { readonly name: "home" }
@@ -7,6 +7,7 @@ export type AppRoute =
   | { readonly name: "contact-sheet"; readonly projectId: ProjectId; readonly sourceId: SourceId }
   | { readonly name: "table"; readonly projectId: ProjectId }
   | { readonly name: "sequence"; readonly projectId: ProjectId; readonly sequenceId: SequenceId; readonly openVersionId?: VersionId }
+  | { readonly name: "layout"; readonly projectId: ProjectId; readonly sequenceId: SequenceId; readonly layoutId: LayoutId }
   | { readonly name: "sequence-compare"; readonly projectId: ProjectId; readonly leftSequenceId: SequenceId; readonly rightSequenceId: SequenceId }
   | { readonly name: "version-compare"; readonly projectId: ProjectId; readonly leftVersionId: VersionId; readonly rightVersionId: VersionId };
 
@@ -15,6 +16,7 @@ export function routeToHash(route: AppRoute): string {
   if (route.name === "project") return `#/projects/${route.projectId}`;
   if (route.name === "table") return `#/projects/${route.projectId}/table`;
   if (route.name === "sequence") return `#/projects/${route.projectId}/sequences/${route.sequenceId}${route.openVersionId ? `?openVersion=${encodeURIComponent(route.openVersionId)}` : ""}`;
+  if (route.name === "layout") return `#/projects/${route.projectId}/sequences/${route.sequenceId}/layout/${route.layoutId}`;
   if (route.name === "sequence-compare") return `#/projects/${route.projectId}/sequences/compare/${route.leftSequenceId}/${route.rightSequenceId}`;
   if (route.name === "version-compare") return `#/projects/${route.projectId}/versions/compare/${route.leftVersionId}/${route.rightVersionId}`;
   return `#/projects/${route.projectId}/sources/${route.sourceId}`;
@@ -38,6 +40,11 @@ export function readRoute(hash = globalThis.location?.hash ?? ""): AppRoute {
     const leftVersionId = safeDecode(parts[4]) as VersionId | undefined;
     const rightVersionId = safeDecode(parts[5]) as VersionId | undefined;
     if (leftVersionId && rightVersionId) return { name: "version-compare", projectId, leftVersionId, rightVersionId };
+  }
+  if (parts[2] === "sequences" && parts.length === 6 && parts[4] === "layout") {
+    const sequenceId = safeDecode(parts[3]) as SequenceId | undefined;
+    const layoutId = safeDecode(parts[5]) as LayoutId | undefined;
+    if (sequenceId && layoutId) return { name: "layout", projectId, sequenceId, layoutId };
   }
   if (parts[2] === "sequences" && parts[3] && parts.length === 4) {
     const sequenceId = safeDecode(parts[3]) as SequenceId | undefined;

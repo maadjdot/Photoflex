@@ -19,6 +19,7 @@ export { VirtualPhotoGrid } from "./VirtualPhotoGrid";
 
 const SequenceComparePage = lazy(() => import("./SequenceComparePages").then((module) => ({ default: module.SequenceComparePage })));
 const VersionComparePage = lazy(() => import("./SequenceComparePages").then((module) => ({ default: module.VersionComparePage })));
+const LayoutWorkspace = lazy(() => import("./LayoutWorkspace").then((module) => ({ default: module.LayoutWorkspace })));
 
 interface AppProps {
   readonly dependencies: AppDependencies;
@@ -35,13 +36,14 @@ function M1AppContent({ dependencies }: AppProps) {
   const [homeProjectId, setHomeProjectId] = useState<ProjectId>();
   const [recovering, setRecovering] = useState(false);
   const [recoveryError, setRecoveryError] = useState<string>();
-  const [route, navigate] = useAppRoute(async () => {
+  const ensureSaved = async () => {
     const current = coordinatorRef.current;
     if (!current?.hasUnsavedWork()) return true;
     const result = await current.flushAll();
     if (!result.ok) setRecovery(true);
     return result.ok;
-  });
+  };
+  const [route, navigate] = useAppRoute(ensureSaved);
   const { currentProjectId, contactSourceId, lastSequenceId } = useAppNavigationState(dependencies, route);
   const coordinator = useMemo(() => currentProjectId ? createProjectWriteCoordinator(dependencies, currentProjectId) : undefined, [dependencies, currentProjectId]);
   coordinatorRef.current = coordinator;
@@ -82,6 +84,7 @@ function M1AppContent({ dependencies }: AppProps) {
       <Suspense fallback={<main className="page centered-state"><div className="loading-mark" /><p>{t("status.loadingWorkspace")}</p></main>}>
         {route.name === "sequence-compare" && <SequenceComparePage dependencies={dependencies} projectId={route.projectId} leftSequenceId={route.leftSequenceId} rightSequenceId={route.rightSequenceId} navigate={navigate} />}
         {route.name === "version-compare" && <VersionComparePage dependencies={dependencies} projectId={route.projectId} leftVersionId={route.leftVersionId} rightVersionId={route.rightVersionId} navigate={navigate} />}
+        {route.name === "layout" && coordinator && <LayoutWorkspace dependencies={dependencies} persistence={coordinator} projectId={route.projectId} sequenceId={route.sequenceId} layoutId={route.layoutId} navigate={navigate} />}
       </Suspense>
     </ProjectWorkspaceProvider>
   ) : (
@@ -90,7 +93,7 @@ function M1AppContent({ dependencies }: AppProps) {
 
   return (
     <div className={`app-shell${usesTableChrome ? " is-table" : ""}`}>
-      {route.name !== "table" && route.name !== "sequence" && <AppHeader dependencies={dependencies} route={route} projectId={currentProjectId} projectSettingsProjectId={route.name === "home" ? homeProjectId : undefined} contactSourceId={contactSourceId} lastSequenceId={lastSequenceId} navigate={navigate} variant={usesTableChrome ? "table" : "default"} />}
+      {route.name !== "table" && route.name !== "sequence" && <AppHeader dependencies={dependencies} route={route} projectId={currentProjectId} projectSettingsProjectId={route.name === "home" ? homeProjectId : undefined} contactSourceId={contactSourceId} lastSequenceId={lastSequenceId} navigate={navigate} beforeSignOut={ensureSaved} variant={usesTableChrome ? "table" : "default"} />}
       {projectContent}
       {recovery && <div className="draft-recovery" role="alert"><strong>{t("backup.unsavedTitle")}</strong><p>{t("backup.unsavedDetail")}</p><div><button disabled={recovering} onClick={() => setRecovery(false)}>{t("backup.keepEditing")}</button><button disabled={recovering} onClick={() => void recover(true)}>{t("backup.downloadRecovery")}</button><button disabled={recovering} onClick={() => void recover(false)}>{recovering ? t("project.preparing") : t("backup.saveRecoveryCopy")}</button></div>{recoveryError && <p>{recoveryError}</p>}</div>}
     </div>

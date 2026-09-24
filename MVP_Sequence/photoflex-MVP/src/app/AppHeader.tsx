@@ -5,13 +5,14 @@ import type { AppRoute } from "./router";
 import { LanguageSwitcher, useLocale } from "./locale";
 import { CloudControls } from "./CloudControls";
 
-export function AppHeader({ dependencies, route, projectId, contactSourceId, lastSequenceId, navigate, variant = "default", projectLabel, actions, projectSettingsProjectId, showProjectSettings = true, showCloudSaveStatus = true }: {
+export function AppHeader({ dependencies, route, projectId, contactSourceId, lastSequenceId, navigate, beforeSignOut, variant = "default", projectLabel, actions, projectSettingsProjectId, showProjectSettings = true, showCloudSaveStatus = true }: {
   readonly dependencies: AppDependencies;
   readonly route: AppRoute;
   readonly projectId?: ProjectId;
   readonly contactSourceId?: SourceId;
   readonly lastSequenceId?: SequenceId;
   readonly navigate: (route: AppRoute) => void;
+  readonly beforeSignOut?: () => Promise<boolean>;
   readonly variant?: "default" | "table";
   readonly projectLabel?: string;
   readonly actions?: ReactNode;
@@ -57,7 +58,7 @@ export function AppHeader({ dependencies, route, projectId, contactSourceId, las
       {route.name === "home" && <LanguageSwitcher />}
       {actions}
       {settingsProjectId && <NavButton onClick={() => navigate({ name: "project", projectId: settingsProjectId })}>{t("nav.projectSettings")}</NavButton>}
-      <CloudControls dependencies={dependencies} projectId={projectId} showSaveStatus={showCloudSaveStatus} />
+      <CloudControls dependencies={dependencies} projectId={projectId} showSaveStatus={showCloudSaveStatus} beforeSignOut={beforeSignOut} />
     </div>
   </header>;
 }

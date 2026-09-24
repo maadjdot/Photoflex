@@ -132,6 +132,47 @@ test("Sequence opens over Table as a clean grid and reads uncropped photos", asy
   await page.screenshot({ path: "design-output/Sequence/sequence-table-card.png", fullPage: true });
 });
 
+test("Layout opens from Sequence and keeps page order at 1280 and 1440", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto("/");
+  await expect(page.getByRole("heading", { name: "Projects" })).toBeVisible();
+  await seedSequence(page);
+  await page.goto(`/#/projects/${PROJECT_ID}/sequences/${SEQUENCE_ID}`);
+  await page.getByRole("dialog", { name: "Sequence Street Edit" }).getByRole("button", { name: "Layout" }).click();
+  const creator = page.getByRole("dialog", { name: "Create Layout" });
+  await expect(creator).toBeVisible();
+  await expect(creator).toContainText("From Sequence (8 pages)");
+  await creator.getByRole("button", { name: "Create Layout" }).click();
+  const layout = page.getByRole("main", { name: "Layout workspace" });
+  await expect(layout).toBeVisible();
+  await expect(layout.getByRole("status")).toContainText("Saved locally");
+  const route = new URL(page.url()).hash;
+  expect(route).toMatch(/\/layout\//);
+  const initialSize = await layout.locator(".layout-paper").first().boundingBox();
+  expect(initialSize!.height / initialSize!.width).toBeCloseTo(297 / 210, 1);
+  await layout.getByRole("button", { name: "+ Blank page" }).click();
+  await expect(layout.locator(".layout-pages-list button")).toHaveCount(9);
+  await layout.getByRole("button", { name: "Move earlier" }).click();
+  await layout.getByRole("button", { name: "Single" }).click();
+  await expect(layout.locator(".layout-paper")).toHaveCount(1);
+  await page.setViewportSize({ width: 1280, height: 720 });
+  for (const name of ["+ Blank page", "Duplicate", "Delete", "Move earlier", "Move later", "Single", "Facing pages"]) {
+    const control = layout.getByRole("button", { name });
+    await expect(control).toBeVisible();
+    const bounds = await control.boundingBox();
+    expect(bounds!.x).toBeGreaterThanOrEqual(0);
+    expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(1280);
+  }
+  await page.reload();
+  await expect(layout.locator(".layout-pages-list button")).toHaveCount(9);
+  await expect(layout.getByRole("status")).toContainText("Saved locally");
+  await layout.getByRole("button", { name: "← Sequence" }).click();
+  await expect(page.getByRole("dialog", { name: "Sequence Street Edit" })).toBeVisible();
+  await page.getByRole("dialog", { name: "Sequence Street Edit" }).getByRole("button", { name: "Layout" }).click();
+  await expect(layout).toBeVisible();
+  expect(new URL(page.url()).hash).toBe(route);
+});
+
 async function seedSequence(page: Page) {
   await page.evaluate(async ({ projectId, sequenceId }) => {
     const request = indexedDB.open("photoflex-mvp");
@@ -150,9 +191,9 @@ async function seedSequence(page: Page) {
     const readingUnits = items.map((item, index) => ({ id: `sequence-unit-${index + 1}`, kind: "single", itemId: item.id }));
     const transaction = database.transaction(["projects", "sequences", "versions", "photo-index", "photo-thumbnails", "photo-derived-previews"], "readwrite");
     transaction.objectStore("projects").put({
-      schemaVersion: 9, projectId, name: "Sequence Visual", memo: "", expectedPhotoCount: null, sources: [], photoStates: {},
+      schemaVersion: 10, projectId, name: "Sequence Visual", memo: "", expectedPhotoCount: null, sources: [], photoStates: {},
       worktableDraft: { projectId, entryOrder: [], placements: {}, groups: [], links: [], pileOrder: [sequenceId], pilePlacements: { [sequenceId]: { sequenceId, x: 120, y: 110, z: 1, width: 402, height: 176 } }, frameOrder: [], frames: {} },
-      sequenceIds: [sequenceId], versionIds: [versionId], revision: 0, createdAt, updatedAt: createdAt, lastOpenedAt: createdAt,
+      sequenceIds: [sequenceId], versionIds: [versionId], layoutIds: [], revision: 0, createdAt, updatedAt: createdAt, lastOpenedAt: createdAt,
     });
     transaction.objectStore("sequences").put({ id: sequenceId, projectId, name: "Street Edit", items, segments: [], readingUnits, currentVersionId: versionId, revision: 0, createdAt, updatedAt: createdAt });
     transaction.objectStore("versions").put({ id: versionId, projectId, sequenceId, name: "Initial · Street Edit", itemCount: items.length, items, segments: [], readingUnits, createdAt });
@@ -163,7 +204,7 @@ async function seedSequence(page: Page) {
       const markerY = photo.height * .16;
       const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${photo.width}" height="${photo.height}"><rect width="100%" height="100%" fill="hsl(${hue} 22% 78%)"/><path d="M0 ${photo.height} L${photo.width * .32} ${photo.height * .35} L${photo.width * .63} ${photo.height * .7} L${photo.width} ${photo.height * .2} V${photo.height}Z" fill="hsl(${hue} 25% 34%)"/><circle cx="${markerX}" cy="${markerY}" r="${Math.min(photo.width, photo.height) * .06}" fill="#fff"/></svg>`;
       const blob = new Blob([svg], { type: "image/svg+xml" });
-      const sourceVersion = `SEQ_${index + 1}.jpg|${photo.width}|${photo.height}|unknown-size|unknown-mtime`;
+      const sourceVersion = `SEQ_${index + 1}.jpg|${photo.width}|${photo.height}|unknown-size|unknown-mtime|unknown-fingerprint`;
       transaction.objectStore("photo-thumbnails").put({ photoId: photo.id, maxEdge: 512, sourceVersion, blob });
       transaction.objectStore("photo-derived-previews").put({ photoId: photo.id, maxEdge: 768, sourceVersion, blob });
     }
