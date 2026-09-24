@@ -67,7 +67,23 @@ export function applyLayoutCommand(document: LayoutDocument, command: LayoutEdit
   const fail = () => err({ kind: "invalid-layout-command" } as const);
   let pages: readonly LayoutPage[] = document.pages;
   let name = document.name;
+  let pageSpec = document.pageSpec;
   if (command.type === "rename") name = command.name.trim();
+  else if (command.type === "set-page-size") {
+    const scaleX = command.widthPt / pageSpec.widthPt;
+    const scaleY = command.heightPt / pageSpec.heightPt;
+    if (![scaleX, scaleY].every((value) => Number.isFinite(value) && value > 0)) return fail();
+    pageSpec = { widthPt: command.widthPt, heightPt: command.heightPt };
+    pages = pages.map((page) => ({ ...page, objects: page.objects.map((object) => {
+      const width = Math.max(MM_TO_PT, object.rect.width * scaleX);
+      const height = Math.max(MM_TO_PT, object.rect.height * scaleY);
+      return { ...object, rect: {
+        x: Math.max(MM_TO_PT - width, Math.min(command.widthPt - MM_TO_PT, object.rect.x * scaleX)),
+        y: Math.max(MM_TO_PT - height, Math.min(command.heightPt - MM_TO_PT, object.rect.y * scaleY)),
+        width, height,
+      } };
+    }) }));
+  }
   else if (command.type === "add-page") {
     const at = command.at ?? pages.length;
     if (!Number.isInteger(at) || at < 0 || at > pages.length) return fail();
@@ -107,6 +123,6 @@ export function applyLayoutCommand(document: LayoutDocument, command: LayoutEdit
       return { ...page, objects: page.objects.filter((object) => object.id !== command.objectId) };
     });
   }
-  const next = { ...document, name, pages };
+  const next = { ...document, name, pageSpec, pages };
   return isLayoutDocument(next) ? ok(next) : fail();
 }

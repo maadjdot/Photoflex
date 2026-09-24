@@ -153,7 +153,13 @@ it("creates a Layout from a real Sequence, saves page order, and reopens the sam
   expect(window.location.hash).toContain(`/layout/${layoutId}`);
   fireEvent.click(within(workspace).getByRole("button", { name: "+ Blank page" }));
   await waitFor(() => expect(within(workspace).getByText("5", { selector: ".layout-panel-heading span" })).toBeTruthy());
-  fireEvent.click(within(workspace).getByRole("button", { name: "Move earlier" }));
+  const pages = workspace.querySelectorAll(".layout-pages-list button");
+  const dataTransfer = { setData: () => {}, effectAllowed: "move" };
+  fireEvent.dragStart(pages[1], { dataTransfer });
+  fireEvent.dragOver(pages[0], { dataTransfer });
+  fireEvent.drop(pages[0], { dataTransfer });
+  fireEvent.dragEnd(pages[1], { dataTransfer });
+  await waitFor(() => expect(within(workspace).getByRole("button", { name: "Page 1 Current page" })).toBeTruthy());
   fireEvent.click(within(workspace).getByRole("button", { name: "Single" }));
   expect(within(workspace).getByRole("button", { name: "Single" }).getAttribute("aria-pressed")).toBe("true");
   fireEvent.click(within(workspace).getByRole("button", { name: "← Sequence" }));

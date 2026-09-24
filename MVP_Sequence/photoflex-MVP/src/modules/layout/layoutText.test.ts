@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { LayoutTextBox } from "../../contracts";
-import { layoutText, notoSansScHasGlyph } from "./layoutText";
+import { layoutText } from "./layoutText";
 
 const box: LayoutTextBox = {
   kind: "text-box", id: "text-1" as LayoutTextBox["id"],
@@ -9,25 +9,15 @@ const box: LayoutTextBox = {
 };
 
 describe("Layout text", () => {
-  it("uses explicit newlines, wraps by measured width, and locates overflow", () => {
+  it("uses explicit newlines and wraps by measured width", () => {
     const result = layoutText(box, (text) => [...text].length * 10);
     expect(result.lines.map((line) => line.text)).toEqual(["上海街", "景", "Caf", "é"]);
     expect(result.lines.map((line) => line.start)).toEqual([0, 3, 5, 8]);
-    expect(result.overflowLine).toBe(2);
-    expect(result.missing).toEqual([]);
-  });
-
-  it("identifies unsupported glyphs from the bundled font and does not silently substitute", () => {
-    expect(notoSansScHasGlyph("上")).toBe(true);
-    expect(notoSansScHasGlyph("é")).toBe(true);
-    expect(notoSansScHasGlyph("🦄")).toBe(false);
-    const result = layoutText({ ...box, text: "A🦄" }, () => 10);
-    expect(result.missing).toEqual([{ character: "🦄", index: 1 }]);
   });
 
   it("keeps source positions through CRLF line breaks", () => {
-    const result = layoutText({ ...box, text: "上\r\n🦄" }, () => 10);
+    const result = layoutText({ ...box, text: "上\r\n下" }, () => 10);
     expect(result.lines.map((line) => line.start)).toEqual([0, 3]);
-    expect(result.missing).toEqual([{ character: "🦄", index: 3 }]);
+    expect(result.lines.map((line) => line.text)).toEqual(["上", "下"]);
   });
 });

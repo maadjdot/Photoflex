@@ -22,10 +22,10 @@ export function useLayoutText(box: LayoutTextBox | undefined): LayoutTextResult 
   }, [box, ready]);
 }
 
-export function LayoutTextView({ box, scale, reading, zh }: { box: LayoutTextBox; scale: number; reading: boolean; zh: boolean }) {
+export function LayoutTextView({ box, scale }: { box: LayoutTextBox; scale: number }) {
   const result = useLayoutText(box);
-  return <><div className="layout-text-content" lang="zh-CN" style={{ color: box.style.color, fontFamily: '"PhotoFlex Noto Sans SC"',
+  return <div className="layout-text-content" lang="zh-CN" style={{ color: box.style.color, fontFamily: '"PhotoFlex Noto Sans SC"',
     fontSize: box.style.fontSizePt * scale, lineHeight: `${box.style.fontSizePt * box.style.lineHeight * scale}px`, textAlign: box.style.align }}>
     {result?.lines.map((line, index) => <div className="layout-text-line" key={`${line.start}-${index}`} data-source-start={line.start}>{line.text || "\u00a0"}</div>)}
-  </div>{!reading && result && (result.overflowLine !== null || result.missing.length > 0) && <span className="layout-text-warning" title={result.missing.length ? (zh ? "缺字" : "Missing glyph") : (zh ? "文字溢出" : "Text overflow")}>!</span>}</>;
+  </div>;
 }

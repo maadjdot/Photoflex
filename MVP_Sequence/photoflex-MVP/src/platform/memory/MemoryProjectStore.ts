@@ -350,7 +350,7 @@ export class MemoryProjectStore implements ProjectStore {
     if (!current) return err({ kind: "not-found", entity: "layout", id: layout.id });
     if (current.revision !== expectedRevision) return err({ kind: "layout-conflict", expectedRevision, actualRevision: current.revision });
     const validation = validateLayoutForProject(current.projectId, layout);
-    if (!validation.ok || layout.sequenceId !== current.sequenceId || layout.projectId !== current.projectId || layout.pageSpec.widthPt !== current.pageSpec.widthPt || layout.pageSpec.heightPt !== current.pageSpec.heightPt) return err({ kind: "invalid-layout", reason: "Layout identity or page size changed." });
+    if (!validation.ok || layout.sequenceId !== current.sequenceId || layout.projectId !== current.projectId) return err({ kind: "invalid-layout", reason: "Layout identity changed or content is invalid." });
     const revision = (expectedRevision + 1) as LayoutRevision;
     const saved = { ...layout, revision };
     this.database.layouts.set(layout.id, clone(saved));

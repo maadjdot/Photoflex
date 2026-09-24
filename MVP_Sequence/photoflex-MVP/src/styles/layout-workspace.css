@@ -156,8 +156,7 @@
 .layout-object-text-box.is-selected { outline: 1px dashed #272622; }
 .layout-text-content { width: 100%; }
 .layout-text-line { white-space: pre; }
-.layout-text-warning { position: absolute; right: 3px; bottom: 3px; z-index: 2; padding: 2px 4px; background: #a33b33; color: #fff; font-size: 9px; }
-.layout-text-input { width: 100%; min-height: 130px; box-sizing: border-box; padding: 7px; border: 1px solid #d8d4cc; background: #fff; font: 12px/1.5 "PhotoFlex Noto Sans SC", sans-serif; resize: vertical; }
+.layout-text-canvas-input { position: absolute; inset: 0; z-index: 1; width: 100%; height: 100%; box-sizing: border-box; margin: 0; padding: 0; border: 0; outline: 0; background: transparent; font-family: "PhotoFlex Noto Sans SC", sans-serif; resize: none; cursor: text; }
 .layout-text-colour { width: 100%; height: 30px; }
 .layout-reading .layout-pages-panel, .layout-reading .layout-properties-panel, .layout-reading .layout-image-toolbar, .layout-reading .layout-photo-tray { display: none !important; }
 .layout-reading .layout-workspace-body { grid-template-columns: minmax(0, 1fr); }

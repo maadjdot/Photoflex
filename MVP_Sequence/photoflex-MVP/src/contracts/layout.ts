@@ -59,6 +59,7 @@ export interface LayoutSummary {
 
 export type LayoutEditCommand =
   | { readonly type: "rename"; readonly name: string }
+  | { readonly type: "set-page-size"; readonly widthPt: number; readonly heightPt: number }
   | { readonly type: "add-page"; readonly page: LayoutPage; readonly at?: number }
   | { readonly type: "remove-page"; readonly pageId: LayoutPageId }
   | { readonly type: "move-page"; readonly pageId: LayoutPageId; readonly to: number }

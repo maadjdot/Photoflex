@@ -747,7 +747,7 @@ export class IndexedDbProjectStore implements ProjectStore {
         if (!current) { result = err({ kind: "not-found", entity: "layout", id: layout.id }); return; }
         if (current.revision !== expectedRevision) { result = err({ kind: "layout-conflict", expectedRevision, actualRevision: current.revision }); return; }
         const validation = validateLayoutForProject(current.projectId, layout);
-        if (!validation.ok || layout.sequenceId !== current.sequenceId || layout.pageSpec.widthPt !== current.pageSpec.widthPt || layout.pageSpec.heightPt !== current.pageSpec.heightPt) { result = err({ kind: "invalid-layout", reason: "Layout identity or page size changed." }); return; }
+        if (!validation.ok || layout.sequenceId !== current.sequenceId) { result = err({ kind: "invalid-layout", reason: "Layout identity changed or content is invalid." }); return; }
         const revision = (expectedRevision + 1) as LayoutRevision;
         const saved = { ...layout, revision };
         store.put(clone(saved));

@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import type { LayoutId, LayoutObjectId, LayoutPageId, PhotoId, ProjectBackupV1, ProjectStore } from "../../src/contracts";
-import { createEmptyLayout } from "../../src/modules/layout/layoutDocument";
+import { applyLayoutCommand, createEmptyLayout } from "../../src/modules/layout/layoutDocument";
+import { MM_TO_PT } from "../../src/modules/page-layout/pageGeometry";
 import { IndexedDbProjectStore } from "../../src/platform/browser/IndexedDbProjectStore";
 import { MemoryProjectStore } from "../../src/platform/memory/MemoryProjectStore";
 import { backupBytes } from "../helpers/projectBackup";
@@ -38,6 +39,12 @@ for (const [name, factory] of [["memory", () => new MemoryProjectStore()], ["Ind
     const loaded = await store.loadLayout(first.id);
     expect(loaded).toMatchObject({ ok: true, value: { name: "Opening", pages: [{ objects: [frame] }, { objects: [] }] } });
     expect(await store.listLayouts(imported.value)).toMatchObject({ ok: true, value: [{ id: first.id, pageCount: 2 }] });
+
+    if (!loaded.ok || !saved.ok) throw Error("saved layout unavailable");
+    const resized = applyLayoutCommand(loaded.value, { type: "set-page-size", widthPt: 148 * MM_TO_PT, heightPt: 210 * MM_TO_PT });
+    if (!resized.ok) throw Error("resize rejected");
+    expect((await store.saveLayout(resized.value, saved.value.revision)).ok).toBe(true);
+    expect(await store.loadLayout(first.id)).toMatchObject({ ok: true, value: { pageSpec: { widthPt: 148 * MM_TO_PT, heightPt: 210 * MM_TO_PT } } });
 
     const exported = await store.exportBackup(imported.value);
     if (!exported.ok) throw Error("export failed");

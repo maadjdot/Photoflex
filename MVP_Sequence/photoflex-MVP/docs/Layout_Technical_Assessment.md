@@ -38,12 +38,12 @@ Sequence 照片条 ──> PhotoSource 预览 ──┘
 |---|---|---|
 | `layout-document` | `createFromSequence`、`apply(command, document)`、`validate(document)` | 稳定 ID、页面与对象约束、一次动作一次快照、模板替换和撤销所需结果；不碰 React、照片文件或数据库 |
 | `page-geometry` | `templateRects(spec, template)`、`resolveImagePlacement(frame, photo, crop)`、单位转换 | 从现有 Frame 几何提取或复用纯规则；不包含 Table 世界坐标与 WorktableDraft |
-| `layout-text` | `layoutText(text, style, box, fontMetrics)` 返回行、字形缺失和溢出 | 编辑、阅读、PDF 的共同排版结果；具体字体度量适配留在内部 |
+| `layout-text` | `layoutText(text, style, box, fontMetrics)` 返回文字行 | 编辑、阅读、PDF 的共同排版结果；具体字体度量适配留在内部 |
 | `layout-presentation` | `presentPage(document, pageId, resources)` | 页面内 DOM、框层级、裁切、手柄与阅读显示；编辑状态不写入文档 |
 | `layout-export` | `preflight(snapshot, resourceInfo)`、`createPdf(snapshot, assets, signal, progress)` | 固定尺寸 PDF、预检、逐页资源使用；文件下载由浏览器 adapter 处理 |
 | `layout-persistence` | `createLayout`、`loadLayout`、`saveLayout(expectedRevision)`、关联删除 | 本地原子写入、修订冲突、备份、云同步；通过现有项目写入协调器给 UI 使用 |
 
-接口包含失败模式：未知页面/对象、非法几何、修订冲突、缺图、缺字、文字溢出、取消与 I/O 错误应有可辨识结果。只在确有第二种实现的接缝引入 adapter；例如 PhotoSource 与 ProjectStore 已有多种实现，值得沿用。不要为未来网页导出预先造通用插件系统。
+接口包含失败模式：未知页面/对象、非法几何、修订冲突、缺图、取消与 I/O 错误应有可辨识结果。只在确有第二种实现的接缝引入 adapter；例如 PhotoSource 与 ProjectStore 已有多种实现，值得沿用。不要为未来网页导出预先造通用插件系统。
 
 ## 3. 文档模型与核心不变量
 
@@ -68,7 +68,7 @@ Sequence 是照片条的来源，Layout 是已排内容的来源。Sequence 变�
 
 页面单位使用 point；毫米只用于用户输入换算。画布缩放只作用于页面外层变换，框、照片和文字以同一页面坐标决定位置。编辑和阅读共用页面呈现模型，阅读仅关闭编辑装饰。缩略图可使用较低分辨率，当前页面按需取得合适预览，卸载释放 lease。
 
-文字需先锁定可嵌入、许可明确、覆盖目标中英文字符的字体。`layout-text` 的换行、行距、对齐、溢出结果由编辑、阅读与 PDF 消费。中文输入法组合输入期间不提交命令。字体尚未准备好时，页面不可把替代字体产生的结果保存为正式排版。
+文字需先锁定可嵌入、许可明确、覆盖目标中英文字符的字体。`layout-text` 的换行、行距、对齐结果由编辑、阅读与 PDF 消费。中文输入法组合输入期间不提交命令。字体尚未准备好时，页面不可把替代字体产生的结果保存为正式排版。
 
 L0 选择 Noto Sans SC Regular 作为中英文字体候选，并固定中文 PDF 验证样本和 Chrome/Edge 阅读器，见 [L0 记录](./Layout_L0_Verification.md)。当前仅完成字体覆盖检查，尚未证明 PDF 复制或搜索。正式出口需要在目标 PDF 阅读器中验证中文显示、复制、搜索；若当前字体方案不能通过，调整字体/编码实现并重测，不降低 PRD 的文字承诺。
 
