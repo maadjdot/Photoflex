@@ -63,4 +63,6 @@ export type LayoutEditCommand =
   | { readonly type: "remove-page"; readonly pageId: LayoutPageId }
   | { readonly type: "move-page"; readonly pageId: LayoutPageId; readonly to: number }
   | { readonly type: "upsert-object"; readonly pageId: LayoutPageId; readonly object: LayoutObject }
-  | { readonly type: "remove-object"; readonly pageId: LayoutPageId; readonly objectId: LayoutObjectId };
+  | { readonly type: "remove-object"; readonly pageId: LayoutPageId; readonly objectId: LayoutObjectId }
+  | { readonly type: "move-object"; readonly pageId: LayoutPageId; readonly objectId: LayoutObjectId; readonly to: number }
+  | { readonly type: "replace-image-frames"; readonly pageId: LayoutPageId; readonly frames: readonly LayoutImageFrame[] };

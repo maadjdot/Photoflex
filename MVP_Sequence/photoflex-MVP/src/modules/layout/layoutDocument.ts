@@ -82,13 +82,27 @@ export function applyLayoutCommand(document: LayoutDocument, command: LayoutEdit
     const rest = pages.filter((page) => page.id !== command.pageId);
     pages = [...rest.slice(0, command.to), moving, ...rest.slice(command.to)];
   } else {
-    if (!pages.some((page) => page.id === command.pageId)) return fail();
+    const targetPage = pages.find((page) => page.id === command.pageId);
+    if (!targetPage) return fail();
+    if (command.type === "move-object" && (!targetPage.objects.some((object) => object.id === command.objectId)
+      || !Number.isInteger(command.to) || command.to < 0 || command.to >= targetPage.objects.length)) return fail();
     pages = pages.map((page) => {
       if (page.id !== command.pageId) return page;
       if (command.type === "upsert-object") {
         return { ...page, objects: page.objects.some((object) => object.id === command.object.id)
           ? page.objects.map((object) => object.id === command.object.id ? command.object : object)
           : [...page.objects, command.object] };
+      }
+      if (command.type === "move-object") {
+        const at = page.objects.findIndex((object) => object.id === command.objectId);
+        if (at < 0 || !Number.isInteger(command.to) || command.to < 0 || command.to >= page.objects.length) return page;
+        const objects = [...page.objects];
+        const [moving] = objects.splice(at, 1);
+        objects.splice(command.to, 0, moving);
+        return { ...page, objects };
+      }
+      if (command.type === "replace-image-frames") {
+        return { ...page, objects: [...command.frames, ...page.objects.filter((object) => object.kind !== "image-frame")] };
       }
       return { ...page, objects: page.objects.filter((object) => object.id !== command.objectId) };
     });
