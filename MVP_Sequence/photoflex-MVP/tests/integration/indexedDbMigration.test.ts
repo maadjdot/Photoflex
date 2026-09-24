@@ -77,7 +77,8 @@ describe("IndexedDB schema 0 → 1", () => {
     const migrated = await requestValue<Record<string, unknown>>(
       opened.value.transaction(STORE_NAMES.projects, "readonly").objectStore(STORE_NAMES.projects).get("legacy-project"),
     );
-    expect(migrated.schemaVersion).toBe(9);
+    expect(migrated.schemaVersion).toBe(10);
+    expect(migrated.layoutIds).toEqual([]);
     expect(migrated.memo).toBe("");
     expect(migrated.expectedPhotoCount).toBeNull();
     expect(migrated.lastOpenedAt).toBe("2026-08-26T08:10:00.000Z");
@@ -173,7 +174,7 @@ describe("IndexedDB schema 0 → 1", () => {
     const version = await requestValue<Record<string, unknown>>(opened.value.transaction(STORE_NAMES.versions, "readonly").objectStore(STORE_NAMES.versions).get(currentVersionId));
     expect(version).toMatchObject({ name: "Initial · Street Edit", sequenceId: "sequence-a" });
     const workspace = await requestValue<Record<string, unknown>>(opened.value.transaction(STORE_NAMES.projects, "readonly").objectStore(STORE_NAMES.projects).get("sequence-project"));
-    expect(workspace).toMatchObject({ schemaVersion: 9, versionIds: [currentVersionId], worktableDraft: { frameOrder: [], frames: {} } });
+    expect(workspace).toMatchObject({ schemaVersion: 10, versionIds: [currentVersionId], layoutIds: [], worktableDraft: { frameOrder: [], frames: {} } });
     opened.value.close(); await deleteDatabase(databaseName);
   });
 });
@@ -196,7 +197,7 @@ describe("IndexedDB schema 10 → 11", () => {
     expect(opened.ok).toBe(true);
     if (!opened.ok) return;
     const migrated = await requestValue<Record<string, unknown>>(opened.value.transaction(STORE_NAMES.projects, "readonly").objectStore(STORE_NAMES.projects).get(workspace.projectId));
-    expect(migrated).toMatchObject({ schemaVersion: 9, name: "Older project", worktableDraft: { frameOrder: [], frames: {} } });
+    expect(migrated).toMatchObject({ schemaVersion: 10, name: "Older project", layoutIds: [], worktableDraft: { frameOrder: [], frames: {} } });
     opened.value.close(); await deleteDatabase(databaseName);
   });
 });
@@ -242,10 +243,37 @@ describe("IndexedDB schema 8 → 11", () => {
     const migrated = await requestValue<Record<string, unknown>>(
       opened.value.transaction(STORE_NAMES.projects, "readonly").objectStore(STORE_NAMES.projects).get("pending-deletion-project"),
     );
-    expect(migrated.schemaVersion).toBe(9);
+    expect(migrated.schemaVersion).toBe(10);
+    expect(migrated.layoutIds).toEqual([]);
     expect(opened.value.objectStoreNames.contains(STORE_NAMES.photoFileHandles)).toBe(true);
     expect(migrated).not.toHaveProperty("deletionPendingAt");
     opened.value.close();
     await deleteDatabase(databaseName);
+  });
+});
+
+describe("IndexedDB schema 11 → 12", () => {
+  it("adds a unique Sequence index and an empty Layout list to existing projects", async () => {
+    const databaseName = `photoflex-layout-migration-${crypto.randomUUID()}`;
+    const old = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open(databaseName, 11);
+      request.onupgradeneeded = () => request.result.createObjectStore(STORE_NAMES.projects, { keyPath: "projectId" });
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    const workspace = createWorkspace({ id: "layout-migration" as ProjectId, name: "Existing", createdAt: "2026-09-01T00:00:00.000Z" });
+    const { layoutIds: _layoutIds, ...oldWorkspace } = workspace;
+    const transaction = old.transaction(STORE_NAMES.projects, "readwrite");
+    transaction.objectStore(STORE_NAMES.projects).put({ ...oldWorkspace, schemaVersion: 9 });
+    await transactionResult(transaction); old.close();
+
+    const opened = await openPhotoFlexDatabase({ databaseName });
+    expect(opened.ok).toBe(true);
+    if (!opened.ok) return;
+    const migrated = await requestValue<Record<string, unknown>>(opened.value.transaction(STORE_NAMES.projects, "readonly").objectStore(STORE_NAMES.projects).get(workspace.projectId));
+    expect(migrated).toMatchObject({ schemaVersion: 10, layoutIds: [], name: "Existing" });
+    const layoutIndex = opened.value.transaction(STORE_NAMES.layouts, "readonly").objectStore(STORE_NAMES.layouts).index("by-sequence-id");
+    expect(layoutIndex.unique).toBe(true);
+    opened.value.close(); await deleteDatabase(databaseName);
   });
 });

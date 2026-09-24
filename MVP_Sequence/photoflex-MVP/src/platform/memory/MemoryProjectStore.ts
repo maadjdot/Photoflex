@@ -7,6 +7,11 @@ import {
   type CreateProjectInput,
   type DeleteError,
   type LoadError,
+  type LayoutDocument,
+  type LayoutId,
+  type LayoutRevision,
+  type LayoutSummary,
+  type LayoutWriteError,
   type ProjectId,
   type ProjectBackupV1,
   type ProjectStore,
@@ -34,6 +39,8 @@ import {
   createBackup,
   createWorkspace,
   isSequenceDocument,
+  toLayoutSummary,
+  validateLayoutForProject,
   isWorkspace,
   toProjectSummary,
   toVersionSummary,
@@ -48,6 +55,7 @@ export interface MemoryProjectDatabase {
   readonly projects: Map<ProjectId, ProjectWorkspace>;
   readonly versions: Map<VersionId, SequenceVersion>;
   readonly sequences: Map<SequenceId, SequenceDocument>;
+  readonly layouts: Map<LayoutId, LayoutDocument>;
   readonly corruptProjectIds: Set<ProjectId>;
   readonly photos: Map<PhotoId, PhotoRef>;
 }
@@ -56,6 +64,7 @@ export const createMemoryProjectDatabase = (): MemoryProjectDatabase => ({
   projects: new Map(),
   versions: new Map(),
   sequences: new Map(),
+  layouts: new Map(),
   corruptProjectIds: new Set(),
   photos: new Map(),
 });
@@ -295,12 +304,65 @@ export class MemoryProjectStore implements ProjectStore {
     return ok({ summary: toSequenceSummary(saved), revision });
   }
 
+  async createLayout(projectId: ProjectId, expectedRevision: WorkspaceRevision, layout: LayoutDocument): Promise<Result<{ readonly summary: LayoutSummary; readonly revision: WorkspaceRevision }, LayoutWriteError>> {
+    if (this.options.unavailable) return err({ kind: "unavailable", retryable: true });
+    if (this.options.quotaExceeded) return err({ kind: "quota-exceeded" });
+    const workspace = this.database.projects.get(projectId);
+    if (!workspace) return err({ kind: "not-found", entity: "project", id: projectId });
+    if (workspace.revision !== expectedRevision) return err({ kind: "conflict", expectedRevision, actualRevision: workspace.revision });
+    const validation = validateLayoutForProject(projectId, layout);
+    if (!validation.ok || layout.revision !== 0) return err({ kind: "invalid-layout", reason: "Invalid initial Layout." });
+    const sequence = this.database.sequences.get(layout.sequenceId);
+    if (!sequence || sequence.projectId !== projectId || !workspace.sequenceIds.includes(layout.sequenceId)) return err({ kind: "not-found", entity: "sequence", id: layout.sequenceId });
+    if (this.database.layouts.has(layout.id)) return err({ kind: "layout-id-exists", layoutId: layout.id });
+    if ([...this.database.layouts.values()].some((current) => current.sequenceId === layout.sequenceId)) return err({ kind: "layout-exists-for-sequence", sequenceId: layout.sequenceId });
+    const revision = (expectedRevision + 1) as WorkspaceRevision;
+    this.database.layouts.set(layout.id, clone(layout));
+    this.database.projects.set(projectId, clone({ ...workspace, layoutIds: [...workspace.layoutIds, layout.id], revision, updatedAt: layout.updatedAt }));
+    return ok({ summary: toLayoutSummary(layout), revision });
+  }
+
+  async listLayouts(projectId: ProjectId): Promise<Result<readonly LayoutSummary[], LoadError>> {
+    const loaded = await this.loadWorkspace(projectId);
+    if (!loaded.ok) return loaded;
+    const summaries: LayoutSummary[] = [];
+    for (const layoutId of loaded.value.layoutIds) {
+      const layout = await this.loadLayout(layoutId);
+      if (!layout.ok) return layout.error.kind === "not-found" ? err({ kind: "corrupt-data", entityId: layoutId }) : layout;
+      if (layout.value.projectId !== projectId) return err({ kind: "corrupt-data", entityId: layoutId });
+      summaries.push(toLayoutSummary(layout.value));
+    }
+    return ok(summaries);
+  }
+
+  async loadLayout(layoutId: LayoutId): Promise<Result<LayoutDocument, LoadError>> {
+    if (this.options.unavailable) return err({ kind: "unavailable", retryable: true });
+    const layout = this.database.layouts.get(layoutId);
+    if (!layout) return err({ kind: "not-found", entity: "layout", id: layoutId });
+    const validation = validateLayoutForProject(layout.projectId, layout);
+    return validation.ok ? ok(clone(layout)) : err({ kind: "corrupt-data", entityId: layoutId });
+  }
+
+  async saveLayout(layout: LayoutDocument, expectedRevision: LayoutRevision): Promise<Result<{ readonly summary: LayoutSummary; readonly revision: LayoutRevision }, LayoutWriteError>> {
+    if (this.options.unavailable) return err({ kind: "unavailable", retryable: true });
+    if (this.options.quotaExceeded) return err({ kind: "quota-exceeded" });
+    const current = this.database.layouts.get(layout.id);
+    if (!current) return err({ kind: "not-found", entity: "layout", id: layout.id });
+    if (current.revision !== expectedRevision) return err({ kind: "layout-conflict", expectedRevision, actualRevision: current.revision });
+    const validation = validateLayoutForProject(current.projectId, layout);
+    if (!validation.ok || layout.sequenceId !== current.sequenceId || layout.projectId !== current.projectId || layout.pageSpec.widthPt !== current.pageSpec.widthPt || layout.pageSpec.heightPt !== current.pageSpec.heightPt) return err({ kind: "invalid-layout", reason: "Layout identity or page size changed." });
+    const revision = (expectedRevision + 1) as LayoutRevision;
+    const saved = { ...layout, revision };
+    this.database.layouts.set(layout.id, clone(saved));
+    return ok({ summary: toLayoutSummary(saved), revision });
+  }
+
   async deleteSequences(
     projectId: ProjectId,
     sequenceIds: readonly SequenceId[],
     expectedWorkspaceRevision: WorkspaceRevision,
     worktableDraft: WorktableDraft,
-  ): Promise<Result<{ readonly revision: WorkspaceRevision; readonly sequenceIds: readonly SequenceId[]; readonly versionIds: readonly VersionId[] }, SaveError>> {
+  ): Promise<Result<{ readonly revision: WorkspaceRevision; readonly sequenceIds: readonly SequenceId[]; readonly versionIds: readonly VersionId[]; readonly layoutIds: readonly LayoutId[] }, SaveError>> {
     if (this.options.unavailable) return err({ kind: "unavailable", retryable: true });
     if (worktableDraft.projectId !== projectId) return err({ kind: "not-found", entity: "project", id: projectId });
     const workspace = this.database.projects.get(projectId);
@@ -314,11 +376,14 @@ export class MemoryProjectStore implements ProjectStore {
     const removed = new Set(ids);
     const removedVersionIds = new Set([...this.database.versions.values()].filter((version) => removed.has(version.sequenceId)).map((version) => version.id));
     const versionIds = workspace.versionIds.filter((versionId) => !removedVersionIds.has(versionId));
+    const removedLayoutIds = new Set([...this.database.layouts.values()].filter((layout) => removed.has(layout.sequenceId)).map((layout) => layout.id));
+    const layoutIds = workspace.layoutIds.filter((layoutId) => !removedLayoutIds.has(layoutId));
     ids.forEach((sequenceId) => this.database.sequences.delete(sequenceId));
     removedVersionIds.forEach((versionId) => this.database.versions.delete(versionId));
+    removedLayoutIds.forEach((layoutId) => this.database.layouts.delete(layoutId));
     const revision = (expectedWorkspaceRevision + 1) as WorkspaceRevision;
-    this.database.projects.set(projectId, clone({ ...workspace, sequenceIds: workspace.sequenceIds.filter((id) => !removed.has(id)), versionIds, worktableDraft, revision, updatedAt: new Date().toISOString() }));
-    return ok({ revision, sequenceIds: workspace.sequenceIds.filter((id) => !removed.has(id)), versionIds });
+    this.database.projects.set(projectId, clone({ ...workspace, sequenceIds: workspace.sequenceIds.filter((id) => !removed.has(id)), versionIds, layoutIds, worktableDraft, revision, updatedAt: new Date().toISOString() }));
+    return ok({ revision, sequenceIds: workspace.sequenceIds.filter((id) => !removed.has(id)), versionIds, layoutIds });
   }
 
   async listVersions(projectId: ProjectId): Promise<Result<readonly VersionSummary[], LoadError>> {
@@ -349,6 +414,7 @@ export class MemoryProjectStore implements ProjectStore {
     if (!workspace) return err({ kind: "not-found", entity: "project", id: projectId });
     for (const versionId of workspace.versionIds) this.database.versions.delete(versionId);
     for (const sequenceId of workspace.sequenceIds) this.database.sequences.delete(sequenceId);
+    for (const layoutId of workspace.layoutIds) this.database.layouts.delete(layoutId);
     this.database.projects.delete(projectId);
     this.database.corruptProjectIds.delete(projectId);
     return ok(undefined);
@@ -359,6 +425,7 @@ export class MemoryProjectStore implements ProjectStore {
     if (!workspace.ok) return workspace;
     const versions: SequenceVersion[] = [];
     const sequences: SequenceDocument[] = [];
+    const layouts: LayoutDocument[] = [];
     for (const versionId of workspace.value.versionIds) {
       const loaded = await this.loadVersion(versionId);
       if (!loaded.ok) return loaded;
@@ -369,8 +436,13 @@ export class MemoryProjectStore implements ProjectStore {
       if (!loaded.ok) return loaded;
       sequences.push(loaded.value);
     }
+    for (const layoutId of workspace.value.layoutIds) {
+      const loaded = await this.loadLayout(layoutId);
+      if (!loaded.ok) return loaded;
+      layouts.push(loaded.value);
+    }
     const sources = new Set(workspace.value.sources.map((s) => s.id));
-    const backup = { ...createBackup(workspace.value, versions, sequences), photoManifest: [...this.database.photos.values()].filter((p) => sources.has(p.sourceId)).map(({ id: photoId, ...p }) => ({ ...p, photoId })) };
+    const backup = { ...createBackup(workspace.value, versions, sequences, layouts), photoManifest: [...this.database.photos.values()].filter((p) => sources.has(p.sourceId)).map(({ id: photoId, ...p }) => ({ ...p, photoId })) };
     return ok(new TextEncoder().encode(JSON.stringify(backup)));
   }
 
@@ -383,6 +455,7 @@ export class MemoryProjectStore implements ProjectStore {
     this.database.projects.set(backup.project.projectId, clone(backup.project));
     backup.sequences.forEach((s) => this.database.sequences.set(s.id, clone(s)));
     backup.versions.forEach((v) => this.database.versions.set(v.id, clone(v)));
+    backup.layouts.forEach((layout) => this.database.layouts.set(layout.id, clone(layout)));
     photos.forEach((p) => this.database.photos.set(p.id, clone(p)));
     return ok(backup.project.projectId);
   }
@@ -397,12 +470,14 @@ export class MemoryProjectStore implements ProjectStore {
     if (previous) {
       previous.versionIds.forEach((id) => this.database.versions.delete(id));
       previous.sequenceIds.forEach((id) => this.database.sequences.delete(id));
+      previous.layoutIds.forEach((id) => this.database.layouts.delete(id));
       const oldSources = new Set(previous.sources.map((source) => source.id));
       for (const [id, photo] of this.database.photos) if (oldSources.has(photo.sourceId)) this.database.photos.delete(id);
     }
     this.database.projects.set(backup.project.projectId, clone(backup.project));
     backup.versions.forEach((version) => this.database.versions.set(version.id, clone(version)));
     backup.sequences.forEach((sequence) => this.database.sequences.set(sequence.id, clone(sequence)));
+    backup.layouts.forEach((layout) => this.database.layouts.set(layout.id, clone(layout)));
     photos.forEach((photo) => this.database.photos.set(photo.id, clone(photo)));
     return ok(undefined);
   }

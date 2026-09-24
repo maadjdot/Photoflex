@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { err, ok, type CloudProjectSnapshot, type ProjectCloud, type ProjectId, type SourceId } from "../../contracts";
+import { err, ok, type CloudProjectSnapshot, type LayoutId, type LayoutPageId, type ProjectCloud, type ProjectId, type SourceId } from "../../contracts";
+import { createEmptyLayout } from "../../modules/layout/layoutDocument";
+import { backupBytes } from "../../../tests/helpers/projectBackup";
 import { MemoryProjectStore } from "../memory/MemoryProjectStore";
 import { CloudBackedProjectStore } from "./CloudBackedProjectStore";
 
@@ -42,6 +44,24 @@ function open(local: MemoryProjectStore, cloud: ProjectCloud, accountStorage = s
 afterEach(() => { opened.forEach((store) => store.dispose()); opened.length = 0; });
 
 describe("CloudBackedProjectStore", () => {
+  it("syncs a Layout document and its edits into another browser", async () => {
+    const { cloud } = cloudFixture();
+    const first = open(new MemoryProjectStore(), cloud);
+    const imported = await first.importBackup(backupBytes());
+    if (!imported.ok) throw Error("fixture import failed");
+    const workspace = await first.loadWorkspace(imported.value);
+    const sequences = await first.listSequences(imported.value);
+    if (!workspace.ok || !sequences.ok) throw Error("fixture load failed");
+    const layout = createEmptyLayout({ id: "cloud-layout" as LayoutId, projectId: imported.value, sequenceId: sequences.value[0].id,
+      pageId: "cloud-page" as LayoutPageId, name: "Initial", createdAt: "2026-09-24T00:00:00.000Z" });
+    expect((await first.createLayout(imported.value, workspace.value.revision, layout)).ok).toBe(true);
+    expect((await first.saveLayout({ ...layout, name: "Cloud Layout" }, layout.revision)).ok).toBe(true);
+    expect(await first.flushPending()).toBe(true);
+    const second = open(new MemoryProjectStore(), cloud);
+    expect(await second.loadWorkspace(imported.value)).toMatchObject({ ok: true, value: { layoutIds: [layout.id] } });
+    expect(await second.loadLayout(layout.id)).toMatchObject({ ok: true, value: { name: "Cloud Layout", revision: 1 } });
+  });
+
   it("creates, autosaves, and opens the same project ID in another browser", async () => {
     const { cloud, rows } = cloudFixture();
     const first = open(new MemoryProjectStore(), cloud);

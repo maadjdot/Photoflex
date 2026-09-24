@@ -3,17 +3,20 @@ import type {
   ProjectId,
   Result,
   SourceId,
+  LayoutId,
+  LayoutRevision,
   SequenceId,
   SequenceRevision,
   VersionId,
   WorkspaceRevision,
 } from "./ids";
 import type { SequenceDocument, SequenceSummary } from "./sequence";
+import type { LayoutDocument, LayoutSummary } from "./layout";
 import type { SequenceVersion, VersionSummary } from "./versioning";
 import type { PhotoState, WorktableDraft, WorktableViewport } from "./worktable";
 
-export const INDEXED_DB_SCHEMA_VERSION = 11 as const;
-export const WORKSPACE_SCHEMA_VERSION = 9 as const;
+export const INDEXED_DB_SCHEMA_VERSION = 12 as const;
+export const WORKSPACE_SCHEMA_VERSION = 10 as const;
 
 export type SourceStatus =
   | "loading"
@@ -162,6 +165,7 @@ export interface ProjectWorkspace {
   readonly photoStates: Readonly<Partial<Record<PhotoId, PhotoState>>>;
   readonly worktableDraft: WorktableDraft;
   readonly sequenceIds: readonly SequenceId[];
+  readonly layoutIds: readonly LayoutId[];
   readonly versionIds: readonly VersionId[];
   readonly revision: WorkspaceRevision;
   readonly createdAt: string;
@@ -194,7 +198,7 @@ export interface CreateProjectInput {
 
 export type NotFoundError = {
   readonly kind: "not-found";
-  readonly entity: "project" | "version" | "sequence";
+  readonly entity: "project" | "version" | "sequence" | "layout";
   readonly id: string;
 };
 
@@ -249,6 +253,11 @@ export type SequenceWriteError =
   | { readonly kind: "sequence-name-exists"; readonly name: string }
   | { readonly kind: "sequence-conflict"; readonly expectedRevision: SequenceRevision; readonly actualRevision: SequenceRevision }
   | { readonly kind: "invalid-sequence"; readonly reason: string };
+export type LayoutWriteError = SaveError
+  | { readonly kind: "layout-id-exists"; readonly layoutId: LayoutId }
+  | { readonly kind: "layout-exists-for-sequence"; readonly sequenceId: SequenceId }
+  | { readonly kind: "layout-conflict"; readonly expectedRevision: LayoutRevision; readonly actualRevision: LayoutRevision }
+  | { readonly kind: "invalid-layout"; readonly reason: string };
 export type DeleteError = NotFoundError | CorruptDataError | StorageAccessError;
 export type DeleteVersionError = SaveError | { readonly kind: "version-not-found"; readonly versionId: VersionId } | { readonly kind: "cannot-delete-current-version"; readonly versionId: VersionId };
 export type BackupError =
@@ -283,12 +292,16 @@ export interface ProjectStore {
     sequence: SequenceDocument,
     expectedRevision: SequenceRevision,
   ): Promise<Result<{ readonly summary: SequenceSummary; readonly revision: SequenceRevision }, SequenceWriteError>>;
+  createLayout(projectId: ProjectId, expectedRevision: WorkspaceRevision, layout: LayoutDocument): Promise<Result<{ readonly summary: LayoutSummary; readonly revision: WorkspaceRevision }, LayoutWriteError>>;
+  listLayouts(projectId: ProjectId): Promise<Result<readonly LayoutSummary[], LoadError>>;
+  loadLayout(layoutId: LayoutId): Promise<Result<LayoutDocument, LoadError>>;
+  saveLayout(layout: LayoutDocument, expectedRevision: LayoutRevision): Promise<Result<{ readonly summary: LayoutSummary; readonly revision: LayoutRevision }, LayoutWriteError>>;
   deleteSequences(
     projectId: ProjectId,
     sequenceIds: readonly SequenceId[],
     expectedWorkspaceRevision: WorkspaceRevision,
     worktableDraft: WorktableDraft,
-  ): Promise<Result<{ readonly revision: WorkspaceRevision; readonly sequenceIds: readonly SequenceId[]; readonly versionIds: readonly VersionId[] }, SaveError>>;
+  ): Promise<Result<{ readonly revision: WorkspaceRevision; readonly sequenceIds: readonly SequenceId[]; readonly versionIds: readonly VersionId[]; readonly layoutIds: readonly LayoutId[] }, SaveError>>;
   createVersion(
     projectId: ProjectId,
     expectedRevision: WorkspaceRevision,

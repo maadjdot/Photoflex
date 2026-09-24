@@ -2,6 +2,11 @@ import {
   err,
   ok,
   type LoadError,
+  type LayoutDocument,
+  type LayoutId,
+  type LayoutRevision,
+  type LayoutSummary,
+  type LayoutWriteError,
   type ProjectId,
   type ProjectWorkspace,
   type Result,
@@ -24,7 +29,7 @@ import type { AppDependencies } from "./dependencies";
 import { createWorktableEditor } from "../modules/worktable";
 
 export type CoordinatorPausedError = { readonly kind: "writes-paused" };
-export type ProjectWriteScope = { readonly kind: "workspace" } | { readonly kind: "sequence"; readonly sequenceId: SequenceId };
+export type ProjectWriteScope = { readonly kind: "workspace" } | { readonly kind: "sequence"; readonly sequenceId: SequenceId } | { readonly kind: "layout"; readonly layoutId: LayoutId };
 export type CoordinatorWorkspaceError = SaveError | { readonly kind: "workspace-not-ready" } | CoordinatorPausedError;
 export type CoordinatorWorkspaceResult = Result<ProjectWorkspace, CoordinatorWorkspaceError | CoordinatorPausedError>;
 export type WorktableUpdate = WorktableDraft | ((current: WorktableDraft) => WorktableDraft);
@@ -56,6 +61,7 @@ export interface SequenceWriteResult {
   /** The workspace draft committed by a structural sequence transaction. */
   readonly worktableDraft?: WorktableDraft;
 }
+export interface LayoutWriteResult { readonly layout: LayoutDocument; readonly summary: LayoutSummary; }
 
 /** Persistence capabilities required by one Sequence editing session. */
 export interface SequenceWritePort {
@@ -77,6 +83,12 @@ export interface ProjectWriteCoordinator extends SequenceWritePort {
   createSequence(input: CreateSequenceTransaction): Promise<Result<SequenceWriteResult, SequenceWriteError | CoordinatorWorkspaceError | CoordinatorPausedError>>;
   createSequenceBundle(input: CreateSequenceBundleInput): Promise<Result<SequenceWriteResult, SequenceWriteError | WorktableCommandError | CoordinatorWorkspaceError | CoordinatorPausedError>>;
   deleteSequences(sequenceIds: readonly SequenceId[], worktableDraft: WorktableDraft): Promise<Result<ProjectWorkspace, CoordinatorWorkspaceError | CoordinatorPausedError>>;
+  createLayout(layout: LayoutDocument): Promise<Result<LayoutWriteResult, LayoutWriteError | CoordinatorWorkspaceError | CoordinatorPausedError>>;
+  listLayouts(): ReturnType<AppDependencies["projectStore"]["listLayouts"]>;
+  loadLayout(layoutId: LayoutId): ReturnType<AppDependencies["projectStore"]["loadLayout"]>;
+  saveLayoutDraft(layout: LayoutDocument): Promise<Result<LayoutWriteResult, LoadError | LayoutWriteError | CoordinatorPausedError>>;
+  retryLayout(layoutId: LayoutId): Promise<boolean>;
+  flushLayout(layoutId: LayoutId): Promise<CoordinatorWorkspaceResult>;
   listSequences(): ReturnType<AppDependencies["projectStore"]["listSequences"]>;
   loadVersion(versionId: SequenceVersion["id"]): ReturnType<AppDependencies["projectStore"]["loadVersion"]>;
   listVersions(): ReturnType<AppDependencies["projectStore"]["listVersions"]>;
@@ -110,7 +122,9 @@ export class ProjectWriteCoordinatorImpl implements ProjectWriteCoordinator {
   private readonly retryTasks = new Map<string, { readonly scope: ProjectWriteScope; readonly run: () => Promise<unknown> }>();
   private latestWorktableDraft?: WorktableDraft;
   private readonly latestSequenceDrafts = new Map<SequenceId, SequenceDocument>();
+  private readonly latestLayoutDrafts = new Map<LayoutId, LayoutDocument>();
   private readonly acknowledgedSequenceRevisions = new Map<SequenceId, SequenceRevision>();
+  private readonly acknowledgedLayoutRevisions = new Map<LayoutId, LayoutRevision>();
   private draftGeneration = 0;
 
   constructor(dependencies: AppDependencies, projectId: ProjectId) {
@@ -122,6 +136,10 @@ export class ProjectWriteCoordinatorImpl implements ProjectWriteCoordinator {
     this.createSequence = this.createSequence.bind(this);
     this.createSequenceBundle = this.createSequenceBundle.bind(this);
     this.deleteSequences = this.deleteSequences.bind(this);
+    this.createLayout = this.createLayout.bind(this);
+    this.listLayouts = this.listLayouts.bind(this);
+    this.loadLayout = this.loadLayout.bind(this);
+    this.saveLayoutDraft = this.saveLayoutDraft.bind(this);
     this.listSequences = this.listSequences.bind(this);
     this.loadSequence = this.loadSequence.bind(this);
     this.loadVersion = this.loadVersion.bind(this);
@@ -156,6 +174,7 @@ export class ProjectWriteCoordinatorImpl implements ProjectWriteCoordinator {
     this.pausedScopes.clear();
     this.retryTasks.clear();
     this.latestSequenceDrafts.clear();
+    this.latestLayoutDrafts.clear();
     this.updateSnapshot({ loading: true, workspace: undefined, error: undefined, saving: false, writeState: "idle" });
     const result = await this.dependencies.projectStore.loadWorkspace(this.projectId);
     if (!this.active || generation !== this.loadGeneration) return;
@@ -276,12 +295,60 @@ export class ProjectWriteCoordinatorImpl implements ProjectWriteCoordinator {
         worktableDraft,
         sequenceIds: result.value.sequenceIds,
         versionIds: result.value.versionIds,
+        layoutIds: result.value.layoutIds,
         updatedAt: new Date().toISOString(),
         revision: result.value.revision,
       };
       this.commitWorkspace(saved);
+      for (const layoutId of current.layoutIds) {
+        if (result.value.layoutIds.includes(layoutId)) continue;
+        this.latestLayoutDrafts.delete(layoutId);
+        this.acknowledgedLayoutRevisions.delete(layoutId);
+        const scopeKey = writeScopeKey({ kind: "layout", layoutId });
+        this.retryTasks.delete(scopeKey);
+        this.pausedScopes.delete(scopeKey);
+      }
+      this.refreshWriteSnapshot();
       return ok(saved);
     });
+  }
+
+  createLayout(layout: LayoutDocument): Promise<Result<LayoutWriteResult, LayoutWriteError | CoordinatorWorkspaceError | CoordinatorPausedError>> {
+    return this.enqueue(async () => {
+      const current = this.currentWorkspace();
+      if (!current || layout.projectId !== this.projectId) return err({ kind: "workspace-not-ready" } as const);
+      const result = await this.dependencies.projectStore.createLayout(this.projectId, current.revision, layout);
+      if (!result.ok) return result;
+      this.commitWorkspace({ ...current, layoutIds: [...current.layoutIds, layout.id], revision: result.value.revision, updatedAt: layout.updatedAt });
+      return ok({ layout, summary: result.value.summary });
+    });
+  }
+
+  listLayouts() { return this.dependencies.projectStore.listLayouts(this.projectId); }
+
+  async loadLayout(layoutId: LayoutId) {
+    await this.queue;
+    return this.dependencies.projectStore.loadLayout(layoutId);
+  }
+
+  saveLayoutDraft(layout: LayoutDocument): Promise<Result<LayoutWriteResult, LoadError | LayoutWriteError | CoordinatorPausedError>> {
+    this.draftGeneration += 1;
+    this.latestLayoutDrafts.set(layout.id, layout);
+    return this.enqueue(
+      () => this.performLayoutSave(layout),
+      () => this.performLayoutSave(this.latestLayoutDrafts.get(layout.id) ?? layout),
+      { kind: "layout", layoutId: layout.id },
+    );
+  }
+
+  private async performLayoutSave(layout: LayoutDocument): Promise<Result<LayoutWriteResult, LoadError | LayoutWriteError | CoordinatorPausedError>> {
+    const revision = Math.max(layout.revision, this.acknowledgedLayoutRevisions.get(layout.id) ?? layout.revision) as LayoutRevision;
+    const next = { ...layout, revision, updatedAt: new Date().toISOString() };
+    const result = await this.dependencies.projectStore.saveLayout(next, revision);
+    if (!result.ok) return result;
+    this.acknowledgedLayoutRevisions.set(layout.id, result.value.revision);
+    if (this.latestLayoutDrafts.get(layout.id) === layout) this.latestLayoutDrafts.delete(layout.id);
+    return ok({ layout: { ...next, revision: result.value.revision }, summary: result.value.summary });
   }
 
   listSequences() {
@@ -357,11 +424,13 @@ export class ProjectWriteCoordinatorImpl implements ProjectWriteCoordinator {
     return this.retry({ kind: "sequence", sequenceId });
   }
 
+  retryLayout(layoutId: LayoutId) { return this.retry({ kind: "layout", layoutId }); }
+
   flush(): Promise<CoordinatorWorkspaceResult> {
     return this.flushScope({ kind: "workspace" });
   }
 
-  hasUnsavedWork() { return this.pendingWrites > 0 || this.pausedScopes.size > 0 || this.latestSequenceDrafts.size > 0 || Boolean(this.latestWorktableDraft); }
+  hasUnsavedWork() { return this.pendingWrites > 0 || this.pausedScopes.size > 0 || this.latestSequenceDrafts.size > 0 || this.latestLayoutDrafts.size > 0 || Boolean(this.latestWorktableDraft); }
 
   async flushAll(): Promise<CoordinatorWorkspaceResult> {
     let pending;
@@ -380,6 +449,7 @@ export class ProjectWriteCoordinatorImpl implements ProjectWriteCoordinator {
       ...backup,
       project: { ...backup.project, ...(this.latestWorktableDraft ? { worktableDraft: this.latestWorktableDraft } : {}) },
       sequences: backup.sequences.map((sequence) => this.latestSequenceDrafts.get(sequence.id) ?? sequence),
+      layouts: backup.layouts.map((layout) => this.latestLayoutDrafts.get(layout.id) ?? layout),
     };
     return ok(new TextEncoder().encode(JSON.stringify(recovery)));
   }
@@ -395,6 +465,7 @@ export class ProjectWriteCoordinatorImpl implements ProjectWriteCoordinator {
       this.pausedScopes.clear();
       this.retryTasks.clear();
       this.latestSequenceDrafts.clear();
+      this.latestLayoutDrafts.clear();
       this.latestWorktableDraft = undefined;
       this.refreshWriteSnapshot();
     }
@@ -404,6 +475,8 @@ export class ProjectWriteCoordinatorImpl implements ProjectWriteCoordinator {
   flushSequence(sequenceId: SequenceId): Promise<CoordinatorWorkspaceResult> {
     return this.flushScope({ kind: "sequence", sequenceId });
   }
+
+  flushLayout(layoutId: LayoutId): Promise<CoordinatorWorkspaceResult> { return this.flushScope({ kind: "layout", layoutId }); }
 
   private flushScope(scope: ProjectWriteScope): Promise<CoordinatorWorkspaceResult> {
     return this.enqueue(async () => {
@@ -501,11 +574,11 @@ function isResult<T>(value: T | Result<T, unknown>): value is Result<T, unknown>
 
 function shouldPause(error: unknown): boolean {
   if (!error || typeof error !== "object" || !("kind" in error)) return false;
-  return ["conflict", "sequence-conflict", "quota-exceeded", "unavailable", "unsupported-storage-schema", "migration-failed", "not-found"].includes(String(error.kind));
+  return ["conflict", "sequence-conflict", "layout-conflict", "quota-exceeded", "unavailable", "unsupported-storage-schema", "migration-failed", "not-found"].includes(String(error.kind));
 }
 
 function writeScopeKey(scope: ProjectWriteScope) {
-  return scope.kind === "workspace" ? "workspace" : `sequence:${scope.sequenceId}`;
+  return scope.kind === "workspace" ? "workspace" : scope.kind === "sequence" ? `sequence:${scope.sequenceId}` : `layout:${scope.layoutId}`;
 }
 
 function lastMapValue<K, V>(values: Map<K, V>): V | undefined {

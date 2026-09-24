@@ -1,8 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
-import { err, type PhotoId, type ProjectId, type SequenceDocument, type SequenceItemId, type SequenceVersion, type VersionId } from "../contracts";
+import { err, type LayoutId, type LayoutPageId, type PhotoId, type ProjectBackupV1, type ProjectId, type SequenceDocument, type SequenceItemId, type SequenceVersion, type VersionId } from "../contracts";
 import { MemoryPhotoSource } from "../platform/memory/MemoryPhotoSource";
 import { MemoryProjectStore } from "../platform/memory/MemoryProjectStore";
+import { createEmptyLayout } from "../modules/layout/layoutDocument";
 import { createWorktableEditor } from "../modules/worktable";
+import { backupBytes } from "../../tests/helpers/projectBackup";
 import { createProjectWriteCoordinator } from "./projectWriteCoordinator";
 
 const projectId = "coordinator-project" as ProjectId;
@@ -17,6 +19,40 @@ async function fixture() {
 }
 
 describe("ProjectWriteCoordinator", () => {
+  it("keeps a failed Layout draft in recovery and retries its latest edit", async () => {
+    const projectStore = new MemoryProjectStore();
+    const imported = await projectStore.importBackup(backupBytes());
+    if (!imported.ok) throw Error("fixture import failed");
+    const coordinator = createProjectWriteCoordinator({ projectStore, photoSource: new MemoryPhotoSource([]) }, imported.value);
+    await coordinator.load();
+    const sequences = await coordinator.listSequences();
+    if (!sequences.ok) throw Error("fixture load failed");
+    const layout = createEmptyLayout({ id: "draft-layout" as LayoutId, projectId: imported.value, sequenceId: sequences.value[0].id,
+      pageId: "draft-page" as LayoutPageId, name: "Initial", createdAt: "2026-09-24T00:00:00.000Z" });
+    expect((await coordinator.createLayout(layout)).ok).toBe(true);
+    const originalSave = projectStore.saveLayout.bind(projectStore);
+    vi.spyOn(projectStore, "saveLayout")
+      .mockImplementationOnce(async () => err({ kind: "quota-exceeded" }))
+      .mockImplementation(originalSave);
+    expect((await coordinator.saveLayoutDraft({ ...layout, name: "First" })).ok).toBe(false);
+    expect((await coordinator.saveLayoutDraft({ ...layout, name: "Latest" })).ok).toBe(false);
+    expect(await coordinator.flushAll()).toMatchObject({ ok: false, error: { kind: "writes-paused" } });
+    const recovery = await coordinator.exportRecoveryBackup();
+    if (!recovery.ok) throw Error("recovery export failed");
+    expect((JSON.parse(new TextDecoder().decode(recovery.value)) as ProjectBackupV1).layouts[0].name).toBe("Latest");
+    expect(await coordinator.retryLayout(layout.id)).toBe(true);
+    expect(await coordinator.loadLayout(layout.id)).toMatchObject({ ok: true, value: { name: "Latest", revision: 1 } });
+    expect((await coordinator.flushAll()).ok).toBe(true);
+
+    vi.spyOn(projectStore, "saveLayout").mockImplementationOnce(async () => err({ kind: "quota-exceeded" }));
+    expect((await coordinator.saveLayoutDraft({ ...layout, name: "Removed draft", revision: 1 as typeof layout.revision })).ok).toBe(false);
+    const current = await projectStore.loadWorkspace(imported.value);
+    if (!current.ok) throw Error("workspace missing");
+    expect((await coordinator.deleteSequences([layout.sequenceId], { ...current.value.worktableDraft, pileOrder: [], pilePlacements: {} })).ok).toBe(true);
+    expect(await coordinator.retryLayout(layout.id)).toBe(false);
+    expect((await coordinator.flushAll()).ok).toBe(true);
+  });
+
   it("serializes functional worktable updates against the latest saved revision", async () => {
     const { projectStore, photoSource, workspace } = await fixture();
     const coordinator = createProjectWriteCoordinator({ projectStore, photoSource }, projectId);

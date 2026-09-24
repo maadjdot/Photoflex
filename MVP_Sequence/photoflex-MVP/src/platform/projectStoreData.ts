@@ -9,6 +9,8 @@ import {
   type ProjectBackupV1,
   type ProjectSummary,
   type ProjectWorkspace,
+  type LayoutDocument,
+  type LayoutSummary,
   type PhotoId,
   type Result,
   type SequenceItem,
@@ -25,6 +27,7 @@ import {
 } from "../contracts";
 import { createEmptyWorktable, migratePoolToWorktable } from "../modules/worktable";
 import { validFrameCollection } from "../modules/worktable/frameCommands";
+import { isLayoutDocument } from "../modules/layout/layoutDocument";
 
 export function createWorkspace(input: CreateProjectInput): ProjectWorkspace {
   const createdAt = input.createdAt;
@@ -53,6 +56,7 @@ export function createWorkspace(input: CreateProjectInput): ProjectWorkspace {
       }],
     } : worktableDraft,
     sequenceIds: [],
+    layoutIds: [],
     versionIds: [],
     revision: 0 as WorkspaceRevision,
     createdAt,
@@ -99,6 +103,16 @@ export function toProjectSummary(workspace: ProjectWorkspace): ProjectSummary {
 export function toVersionSummary(version: SequenceVersion): VersionSummary {
   const { id, projectId, sequenceId, parentVersionId, name, itemCount, createdAt } = version;
   return { id, projectId, sequenceId, parentVersionId, name, itemCount, createdAt, updatedAt: version.updatedAt ?? createdAt };
+}
+
+export function toLayoutSummary(layout: LayoutDocument): LayoutSummary {
+  return { id: layout.id, projectId: layout.projectId, sequenceId: layout.sequenceId, name: layout.name, pageCount: layout.pages.length, updatedAt: layout.updatedAt };
+}
+
+export function validateLayoutForProject(projectId: ProjectWorkspace["projectId"], layout: LayoutDocument) {
+  return layout.projectId === projectId && isLayoutDocument(layout)
+    ? ok(true)
+    : err({ kind: "invalid-layout", reason: "Layout data is invalid or belongs to another project." } as const);
 }
 
 export function isWorkspace(value: unknown): value is ProjectWorkspace {
@@ -204,6 +218,9 @@ export function isWorkspace(value: unknown): value is ProjectWorkspace {
     Array.isArray(workspace.sequenceIds) &&
     workspace.sequenceIds.every((sequenceId) => typeof sequenceId === "string") &&
     new Set(workspace.sequenceIds).size === workspace.sequenceIds.length &&
+    Array.isArray(workspace.layoutIds) &&
+    workspace.layoutIds.every((layoutId) => typeof layoutId === "string" && layoutId.length > 0) &&
+    new Set(workspace.layoutIds).size === workspace.layoutIds.length &&
     workspace.worktableDraft?.pileOrder.every((sequenceId) => workspace.sequenceIds?.includes(sequenceId)) === true &&
     Array.isArray(workspace.versionIds) &&
     workspace.versionIds.every((versionId) => typeof versionId === "string") &&
@@ -315,6 +332,10 @@ export function migrateWorkspaceV7ToV8(value: Record<string, unknown>): Record<s
 export function migrateWorkspaceV8ToV9(value: Record<string, unknown>): Record<string, unknown> {
   const table = value.worktableDraft && typeof value.worktableDraft === "object" ? value.worktableDraft as Record<string, unknown> : undefined;
   return { ...value, schemaVersion: 9, worktableDraft: table ? { ...table, frameOrder: [], frames: {} } : table };
+}
+
+export function migrateWorkspaceV9ToV10(value: Record<string, unknown>): Record<string, unknown> {
+  return { ...value, schemaVersion: 10, layoutIds: [] };
 }
 
 export function legacySequenceFromWorkspace(value: Record<string, unknown>): SequenceDocument | undefined {
@@ -438,6 +459,7 @@ export function createBackup(
   workspace: ProjectWorkspace,
   versions: readonly SequenceVersion[],
   sequences: readonly SequenceDocument[],
+  layouts: readonly LayoutDocument[] = [],
 ): ProjectBackupV1 {
   return {
     format: BACKUP_FORMAT,
@@ -447,6 +469,7 @@ export function createBackup(
     project: workspace,
     versions,
     sequences,
+    layouts,
     photoManifest: [],
   };
 }

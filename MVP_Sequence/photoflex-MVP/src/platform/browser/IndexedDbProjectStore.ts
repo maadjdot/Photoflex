@@ -7,6 +7,11 @@ import {
   type CreateProjectInput,
   type DeleteError,
   type LoadError,
+  type LayoutDocument,
+  type LayoutId,
+  type LayoutRevision,
+  type LayoutSummary,
+  type LayoutWriteError,
   type ProjectId,
   type ProjectBackupV1,
   type ProjectStore,
@@ -35,6 +40,8 @@ import {
   createBackup,
   createWorkspace,
   isSequenceDocument,
+  toLayoutSummary,
+  validateLayoutForProject,
   isWorkspace,
   toProjectSummary,
   toVersionSummary,
@@ -309,17 +316,18 @@ export class IndexedDbProjectStore implements ProjectStore {
     sequenceIds: readonly SequenceId[],
     expectedWorkspaceRevision: WorkspaceRevision,
     worktableDraft: WorktableDraft,
-  ): Promise<Result<{ readonly revision: WorkspaceRevision; readonly sequenceIds: readonly SequenceId[]; readonly versionIds: readonly VersionId[] }, SaveError>> {
+  ): Promise<Result<{ readonly revision: WorkspaceRevision; readonly sequenceIds: readonly SequenceId[]; readonly versionIds: readonly VersionId[]; readonly layoutIds: readonly LayoutId[] }, SaveError>> {
     const opened = await this.database;
     if (!opened.ok) return opened;
     if (worktableDraft.projectId !== projectId) return err({ kind: "not-found", entity: "project", id: projectId });
     return new Promise((resolve) => {
-      const transaction = opened.value.transaction([STORE_NAMES.projects, STORE_NAMES.sequences, STORE_NAMES.versions], "readwrite");
+      const transaction = opened.value.transaction([STORE_NAMES.projects, STORE_NAMES.sequences, STORE_NAMES.versions, STORE_NAMES.layouts], "readwrite");
       const projects = transaction.objectStore(STORE_NAMES.projects);
       const sequences = transaction.objectStore(STORE_NAMES.sequences);
       const versions = transaction.objectStore(STORE_NAMES.versions);
+      const layouts = transaction.objectStore(STORE_NAMES.layouts);
       const ids = [...new Set(sequenceIds)];
-      let result: Result<{ readonly revision: WorkspaceRevision; readonly sequenceIds: readonly SequenceId[]; readonly versionIds: readonly VersionId[] }, SaveError> = err({ kind: "unavailable", retryable: true });
+      let result: Result<{ readonly revision: WorkspaceRevision; readonly sequenceIds: readonly SequenceId[]; readonly versionIds: readonly VersionId[]; readonly layoutIds: readonly LayoutId[] }, SaveError> = err({ kind: "unavailable", retryable: true });
       transaction.oncomplete = () => resolve(result);
       transaction.onabort = () => resolve(isQuotaError(transaction.error) ? err({ kind: "quota-exceeded" }) : err({ kind: "unavailable", retryable: true }));
       const projectRequest = projects.get(projectId);
@@ -338,11 +346,20 @@ export class IndexedDbProjectStore implements ProjectStore {
           versionRequest.onsuccess = () => {
             const allVersions = versionRequest.result as SequenceVersion[];
             const removedVersionIds = new Set(allVersions.filter((version) => removed.has(version.sequenceId)).map((version) => version.id));
-            removedVersionIds.forEach((id) => versions.delete(id));
-            ids.forEach((id) => sequences.delete(id));
-            const revision = (expectedWorkspaceRevision + 1) as WorkspaceRevision;
-            projects.put(clone({ ...workspace, sequenceIds: workspace.sequenceIds.filter((id) => !removed.has(id)), versionIds: workspace.versionIds.filter((id) => !removedVersionIds.has(id)), worktableDraft, revision, updatedAt: new Date().toISOString() }));
-            result = ok({ revision, sequenceIds: workspace.sequenceIds.filter((id) => !removed.has(id)), versionIds: workspace.versionIds.filter((id) => !removedVersionIds.has(id)) });
+            const layoutRequest = layouts.index("by-project-id").getAll(projectId);
+            layoutRequest.onsuccess = () => {
+              const allLayouts = layoutRequest.result as LayoutDocument[];
+              const removedLayoutIds = new Set(allLayouts.filter((layout) => removed.has(layout.sequenceId)).map((layout) => layout.id));
+              removedVersionIds.forEach((id) => versions.delete(id));
+              removedLayoutIds.forEach((id) => layouts.delete(id));
+              ids.forEach((id) => sequences.delete(id));
+              const revision = (expectedWorkspaceRevision + 1) as WorkspaceRevision;
+              const sequenceIds = workspace.sequenceIds.filter((id) => !removed.has(id));
+              const versionIds = workspace.versionIds.filter((id) => !removedVersionIds.has(id));
+              const layoutIds = workspace.layoutIds.filter((id) => !removedLayoutIds.has(id));
+              projects.put(clone({ ...workspace, sequenceIds, versionIds, layoutIds, worktableDraft, revision, updatedAt: new Date().toISOString() }));
+              result = ok({ revision, sequenceIds, versionIds, layoutIds });
+            };
           };
         };
       };
@@ -549,7 +566,7 @@ export class IndexedDbProjectStore implements ProjectStore {
 
     return new Promise((resolve) => {
       const transaction = opened.value.transaction(
-        [STORE_NAMES.projects, STORE_NAMES.versions, STORE_NAMES.sequences],
+        [STORE_NAMES.projects, STORE_NAMES.versions, STORE_NAMES.sequences, STORE_NAMES.layouts],
         "readwrite",
       );
       transaction.oncomplete = () => resolve(ok(undefined));
@@ -559,6 +576,8 @@ export class IndexedDbProjectStore implements ProjectStore {
       for (const versionId of loaded.value.versionIds) versions.delete(versionId);
       const sequences = transaction.objectStore(STORE_NAMES.sequences);
       for (const sequenceId of loaded.value.sequenceIds) sequences.delete(sequenceId);
+      const layouts = transaction.objectStore(STORE_NAMES.layouts);
+      for (const layoutId of loaded.value.layoutIds) layouts.delete(layoutId);
     });
   }
 
@@ -567,17 +586,18 @@ export class IndexedDbProjectStore implements ProjectStore {
     if (!opened.ok) return opened;
     try {
       // Read all documents in one transaction: a concurrent edit cannot split a backup.
-      const tx = opened.value.transaction([STORE_NAMES.projects, STORE_NAMES.versions, STORE_NAMES.sequences, STORE_NAMES.photoIndex], "readonly");
-      const [project, allVersions, allSequences, allPhotos] = await Promise.all([
+      const tx = opened.value.transaction([STORE_NAMES.projects, STORE_NAMES.versions, STORE_NAMES.sequences, STORE_NAMES.layouts, STORE_NAMES.photoIndex], "readonly");
+      const [project, allVersions, allSequences, allLayouts, allPhotos] = await Promise.all([
         requestValue<ProjectWorkspace | undefined>(tx.objectStore(STORE_NAMES.projects).get(projectId)),
         requestValue<SequenceVersion[]>(tx.objectStore(STORE_NAMES.versions).index("by-project-id").getAll(projectId)),
         requestValue<SequenceDocument[]>(tx.objectStore(STORE_NAMES.sequences).index("by-project-id").getAll(projectId)),
+        requestValue<LayoutDocument[]>(tx.objectStore(STORE_NAMES.layouts).index("by-project-id").getAll(projectId)),
         requestValue<PhotoRef[]>(tx.objectStore(STORE_NAMES.photoIndex).getAll()),
       ]);
       if (!project) return err({ kind: "not-found", entity: "project", id: projectId });
-      if (!isWorkspace(project) || project.versionIds.some((id) => !allVersions.some((v) => v.id === id)) || project.sequenceIds.some((id) => !allSequences.some((s) => s.id === id))) return err({ kind: "corrupt-data", entityId: projectId });
+      if (!isWorkspace(project) || project.versionIds.some((id) => !allVersions.some((v) => v.id === id)) || project.sequenceIds.some((id) => !allSequences.some((s) => s.id === id)) || project.layoutIds.some((id) => !allLayouts.some((layout) => layout.id === id && validateLayoutForProject(projectId, layout).ok))) return err({ kind: "corrupt-data", entityId: projectId });
       const sourceIds = new Set(project.sources.map((s) => s.id));
-      const backup = { ...createBackup(project, allVersions.filter((v) => project.versionIds.includes(v.id)), allSequences.filter((s) => project.sequenceIds.includes(s.id))), photoManifest: allPhotos.filter((p) => sourceIds.has(p.sourceId)).map(({ id: photoId, ...p }) => ({ ...p, photoId })) };
+      const backup = { ...createBackup(project, allVersions.filter((v) => project.versionIds.includes(v.id)), allSequences.filter((s) => project.sequenceIds.includes(s.id)), allLayouts.filter((layout) => project.layoutIds.includes(layout.id))), photoManifest: allPhotos.filter((p) => sourceIds.has(p.sourceId)).map(({ id: photoId, ...p }) => ({ ...p, photoId })) };
       return ok(new TextEncoder().encode(JSON.stringify(backup)));
     } catch { return err({ kind: "unavailable", retryable: true }); }
   }
@@ -589,7 +609,7 @@ export class IndexedDbProjectStore implements ProjectStore {
     if (!opened.ok) return opened;
     const { backup, photos } = prepared.value;
     try {
-      const tx = opened.value.transaction([STORE_NAMES.projects, STORE_NAMES.versions, STORE_NAMES.sequences, STORE_NAMES.photoIndex], "readwrite");
+      const tx = opened.value.transaction([STORE_NAMES.projects, STORE_NAMES.versions, STORE_NAMES.sequences, STORE_NAMES.layouts, STORE_NAMES.photoIndex], "readwrite");
       return await new Promise((resolve) => {
         let writeError: unknown;
         tx.oncomplete = () => resolve(ok(backup.project.projectId));
@@ -599,6 +619,7 @@ export class IndexedDbProjectStore implements ProjectStore {
           tx.objectStore(STORE_NAMES.projects).add(backup.project);
           backup.versions.forEach((v) => tx.objectStore(STORE_NAMES.versions).add(v));
           backup.sequences.forEach((s) => tx.objectStore(STORE_NAMES.sequences).add(s));
+          backup.layouts.forEach((layout) => tx.objectStore(STORE_NAMES.layouts).add(layout));
           photos.forEach((p) => tx.objectStore(STORE_NAMES.photoIndex).add(p));
         } catch (error) { writeError = error; tx.abort(); }
       });
@@ -612,10 +633,11 @@ export class IndexedDbProjectStore implements ProjectStore {
     if (!opened.ok) return opened;
     const { backup, photos } = prepared.value;
     return new Promise((resolve) => {
-      const tx = opened.value.transaction([STORE_NAMES.projects, STORE_NAMES.versions, STORE_NAMES.sequences, STORE_NAMES.photoIndex], "readwrite");
+      const tx = opened.value.transaction([STORE_NAMES.projects, STORE_NAMES.versions, STORE_NAMES.sequences, STORE_NAMES.layouts, STORE_NAMES.photoIndex], "readwrite");
       const projects = tx.objectStore(STORE_NAMES.projects);
       const versions = tx.objectStore(STORE_NAMES.versions);
       const sequences = tx.objectStore(STORE_NAMES.sequences);
+      const layouts = tx.objectStore(STORE_NAMES.layouts);
       const photoIndex = tx.objectStore(STORE_NAMES.photoIndex);
       tx.oncomplete = () => resolve(ok(undefined));
       tx.onabort = () => resolve(isQuotaError(tx.error) ? err({ kind: "quota-exceeded" }) : err({ kind: "unavailable", retryable: true }));
@@ -628,15 +650,108 @@ export class IndexedDbProjectStore implements ProjectStore {
             if (previous) {
               previous.versionIds.forEach((id) => versions.delete(id));
               previous.sequenceIds.forEach((id) => sequences.delete(id));
+              previous.layoutIds.forEach((id) => layouts.delete(id));
               const oldSources = new Set(previous.sources.map((source) => source.id));
               (allPhotos.result as PhotoRef[]).filter((photo) => oldSources.has(photo.sourceId)).forEach((photo) => photoIndex.delete(photo.id));
             }
             projects.put(clone(backup.project));
             backup.versions.forEach((version) => versions.put(clone(version)));
             backup.sequences.forEach((sequence) => sequences.put(clone(sequence)));
+            backup.layouts.forEach((layout) => layouts.put(clone(layout)));
             photos.forEach((photo) => photoIndex.put(clone(photo)));
           } catch { tx.abort(); }
         };
+      };
+    });
+  }
+
+  async createLayout(projectId: ProjectId, expectedRevision: WorkspaceRevision, layout: LayoutDocument): Promise<Result<{ readonly summary: LayoutSummary; readonly revision: WorkspaceRevision }, LayoutWriteError>> {
+    const opened = await this.database;
+    if (!opened.ok) return opened;
+    const validation = validateLayoutForProject(projectId, layout);
+    if (!validation.ok || layout.revision !== 0) return err({ kind: "invalid-layout", reason: "Invalid initial Layout." });
+    return new Promise((resolve) => {
+      const tx = opened.value.transaction([STORE_NAMES.projects, STORE_NAMES.sequences, STORE_NAMES.layouts], "readwrite");
+      const projects = tx.objectStore(STORE_NAMES.projects), sequences = tx.objectStore(STORE_NAMES.sequences), layouts = tx.objectStore(STORE_NAMES.layouts);
+      let result: Result<{ readonly summary: LayoutSummary; readonly revision: WorkspaceRevision }, LayoutWriteError> = err({ kind: "unavailable", retryable: true });
+      tx.oncomplete = () => resolve(result);
+      tx.onabort = () => resolve(isQuotaError(tx.error) ? err({ kind: "quota-exceeded" }) : err({ kind: "unavailable", retryable: true }));
+      const projectRequest = projects.get(projectId);
+      projectRequest.onsuccess = () => {
+        const workspace = projectRequest.result as ProjectWorkspace | undefined;
+        if (!workspace) { result = err({ kind: "not-found", entity: "project", id: projectId }); return; }
+        if (workspace.revision !== expectedRevision) { result = err({ kind: "conflict", expectedRevision, actualRevision: workspace.revision }); return; }
+        const sequenceRequest = sequences.get(layout.sequenceId);
+        sequenceRequest.onsuccess = () => {
+          const sequence = sequenceRequest.result as SequenceDocument | undefined;
+          if (!sequence || sequence.projectId !== projectId || !workspace.sequenceIds.includes(layout.sequenceId)) { result = err({ kind: "not-found", entity: "sequence", id: layout.sequenceId }); return; }
+          const idRequest = layouts.get(layout.id);
+          idRequest.onsuccess = () => {
+            if (idRequest.result) { result = err({ kind: "layout-id-exists", layoutId: layout.id }); return; }
+            const sequenceLayoutRequest = layouts.index("by-sequence-id").get(layout.sequenceId);
+            sequenceLayoutRequest.onsuccess = () => {
+              if (sequenceLayoutRequest.result) { result = err({ kind: "layout-exists-for-sequence", sequenceId: layout.sequenceId }); return; }
+              const revision = (expectedRevision + 1) as WorkspaceRevision;
+              layouts.add(clone(layout));
+              projects.put(clone({ ...workspace, layoutIds: [...workspace.layoutIds, layout.id], revision, updatedAt: layout.updatedAt }));
+              result = ok({ summary: toLayoutSummary(layout), revision });
+            };
+          };
+        };
+      };
+    });
+  }
+
+  async listLayouts(projectId: ProjectId): Promise<Result<readonly LayoutSummary[], LoadError>> {
+    const workspace = await this.loadWorkspace(projectId);
+    if (!workspace.ok) return workspace;
+    const opened = await this.database;
+    if (!opened.ok) return opened;
+    try {
+      const rows = await requestValue<unknown[]>(opened.value.transaction(STORE_NAMES.layouts, "readonly").objectStore(STORE_NAMES.layouts).index("by-project-id").getAll(projectId));
+      const byId = new Map(rows.filter((row): row is LayoutDocument => typeof row === "object" && row !== null && "id" in row).map((row) => [row.id, row]));
+      const summaries: LayoutSummary[] = [];
+      for (const layoutId of workspace.value.layoutIds) {
+        const layout = byId.get(layoutId);
+        if (!layout || !validateLayoutForProject(projectId, layout).ok) return err({ kind: "corrupt-data", entityId: layoutId });
+        summaries.push(toLayoutSummary(layout));
+      }
+      if (rows.length !== summaries.length) return err({ kind: "corrupt-data", entityId: projectId });
+      return ok(summaries);
+    } catch { return err({ kind: "unavailable", retryable: true }); }
+  }
+
+  async loadLayout(layoutId: LayoutId): Promise<Result<LayoutDocument, LoadError>> {
+    const opened = await this.database;
+    if (!opened.ok) return opened;
+    try {
+      const layout = await requestValue<unknown>(opened.value.transaction(STORE_NAMES.layouts, "readonly").objectStore(STORE_NAMES.layouts).get(layoutId));
+      if (layout === undefined) return err({ kind: "not-found", entity: "layout", id: layoutId });
+      if (!layout || typeof layout !== "object" || !("projectId" in layout) || !validateLayoutForProject((layout as LayoutDocument).projectId, layout as LayoutDocument).ok) return err({ kind: "corrupt-data", entityId: layoutId });
+      return ok(clone(layout as LayoutDocument));
+    } catch { return err({ kind: "unavailable", retryable: true }); }
+  }
+
+  async saveLayout(layout: LayoutDocument, expectedRevision: LayoutRevision): Promise<Result<{ readonly summary: LayoutSummary; readonly revision: LayoutRevision }, LayoutWriteError>> {
+    const opened = await this.database;
+    if (!opened.ok) return opened;
+    return new Promise((resolve) => {
+      const tx = opened.value.transaction(STORE_NAMES.layouts, "readwrite");
+      const store = tx.objectStore(STORE_NAMES.layouts);
+      let result: Result<{ readonly summary: LayoutSummary; readonly revision: LayoutRevision }, LayoutWriteError> = err({ kind: "unavailable", retryable: true });
+      tx.oncomplete = () => resolve(result);
+      tx.onabort = () => resolve(isQuotaError(tx.error) ? err({ kind: "quota-exceeded" }) : err({ kind: "unavailable", retryable: true }));
+      const request = store.get(layout.id);
+      request.onsuccess = () => {
+        const current = request.result as LayoutDocument | undefined;
+        if (!current) { result = err({ kind: "not-found", entity: "layout", id: layout.id }); return; }
+        if (current.revision !== expectedRevision) { result = err({ kind: "layout-conflict", expectedRevision, actualRevision: current.revision }); return; }
+        const validation = validateLayoutForProject(current.projectId, layout);
+        if (!validation.ok || layout.sequenceId !== current.sequenceId || layout.pageSpec.widthPt !== current.pageSpec.widthPt || layout.pageSpec.heightPt !== current.pageSpec.heightPt) { result = err({ kind: "invalid-layout", reason: "Layout identity or page size changed." }); return; }
+        const revision = (expectedRevision + 1) as LayoutRevision;
+        const saved = { ...layout, revision };
+        store.put(clone(saved));
+        result = ok({ summary: toLayoutSummary(saved), revision });
       };
     });
   }

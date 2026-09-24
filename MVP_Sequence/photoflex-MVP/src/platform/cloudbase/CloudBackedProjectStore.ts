@@ -64,7 +64,7 @@ export class CloudBackedProjectStore implements ProjectStore {
             const exported = await this.local.exportBackup(id);
             if (!exported.ok) return false;
             const document = JSON.parse(new TextDecoder().decode(exported.value)) as ProjectBackupV1;
-            const content = ({ project, sequences, versions, photoManifest }: ProjectBackupV1) => ({ project, sequences, versions, photoManifest });
+            const content = ({ project, sequences, versions, layouts, photoManifest }: ProjectBackupV1) => ({ project, sequences, versions, layouts, photoManifest });
             if (!jsonSemanticEqual(content(document), content(pulled.value.document))) { this.status(id, "conflict"); continue; }
             this.revisions.set(id, cloudRevision);
             this.saveRecord(id, false);
@@ -225,6 +225,10 @@ export class CloudBackedProjectStore implements ProjectStore {
   async listSequences(...args: Parameters<ProjectStore["listSequences"]>): ReturnType<ProjectStore["listSequences"]> { return this.local.listSequences(...args); }
   async loadSequence(...args: Parameters<ProjectStore["loadSequence"]>): ReturnType<ProjectStore["loadSequence"]> { return this.local.loadSequence(...args); }
   async saveSequence(...args: Parameters<ProjectStore["saveSequence"]>): ReturnType<ProjectStore["saveSequence"]> { return this.write(args[0].projectId, () => this.local.saveSequence(...args)); }
+  async createLayout(...args: Parameters<ProjectStore["createLayout"]>): ReturnType<ProjectStore["createLayout"]> { return this.write(args[0], () => this.local.createLayout(...args)); }
+  async listLayouts(...args: Parameters<ProjectStore["listLayouts"]>): ReturnType<ProjectStore["listLayouts"]> { return this.local.listLayouts(...args); }
+  async loadLayout(...args: Parameters<ProjectStore["loadLayout"]>): ReturnType<ProjectStore["loadLayout"]> { return this.local.loadLayout(...args); }
+  async saveLayout(...args: Parameters<ProjectStore["saveLayout"]>): ReturnType<ProjectStore["saveLayout"]> { return this.write(args[0].projectId, () => this.local.saveLayout(...args)); }
   async deleteSequences(...args: Parameters<ProjectStore["deleteSequences"]>): ReturnType<ProjectStore["deleteSequences"]> { return this.write(args[0], () => this.local.deleteSequences(...args)); }
   async createVersion(...args: Parameters<ProjectStore["createVersion"]>): ReturnType<ProjectStore["createVersion"]> { return this.write(args[0], () => this.local.createVersion(...args)); }
   async saveSequenceVersion(...args: Parameters<ProjectStore["saveSequenceVersion"]>): ReturnType<ProjectStore["saveSequenceVersion"]> { return this.write(args[0].projectId, () => this.local.saveSequenceVersion(...args)); }

@@ -108,7 +108,8 @@ for (const [name, factory] of [["memory", () => new MemoryProjectStore()], ["Ind
     if (!exported.ok) return;
     const copy = JSON.parse(new TextDecoder().decode(exported.value)) as ProjectBackupV1;
     const [itemId] = copy.project.worktableDraft.entryOrder;
-    expect(copy.project.schemaVersion).toBe(9);
+    expect(copy.project.schemaVersion).toBe(10);
+    expect(copy.project.layoutIds).toEqual([]);
     expect(copy.project.worktableDraft.frameOrder).toEqual([]);
     expect(copy.project.worktableDraft.frames).toEqual({});
     expect(copy.project.worktableDraft.placements[itemId]).toMatchObject({ id: itemId });
