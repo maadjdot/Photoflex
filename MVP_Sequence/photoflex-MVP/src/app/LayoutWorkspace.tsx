@@ -6,6 +6,7 @@ import { useLocale } from "./locale";
 import { LayoutEditor } from "./LayoutEditor";
 import { PhotoThumb } from "./PhotoThumb";
 import { CloudSaveStatus } from "./CloudControls";
+import { exportLayoutPdf, preflightLayoutPdf, type LayoutPdfPreflight, type LayoutPdfQuality } from "../platform/browser/exportLayoutPdf";
 import type { ProjectWriteCoordinator } from "./projectWriteCoordinator";
 import type { AppRoute } from "./router";
 import "../styles/layout-workspace.css";
@@ -37,6 +38,17 @@ export function LayoutWorkspace({ dependencies, persistence, projectId, sequence
   const history = useRef<LayoutDocument[]>([]);
   const historyIndex = useRef(0);
   const editSequence = useRef(0);
+  const prepareExport = useRef<(() => void) | undefined>(undefined);
+  const exportController = useRef<AbortController | undefined>(undefined);
+  const exportSnapshot = useRef<LayoutDocument | undefined>(undefined);
+  const exportQuality = useRef<LayoutPdfQuality>("medium");
+  const exportButton = useRef<HTMLButtonElement>(null);
+  const [qualityOpen, setQualityOpen] = useState(false);
+  const [quality, setQuality] = useState<LayoutPdfQuality>("medium");
+  const [exportState, setExportState] = useState<"idle" | "checking" | "ready" | "exporting" | "failed">("idle");
+  const [exportCheck, setExportCheck] = useState<LayoutPdfPreflight>();
+  const [exportProgress, setExportProgress] = useState({ completed: 0, total: 0 });
+  const [exportError, setExportError] = useState<string>();
 
   useEffect(() => {
     let live = true;
@@ -128,6 +140,38 @@ export function LayoutWorkspace({ dependencies, persistence, projectId, sequence
     const loaded = await persistence.loadSequence(sequenceId);
     if (loaded.ok && loaded.value.projectId === projectId) setSequence(loaded.value);
   };
+  const cancelExport = () => { exportController.current?.abort(); exportController.current = undefined; exportSnapshot.current = undefined; setExportState("idle"); };
+  const performExport = async (snapshot: LayoutDocument, controller: AbortController, selectedQuality: LayoutPdfQuality) => {
+    try {
+      setExportState("exporting");
+      await exportLayoutPdf(snapshot, dependencies.photoSource, controller.signal, setExportProgress, selectedQuality);
+      if (!controller.signal.aborted) setExportState("idle");
+    } catch (error) {
+      if (!controller.signal.aborted) { setExportError(error instanceof Error ? error.message : String(error)); setExportState("failed"); }
+    } finally { if (exportController.current === controller) { exportController.current = undefined; exportSnapshot.current = undefined; } }
+  };
+  const startExport = async (selectedQuality: LayoutPdfQuality) => {
+    if (exportState === "checking" || exportState === "exporting") return;
+    setQualityOpen(false);
+    prepareExport.current?.();
+    const snapshot = structuredClone(documentRef.current);
+    if (!snapshot) return;
+    exportController.current?.abort();
+    exportQuality.current = selectedQuality;
+    exportSnapshot.current = snapshot;
+    const controller = new AbortController();
+    exportController.current = controller;
+    setExportError(undefined); setExportCheck(undefined); setExportProgress({ completed: 0, total: snapshot.pages.length }); setExportState("checking");
+    try {
+      const check = await preflightLayoutPdf(snapshot, dependencies.photoSource, controller.signal);
+      if (controller.signal.aborted) return;
+      setExportCheck(check);
+      if (check.blocking.length || check.warnings.length) { setExportState("ready"); return; }
+      await performExport(snapshot, controller, selectedQuality);
+    } catch (error) {
+      if (!controller.signal.aborted) { setExportError(error instanceof Error ? error.message : String(error)); setExportState("failed"); }
+    } finally { if (exportController.current === controller && !exportSnapshot.current) exportController.current = undefined; }
+  };
   if (loadError) return <main className="layout-workspace layout-workspace-error"><p role="alert">{loadError}</p><button onClick={back}>{zh ? "返回 Sequence" : "Back to Sequence"}</button></main>;
   if (!document || !sequence || projectWrite.loading) return <main className="layout-workspace layout-workspace-error"><div className="loading-mark" /><p>{zh ? "正在打开 Layout…" : "Opening Layout…"}</p></main>;
 
@@ -178,15 +222,47 @@ export function LayoutWorkspace({ dependencies, persistence, projectId, sequence
       {!reading && <nav className="layout-module-navigation" aria-label={zh ? "工作区" : "Workspace"}><button onClick={() => navigate({ name: "table", projectId })}>Table</button><button aria-label="← Sequence" onClick={back}>Sequence</button><button aria-current="page">Layout</button></nav>}
       <span className="layout-save-status" role="status">{saveState === "failed" ? (zh ? "保存失败" : "Save failed") : saveState === "saving" || projectWrite.saving ? (zh ? "正在保存…" : "Saving…") : (zh ? "本地已保存" : "Saved locally")}{saveState === "failed" && <button onClick={() => void retry()}>{zh ? "重试" : "Retry"}</button>}</span>
       <CloudSaveStatus dependencies={dependencies} projectId={projectId} />
-      {!reading && <div className="layout-header-actions"><button onClick={startReading}>{zh ? "阅读" : "Read"}</button><button className="layout-export-button" disabled title={zh ? "PDF 导出尚未开放" : "PDF export is not available yet"}>{zh ? "导出 PDF" : "Export PDF"}</button></div>}
+      {!reading && <div className="layout-header-actions"><button onClick={startReading}>{zh ? "阅读" : "Read"}</button><button ref={exportButton} className="layout-export-button" disabled={exportState === "checking" || exportState === "exporting"} onClick={() => setQualityOpen(true)}>{zh ? "导出 PDF" : "Export PDF"}</button></div>}
     </header>
+    {exportState !== "idle" && <div className="layout-export-status" role="status">
+      <span>{exportState === "checking" ? (zh ? "正在检查照片…" : "Checking photos…")
+        : exportState === "exporting" ? (zh ? `正在导出 ${exportProgress.completed}/${exportProgress.total} 页…` : `Exporting ${exportProgress.completed}/${exportProgress.total} pages…`)
+          : exportState === "failed" ? (zh ? `导出失败：${exportError}` : `Export failed: ${exportError}`)
+            : exportCheck?.blocking.length ? (zh ? "请处理以下图像框后重试" : "Resolve these image frames and retry")
+              : (zh ? "以下照片分辨率偏低，仍可继续导出" : "These photos have low resolution; you can continue exporting")}</span>
+      {exportCheck && [...exportCheck.blocking, ...exportCheck.warnings].map((issue) => <span key={`${issue.page}-${issue.objectId}`}>
+        {zh ? `第 ${issue.page} 页 · ${issue.objectId.slice(0, 8)}：${issue.kind === "empty" ? "空图像框" : issue.kind === "missing" ? "照片不可用" : "分辨率偏低"}`
+          : `Page ${issue.page} · ${issue.objectId.slice(0, 8)}: ${issue.kind === "empty" ? "empty frame" : issue.kind === "missing" ? "photo unavailable" : "low resolution"}`}
+      </span>)}
+      {saveState === "failed" && <span>{zh ? "正在导出当前内存草稿；保存仍需重试。" : "Exporting the current draft; saving still needs a retry."}</span>}
+      {(exportState === "checking" || exportState === "exporting") && <button onClick={cancelExport}>{zh ? "取消" : "Cancel"}</button>}
+      {exportState === "ready" && !exportCheck?.blocking.length && <button onClick={() => { const snapshot = exportSnapshot.current; const controller = exportController.current; if (snapshot && controller) void performExport(snapshot, controller, exportQuality.current); }}>{zh ? "继续导出" : "Continue export"}</button>}
+      {(exportState === "ready" || exportState === "failed") && <button onClick={() => { cancelExport(); setExportCheck(undefined); }}>{zh ? "关闭" : "Dismiss"}</button>}
+    </div>}
+    {qualityOpen && <div className="layout-export-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) { setQualityOpen(false); exportButton.current?.focus(); } }}>
+      <section className="layout-export-dialog" role="dialog" aria-modal="true" aria-label={zh ? "PDF 导出质量" : "PDF export quality"} onKeyDown={(event) => {
+        if (event.key === "Escape") { event.stopPropagation(); setQualityOpen(false); exportButton.current?.focus(); }
+      }}>
+        <header><div><small>PDF EXPORT</small><h2>{zh ? "选择导出质量" : "Choose export quality"}</h2><p>{zh ? "照片会按所选质量写入 PDF；文字保持清晰、可选取。" : "Photo quality changes file size. Text stays sharp and selectable."}</p></div><button type="button" aria-label={zh ? "关闭" : "Close"} onClick={() => { setQualityOpen(false); exportButton.current?.focus(); }}>×</button></header>
+        <form onSubmit={(event) => { event.preventDefault(); void startExport(quality); }}>
+          <fieldset><legend>{zh ? "照片质量" : "Photo quality"}</legend>
+            {(["low", "medium", "high", "original"] as const).map((option) => {
+              const labels = { low: zh ? "低" : "Low", medium: zh ? "中" : "Medium", high: zh ? "高" : "High", original: zh ? "原图" : "Original" };
+              const descriptions = { low: zh ? "150 dpi · 屏幕分享，文件较小" : "150 dpi · smaller files for screens", medium: zh ? "220 dpi · 日常分享与审阅" : "220 dpi · everyday sharing and review", high: zh ? "300 dpi · 优先保留打印细节" : "300 dpi · more detail for print", original: zh ? "嵌入原始 JPEG · 文件可能较大" : "Embed source JPEGs · files may be large" };
+              return <label key={option} className={`layout-export-choice${quality === option ? " is-selected" : ""}`}><input type="radio" name="layout-export-quality" value={option} checked={quality === option} onChange={() => setQuality(option)} autoFocus={option === quality} /><span><strong>{labels[option]}</strong><small>{descriptions[option]}</small></span></label>;
+            })}
+          </fieldset>
+          <footer><button type="button" onClick={() => { setQualityOpen(false); exportButton.current?.focus(); }}>{zh ? "取消" : "Cancel"}</button><button type="submit" className="is-primary">{zh ? "导出 PDF" : "Export PDF"}</button></footer>
+        </form>
+      </section>
+    </div>}
     <div className="layout-workspace-body" style={{ "--layout-pages-width": `${panelWidths.pages}px`, "--layout-properties-width": `${panelWidths.properties}px` } as CSSProperties}>
       <aside className="layout-pages-panel" aria-label={zh ? "页面" : "Pages"}>
         <div className="layout-panel-heading"><strong>{zh ? "页面" : "Pages"}</strong><span>{document.pages.length}</span></div>
         <div className="layout-pages-list">{document.pages.map((entry, index) => { const firstImage = entry.objects.find((object) => object.kind === "image-frame" && object.photoId); const photoId = firstImage?.kind === "image-frame" ? firstImage.photoId : null; return <button key={entry.id} draggable className={`${index === selectedIndex ? "is-selected" : ""}${dropPageId === entry.id && draggedPageId !== entry.id ? " is-drop-target" : ""}`} onClick={() => setSelectedIndex(index)} onKeyDown={(event) => { if (event.key === "Delete" || event.key === "Backspace") { event.preventDefault(); event.stopPropagation(); removePage(entry.id); } }} aria-current={index === selectedIndex ? "page" : undefined} onDragStart={(event) => { setDraggedPageId(entry.id); event.dataTransfer.setData("application/x-photoflex-layout-page-id", entry.id); event.dataTransfer.effectAllowed = "move"; }} onDragOver={(event) => { if (draggedPageId) { event.preventDefault(); setDropPageId(entry.id); } }} onDragLeave={() => setDropPageId((current) => current === entry.id ? undefined : current)} onDrop={(event) => { event.preventDefault(); dropPage(entry.id); }} onDragEnd={() => { setDraggedPageId(undefined); setDropPageId(undefined); }}><span className="layout-page-index" aria-hidden="true">{String(index + 1).padStart(2, "0")}</span><span className="layout-page-mini" style={{ aspectRatio: `${document.pageSpec.widthPt} / ${document.pageSpec.heightPt}` }}>{photoId ? <PhotoThumb photoSource={dependencies.photoSource} photoId={photoId} alt="" fit="contain" /> : entry.objects.length > 0 && <i />}</span><span className="layout-page-caption"><span>{zh ? `第 ${index + 1} 页` : `Page ${index + 1}`}</span><small>{index === selectedIndex ? (zh ? "当前页面" : "Current page") : (zh ? `${entry.objects.length} 个对象` : `${entry.objects.length} objects`)}</small></span><span className="layout-page-grip" aria-hidden="true">⠿</span></button>; })}</div>
         <div className="layout-page-actions"><button onClick={addPage}>{zh ? "＋ 空白页" : "+ Blank page"}</button><button onClick={duplicatePage}>{zh ? "复制页" : "Duplicate"}</button><button disabled={document.pages.length <= 1} onClick={() => removePage()}>{zh ? "删除页" : "Delete"}</button></div>
       </aside>
-      <LayoutEditor document={document} sequence={sequence} dependencies={dependencies} selectedIndex={selectedIndex} setSelectedIndex={setSelectedIndex} command={command} onRefreshPhotos={refreshPhotos} reading={reading} canUndo={historyPosition > 0} canRedo={historyPosition < history.current.length - 1} onUndo={() => travel(-1)} onRedo={() => travel(1)} />
+      <LayoutEditor document={document} sequence={sequence} dependencies={dependencies} selectedIndex={selectedIndex} setSelectedIndex={setSelectedIndex} command={command} onRefreshPhotos={refreshPhotos} reading={reading} canUndo={historyPosition > 0} canRedo={historyPosition < history.current.length - 1} onUndo={() => travel(-1)} onRedo={() => travel(1)} prepareExport={prepareExport} />
       {!reading && (["pages", "properties"] as const).map((side) => <div key={side} className={`layout-panel-resizer is-${side}`} role="separator" aria-label={side === "pages" ? (zh ? "调整页面栏宽度" : "Resize Pages panel") : (zh ? "调整属性栏宽度" : "Resize Properties panel")} aria-orientation="vertical" aria-valuemin={120} aria-valuemax={400} aria-valuenow={panelWidths[side]} tabIndex={0} onPointerDown={panelPointerDown} onPointerMove={(event) => { if (event.currentTarget.hasPointerCapture(event.pointerId)) resizePanel(side, event.clientX, event.currentTarget); }} onPointerUp={(event) => { if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId); }} onKeyDown={(event) => { if (event.key === "ArrowLeft" || event.key === "ArrowRight") { event.preventDefault(); const delta = event.key === "ArrowRight" ? 16 : -16; const bounds = event.currentTarget.getBoundingClientRect(); resizePanel(side, bounds.left + delta, event.currentTarget); } }} />)}
     </div>
   </main>;

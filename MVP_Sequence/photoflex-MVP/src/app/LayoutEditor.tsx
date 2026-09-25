@@ -78,10 +78,10 @@ function LayoutPageSizeControl({ pageSpec, command, zh }: {
   </div>;
 }
 
-export function LayoutEditor({ document, sequence, dependencies, selectedIndex, setSelectedIndex, command, onRefreshPhotos, reading, canUndo, canRedo, onUndo, onRedo }: {
+export function LayoutEditor({ document, sequence, dependencies, selectedIndex, setSelectedIndex, command, onRefreshPhotos, reading, canUndo, canRedo, onUndo, onRedo, prepareExport }: {
   document: LayoutDocument; sequence: SequenceDocument; dependencies: AppDependencies; selectedIndex: number;
   setSelectedIndex: (index: number) => void; command: (edit: LayoutEditCommand, mergeKey?: string) => boolean; onRefreshPhotos: () => Promise<void>; reading: boolean;
-  canUndo: boolean; canRedo: boolean; onUndo: () => void; onRedo: () => void;
+  canUndo: boolean; canRedo: boolean; onUndo: () => void; onRedo: () => void; prepareExport: { current: (() => void) | undefined };
 }) {
   const { locale } = useLocale();
   const zh = locale === "zh-CN";
@@ -174,6 +174,16 @@ export function LayoutEditor({ document, sequence, dependencies, selectedIndex, 
     const current = gestureRef.current;
     if (current?.kind === "crop") setActiveCrop(current.quick ? undefined : { pageId: current.pageId, frameId: current.frame.id, crop: current.initialCrop });
     setActiveGesture(undefined);
+  };
+  prepareExport.current = () => {
+    textInputRef.current?.blur();
+    const active = gestureRef.current;
+    if (active?.kind === "frame" && JSON.stringify(active.rect) !== JSON.stringify(active.object.rect)) {
+      command({ type: "upsert-object", pageId: active.pageId, object: { ...active.object, rect: active.rect } });
+    }
+    if (active?.kind === "crop") setActiveCrop({ pageId: active.pageId, frameId: active.frame.id, crop: active.crop });
+    setActiveGesture(undefined);
+    finishCrop();
   };
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {

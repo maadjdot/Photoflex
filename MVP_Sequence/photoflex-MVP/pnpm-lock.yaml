@@ -8,6 +8,9 @@ importers:
 
   .:
     dependencies:
+      '@pdf-lib/fontkit':
+        specifier: 1.1.1
+        version: 1.1.1
       '@cloudbase/js-sdk':
         specifier: ^3.9.4
         version: 3.9.4

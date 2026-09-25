@@ -1,3 +1,5 @@
+import { readFile } from "node:fs/promises";
+import { PDFDocument, PDFDict, PDFName } from "pdf-lib";
 import { expect, test, type Page } from "@playwright/test";
 
 const PROJECT_ID = "sequence-visual-project";
@@ -419,6 +421,53 @@ test("Layout text survives refresh and reading uses the same lines", async ({ pa
   await page.reload();
   await expect(layout.locator(".layout-object-text-box .layout-text-line")).toHaveCount(2);
   expect(await layout.locator(".layout-object-text-box .layout-text-line").allTextContents()).toEqual(editLines);
+});
+
+test("Layout exports fixed physical pages with selectable text and keeps blank pages", async ({ page }, testInfo) => {
+  await page.goto("/");
+  await expect(page.getByRole("heading", { name: "Projects" })).toBeVisible();
+  await seedSequence(page);
+  await page.goto(`/#/projects/${PROJECT_ID}/sequences/${SEQUENCE_ID}`);
+  await page.getByRole("dialog", { name: "Sequence Street Edit" }).getByRole("button", { name: "Layout" }).click();
+  const creator = page.getByRole("dialog", { name: "Create Layout" });
+  await creator.getByLabel("One blank page").check();
+  await creator.getByRole("button", { name: "Create Layout" }).click();
+  const layout = page.getByRole("main", { name: "Layout workspace" });
+  await expect(layout).toBeVisible();
+  await layout.getByRole("button", { name: "Draw text box" }).click();
+  const paper = (await layout.locator(".layout-paper.is-current").boundingBox())!;
+  await page.mouse.move(paper.x + paper.width * .1, paper.y + paper.height * .1);
+  await page.mouse.down();
+  await page.mouse.move(paper.x + paper.width * .9, paper.y + paper.height * .4, { steps: 5 });
+  await page.mouse.up();
+  const sample = "摄影集：上海街景，人物与光影。\n第二页 2026 / Café";
+  await layout.getByRole("textbox", { name: "Edit text in frame" }).fill(sample);
+  await layout.getByRole("button", { name: "+ Blank page" }).click();
+  const downloadEvent = page.waitForEvent("download", { timeout: 120_000 });
+  await layout.getByRole("button", { name: "Export PDF" }).click();
+  const quality = page.getByRole("dialog", { name: "PDF export quality" });
+  await expect(quality).toBeVisible();
+  await expect(quality.getByRole("radio")).toHaveCount(4);
+  await expect(quality.getByRole("radio", { name: /Medium/ })).toBeChecked();
+  await quality.getByRole("button", { name: "Export PDF" }).click();
+  const download = await downloadEvent;
+  const path = testInfo.outputPath("layout.pdf");
+  await download.saveAs(path);
+  const pdf = await PDFDocument.load(await readFile(path));
+  expect(pdf.getPageCount()).toBe(2);
+  for (const physicalPage of pdf.getPages()) {
+    expect(physicalPage.getWidth()).toBeCloseTo(210 * 72 / 25.4, 4);
+    expect(physicalPage.getHeight()).toBeCloseTo(297 * 72 / 25.4, 4);
+  }
+  expect(pdf.getPage(0).node.Resources()?.lookup(PDFName.of("Font"), PDFDict)?.keys().length).toBeGreaterThan(0);
+  expect(pdf.getPage(0).node.Resources()?.lookup(PDFName.of("XObject"), PDFDict)?.keys().length ?? 0).toBe(0);
+  expect(pdf.getPage(1).node.Resources()?.lookup(PDFName.of("XObject"), PDFDict)?.keys().length ?? 0).toBe(0);
+  await layout.getByRole("group", { name: "Template" }).getByRole("button", { name: "Single template" }).click();
+  await layout.getByRole("button", { name: "Export PDF" }).click();
+  await quality.getByRole("button", { name: "Export PDF" }).click();
+  await expect(layout.locator(".layout-export-status")).toContainText("empty frame");
+  await expect(layout.locator(".layout-export-status")).toContainText("Page 2");
+  await expect(layout.locator(".layout-export-status").getByRole("button", { name: "Continue export" })).toHaveCount(0);
 });
 
 async function seedSequence(page: Page) {
