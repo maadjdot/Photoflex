@@ -86,22 +86,6 @@
 .layout-template-panel small { color: #8b867e; }
 .layout-workspace-error { align-items: center; justify-content: center; gap: 12px; }
 .layout-workspace-error button { padding: 8px 12px; border: 1px solid #bdb7ad; background: #fff; }
-.layout-create-backdrop { position: fixed; inset: 0; z-index: 120; display: grid; place-items: center; background: #17151388; }
-.layout-create-dialog { width: min(440px, calc(100vw - 32px)); max-height: calc(100vh - 40px); overflow: auto; padding: 22px; border: 1px solid #d4d0c8; background: #fff; box-shadow: 0 18px 60px #0004; }
-.layout-create-dialog header { display: flex; align-items: start; justify-content: space-between; }
-.layout-create-dialog header small { color: #8b867e; font-size: 10px; letter-spacing: .15em; }
-.layout-create-dialog h2 { margin: 4px 0 18px; font-size: 23px; }
-.layout-create-dialog header button { border: 0; background: none; font-size: 24px; }
-.layout-create-dialog form { display: grid; gap: 13px; }
-.layout-create-dialog form > label, .layout-create-dimensions label { display: grid; gap: 6px; font-weight: 600; }
-.layout-create-dialog select, .layout-create-dialog input[type="number"] { width: 100%; box-sizing: border-box; padding: 9px; border: 1px solid #cfcac1; background: #fff; font: inherit; }
-.layout-create-dimensions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-.layout-create-dialog fieldset { display: grid; gap: 6px; margin: 0; padding: 10px 12px; border: 1px solid #d8d4cd; }
-.layout-create-dialog fieldset label { display: flex; align-items: center; gap: 7px; }
-.layout-create-note { margin: 0; color: #777169; font-size: 11px; }
-.layout-create-dialog footer { display: flex; justify-content: end; gap: 8px; }
-.layout-create-dialog footer button { padding: 8px 14px; border: 1px solid #d4d0c8; background: #fff; }
-.layout-create-dialog footer button[type="submit"] { border-color: #24211d; background: #24211d; color: #fff; }
 /* Layout shares the quiet inspector language and controls of the Table Frame panel. */
 .layout-workspace { background: #f2f2f1; color: #35332e; }
 .layout-workspace-header { flex-basis: 56px; gap: 14px; border-color: #e8e8e6; }
@@ -204,8 +188,11 @@
 @media (prefers-reduced-motion: reduce) { .layout-spread.is-reading { animation: none; } }
 .layout-reading .layout-object { pointer-events: none; }
 .layout-marquee-preview { position: absolute; z-index: 5; box-sizing: border-box; border: 1px dashed #2867bd; background: rgb(55 112 200 / 15%); pointer-events: none; }
-.layout-next-page { position: absolute; right: 18px; bottom: 15px; z-index: 6; padding: 8px 12px; border: 1px solid #d4d2cc; border-radius: 5px; background: #fff; box-shadow: 0 2px 8px #0001; color: #35332e; }
-.layout-next-page:hover { background: #eeece8; }
+.layout-previous-page, .layout-next-page { position: absolute; bottom: 15px; z-index: 6; padding: 8px 12px; border: 1px solid #d4d2cc; border-radius: 5px; background: #fff; box-shadow: 0 2px 8px #0001; color: #35332e; }
+.layout-previous-page { left: 18px; }
+.layout-next-page { right: 18px; }
+.layout-previous-page:hover:not(:disabled), .layout-next-page:hover { background: #eeece8; }
+.layout-previous-page:disabled { opacity: .42; }
 .layout-stage.is-pan-mode, .layout-stage.is-pan-mode .layout-paper, .layout-stage.is-pan-mode .layout-object { cursor: grab; }
 .layout-stage.is-panning, .layout-stage.is-panning .layout-paper, .layout-stage.is-panning .layout-object { cursor: grabbing; }
 /* Keep controls inside the clipped photo so their hit targets remain reachable. */

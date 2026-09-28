@@ -4,6 +4,7 @@ import { createLayoutFromSequence, sequenceLayoutPreview, type LayoutStart } fro
 import { MM_TO_PT, PAGE_PRESETS_MM } from "../modules/page-layout/pageGeometry";
 import { useLocale } from "./locale";
 import type { ProjectWriteCoordinator } from "./projectWriteCoordinator";
+import "../styles/layout-create-dialog.css";
 
 export function LayoutCreateDialog({ sequence, persistence, onClose, onCreated }: {
   sequence: SequenceDocument; persistence: ProjectWriteCoordinator; onClose: () => void; onCreated: (id: LayoutId) => void;

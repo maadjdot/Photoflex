@@ -82,10 +82,10 @@ function LayoutPageSizeControl({ pageSpec, command, zh }: {
   </div>;
 }
 
-export function LayoutEditor({ document, sequence, dependencies, selectedIndex, setSelectedIndex, command, onRefreshPhotos, onNextPage, canUndo, canRedo, onUndo, onRedo, prepareExport }: {
+export function LayoutEditor({ document, sequence, dependencies, selectedIndex, setSelectedIndex, command, onRefreshPhotos, onPreviousPage, onNextPage, interactionEnabled, canUndo, canRedo, onUndo, onRedo, prepareExport }: {
   document: LayoutDocument; sequence: SequenceDocument; dependencies: AppDependencies; selectedIndex: number;
-  setSelectedIndex: (index: number) => void; command: (edit: LayoutEditCommand, mergeKey?: string) => boolean; onRefreshPhotos: () => Promise<void>; onNextPage: () => void;
-  canUndo: boolean; canRedo: boolean; onUndo: () => void; onRedo: () => void; prepareExport: { current: (() => void) | undefined };
+  setSelectedIndex: (index: number) => void; command: (edit: LayoutEditCommand, mergeKey?: string) => boolean; onRefreshPhotos: () => Promise<void>; onPreviousPage: () => void; onNextPage: () => void;
+  interactionEnabled: boolean; canUndo: boolean; canRedo: boolean; onUndo: () => void; onRedo: () => void; prepareExport: { current: (() => void) | undefined };
 }) {
   const { locale } = useLocale();
   const zh = locale === "zh-CN";
@@ -279,6 +279,23 @@ export function LayoutEditor({ document, sequence, dependencies, selectedIndex, 
   };
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
+      if (!interactionEnabled) return;
+      const target = event.target;
+      const isEditing = target instanceof HTMLElement && !!target.closest("input, textarea, select, [contenteditable='true']");
+      if ((event.ctrlKey || event.metaKey) && !event.altKey && !isEditing) {
+        const key = event.key.toLowerCase();
+        if (key === "z") {
+          event.preventDefault();
+          if (event.shiftKey) { if (canRedo) onRedo(); }
+          else if (canUndo) onUndo();
+          return;
+        }
+        if (key === "y" && !event.shiftKey) {
+          event.preventDefault();
+          if (canRedo) onRedo();
+          return;
+        }
+      }
       if (event.key === "Escape") { if (gestureRef.current || cropRef.current) { event.preventDefault(); cancel(); } return; }
       if (event.key === "Enter" && cropRef.current && !(event.target as HTMLElement)?.closest("textarea")) { event.preventDefault(); finishCrop(); return; }
       if ((event.key === "Delete" || event.key === "Backspace") && selectedIds.size && !cropRef.current
@@ -530,7 +547,7 @@ export function LayoutEditor({ document, sequence, dependencies, selectedIndex, 
         <span className="layout-toolbar-divider" />
         <LayoutPageSizeControl pageSpec={document.pageSpec} command={command} zh={zh} />
       </div>
-      <div className="layout-history-controls"><button aria-label={fieldLabel(zh, "Undo", "撤销")} title={fieldLabel(zh, "Undo", "撤销")} disabled={!canUndo} onClick={onUndo}><img src={undoIcon} alt="" /></button><button aria-label={fieldLabel(zh, "Redo", "重做")} title={fieldLabel(zh, "Redo", "重做")} disabled={!canRedo} onClick={onRedo}><img src={redoIcon} alt="" /></button></div>
+      <div className="layout-history-controls"><button aria-label={fieldLabel(zh, "Undo", "撤销")} title={`${fieldLabel(zh, "Undo", "撤销")} (Ctrl/Cmd+Z)`} disabled={!canUndo} onClick={onUndo}><img src={undoIcon} alt="" /></button><button aria-label={fieldLabel(zh, "Redo", "重做")} title={`${fieldLabel(zh, "Redo", "重做")} (Ctrl/Cmd+Y · Ctrl/Cmd+Shift+Z)`} disabled={!canRedo} onClick={onRedo}><img src={redoIcon} alt="" /></button></div>
       </div>
       <div className="layout-canvas"><div ref={stageRef} className={`layout-stage${panMode ? " is-pan-mode" : ""}${panning ? " is-panning" : ""}`} onPointerDownCapture={startPan} onPointerMove={movePan} onPointerUp={endPan} onPointerCancel={endPan} onAuxClick={(event) => { if (event.button === 1) event.preventDefault(); }}><div key="editing" className={`layout-spread${facing && display.every((entry) => entry !== null) ? " is-facing" : ""}`} style={{ width: display.length * pageWidth, height: pageHeight }}>{display.map((index, slot) => index === null ? <div className="layout-paper-placeholder" key={`empty-${slot}`} aria-label={fieldLabel(zh, "Facing page placeholder", "对页占位")} style={{ width: pageWidth, height: pageHeight }} /> : <div key={document.pages[index].id} ref={(element) => { if (element) paperRefs.current.set(document.pages[index].id, element); else paperRefs.current.delete(document.pages[index].id); }} className={`layout-paper${index === selectedIndex ? " is-current" : ""}${tool === "draw" || tool === "text" ? " is-drawing" : ""}`} style={{ width: pageWidth, height: pageHeight, zIndex: crossesGutter(index, slot) ? 2 : 1 }} aria-label={fieldLabel(zh, `Page ${index + 1}`, `第 ${index + 1} 页`)} onPointerDown={(event) => pointerStart(event, index)} onPointerMove={(event) => pointerMove(event, index)} onPointerUp={(event) => pointerEnd(event, index)} onPointerCancel={cancelPointer} onDoubleClick={(event) => doubleClickPaper(event, index)} onDragOver={(event) => event.preventDefault()} onDrop={(event) => dropPhoto(event, index)}>
         {document.pages[index].objects.map((object) => {
@@ -548,7 +565,7 @@ export function LayoutEditor({ document, sequence, dependencies, selectedIndex, 
         {gesture?.kind === "frame" && gesture.pageIndex === index && gesture.guides.length > 0 && <svg className="layout-alignment-guides" width="100%" height="100%" viewBox={`0 0 ${document.pageSpec.widthPt} ${document.pageSpec.heightPt}`} aria-hidden="true">{gesture.guides.map((guide) => guide.axis === "x" ? <line key="x" x1={guide.value} y1={0} x2={guide.value} y2={document.pageSpec.heightPt} /> : <line key="y" x1={0} y1={guide.value} x2={document.pageSpec.widthPt} y2={guide.value} />)}</svg>}
         {gesture?.kind === "draw" && gesture.pageIndex === index && drawnRect(gesture) && <div className="layout-draw-preview" style={formatRect(drawnRect(gesture)!)} />}
         <span className={`layout-paper-number${facing && slot === 0 ? " is-left" : ""}`}>{String(index + 1).padStart(2, "0")}</span>
-      </div>)}{gesture?.kind === "marquee" && <div className="layout-marquee-preview" style={{ left: `${Math.min(gesture.start.x, gesture.current.x) / (display.length * document.pageSpec.widthPt) * 100}%`, top: `${Math.min(gesture.start.y, gesture.current.y) / document.pageSpec.heightPt * 100}%`, width: `${Math.abs(gesture.start.x - gesture.current.x) / (display.length * document.pageSpec.widthPt) * 100}%`, height: `${Math.abs(gesture.start.y - gesture.current.y) / document.pageSpec.heightPt * 100}%` }} />}</div></div><div className="layout-page-indicator">{fieldLabel(zh, "Page", "页")} {shownPages.map((index) => index + 1).join("–")} / {document.pages.length}</div><button className="layout-next-page" onClick={onNextPage} aria-label={fieldLabel(zh, "Next page", "下一页")}>{fieldLabel(zh, "Next page", "下一页")} →</button></div>
+      </div>)}{gesture?.kind === "marquee" && <div className="layout-marquee-preview" style={{ left: `${Math.min(gesture.start.x, gesture.current.x) / (display.length * document.pageSpec.widthPt) * 100}%`, top: `${Math.min(gesture.start.y, gesture.current.y) / document.pageSpec.heightPt * 100}%`, width: `${Math.abs(gesture.start.x - gesture.current.x) / (display.length * document.pageSpec.widthPt) * 100}%`, height: `${Math.abs(gesture.start.y - gesture.current.y) / document.pageSpec.heightPt * 100}%` }} />}</div></div><div className="layout-page-indicator">{fieldLabel(zh, "Page", "页")} {shownPages.map((index) => index + 1).join("–")} / {document.pages.length}</div><button className="layout-previous-page" disabled={selectedIndex === 0} onClick={onPreviousPage} aria-label={fieldLabel(zh, "Previous page", "上一页")}>← {fieldLabel(zh, "Previous page", "上一页")}</button><button className="layout-next-page" onClick={onNextPage} aria-label={fieldLabel(zh, "Next page", "下一页")}>{fieldLabel(zh, "Next page", "下一页")} →</button></div>
       <div className="layout-photo-tray"><div className="layout-panel-heading"><strong>{fieldLabel(zh, "Assets", "照片素材")}</strong><button className="layout-photo-refresh" onClick={() => { void onRefreshPhotos().then(() => { setMissingPhotos(new Set()); setSourceRevision((value) => value + 1); }); }}>{fieldLabel(zh, "Refresh", "刷新")}</button></div><div ref={stripRef} className="layout-photo-scroll" onScroll={(event) => setStrip({ left: event.currentTarget.scrollLeft, width: event.currentTarget.clientWidth || 800 })}><div className="layout-photo-track" style={{ width: Math.max(0, photos.length * 114) }}>{photos.slice(visible.start, visible.end).map((item, offset) => {
         const index = visible.start + offset;
         return <div key={item.id} className="layout-photo-item" style={{ left: index * 114 }} draggable onDragStart={(event) => { event.dataTransfer.setData(photoDragType, item.photoId); event.dataTransfer.effectAllowed = "copy"; }}>
