@@ -83,6 +83,34 @@ describe("Layout PDF", () => {
     expect(fontResources?.keys().length).toBeGreaterThanOrEqual(2);
   }, 60000);
 
+  it("embeds the newly installed Layout fonts", async () => {
+    const base = createEmptyLayout({ id: "layout" as LayoutId, projectId: "project" as ProjectId,
+      sequenceId: "sequence" as SequenceId, pageId: "one" as LayoutPageId, name: "New fonts", createdAt: "2026-09-24" });
+    const makeText = (id: string, family: "ancizar-serif" | "eb-garamond" | "lxgw-wenkai-tc", text: string, y: number): LayoutTextBox => ({
+      kind: "text-box", id: id as LayoutObjectId, rect: { x: 40, y, width: 440, height: 60 }, text,
+      style: { fontFamily: family, fontSizePt: 12, lineHeight: 1.2, color: "#171513", align: "left" },
+    });
+    const [ancizar, garamond, wenKai] = await Promise.all([
+      readFile("src/assets/fonts/AncizarSerif/AncizarSerif.ttf"),
+      readFile("src/assets/fonts/EB_Garamond/static/EBGaramond-Regular.ttf"),
+      readFile("src/assets/fonts/LXGWWenKaiTC/LXGWWenKaiTC-Regular.ttf"),
+    ]);
+    const bytes = await createLayoutPdf({ ...base, pages: [{ ...base.pages[0], objects: [
+      makeText("ancizar", "ancizar-serif", "Ancizar Serif", 40),
+      makeText("garamond", "eb-garamond", "EB Garamond", 120),
+      makeText("wenkai", "lxgw-wenkai-tc", "霞鹜文楷 TC", 200),
+    ] }] }, {
+      fonts: [
+        { family: "ancizar-serif", weight: "normal", style: "normal", bytes: new Uint8Array(ancizar), syntheticBold: false, syntheticItalic: false },
+        { family: "eb-garamond", weight: "normal", style: "normal", bytes: new Uint8Array(garamond), syntheticBold: false, syntheticItalic: false },
+        { family: "lxgw-wenkai-tc", weight: "normal", style: "normal", bytes: new Uint8Array(wenKai), syntheticBold: false, syntheticItalic: false },
+      ],
+      loadPhoto: async () => { throw new Error("Unexpected photo"); },
+    });
+    const pdf = await PDFDocument.load(bytes);
+    expect(pdf.getPage(0).node.Resources()?.lookup(PDFName.of("Font"), PDFDict)?.keys().length).toBeGreaterThanOrEqual(3);
+  }, 60000);
+
   it("exports the normalized ZCOOL fonts without a fontkit buffer error", async () => {
     const base = createEmptyLayout({ id: "layout" as LayoutId, projectId: "project" as ProjectId,
       sequenceId: "sequence" as SequenceId, pageId: "one" as LayoutPageId, name: "ZCOOL", createdAt: "2026-09-24" });

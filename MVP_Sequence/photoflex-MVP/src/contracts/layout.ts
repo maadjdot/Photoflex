@@ -18,17 +18,20 @@ export interface LayoutImageFrame {
 }
 
 export type LayoutFontFamily =
+  | "ancizar-serif"
   | "architects-daughter"
   | "courier-prime"
+  | "eb-garamond"
   | "google-sans"
   | "gudea"
+  | "lxgw-wenkai-tc"
   | "noto-sans-sc"
   | "noto-serif"
   | "noto-serif-sc"
   | "patrick-hand"
   | "roboto"
   | "special-elite"
-  | "zcool-kuaile"
+  | "zcool-kuaile" // legacy documents only; no longer selectable
   | "zcool-qingke-huangyou"
   | "zcool-xiaowei";
 export type LayoutFontWeight = "normal" | "bold";

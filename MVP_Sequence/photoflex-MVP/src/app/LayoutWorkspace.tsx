@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, useSyncExternalStore, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react";
 import type { LayoutDocument, LayoutEditCommand, LayoutId, LayoutObjectId, LayoutPage, LayoutPageId, ProjectId, SequenceDocument, SequenceId } from "../contracts";
 import { applyLayoutCommand } from "../modules/layout/layoutDocument";
+import { facingTurnIndex } from "../modules/layout/layoutPages";
 import type { AppDependencies } from "./dependencies";
 import { useLocale } from "./locale";
 import { LayoutEditor } from "./LayoutEditor";
@@ -185,11 +186,16 @@ export function LayoutWorkspace({ dependencies, persistence, projectId, sequence
     const next: LayoutPage = { id: newPageId(), objects: [] };
     if (command({ type: "add-page", page: next, at: selectedIndex + 1 })) setSelectedIndex(selectedIndex + 1);
   };
-  const nextPage = () => {
-    if (selectedIndex < document.pages.length - 1) setSelectedIndex(selectedIndex + 1);
+  const nextPage = (facing: boolean) => {
+    const nextIndex = facing
+      ? facingTurnIndex(document.pages.length, selectedIndex, 1)
+      : Math.min(document.pages.length - 1, selectedIndex + 1);
+    if (nextIndex !== selectedIndex) setSelectedIndex(nextIndex);
     else addPage();
   };
-  const previousPage = () => setSelectedIndex(Math.max(0, selectedIndex - 1));
+  const previousPage = (facing: boolean) => setSelectedIndex(facing
+    ? facingTurnIndex(document.pages.length, selectedIndex, -1)
+    : Math.max(0, selectedIndex - 1));
   const duplicatePage = () => {
     if (page && command({ type: "add-page", page: copyPage(page), at: selectedIndex + 1 })) setSelectedIndex(selectedIndex + 1);
   };

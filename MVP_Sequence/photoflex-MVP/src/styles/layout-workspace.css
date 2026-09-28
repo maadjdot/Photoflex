@@ -136,11 +136,16 @@
 .layout-properties-panel .table-frame-inspector .layout-apply-template:hover { background: #47443e; }
 @media (max-width: 1100px) { .layout-workspace-body { grid-template-columns: 142px minmax(0, 1fr) 270px; } .layout-workspace-header { gap: 8px; padding: 0 10px; } .layout-header-actions { gap: 2px; } }
 @media (max-width: 760px) { .layout-workspace-body { grid-template-columns: 124px minmax(0, 1fr); } .layout-workspace-body .layout-properties-panel.table-frame-panel { display: none; } .layout-save-status { display: none; } .layout-workspace-header strong { max-width: 140px; } }
+@font-face { font-family: "PhotoFlex Ancizar Serif"; src: url("../assets/fonts/AncizarSerif/AncizarSerif.ttf") format("truetype"); font-style: normal; font-weight: 100 900; font-display: block; }
 @font-face { font-family: "PhotoFlex Architects Daughter"; src: url("../assets/fonts/Architects_Daughter/ArchitectsDaughter-Regular.ttf") format("truetype"); font-style: normal; font-weight: 400; font-display: block; }
 @font-face { font-family: "PhotoFlex Courier Prime"; src: url("../assets/fonts/Courier_Prime/CourierPrime-Regular.ttf") format("truetype"); font-style: normal; font-weight: 400; font-display: block; }
 @font-face { font-family: "PhotoFlex Courier Prime"; src: url("../assets/fonts/Courier_Prime/CourierPrime-Bold.ttf") format("truetype"); font-style: normal; font-weight: 700; font-display: block; }
 @font-face { font-family: "PhotoFlex Courier Prime"; src: url("../assets/fonts/Courier_Prime/CourierPrime-Italic.ttf") format("truetype"); font-style: italic; font-weight: 400; font-display: block; }
 @font-face { font-family: "PhotoFlex Courier Prime"; src: url("../assets/fonts/Courier_Prime/CourierPrime-BoldItalic.ttf") format("truetype"); font-style: italic; font-weight: 700; font-display: block; }
+@font-face { font-family: "PhotoFlex EB Garamond"; src: url("../assets/fonts/EB_Garamond/static/EBGaramond-Regular.ttf") format("truetype"); font-style: normal; font-weight: 400; font-display: block; }
+@font-face { font-family: "PhotoFlex EB Garamond"; src: url("../assets/fonts/EB_Garamond/static/EBGaramond-Bold.ttf") format("truetype"); font-style: normal; font-weight: 700; font-display: block; }
+@font-face { font-family: "PhotoFlex EB Garamond"; src: url("../assets/fonts/EB_Garamond/static/EBGaramond-Italic.ttf") format("truetype"); font-style: italic; font-weight: 400; font-display: block; }
+@font-face { font-family: "PhotoFlex EB Garamond"; src: url("../assets/fonts/EB_Garamond/static/EBGaramond-BoldItalic.ttf") format("truetype"); font-style: italic; font-weight: 700; font-display: block; }
 @font-face { font-family: "PhotoFlex Google Sans"; src: url("../assets/fonts/Google_Sans/static/GoogleSans-Regular.ttf") format("truetype"); font-style: normal; font-weight: 400; font-display: block; }
 @font-face { font-family: "PhotoFlex Google Sans"; src: url("../assets/fonts/Google_Sans/static/GoogleSans-Bold.ttf") format("truetype"); font-style: normal; font-weight: 700; font-display: block; }
 @font-face { font-family: "PhotoFlex Google Sans"; src: url("../assets/fonts/Google_Sans/static/GoogleSans-Italic.ttf") format("truetype"); font-style: italic; font-weight: 400; font-display: block; }
@@ -148,6 +153,8 @@
 @font-face { font-family: "PhotoFlex Gudea"; src: url("../assets/fonts/Gudea/Gudea-Regular.ttf") format("truetype"); font-style: normal; font-weight: 400; font-display: block; }
 @font-face { font-family: "PhotoFlex Gudea"; src: url("../assets/fonts/Gudea/Gudea-Bold.ttf") format("truetype"); font-style: normal; font-weight: 700; font-display: block; }
 @font-face { font-family: "PhotoFlex Gudea"; src: url("../assets/fonts/Gudea/Gudea-Italic.ttf") format("truetype"); font-style: italic; font-weight: 400; font-display: block; }
+@font-face { font-family: "PhotoFlex LXGW WenKai TC"; src: url("../assets/fonts/LXGWWenKaiTC/LXGWWenKaiTC-Regular.ttf") format("truetype"); font-style: normal; font-weight: 400; font-display: block; }
+@font-face { font-family: "PhotoFlex LXGW WenKai TC"; src: url("../assets/fonts/LXGWWenKaiTC/LXGWWenKaiTC-Bold.ttf") format("truetype"); font-style: normal; font-weight: 700; font-display: block; }
 @font-face { font-family: "PhotoFlex Noto Sans SC"; src: url("../assets/fonts/Noto_Sans_SC/static/NotoSansSC-Regular.ttf") format("truetype"); font-style: normal; font-weight: 400; font-display: block; }
 @font-face { font-family: "PhotoFlex Noto Sans SC"; src: url("../assets/fonts/Noto_Sans_SC/static/NotoSansSC-Bold.ttf") format("truetype"); font-style: normal; font-weight: 700; font-display: block; }
 @font-face { font-family: "PhotoFlex Noto Serif"; src: url("../assets/fonts/Noto_Serif/static/NotoSerif-Regular.ttf") format("truetype"); font-style: normal; font-weight: 400; font-display: block; }
@@ -162,7 +169,6 @@
 @font-face { font-family: "PhotoFlex Roboto"; src: url("../assets/fonts/Roboto/static/Roboto-Italic.ttf") format("truetype"); font-style: italic; font-weight: 400; font-display: block; }
 @font-face { font-family: "PhotoFlex Roboto"; src: url("../assets/fonts/Roboto/static/Roboto-BoldItalic.ttf") format("truetype"); font-style: italic; font-weight: 700; font-display: block; }
 @font-face { font-family: "PhotoFlex Special Elite"; src: url("../assets/fonts/Special_Elite/SpecialElite-Regular.ttf") format("truetype"); font-style: normal; font-weight: 400; font-display: block; }
-@font-face { font-family: "PhotoFlex ZCOOL KuaiLe"; src: url("../assets/fonts/ZCOOL_KuaiLe/ZCOOLKuaiLe-Regular.ttf") format("truetype"); font-style: normal; font-weight: 400; font-display: block; }
 @font-face { font-family: "PhotoFlex ZCOOL QingKe HuangYou"; src: url("../assets/fonts/ZCOOL_QingKe_HuangYou/ZCOOLQingKeHuangYou-PhotoFlex.ttf") format("truetype"); font-style: normal; font-weight: 400; font-display: block; }
 @font-face { font-family: "PhotoFlex ZCOOL XiaoWei"; src: url("../assets/fonts/ZCOOL_XiaoWei/ZCOOLXiaoWei-PhotoFlex.ttf") format("truetype"); font-style: normal; font-weight: 400; font-display: block; }
 .layout-object-text-box { white-space: normal; overflow-wrap: normal; color: #171513; cursor: grab; touch-action: none; }
