@@ -4,6 +4,7 @@ import { applyLayoutCommand } from "../modules/layout/layoutDocument";
 import type { AppDependencies } from "./dependencies";
 import { useLocale } from "./locale";
 import { LayoutEditor } from "./LayoutEditor";
+import { LayoutReader } from "./LayoutReader";
 import { PhotoThumb } from "./PhotoThumb";
 import { CloudSaveStatus } from "./CloudControls";
 import { exportLayoutPdf, preflightLayoutPdf, type LayoutPdfPreflight, type LayoutPdfQuality } from "../platform/browser/exportLayoutPdf";
@@ -134,7 +135,12 @@ export function LayoutWorkspace({ dependencies, persistence, projectId, sequence
 
   const page = document?.pages[selectedIndex];
   const back = () => navigate({ name: "sequence", projectId, sequenceId });
-  const startReading = () => { if (window.document.activeElement instanceof HTMLElement) window.document.activeElement.blur(); readingOrigin.current = selectedIndex; setReading(true); };
+  const startReading = () => {
+    if (window.document.activeElement instanceof HTMLElement) window.document.activeElement.blur();
+    prepareExport.current?.();
+    readingOrigin.current = selectedIndex;
+    setReading(true);
+  };
   const stopReading = () => { setReading(false); setSelectedIndex(readingOrigin.current); };
   const refreshPhotos = async () => {
     const loaded = await persistence.loadSequence(sequenceId);
@@ -220,13 +226,13 @@ export function LayoutWorkspace({ dependencies, persistence, projectId, sequence
     reordered.splice(to, 0, moving);
     if (command({ type: "move-page", pageId: sourceId, to })) setSelectedIndex(reordered.findIndex((entry) => entry.id === selectedPageId));
   };
-  return <main className={`layout-workspace${reading ? " layout-reading" : ""}`} aria-label="Layout workspace">
+  return <><main className="layout-workspace" aria-label="Layout workspace" aria-hidden={reading || undefined} inert={reading || undefined}>
     <header className="layout-workspace-header">
-      <div className="layout-brand"><strong>Photoflex</strong><span className="layout-breadcrumb-divider">/</span><button title={document.name} onClick={reading ? stopReading : back}>{reading ? (zh ? "← 退出阅读" : "← Exit reading") : document.name}</button></div>
-      {!reading && <nav className="layout-module-navigation" aria-label={zh ? "工作区" : "Workspace"}><button onClick={() => navigate({ name: "table", projectId })}>Table</button><button aria-label="← Sequence" onClick={back}>Sequence</button><button aria-current="page">Layout</button></nav>}
+      <div className="layout-brand"><strong>Photoflex</strong><span className="layout-breadcrumb-divider">/</span><button title={document.name} onClick={back}>{document.name}</button></div>
+      <nav className="layout-module-navigation" aria-label={zh ? "工作区" : "Workspace"}><button onClick={() => navigate({ name: "table", projectId })}>Table</button><button aria-label="← Sequence" onClick={back}>Sequence</button><button aria-current="page">Layout</button></nav>
       <span className="layout-save-status" role="status">{saveState === "failed" ? (zh ? "保存失败" : "Save failed") : saveState === "saving" || projectWrite.saving ? (zh ? "正在保存…" : "Saving…") : (zh ? "本地已保存" : "Saved locally")}{saveState === "failed" && <button onClick={() => void retry()}>{zh ? "重试" : "Retry"}</button>}</span>
       <CloudSaveStatus dependencies={dependencies} projectId={projectId} />
-      {!reading && <div className="layout-header-actions"><button onClick={startReading}>{zh ? "阅读" : "Read"}</button><button ref={exportButton} className="layout-export-button" disabled={exportState === "checking" || exportState === "exporting"} onClick={() => setQualityOpen(true)}>{zh ? "导出 PDF" : "Export PDF"}</button></div>}
+      <div className="layout-header-actions"><button onClick={startReading}>{zh ? "阅读" : "Read"}</button><button ref={exportButton} className="layout-export-button" disabled={exportState === "checking" || exportState === "exporting"} onClick={() => setQualityOpen(true)}>{zh ? "导出 PDF" : "Export PDF"}</button></div>
     </header>
     {exportState !== "idle" && <div className="layout-export-status" role="status">
       <span>{exportState === "checking" ? (zh ? "正在检查照片…" : "Checking photos…")
@@ -266,8 +272,8 @@ export function LayoutWorkspace({ dependencies, persistence, projectId, sequence
         <div className="layout-pages-list">{document.pages.map((entry, index) => { const firstImage = entry.objects.find((object) => object.kind === "image-frame" && object.photoId); const photoId = firstImage?.kind === "image-frame" ? firstImage.photoId : null; return <button key={entry.id} draggable className={`${index === selectedIndex ? "is-selected" : ""}${dropPageId === entry.id && draggedPageId !== entry.id ? " is-drop-target" : ""}`} onClick={() => setSelectedIndex(index)} onKeyDown={(event) => { if (event.key === "Delete" || event.key === "Backspace") { event.preventDefault(); event.stopPropagation(); removePage(entry.id); } }} aria-current={index === selectedIndex ? "page" : undefined} onDragStart={(event) => { setDraggedPageId(entry.id); event.dataTransfer.setData("application/x-photoflex-layout-page-id", entry.id); event.dataTransfer.effectAllowed = "move"; }} onDragOver={(event) => { if (draggedPageId) { event.preventDefault(); setDropPageId(entry.id); } }} onDragLeave={() => setDropPageId((current) => current === entry.id ? undefined : current)} onDrop={(event) => { event.preventDefault(); dropPage(entry.id); }} onDragEnd={() => { setDraggedPageId(undefined); setDropPageId(undefined); }}><span className="layout-page-index" aria-hidden="true">{String(index + 1).padStart(2, "0")}</span><span className="layout-page-mini" style={{ aspectRatio: `${document.pageSpec.widthPt} / ${document.pageSpec.heightPt}` }}>{photoId ? <PhotoThumb photoSource={dependencies.photoSource} photoId={photoId} alt="" fit="contain" /> : entry.objects.length > 0 && <i />}</span><span className="layout-page-caption"><span>{zh ? `第 ${index + 1} 页` : `Page ${index + 1}`}</span><small>{index === selectedIndex ? (zh ? "当前页面" : "Current page") : (zh ? `${entry.objects.length} 个对象` : `${entry.objects.length} objects`)}</small></span><span className="layout-page-grip" aria-hidden="true">⠿</span></button>; })}</div>
         <div className="layout-page-actions"><button onClick={addPage}>{zh ? "＋ 空白页" : "+ Blank page"}</button><button onClick={duplicatePage}>{zh ? "复制页" : "Duplicate"}</button><button disabled={document.pages.length <= 1} onClick={() => removePage()}>{zh ? "删除页" : "Delete"}</button></div>
       </aside>
-      <LayoutEditor document={document} sequence={sequence} dependencies={dependencies} selectedIndex={selectedIndex} setSelectedIndex={setSelectedIndex} command={command} onRefreshPhotos={refreshPhotos} onNextPage={nextPage} reading={reading} canUndo={historyPosition > 0} canRedo={historyPosition < history.current.length - 1} onUndo={() => travel(-1)} onRedo={() => travel(1)} prepareExport={prepareExport} />
-      {!reading && (["pages", "properties"] as const).map((side) => <div key={side} className={`layout-panel-resizer is-${side}`} role="separator" aria-label={side === "pages" ? (zh ? "调整页面栏宽度" : "Resize Pages panel") : (zh ? "调整属性栏宽度" : "Resize Properties panel")} aria-orientation="vertical" aria-valuemin={120} aria-valuemax={400} aria-valuenow={panelWidths[side]} tabIndex={0} onPointerDown={panelPointerDown} onPointerMove={(event) => { if (event.currentTarget.hasPointerCapture(event.pointerId)) resizePanel(side, event.clientX, event.currentTarget); }} onPointerUp={(event) => { if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId); }} onKeyDown={(event) => { if (event.key === "ArrowLeft" || event.key === "ArrowRight") { event.preventDefault(); const delta = event.key === "ArrowRight" ? 16 : -16; const bounds = event.currentTarget.getBoundingClientRect(); resizePanel(side, bounds.left + delta, event.currentTarget); } }} />)}
+      <LayoutEditor document={document} sequence={sequence} dependencies={dependencies} selectedIndex={selectedIndex} setSelectedIndex={setSelectedIndex} command={command} onRefreshPhotos={refreshPhotos} onNextPage={nextPage} canUndo={historyPosition > 0} canRedo={historyPosition < history.current.length - 1} onUndo={() => travel(-1)} onRedo={() => travel(1)} prepareExport={prepareExport} />
+      {(["pages", "properties"] as const).map((side) => <div key={side} className={`layout-panel-resizer is-${side}`} role="separator" aria-label={side === "pages" ? (zh ? "调整页面栏宽度" : "Resize Pages panel") : (zh ? "调整属性栏宽度" : "Resize Properties panel")} aria-orientation="vertical" aria-valuemin={120} aria-valuemax={400} aria-valuenow={panelWidths[side]} tabIndex={0} onPointerDown={panelPointerDown} onPointerMove={(event) => { if (event.currentTarget.hasPointerCapture(event.pointerId)) resizePanel(side, event.clientX, event.currentTarget); }} onPointerUp={(event) => { if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId); }} onKeyDown={(event) => { if (event.key === "ArrowLeft" || event.key === "ArrowRight") { event.preventDefault(); const delta = event.key === "ArrowRight" ? 16 : -16; const bounds = event.currentTarget.getBoundingClientRect(); resizePanel(side, bounds.left + delta, event.currentTarget); } }} />)}
     </div>
-  </main>;
+  </main>{reading && <LayoutReader document={document} initialPage={readingOrigin.current} photoSource={dependencies.photoSource} onClose={stopReading} />}</>;
 }

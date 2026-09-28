@@ -1,0 +1,49 @@
+import type { CSSProperties } from "react";
+import type { DerivedPreviewMaxEdge, LayoutDocument, LayoutObject, LayoutRect, PhotoId, PhotoSource } from "../contracts";
+import { LayoutImageFrameView } from "./LayoutImageFrameView";
+import { LayoutTextView } from "./LayoutTextView";
+
+export function layoutObjectStyle(rect: LayoutRect, pageSpec: LayoutDocument["pageSpec"]): CSSProperties {
+  return { left: `${rect.x / pageSpec.widthPt * 100}%`, top: `${rect.y / pageSpec.heightPt * 100}%`,
+    width: `${rect.width / pageSpec.widthPt * 100}%`, height: `${rect.height / pageSpec.heightPt * 100}%` };
+}
+
+export function LayoutObjectVisual({ object, photoSource, sourceRevision, scale, previewEdge = 768, eager = false, onMetadata, onMissing }: {
+  readonly object: LayoutObject;
+  readonly photoSource: PhotoSource;
+  readonly sourceRevision: number;
+  readonly scale: number;
+  readonly previewEdge?: DerivedPreviewMaxEdge;
+  readonly eager?: boolean;
+  readonly onMetadata: (photoId: PhotoId, size: { width: number; height: number }) => void;
+  readonly onMissing: (photoId: PhotoId) => void;
+}) {
+  return object.kind === "image-frame"
+    ? <LayoutImageFrameView frame={object} photoSource={photoSource} sourceRevision={sourceRevision} previewEdge={previewEdge} eager={eager} onMetadata={onMetadata} onMissing={onMissing} />
+    : <LayoutTextView box={object} scale={scale} />;
+}
+
+export function LayoutPageSurface({ document, pageIndex, slot, pageWidth, pageHeight, photoSource, previewEdge, sourceRevision = 0, eager = false, onMetadata, onMissing }: {
+  readonly document: LayoutDocument;
+  readonly pageIndex: number;
+  readonly slot: number;
+  readonly pageWidth: number;
+  readonly pageHeight: number;
+  readonly photoSource: PhotoSource;
+  readonly previewEdge: DerivedPreviewMaxEdge;
+  readonly sourceRevision?: number;
+  readonly eager?: boolean;
+  readonly onMetadata: (photoId: PhotoId, size: { width: number; height: number }) => void;
+  readonly onMissing: (photoId: PhotoId) => void;
+}) {
+  const page = document.pages[pageIndex];
+  const crossesGutter = page.objects.some((object) => slot === 0
+    ? object.rect.x + object.rect.width > document.pageSpec.widthPt
+    : object.rect.x < 0);
+  return <article className="layout-paper layout-reader-paper" style={{ width: pageWidth, height: pageHeight, zIndex: crossesGutter ? 2 : 1 }} aria-label={`Page ${pageIndex + 1}`}>
+    {page.objects.map((object) => <div key={object.id} className={`layout-object layout-object-${object.kind}`} style={layoutObjectStyle(object.rect, document.pageSpec)}>
+      <LayoutObjectVisual object={object} photoSource={photoSource} sourceRevision={sourceRevision} scale={pageHeight / document.pageSpec.heightPt} previewEdge={previewEdge} eager={eager} onMetadata={onMetadata} onMissing={onMissing} />
+    </div>)}
+    <span className={`layout-paper-number${slot === 0 ? " is-left" : ""}`}>{String(pageIndex + 1).padStart(2, "0")}</span>
+  </article>;
+}

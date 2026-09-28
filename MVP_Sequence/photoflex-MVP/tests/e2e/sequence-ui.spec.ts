@@ -358,7 +358,7 @@ test("Layout edits a facing spread with direct photos and multi-selection", asyn
   const creator = page.getByRole("dialog", { name: "Create Layout" });
   await creator.getByLabel("One blank page").check();
   await creator.getByRole("button", { name: "Create Layout" }).click();
-  const layout = page.getByRole("main", { name: "Layout workspace" });
+  const layout = page.locator('main[aria-label="Layout workspace"]');
   const next = layout.getByRole("button", { name: "Next page" });
   await next.click();
   await expect(layout.locator(".layout-pages-list button")).toHaveCount(2);
@@ -455,12 +455,28 @@ test("Layout edits a facing spread with direct photos and multi-selection", asyn
   await layout.getByRole("button", { name: "Fit page" }).click();
   await expect(layout.locator(".layout-view-controls")).toContainText("100%");
   await layout.getByRole("button", { name: "Read", exact: true }).click();
-  await layout.locator('.layout-paper[aria-label="Page 4"]').click();
-  await expect(layout.locator(".layout-reader-navigation")).toContainText("2–3 / 4");
-  await layout.locator('.layout-paper[aria-label="Page 3"]').click();
-  await expect(layout.locator(".layout-reader-navigation")).toContainText("4 / 4");
-  await layout.locator('.layout-paper[aria-label="Page 4"]').click();
-  await expect(layout.locator(".layout-reader-navigation")).toContainText("2–3 / 4");
+  const reader = page.getByRole("dialog", { name: /Read .*Layout/ });
+  await expect(reader).toBeVisible();
+  await expect(layout).toHaveAttribute("aria-hidden", "true");
+  await expect(reader.getByRole("button", { name: "Auto" })).toHaveAttribute("aria-pressed", "true");
+  await expect(reader.locator(".layout-reader-progress")).toContainText("4 / 4");
+  await reader.getByRole("button", { name: "Previous", exact: true }).last().click();
+  await expect(reader.locator(".layout-reader-progress")).toContainText("2–3 / 4");
+  await expect(reader.locator(".layout-reader-page-shell.is-turn-leaf")).toHaveCount(1);
+  const readerImage = reader.locator(".layout-placed-image").first();
+  const readerImageBounds = (await readerImage.boundingBox())!;
+  await page.mouse.move(readerImageBounds.x + readerImageBounds.width * .25, readerImageBounds.y + readerImageBounds.height * .25);
+  await page.mouse.down();
+  await page.mouse.move(readerImageBounds.x + readerImageBounds.width * .75, readerImageBounds.y + readerImageBounds.height * .75, { steps: 6 });
+  await page.mouse.up();
+  expect(await page.evaluate(() => window.getSelection()?.toString())).toBe("");
+  await expect(reader.locator(".layout-reader-stage")).toHaveCSS("user-select", "none");
+  await page.keyboard.press("ArrowLeft");
+  await expect(reader.locator(".layout-reader-progress")).toContainText("1 / 4");
+  await page.keyboard.press("ArrowRight");
+  await expect(reader.locator(".layout-reader-progress")).toContainText("2–3 / 4");
+  await reader.getByRole("button", { name: "Exit reading" }).click();
+  await expect(reader).toHaveCount(0);
 });
 
 test("Layout text survives refresh and reading uses the same lines", async ({ page }) => {
@@ -497,7 +513,10 @@ test("Layout text survives refresh and reading uses the same lines", async ({ pa
   await expect(layout.getByRole("spinbutton", { name: "Size pt" })).toHaveValue("14");
   await expect(layout.locator(".layout-object-text-box .layout-text-line")).toHaveCount(2);
   const editLines = await layout.locator(".layout-object-text-box .layout-text-line").allTextContents();
-  const editLineHeight = await layout.locator(".layout-text-content").evaluate((element) => getComputedStyle(element).lineHeight);
+  const editLineHeightRatio = await layout.locator(".layout-text-content").evaluate((element) => {
+    const style = getComputedStyle(element);
+    return Number.parseFloat(style.lineHeight) / Number.parseFloat(style.fontSize);
+  });
   expect(await page.evaluate(() => document.fonts.check('16px "PhotoFlex Noto Sans SC"'))).toBe(true);
   await expect(layout.locator(".layout-save-status")).toContainText("Saved locally");
 
@@ -525,12 +544,17 @@ test("Layout text survives refresh and reading uses the same lines", async ({ pa
   await frame.dblclick();
   await input.fill(sample);
   await layout.getByRole("button", { name: "Read", exact: true }).click();
-  await expect(layout.locator(".layout-properties-panel")).toHaveCount(0);
-  expect(await layout.locator(".layout-object-text-box .layout-text-line").allTextContents()).toEqual(editLines);
-  await expect(layout.locator(".layout-text-content")).toHaveCSS("line-height", editLineHeight);
-  await layout.getByRole("button", { name: "Next" }).click();
-  await expect(layout.locator(".layout-reader-navigation")).toContainText("2–3 / 8");
-  await layout.getByRole("button", { name: "Exit reading" }).click();
+  const reader = page.getByRole("dialog", { name: /Read .*Layout/ });
+  await expect(reader).toBeVisible();
+  expect(await reader.locator(".layout-object-text-box .layout-text-line").allTextContents()).toEqual(editLines);
+  const readerLineHeightRatio = await reader.locator(".layout-text-content").evaluate((element) => {
+    const style = getComputedStyle(element);
+    return Number.parseFloat(style.lineHeight) / Number.parseFloat(style.fontSize);
+  });
+  expect(readerLineHeightRatio).toBeCloseTo(editLineHeightRatio, 3);
+  await reader.getByRole("button", { name: "Next", exact: true }).last().click();
+  await expect(reader.locator(".layout-reader-progress")).toContainText("2–3 / 8");
+  await reader.getByRole("button", { name: "Exit reading" }).click();
   await expect(layout.locator(".layout-pages-list button[aria-current=page]")).toContainText("Page 1");
   await expect(layout.locator(".layout-save-status")).toContainText("Saved locally");
   await page.reload();
