@@ -1,6 +1,6 @@
 import fontkit from "@pdf-lib/fontkit";
 import { PDFDocument, PDFHexString, PDFName, PDFOperator, PDFOperatorNames, clip, endMarkedContent, endPath, popGraphicsState, pushGraphicsState, rectangle, rgb, type PDFImage } from "pdf-lib";
-import type { LayoutDocument, LayoutImageFrame, LayoutTextBox, PhotoId } from "../../contracts";
+import type { LayoutDocument, LayoutImageFrame, LayoutObject, LayoutTextBox, PhotoId } from "../../contracts";
 import { layoutText } from "./layoutText";
 import { resolveImagePlacement } from "../page-layout/pageGeometry";
 
@@ -25,12 +25,20 @@ export async function createLayoutPdf(snapshot: LayoutDocument, assets: LayoutPd
   pdf.setCreator("PhotoFlex");
   const embedded = new Map<string, { image: PDFImage; width: number; height: number; renderedRect?: LayoutPdfPhoto["renderedRect"] }>();
   onProgress?.({ completed: 0, total: snapshot.pages.length });
-  for (const [index, sourcePage] of snapshot.pages.entries()) {
+  for (const [index] of snapshot.pages.entries()) {
     signal?.throwIfAborted();
     const { widthPt, heightPt } = snapshot.pageSpec;
     const page = pdf.addPage([widthPt, heightPt]);
     page.drawRectangle({ x: 0, y: 0, width: widthPt, height: heightPt, color: rgb(1, 1, 1) });
-    for (const object of sourcePage.objects) {
+    const visibleObjects: LayoutObject[] = [...snapshot.pages[index].objects];
+    // A physical spread consists of odd/even page pairs after the cover.
+    if (index > 0 && index % 2 === 0) visibleObjects.push(...snapshot.pages[index - 1].objects
+      .filter((object) => object.rect.x + object.rect.width > widthPt)
+      .map((object) => ({ ...object, rect: { ...object.rect, x: object.rect.x - widthPt } })));
+    if (index > 0 && index % 2 === 1 && index + 1 < snapshot.pages.length) visibleObjects.push(...snapshot.pages[index + 1].objects
+      .filter((object) => object.rect.x < 0)
+      .map((object) => ({ ...object, rect: { ...object.rect, x: object.rect.x + widthPt } })));
+    for (const object of visibleObjects) {
       signal?.throwIfAborted();
       if (object.kind === "image-frame") {
         if (!object.photoId) throw new Error(`Page ${index + 1} has an empty image frame.`);

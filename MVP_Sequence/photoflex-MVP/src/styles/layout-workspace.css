@@ -29,7 +29,7 @@
 .layout-view-controls > div { display: flex; align-items: center; gap: 5px; }
 .layout-view-controls button { padding: 5px 8px; font-size: 10px; white-space: nowrap; }
 .layout-view-controls button[aria-pressed="true"] { border-color: #292621; background: #292621; color: #fff; }
-.layout-stage { display: grid; flex: 1; min-height: 0; place-items: center; overflow: auto; padding: 24px; }
+.layout-stage { display: grid; flex: 1; min-height: 0; place-items: safe center; overflow: auto; padding: 24px; }
 .layout-spread { display: flex; flex: 0 0 auto; box-shadow: 0 10px 32px #0002; }
 .layout-paper, .layout-paper-placeholder { position: relative; flex: 0 0 auto; overflow: hidden; box-sizing: border-box; }
 .layout-paper { border: 1px solid #d6d2ca; background: #fff; }
@@ -163,3 +163,24 @@
 .layout-reading .layout-paper.is-current, .layout-reading .layout-object.is-selected { outline: none; }
 .layout-reading .layout-object-image-frame:has(.layout-image-placeholder) { border: 0; }
 .layout-reading .layout-view-controls { justify-content: center; }
+.layout-canvas { position: relative; min-height: 0; }
+.layout-spread { position: relative; }
+.layout-spread.is-facing { overflow: hidden; background: #fff; }
+.layout-spread.is-facing .layout-paper { overflow: visible; background: transparent; }
+.layout-spread.is-reading .layout-paper { cursor: pointer; }
+.layout-spread.is-reading { transform-origin: left center; animation: layout-turn-in 260ms ease-out both; }
+.layout-spread.is-reading.is-turn-back { transform-origin: right center; animation-name: layout-turn-back; }
+@keyframes layout-turn-in { from { opacity: .68; transform: perspective(1200px) rotateY(-7deg) translateX(16px); } to { opacity: 1; transform: perspective(1200px) rotateY(0) translateX(0); } }
+@keyframes layout-turn-back { from { opacity: .68; transform: perspective(1200px) rotateY(7deg) translateX(-16px); } to { opacity: 1; transform: perspective(1200px) rotateY(0) translateX(0); } }
+@media (prefers-reduced-motion: reduce) { .layout-spread.is-reading { animation: none; } }
+.layout-reading .layout-object { pointer-events: none; }
+.layout-marquee-preview { position: absolute; z-index: 5; box-sizing: border-box; border: 1px dashed #2867bd; background: rgb(55 112 200 / 15%); pointer-events: none; }
+.layout-next-page { position: absolute; right: 18px; bottom: 15px; z-index: 6; padding: 8px 12px; border: 1px solid #d4d2cc; border-radius: 5px; background: #fff; box-shadow: 0 2px 8px #0001; color: #35332e; }
+.layout-next-page:hover { background: #eeece8; }
+.layout-stage.is-pan-mode, .layout-stage.is-pan-mode .layout-paper, .layout-stage.is-pan-mode .layout-object { cursor: grab; }
+.layout-stage.is-panning, .layout-stage.is-panning .layout-paper, .layout-stage.is-panning .layout-object { cursor: grabbing; }
+/* Keep controls inside the clipped photo so their hit targets remain reachable. */
+.layout-resize-handle.is-nw, .layout-resize-handle.is-w, .layout-resize-handle.is-sw { left: 5px; }
+.layout-resize-handle.is-ne, .layout-resize-handle.is-e, .layout-resize-handle.is-se { left: calc(100% - 5px); }
+.layout-resize-handle.is-nw, .layout-resize-handle.is-n, .layout-resize-handle.is-ne { top: 5px; }
+.layout-resize-handle.is-sw, .layout-resize-handle.is-s, .layout-resize-handle.is-se { top: calc(100% - 5px); }

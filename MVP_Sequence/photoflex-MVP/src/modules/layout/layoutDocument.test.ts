@@ -53,4 +53,32 @@ describe("Layout document commands", () => {
     expect(added.value.pageSpec.widthPt).toBe(210 * MM_TO_PT);
     expect(applyLayoutCommand(added.value, { type: "set-page-size", widthPt: 10, heightPt: 10 }).ok).toBe(false);
   });
+
+  it("saves objects across a facing pair and moves a selection in one command", () => {
+    const base = initial();
+    const blank = (id: string) => ({ id: id as LayoutPageId, objects: [] });
+    const pages = [base.pages[0], blank("left"), blank("right")];
+    const frame = { kind: "image-frame" as const, id: "wide" as LayoutObjectId,
+      rect: { x: base.pageSpec.widthPt - 40, y: 30, width: 200, height: 100 }, photoId: "photo" as PhotoId,
+      crop: { mode: "fit" as const, zoom: 1, focal: { x: .5, y: .5 } } };
+    const text = { kind: "text-box" as const, id: "caption" as LayoutObjectId,
+      rect: { x: -40, y: 160, width: 180, height: 60 }, text: "Across the gutter",
+      style: { fontFamily: "noto-sans-sc" as const, fontSizePt: 12, lineHeight: 1.2, color: "#171513", align: "left" as const } };
+    const result = applyLayoutCommand({ ...base, pages }, { type: "upsert-objects", updates: [
+      { pageId: pages[1].id, object: frame }, { pageId: pages[2].id, object: text },
+    ] });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.pages[1].objects).toEqual([frame]);
+    expect(result.value.pages[2].objects).toEqual([text]);
+    const shifted = applyLayoutCommand(result.value, { type: "upsert-object", pageId: pages[1].id,
+      object: { ...frame, rect: { ...frame.rect, x: base.pageSpec.widthPt + 20 } } });
+    expect(shifted.ok).toBe(true);
+    if (!shifted.ok) return;
+    const resized = applyLayoutCommand(shifted.value, { type: "set-page-size", widthPt: 148 * MM_TO_PT, heightPt: 210 * MM_TO_PT });
+    expect(resized.ok).toBe(true);
+    if (resized.ok) expect(resized.value.pages[1].objects[0].rect.x).toBeCloseTo((base.pageSpec.widthPt + 20) * 148 / 210);
+    expect(applyLayoutCommand(result.value, { type: "remove-objects", objectIds: [frame.id, text.id] }))
+      .toMatchObject({ ok: true, value: { pages: [{}, { objects: [] }, { objects: [] }] } });
+  });
 });

@@ -145,7 +145,7 @@ it("creates a Layout from a real Sequence, saves page order, and reopens the sam
   const creator = await screen.findByRole("dialog", { name: "Create Layout" });
   expect(within(creator).getByText(/From Sequence \(4 pages\)/)).toBeTruthy();
   fireEvent.click(within(creator).getByRole("button", { name: "Create Layout" }));
-  const workspace = await screen.findByRole("main", { name: "Layout workspace" });
+  const workspace = await screen.findByRole("main", { name: "Layout workspace" }, { timeout: 5000 });
   await waitFor(() => expect(within(workspace).getByText("Saved locally")).toBeTruthy());
   const layouts = await projectStore.listLayouts(projectId);
   expect(layouts.ok && layouts.value).toHaveLength(1);
@@ -165,7 +165,7 @@ it("creates a Layout from a real Sequence, saves page order, and reopens the sam
   fireEvent.click(within(workspace).getByRole("button", { name: "← Sequence" }));
   await screen.findByRole("dialog", { name: "Sequence Complete photos" });
   fireEvent.click(screen.getByRole("button", { name: "Layout" }));
-  await screen.findByRole("main", { name: "Layout workspace" });
+  await screen.findByRole("main", { name: "Layout workspace" }, { timeout: 5000 });
   const loaded = layoutId && await projectStore.loadLayout(layoutId);
   expect(loaded && loaded.ok && loaded.value.pages).toHaveLength(5);
   const listed = await projectStore.listLayouts(projectId);

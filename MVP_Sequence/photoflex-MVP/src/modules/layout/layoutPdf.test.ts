@@ -36,7 +36,8 @@ describe("Layout PDF", () => {
       rect: { x: 30, y: 40, width: 100, height: 100 }, photoId: "photo" as PhotoId,
       crop: { mode: "fill" as const, zoom: 2, focal: { x: .7, y: .5 } } };
     const snapshot = { ...base, pages: [{ ...base.pages[0], objects: [frame] },
-      { id: "two" as LayoutPageId, objects: [{ ...frame, id: "image-again" as LayoutObjectId }] },
+      { id: "two" as LayoutPageId, objects: [{ ...frame, id: "image-again" as LayoutObjectId,
+        rect: { ...frame.rect, x: base.pageSpec.widthPt - 50 } }] },
       { id: "three" as LayoutPageId, objects: [] }] };
     const fontBytes = new Uint8Array(await readFile("src/assets/fonts/NotoSansCJKsc-Regular.otf"));
     const jpeg = Buffer.from("/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/2wBDAQkJCQwLDBgNDRgyIRwhMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjL/wAARCAABAAIDASIAAhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEAAwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoL/8QAtREAAgECBAQDBAcFBAQAAQJ3AAECAxEEBSExBhJBUQdhcRMiMoEIFEKRobHBCSMzUvAVYnLRChYkNOEl8RcYGRomJygpKjU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6goOEhYaHiImKkpOUlZaXmJmaoqOkpaanqKmqsrO0tba3uLm6wsPExcbHyMnK0tPU1dbX2Nna4uPk5ebn6Onq8vP09fb3+Pn6/9oADAMBAAIRAxEAPwDlaKKK+eP0k//Z", "base64");
@@ -49,7 +50,7 @@ describe("Layout PDF", () => {
     const secondImages = pdf.getPage(1).node.Resources()?.lookup(PDFName.of("XObject"), PDFDict);
     expect(loads).toBe(1);
     expect(firstImages?.get(firstImages.keys()[0])?.toString()).toBe(secondImages?.get(secondImages.keys()[0])?.toString());
-    expect(pdf.getPage(2).node.Resources()?.lookup(PDFName.of("XObject"), PDFDict)?.keys().length ?? 0).toBe(0);
+    expect(pdf.getPage(2).node.Resources()?.lookup(PDFName.of("XObject"), PDFDict)?.keys().length ?? 0).toBe(1);
     const contents = pdf.getPage(0).node.Contents();
     const streams = contents instanceof PDFArray ? contents.asArray() : contents ? [contents] : [];
     const operators = streams.map((entry) => new TextDecoder().decode(decodePDFRawStream(pdf.context.lookup(entry) as PDFRawStream).decode())).join("\n");

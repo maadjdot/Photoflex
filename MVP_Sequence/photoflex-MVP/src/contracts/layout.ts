@@ -12,6 +12,8 @@ export interface LayoutImageFrame {
   readonly id: LayoutObjectId;
   readonly rect: LayoutRect;
   readonly photoId: PhotoId | null;
+  /** Directly placed photos resize as a whole at their source aspect ratio. */
+  readonly photoAspectRatio?: number;
   readonly crop: { readonly mode: "fit" | "fill"; readonly zoom: number; readonly focal: { readonly x: number; readonly y: number } };
 }
 
@@ -64,6 +66,8 @@ export type LayoutEditCommand =
   | { readonly type: "remove-page"; readonly pageId: LayoutPageId }
   | { readonly type: "move-page"; readonly pageId: LayoutPageId; readonly to: number }
   | { readonly type: "upsert-object"; readonly pageId: LayoutPageId; readonly object: LayoutObject }
+  | { readonly type: "upsert-objects"; readonly updates: readonly { readonly pageId: LayoutPageId; readonly object: LayoutObject }[] }
   | { readonly type: "remove-object"; readonly pageId: LayoutPageId; readonly objectId: LayoutObjectId }
+  | { readonly type: "remove-objects"; readonly objectIds: readonly LayoutObjectId[] }
   | { readonly type: "move-object"; readonly pageId: LayoutPageId; readonly objectId: LayoutObjectId; readonly to: number }
   | { readonly type: "replace-image-frames"; readonly pageId: LayoutPageId; readonly frames: readonly LayoutImageFrame[] };

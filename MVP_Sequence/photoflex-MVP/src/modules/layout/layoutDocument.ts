@@ -13,21 +13,24 @@ export function createEmptyLayout(input: { id: LayoutId; projectId: ProjectId; s
 const finite = (value: unknown): value is number => typeof value === "number" && Number.isFinite(value);
 const id = (value: unknown): value is string => typeof value === "string" && value.length > 0;
 
-function validRect(value: unknown, widthPt: number, heightPt: number): boolean {
+function validRect(value: unknown, widthPt: number, heightPt: number, pageIndex: number, pageCount: number): boolean {
   if (!value || typeof value !== "object") return false;
   const rect = value as Record<string, unknown>;
   if (![rect.x, rect.y, rect.width, rect.height].every(finite)) return false;
   const { x, y, width, height } = rect as unknown as { x: number; y: number; width: number; height: number };
-  return width >= MM_TO_PT && height >= MM_TO_PT && x + width >= MM_TO_PT && y + height >= MM_TO_PT
-    && x <= widthPt - MM_TO_PT && y <= heightPt - MM_TO_PT;
+  const leftPage = pageIndex > 0 && pageIndex % 2 === 1 && pageIndex + 1 < pageCount;
+  const rightPage = pageIndex > 0 && pageIndex % 2 === 0;
+  return width >= MM_TO_PT && height >= MM_TO_PT && x + width >= (rightPage ? -widthPt : 0) + MM_TO_PT && y + height >= MM_TO_PT
+    && x <= (leftPage ? 2 * widthPt : widthPt) - MM_TO_PT && y <= heightPt - MM_TO_PT;
 }
 
-function validObject(value: unknown, widthPt: number, heightPt: number): value is LayoutObject {
+function validObject(value: unknown, widthPt: number, heightPt: number, pageIndex: number, pageCount: number): value is LayoutObject {
   if (!value || typeof value !== "object") return false;
   const object = value as Partial<LayoutObject>;
-  if (!id(object.id) || !validRect(object.rect, widthPt, heightPt)) return false;
+  if (!id(object.id) || !validRect(object.rect, widthPt, heightPt, pageIndex, pageCount)) return false;
   if (object.kind === "image-frame") {
-    return (object.photoId === null || id(object.photoId)) && Boolean(object.crop?.focal) && validCrop(object.crop!);
+    return (object.photoId === null || id(object.photoId)) && Boolean(object.crop?.focal) && validCrop(object.crop!)
+      && (object.photoAspectRatio === undefined || (finite(object.photoAspectRatio) && object.photoAspectRatio > 0));
   }
   if (object.kind === "text-box") {
     const style = object.style;
@@ -52,11 +55,11 @@ export function isLayoutDocument(value: unknown): value is LayoutDocument {
     || heightPt < 50 * MM_TO_PT || heightPt > 600 * MM_TO_PT) return false;
   if (!Array.isArray(document.pages) || document.pages.length === 0) return false;
   const pageIds = new Set<string>(), objectIds = new Set<string>();
-  for (const page of document.pages as readonly LayoutPage[]) {
+  for (const [pageIndex, page] of (document.pages as readonly LayoutPage[]).entries()) {
     if (!page || !id(page.id) || pageIds.has(page.id) || !Array.isArray(page.objects)) return false;
     pageIds.add(page.id);
     for (const object of page.objects) {
-      if (!validObject(object, widthPt, heightPt) || objectIds.has(object.id)) return false;
+      if (!validObject(object, widthPt, heightPt, pageIndex, document.pages.length) || objectIds.has(object.id)) return false;
       objectIds.add(object.id);
     }
   }
@@ -74,11 +77,14 @@ export function applyLayoutCommand(document: LayoutDocument, command: LayoutEdit
     const scaleY = command.heightPt / pageSpec.heightPt;
     if (![scaleX, scaleY].every((value) => Number.isFinite(value) && value > 0)) return fail();
     pageSpec = { widthPt: command.widthPt, heightPt: command.heightPt };
-    pages = pages.map((page) => ({ ...page, objects: page.objects.map((object) => {
+    pages = pages.map((page, pageIndex) => ({ ...page, objects: page.objects.map((object) => {
       const width = Math.max(MM_TO_PT, object.rect.width * scaleX);
       const height = Math.max(MM_TO_PT, object.rect.height * scaleY);
+      const leftPage = pageIndex > 0 && pageIndex % 2 === 1 && pageIndex + 1 < pages.length;
+      const rightPage = pageIndex > 0 && pageIndex % 2 === 0;
       return { ...object, rect: {
-        x: Math.max(MM_TO_PT - width, Math.min(command.widthPt - MM_TO_PT, object.rect.x * scaleX)),
+        x: Math.max((rightPage ? -command.widthPt : 0) + MM_TO_PT - width,
+          Math.min((leftPage ? 2 * command.widthPt : command.widthPt) - MM_TO_PT, object.rect.x * scaleX)),
         y: Math.max(MM_TO_PT - height, Math.min(command.heightPt - MM_TO_PT, object.rect.y * scaleY)),
         width, height,
       } };
@@ -97,6 +103,21 @@ export function applyLayoutCommand(document: LayoutDocument, command: LayoutEdit
     const moving = pages[source];
     const rest = pages.filter((page) => page.id !== command.pageId);
     pages = [...rest.slice(0, command.to), moving, ...rest.slice(command.to)];
+  } else if (command.type === "remove-objects") {
+    pages = pages.map((page) => ({ ...page, objects: page.objects.filter((object) => !command.objectIds.includes(object.id)) }));
+  } else if (command.type === "upsert-objects") {
+    if (!command.updates.length || command.updates.some((update) => !pages.some((page) => page.id === update.pageId))) return fail();
+    pages = pages.map((page) => {
+      const updates = command.updates.filter((update) => update.pageId === page.id);
+      if (!updates.length) return page;
+      const objects = [...page.objects];
+      for (const update of updates) {
+        const at = objects.findIndex((object) => object.id === update.object.id);
+        if (at >= 0) objects[at] = update.object;
+        else objects.push(update.object);
+      }
+      return { ...page, objects };
+    });
   } else {
     const targetPage = pages.find((page) => page.id === command.pageId);
     if (!targetPage) return fail();

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { LayoutId, PhotoId, ProjectId, ReadingUnitId, SequenceDocument, SequenceId, SequenceItemId, VersionId } from "../../contracts";
-import { createLayoutFromSequence, facingPageIndices, sequenceLayoutPreview } from "./layoutPages";
+import { createLayoutFromSequence, facingPageIndices, facingTurnIndex, sequenceLayoutPreview } from "./layoutPages";
 import { MM_TO_PT } from "../page-layout/pageGeometry";
 
 const sequence = (): SequenceDocument => {
@@ -44,5 +44,10 @@ describe("Layout page initialization", () => {
       heightPt: 148 * MM_TO_PT, start: "blank", now: "now", newId: () => "blank-page" });
     expect(layout.pages).toEqual([{ id: "blank-page", objects: [] }]);
     expect(layout.pageSpec).toEqual({ widthPt: 297 * MM_TO_PT, heightPt: 148 * MM_TO_PT });
+  });
+
+  it("turns physical facing spreads instead of stepping through single pages", () => {
+    expect([0, 1, 3, 5, 7].map((index) => facingTurnIndex(8, index, 1))).toEqual([1, 3, 5, 7, 7]);
+    expect([0, 1, 2, 3, 7].map((index) => facingTurnIndex(8, index, -1))).toEqual([0, 0, 0, 1, 5]);
   });
 });

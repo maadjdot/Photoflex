@@ -54,3 +54,8 @@ export function facingPageIndices(pageCount: number, selectedIndex: number): rea
   const left = selectedIndex % 2 === 1 ? selectedIndex : selectedIndex - 1;
   return [left, left + 1 < pageCount ? left + 1 : null];
 }
+
+export function facingTurnIndex(pageCount: number, selectedIndex: number, direction: -1 | 1): number {
+  if (direction > 0) return selectedIndex <= 0 ? Math.min(1, pageCount - 1) : Math.min(pageCount - 1, (selectedIndex % 2 === 1 ? selectedIndex : selectedIndex - 1) + 2);
+  return selectedIndex <= 2 ? 0 : (selectedIndex % 2 === 1 ? selectedIndex : selectedIndex - 1) - 2;
+}
