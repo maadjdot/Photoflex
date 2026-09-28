@@ -33,6 +33,19 @@ describe("Layout document commands", () => {
     expect(isLayoutDocument({ ...original, pages: [{ ...original.pages[0], objects: [{ kind: "image-frame", id: "bad", rect: { x: 0, y: 0, width: -1, height: 100 }, photoId: null, crop: { mode: "fit", zoom: 1, focal: { x: .5, y: .5 } } }] }] })).toBe(false);
   });
 
+  it("accepts the supported Layout fonts and rejects unknown font identifiers", () => {
+    const original = initial();
+    const text = { kind: "text-box", id: "text" as LayoutObjectId, rect: { x: 20, y: 20, width: 200, height: 80 }, text: "上海 Album",
+      style: { fontFamily: "architects-daughter", fontWeight: "bold", fontStyle: "italic", fontSizePt: 12, lineHeight: 1.2, color: "#171513", align: "left" } };
+    expect(isLayoutDocument({ ...original, pages: [{ ...original.pages[0], objects: [text] }] })).toBe(true);
+    expect(isLayoutDocument({ ...original, pages: [{ ...original.pages[0], objects: [
+      { ...text, style: { ...text.style, fontFamily: "not-installed" } },
+    ] }] })).toBe(false);
+    expect(isLayoutDocument({ ...original, pages: [{ ...original.pages[0], objects: [
+      { ...text, style: { ...text.style, fontWeight: "heavy" } },
+    ] }] })).toBe(false);
+  });
+
   it("resizes existing frames with the page while keeping photo crop coordinates", () => {
     const original = initial();
     const frame = { kind: "image-frame" as const, id: "frame" as LayoutObjectId,

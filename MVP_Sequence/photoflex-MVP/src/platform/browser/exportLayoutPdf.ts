@@ -1,8 +1,8 @@
-import type { LayoutDocument, LayoutImageFrame, PhotoId, PhotoSource } from "../../contracts";
-import { createLayoutPdf, type LayoutPdfProgress } from "../../modules/layout/layoutPdf";
+import type { LayoutDocument, LayoutFontFamily, LayoutFontStyle, LayoutFontWeight, LayoutImageFrame, PhotoId, PhotoSource } from "../../contracts";
+import { createLayoutPdf, type LayoutPdfFontSource, type LayoutPdfProgress } from "../../modules/layout/layoutPdf";
+import { LAYOUT_CHINESE_FALLBACK_FONT, LAYOUT_FONT_BY_FAMILY, layoutFontCssShorthand, layoutFontStyle, layoutFontWeight } from "../../modules/layout/layoutFonts";
 import { resolveImagePlacement } from "../../modules/page-layout/pageGeometry";
-import fontUrl from "../../assets/fonts/NotoSansCJKsc-Regular.otf?url";
-import { loadLayoutFont } from "../../app/LayoutTextView";
+import { loadLayoutFont, resolveLayoutFontAsset } from "./layoutFontAssets";
 
 export interface LayoutPdfIssue { readonly page: number; readonly objectId: string; readonly kind: "empty" | "missing" | "low-resolution" }
 export interface LayoutPdfPreflight { readonly blocking: readonly LayoutPdfIssue[]; readonly warnings: readonly LayoutPdfIssue[] }
@@ -41,19 +41,43 @@ function photoDensity(frame: LayoutImageFrame, photo: { width: number; height: n
 export async function exportLayoutPdf(snapshot: LayoutDocument, source: PhotoSource, signal?: AbortSignal,
   onProgress?: (progress: LayoutPdfProgress) => void, quality: LayoutPdfQuality = "original"): Promise<void> {
   signal?.throwIfAborted();
-  const response = await fetch(fontUrl, { signal });
-  if (!response.ok) throw new Error("The Layout font could not be loaded.");
-  const fontBytes = new Uint8Array(await response.arrayBuffer());
-  await loadLayoutFont();
+  const requests = new Map<string, { family: LayoutFontFamily; weight: LayoutFontWeight; style: LayoutFontStyle }>();
+  const addRequest = (family: LayoutFontFamily, weight: LayoutFontWeight, style: LayoutFontStyle) => {
+    requests.set(`${family}:${weight}:${style}`, { family, weight, style });
+  };
+  const textStyles: Array<{ family: LayoutFontFamily; weight: LayoutFontWeight; style: LayoutFontStyle }> = [];
+  for (const page of snapshot.pages) for (const object of page.objects) {
+    if (object.kind !== "text-box") continue;
+    const style = { family: object.style.fontFamily, weight: layoutFontWeight(object.style.fontWeight), style: layoutFontStyle(object.style.fontStyle) };
+    textStyles.push(style);
+    addRequest(style.family, style.weight, style.style);
+    addRequest(LAYOUT_CHINESE_FALLBACK_FONT, style.weight, style.style);
+  }
+  const byteLoads = new Map<string, Promise<Uint8Array>>();
+  const loadBytes = (url: string, family: LayoutFontFamily) => {
+    const cached = byteLoads.get(url);
+    if (cached) return cached;
+    const promise = fetch(url, { signal }).then(async (response) => {
+      if (!response.ok) throw new Error(`The Layout font "${LAYOUT_FONT_BY_FAMILY[family].label}" could not be loaded.`);
+      return new Uint8Array(await response.arrayBuffer());
+    });
+    byteLoads.set(url, promise);
+    return promise;
+  };
+  const fonts: LayoutPdfFontSource[] = await Promise.all([...requests.values()].map(async (request) => {
+    const asset = resolveLayoutFontAsset(request.family, request.weight, request.style);
+    return { ...request, ...asset, bytes: await loadBytes(asset.url, request.family) };
+  }));
+  await Promise.all(textStyles.map(({ family, weight, style }) => loadLayoutFont(family, weight, style)));
   const context = document.createElement("canvas").getContext("2d");
   if (!context) throw new Error("This browser could not measure Layout text for PDF export.");
   const bytes = await createLayoutPdf(snapshot, {
-    fontBytes,
+    fonts,
     loadPhoto: (photoId, frame, currentSignal) => loadPhotoJpeg(source, photoId, frame, quality, currentSignal),
     imageKey: quality === "original" ? (frame) => frame.photoId! : (frame) => JSON.stringify([
       frame.photoId, frame.rect.width, frame.rect.height, frame.crop,
     ]),
-    measureText: (text, size) => { context.font = `${size * 4 / 3}px "PhotoFlex Noto Sans SC"`; return context.measureText(text).width * 3 / 4; },
+    measureText: (text, size, family, weight, style) => { context.font = layoutFontCssShorthand(family, size * 4 / 3, weight, style); return context.measureText(text).width * 3 / 4; },
   }, signal, onProgress);
   signal?.throwIfAborted();
   const url = URL.createObjectURL(new Blob([new Uint8Array(bytes)], { type: "application/pdf" }));

@@ -506,8 +506,17 @@ test("Layout text survives refresh and reading uses the same lines", async ({ pa
   await frame.click();
   await expect(layout.locator(".layout-properties-panel h3", { hasText: "TEXT BOX" })).toHaveCount(0);
   await expect(layout.locator(".layout-properties-panel h3", { hasText: "TYPE" })).toBeVisible();
+  const fontSelect = layout.getByRole("combobox", { name: "Font" });
+  await expect(fontSelect.locator("option")).toHaveCount(13);
+  await fontSelect.selectOption("architects-daughter");
+  await expect(layout.locator(".layout-text-content")).toHaveCSS("font-family", /PhotoFlex Architects Daughter.*PhotoFlex Noto Serif SC/);
+  await layout.getByRole("button", { name: "Bold", exact: true }).click();
+  await layout.getByRole("button", { name: "Italic", exact: true }).click();
+  await expect(layout.locator(".layout-text-content")).toHaveCSS("font-weight", "700");
+  await expect(layout.locator(".layout-text-content")).toHaveCSS("font-style", "italic");
   await layout.getByRole("button", { name: "Centre" }).click();
   await expect(layout.locator(".layout-text-content")).toHaveCSS("text-align", "center");
+  await expect(layout.getByRole("spinbutton", { name: "Size pt" })).toHaveAttribute("step", "1");
   await layout.getByRole("spinbutton", { name: "Size pt" }).fill("14");
   await layout.getByRole("spinbutton", { name: "Size pt" }).press("Tab");
   await expect(layout.getByRole("spinbutton", { name: "Size pt" })).toHaveValue("14");
@@ -517,7 +526,8 @@ test("Layout text survives refresh and reading uses the same lines", async ({ pa
     const style = getComputedStyle(element);
     return Number.parseFloat(style.lineHeight) / Number.parseFloat(style.fontSize);
   });
-  expect(await page.evaluate(() => document.fonts.check('16px "PhotoFlex Noto Sans SC"'))).toBe(true);
+  expect(await page.evaluate(() => document.fonts.check('italic 700 16px "PhotoFlex Architects Daughter"'))).toBe(true);
+  expect(await page.evaluate(() => document.fonts.check('italic 700 16px "PhotoFlex Noto Serif SC"'))).toBe(true);
   await expect(layout.locator(".layout-save-status")).toContainText("Saved locally");
 
   await frame.dblclick();
@@ -560,6 +570,8 @@ test("Layout text survives refresh and reading uses the same lines", async ({ pa
   await page.reload();
   await expect(layout.locator(".layout-object-text-box .layout-text-line")).toHaveCount(2);
   expect(await layout.locator(".layout-object-text-box .layout-text-line").allTextContents()).toEqual(editLines);
+  await expect(layout.locator(".layout-text-content")).toHaveCSS("font-weight", "700");
+  await expect(layout.locator(".layout-text-content")).toHaveCSS("font-style", "italic");
 });
 
 test("Layout exports fixed physical pages with selectable text and keeps blank pages", async ({ page }, testInfo) => {

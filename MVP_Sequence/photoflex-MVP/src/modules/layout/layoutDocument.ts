@@ -1,5 +1,6 @@
 import { err, ok, type LayoutDocument, type LayoutEditCommand, type LayoutId, type LayoutObject, type LayoutPage, type LayoutPageId, type LayoutRevision, type ProjectId, type Result, type SequenceId } from "../../contracts";
 import { MM_TO_PT, validCrop } from "../page-layout/pageGeometry";
+import { isLayoutFontFamily } from "./layoutFonts";
 
 export function createEmptyLayout(input: { id: LayoutId; projectId: ProjectId; sequenceId: SequenceId; pageId: LayoutPageId; name: string; createdAt: string; widthPt?: number; heightPt?: number }): LayoutDocument {
   return {
@@ -34,7 +35,9 @@ function validObject(value: unknown, widthPt: number, heightPt: number, pageInde
   }
   if (object.kind === "text-box") {
     const style = object.style;
-    return typeof object.text === "string" && style?.fontFamily === "noto-sans-sc"
+    return typeof object.text === "string" && isLayoutFontFamily(style?.fontFamily)
+      && (style.fontWeight === undefined || style.fontWeight === "normal" || style.fontWeight === "bold")
+      && (style.fontStyle === undefined || style.fontStyle === "normal" || style.fontStyle === "italic")
       && finite(style.fontSizePt) && style.fontSizePt >= 6 && style.fontSizePt <= 144
       && finite(style.lineHeight) && style.lineHeight >= .8 && style.lineHeight <= 3
       && typeof style.color === "string" && /^#[0-9a-fA-F]{6}$/.test(style.color)

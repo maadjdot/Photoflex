@@ -13,9 +13,10 @@ describe("Layout PDF", () => {
       rect: { x: 40, y: 40, width: 440, height: 100 }, text: "摄影集：上海街景，人物与光影。\n第二页 2026 / Café",
       style: { fontFamily: "noto-sans-sc", fontSizePt: 12, lineHeight: 1.2, color: "#171513", align: "left" } };
     const snapshot = { ...base, pages: [{ ...base.pages[0], objects: [text] }, { id: "two" as LayoutPageId, objects: [] }] };
-    const fontBytes = new Uint8Array(await readFile("src/assets/fonts/NotoSansCJKsc-Regular.otf"));
+    const fontBytes = new Uint8Array(await readFile("src/assets/fonts/Noto_Sans_SC/static/NotoSansSC-Regular.ttf"));
     const progress: string[] = [];
-    const bytes = await createLayoutPdf(snapshot, { fontBytes, loadPhoto: async () => { throw new Error("Unexpected photo"); } },
+    const bytes = await createLayoutPdf(snapshot, { fonts: [{ family: "noto-sans-sc", weight: "normal", style: "normal",
+      bytes: fontBytes, syntheticBold: false, syntheticItalic: false }], loadPhoto: async () => { throw new Error("Unexpected photo"); } },
       undefined, ({ completed, total }) => progress.push(`${completed}/${total}`));
     const pdf = await PDFDocument.load(bytes);
     expect(pdf.getTitle()).toBe("上海街景");
@@ -39,10 +40,9 @@ describe("Layout PDF", () => {
       { id: "two" as LayoutPageId, objects: [{ ...frame, id: "image-again" as LayoutObjectId,
         rect: { ...frame.rect, x: base.pageSpec.widthPt - 50 } }] },
       { id: "three" as LayoutPageId, objects: [] }] };
-    const fontBytes = new Uint8Array(await readFile("src/assets/fonts/NotoSansCJKsc-Regular.otf"));
     const jpeg = Buffer.from("/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/2wBDAQkJCQwLDBgNDRgyIRwhMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjL/wAARCAABAAIDASIAAhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEAAwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoL/8QAtREAAgECBAQDBAcFBAQAAQJ3AAECAxEEBSExBhJBUQdhcRMiMoEIFEKRobHBCSMzUvAVYnLRChYkNOEl8RcYGRomJygpKjU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6goOEhYaHiImKkpOUlZaXmJmaoqOkpaanqKmqsrO0tba3uLm6wsPExcbHyMnK0tPU1dbX2Nna4uPk5ebn6Onq8vP09fb3+Pn6/9oADAMBAAIRAxEAPwDlaKKK+eP0k//Z", "base64");
     let loads = 0;
-    const assets = { fontBytes, loadPhoto: async () => { loads++; return { bytes: new Uint8Array(jpeg), width: 2, height: 1 }; } };
+    const assets = { fonts: [], loadPhoto: async () => { loads++; return { bytes: new Uint8Array(jpeg), width: 2, height: 1 }; } };
     const bytes = await createLayoutPdf(snapshot, assets);
     const pdf = await PDFDocument.load(bytes);
     expect(pdf.getPage(0).node.Resources()?.lookup(PDFName.of("XObject"), PDFDict)?.keys().length).toBe(1);
@@ -60,4 +60,49 @@ describe("Layout PDF", () => {
       if (completed === 1) controller.abort();
     })).rejects.toMatchObject({ name: "AbortError" });
   }, 30000);
+
+  it("uses Noto Serif SC for Chinese missing from the selected font", async () => {
+    const base = createEmptyLayout({ id: "layout" as LayoutId, projectId: "project" as ProjectId,
+      sequenceId: "sequence" as SequenceId, pageId: "one" as LayoutPageId, name: "Fallback", createdAt: "2026-09-24" });
+    const text: LayoutTextBox = { kind: "text-box", id: "text" as LayoutObjectId,
+      rect: { x: 40, y: 40, width: 440, height: 100 }, text: "Album 上海",
+      style: { fontFamily: "architects-daughter", fontWeight: "bold", fontStyle: "italic", fontSizePt: 12, lineHeight: 1.2, color: "#171513", align: "left" } };
+    const [latin, chinese] = await Promise.all([
+      readFile("src/assets/fonts/Architects_Daughter/ArchitectsDaughter-Regular.ttf"),
+      readFile("src/assets/fonts/Noto_Serif_SC/static/NotoSerifSC-Bold.ttf"),
+    ]);
+    const bytes = await createLayoutPdf({ ...base, pages: [{ ...base.pages[0], objects: [text] }] }, {
+      fonts: [
+        { family: "architects-daughter", weight: "bold", style: "italic", bytes: new Uint8Array(latin), syntheticBold: true, syntheticItalic: true },
+        { family: "noto-serif-sc", weight: "bold", style: "italic", bytes: new Uint8Array(chinese), syntheticBold: false, syntheticItalic: true },
+      ],
+      loadPhoto: async () => { throw new Error("Unexpected photo"); },
+    });
+    const pdf = await PDFDocument.load(bytes);
+    const fontResources = pdf.getPage(0).node.Resources()?.lookup(PDFName.of("Font"), PDFDict);
+    expect(fontResources?.keys().length).toBeGreaterThanOrEqual(2);
+  }, 60000);
+
+  it("exports the normalized ZCOOL fonts without a fontkit buffer error", async () => {
+    const base = createEmptyLayout({ id: "layout" as LayoutId, projectId: "project" as ProjectId,
+      sequenceId: "sequence" as SequenceId, pageId: "one" as LayoutPageId, name: "ZCOOL", createdAt: "2026-09-24" });
+    const makeText = (id: string, family: "zcool-qingke-huangyou" | "zcool-xiaowei", y: number): LayoutTextBox => ({
+      kind: "text-box", id: id as LayoutObjectId, rect: { x: 40, y, width: 440, height: 60 }, text: "字体导出 Test",
+      style: { fontFamily: family, fontSizePt: 12, lineHeight: 1.2, color: "#171513", align: "left" },
+    });
+    const [qingke, xiaowei] = await Promise.all([
+      readFile("src/assets/fonts/ZCOOL_QingKe_HuangYou/ZCOOLQingKeHuangYou-PhotoFlex.ttf"),
+      readFile("src/assets/fonts/ZCOOL_XiaoWei/ZCOOLXiaoWei-PhotoFlex.ttf"),
+    ]);
+    const bytes = await createLayoutPdf({ ...base, pages: [{ ...base.pages[0], objects: [
+      makeText("qingke", "zcool-qingke-huangyou", 40), makeText("xiaowei", "zcool-xiaowei", 120),
+    ] }] }, {
+      fonts: [
+        { family: "zcool-qingke-huangyou", weight: "normal", style: "normal", bytes: new Uint8Array(qingke), syntheticBold: false, syntheticItalic: false },
+        { family: "zcool-xiaowei", weight: "normal", style: "normal", bytes: new Uint8Array(xiaowei), syntheticBold: false, syntheticItalic: false },
+      ],
+      loadPhoto: async () => { throw new Error("Unexpected photo"); },
+    });
+    expect((await PDFDocument.load(bytes)).getPageCount()).toBe(1);
+  }, 60000);
 });

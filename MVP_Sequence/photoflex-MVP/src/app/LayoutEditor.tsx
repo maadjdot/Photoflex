@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type DragEvent, type PointerEvent as ReactPointerEvent, type WheelEvent as ReactWheelEvent } from "react";
-import type { LayoutDocument, LayoutEditCommand, LayoutImageFrame, LayoutObjectId, LayoutPageId, LayoutRect, LayoutTextBox, PhotoId, SequenceDocument } from "../contracts";
+import type { LayoutDocument, LayoutEditCommand, LayoutFontFamily, LayoutImageFrame, LayoutObjectId, LayoutPageId, LayoutRect, LayoutTextBox, PhotoId, SequenceDocument } from "../contracts";
 import { alignLayoutRect, createImageFrame, drawImageRect, imageTemplateFrames, panImageCrop, replaceFramePhoto, transformImageRect, zoomImageCropAtPoint, type LayoutAlignmentGuide, type ResizeHandle } from "../modules/layout/layoutImages";
+import { DEFAULT_LAYOUT_FONT, LAYOUT_FONTS, layoutFontCssStack, layoutFontStyle, layoutFontWeight } from "../modules/layout/layoutFonts";
 import { facingPageIndices } from "../modules/layout/layoutPages";
 import { visiblePhotoRange } from "../modules/sequence/horizontalSequenceViewport";
 import { LAYOUT_TEMPLATES, MM_TO_PT, PAGE_PRESETS_MM, type ImageCrop, type LayoutTemplateId } from "../modules/page-layout/pageGeometry";
@@ -25,11 +26,13 @@ const newObjectId = () => crypto.randomUUID() as LayoutObjectId;
 const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
 const fieldLabel = (zh: boolean, en: string, chinese: string) => zh ? chinese : en;
 
-function RectNumberField({ label, valuePt, onCommit }: { label: string; valuePt: number; onCommit: (valuePt: number) => boolean }) {
+function RectNumberField({ label, valuePt, onCommit, step = .1, min, max }: {
+  label: string; valuePt: number; onCommit: (valuePt: number) => boolean; step?: number; min?: number; max?: number;
+}) {
   const formatted = String(+(valuePt / MM_TO_PT).toFixed(1));
   const [value, setValue] = useState(formatted);
   useEffect(() => setValue(formatted), [formatted]);
-  return <label className={`layout-number-field${/^[XYWH] mm$/.test(label) ? " layout-position-field" : ""}`}><span title={label}>{label.replace(/ mm$/, "")}</span><input aria-label={label} type="number" step="0.1" value={value} onChange={(event) => setValue(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); }} onBlur={() => {
+  return <label className={`layout-number-field${/^[XYWH] mm$/.test(label) ? " layout-position-field" : ""}`}><span title={label}>{label.replace(/ mm$/, "")}</span><input aria-label={label} type="number" min={min} max={max} step={step} value={value} onChange={(event) => setValue(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); }} onBlur={() => {
     if (!value.trim()) { setValue(formatted); return; }
     const next = Number(value) * MM_TO_PT;
     if (!Number.isFinite(next) || Math.abs(next - valuePt) < .001) { setValue(formatted); return; }
@@ -498,13 +501,15 @@ export function LayoutEditor({ document, sequence, dependencies, selectedIndex, 
   const rectField = (axis: keyof LayoutRect, label: string) => selectedObject && <RectNumberField key={`${selectedObject.id}-${axis}`} label={label} valuePt={selectedObject.rect[axis]} onCommit={(value) => command({ type: "upsert-object", pageId: page.id, object: { ...selectedObject, rect: { ...selectedObject.rect, [axis]: value } } })} />;
   const addText = (rect: LayoutRect, pageId: LayoutPageId) => {
     const box: LayoutTextBox = { kind: "text-box", id: newObjectId(), rect, text: "",
-      style: { fontFamily: "noto-sans-sc", fontSizePt: 12, lineHeight: 1.4, color: "#171513", align: "left" } };
+      style: { fontFamily: DEFAULT_LAYOUT_FONT, fontWeight: "normal", fontStyle: "normal", fontSizePt: 12, lineHeight: 1.4, color: "#171513", align: "left" } };
     if (updateText(box, undefined, pageId)) { setSelectedIndex(document.pages.findIndex((entry) => entry.id === pageId)); selectOnly(box.id); setActiveCrop(undefined); setEditingTextId(box.id); }
   };
   const renderTextEditor = (box: LayoutTextBox, pageId: LayoutPageId) => <textarea ref={textInputRef} className="layout-text-canvas-input"
     aria-label={fieldLabel(zh, "Edit text in frame", "在文字框内编辑")} spellCheck={false}
     value={textDraft?.id === box.id ? textDraft.value : box.text}
-    style={{ color: box.style.color, fontSize: box.style.fontSizePt * pageHeight / document.pageSpec.heightPt,
+    style={{ color: box.style.color, fontFamily: layoutFontCssStack(box.style.fontFamily),
+      fontWeight: layoutFontWeight(box.style.fontWeight) === "bold" ? 700 : 400, fontStyle: layoutFontStyle(box.style.fontStyle),
+      fontSize: box.style.fontSizePt * pageHeight / document.pageSpec.heightPt,
       lineHeight: `${box.style.fontSizePt * box.style.lineHeight * pageHeight / document.pageSpec.heightPt}px`, textAlign: box.style.align }}
     onPointerDown={(event) => event.stopPropagation()} onClick={(event) => event.stopPropagation()}
     onDoubleClick={(event) => event.stopPropagation()}
@@ -564,7 +569,9 @@ export function LayoutEditor({ document, sequence, dependencies, selectedIndex, 
           <section className="table-frame-section"><h3>{fieldLabel(zh, "FRAME ACTIONS", "图像框操作")}</h3><div className="table-frame-action-row"><button onClick={() => { const duplicate = { ...selectedFrame, id: newObjectId(), rect: { ...selectedFrame.rect, x: clamp(selectedFrame.rect.x + 5 * MM_TO_PT, MM_TO_PT - selectedFrame.rect.width, document.pageSpec.widthPt - MM_TO_PT) } }; if (updateFrame(duplicate)) setSelectedId(duplicate.id); }}>{fieldLabel(zh, "Duplicate", "复制框")}</button><button className="is-danger" onClick={() => { command({ type: "remove-object", pageId: page.id, objectId: selectedFrame.id }); setSelectedId(undefined); }}>{fieldLabel(zh, "Delete frame", "删除框")}</button></div><p className="table-frame-hint">{selectedFrame.photoId ? !sequencePhotoIds.has(selectedFrame.photoId) ? fieldLabel(zh, "Photo removed from Sequence; reference kept.", "照片已从 Sequence 移除，引用仍保留。") : missingPhotos.has(selectedFrame.photoId) ? fieldLabel(zh, "Photo unavailable; reference kept.", "照片不可用，引用仍保留。") : fieldLabel(zh, "Click or drop another photo to replace.", "点击或拖入照片可替换。") : fieldLabel(zh, "This frame is empty.", "此图像框为空。")}</p></section>
         </> : selectedText ? <>
           <section className="table-frame-section"><h3>{fieldLabel(zh, "TYPE", "排版")}</h3>
-            <div className="table-frame-field-grid layout-property-grid"><RectNumberField label={fieldLabel(zh, "Size pt", "字号 pt")} valuePt={selectedText.style.fontSizePt * MM_TO_PT} onCommit={(value) => updateText({ ...selectedText, style: { ...selectedText.style, fontSizePt: value / MM_TO_PT } })} /><label className="layout-number-field"><span>{fieldLabel(zh, "Line height", "行距")}</span><input type="number" min="0.8" max="3" step="0.1" value={selectedText.style.lineHeight} onChange={(event) => updateText({ ...selectedText, style: { ...selectedText.style, lineHeight: Number(event.target.value) } })} /></label></div>
+            <label className="layout-number-field"><span>{fieldLabel(zh, "Font", "字体")}</span><select aria-label={fieldLabel(zh, "Font", "字体")} value={selectedText.style.fontFamily} style={{ fontFamily: layoutFontCssStack(selectedText.style.fontFamily) }} onChange={(event) => updateText({ ...selectedText, style: { ...selectedText.style, fontFamily: event.target.value as LayoutFontFamily } })}>{LAYOUT_FONTS.map((font) => <option key={font.family} value={font.family}>{font.label}</option>)}</select></label>
+            <div className="table-frame-segments layout-font-style-controls" role="group" aria-label={fieldLabel(zh, "Font style", "字体样式")}><button type="button" aria-label={fieldLabel(zh, "Bold", "粗体")} title={fieldLabel(zh, "Bold", "粗体")} aria-pressed={layoutFontWeight(selectedText.style.fontWeight) === "bold"} onClick={() => updateText({ ...selectedText, style: { ...selectedText.style, fontWeight: layoutFontWeight(selectedText.style.fontWeight) === "bold" ? "normal" : "bold" } })}><b aria-hidden="true">B</b></button><button type="button" aria-label={fieldLabel(zh, "Italic", "斜体")} title={fieldLabel(zh, "Italic", "斜体")} aria-pressed={layoutFontStyle(selectedText.style.fontStyle) === "italic"} onClick={() => updateText({ ...selectedText, style: { ...selectedText.style, fontStyle: layoutFontStyle(selectedText.style.fontStyle) === "italic" ? "normal" : "italic" } })}><i aria-hidden="true">I</i></button></div>
+            <div className="table-frame-field-grid layout-property-grid"><RectNumberField label={fieldLabel(zh, "Size pt", "字号 pt")} valuePt={selectedText.style.fontSizePt * MM_TO_PT} step={1} min={6} max={144} onCommit={(value) => updateText({ ...selectedText, style: { ...selectedText.style, fontSizePt: value / MM_TO_PT } })} /><label className="layout-number-field"><span>{fieldLabel(zh, "Line height", "行距")}</span><input type="number" min="0.8" max="3" step="0.1" value={selectedText.style.lineHeight} onChange={(event) => updateText({ ...selectedText, style: { ...selectedText.style, lineHeight: Number(event.target.value) } })} /></label></div>
             <label className="layout-number-field"><span>{fieldLabel(zh, "Colour", "颜色")}</span><input className="layout-text-colour" type="color" value={selectedText.style.color} onChange={(event) => updateText({ ...selectedText, style: { ...selectedText.style, color: event.target.value } })} /></label>
             <div className="table-frame-segments" role="group" aria-label={fieldLabel(zh, "Text alignment", "文字对齐")}>{(["left", "center", "right"] as const).map((align) => <button key={align} aria-pressed={selectedText.style.align === align} onClick={() => updateText({ ...selectedText, style: { ...selectedText.style, align } })}>{align === "left" ? fieldLabel(zh, "Left", "左") : align === "center" ? fieldLabel(zh, "Centre", "中") : fieldLabel(zh, "Right", "右")}</button>)}</div>
           </section>

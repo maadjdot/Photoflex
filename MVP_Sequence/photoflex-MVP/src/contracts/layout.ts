@@ -17,13 +17,33 @@ export interface LayoutImageFrame {
   readonly crop: { readonly mode: "fit" | "fill"; readonly zoom: number; readonly focal: { readonly x: number; readonly y: number } };
 }
 
+export type LayoutFontFamily =
+  | "architects-daughter"
+  | "courier-prime"
+  | "google-sans"
+  | "gudea"
+  | "noto-sans-sc"
+  | "noto-serif"
+  | "noto-serif-sc"
+  | "patrick-hand"
+  | "roboto"
+  | "special-elite"
+  | "zcool-kuaile"
+  | "zcool-qingke-huangyou"
+  | "zcool-xiaowei";
+export type LayoutFontWeight = "normal" | "bold";
+export type LayoutFontStyle = "normal" | "italic";
+
 export interface LayoutTextBox {
   readonly kind: "text-box";
   readonly id: LayoutObjectId;
   readonly rect: LayoutRect;
   readonly text: string;
   readonly style: {
-    readonly fontFamily: "noto-sans-sc";
+    readonly fontFamily: LayoutFontFamily;
+    /** Omitted values in existing documents are treated as normal. */
+    readonly fontWeight?: LayoutFontWeight;
+    readonly fontStyle?: LayoutFontStyle;
     readonly fontSizePt: number;
     readonly lineHeight: number;
     readonly color: string;

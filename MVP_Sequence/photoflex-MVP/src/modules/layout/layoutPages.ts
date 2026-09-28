@@ -34,7 +34,7 @@ function sequenceLayoutPages(sequence: SequenceDocument, spec: LayoutDocument["p
     } else if (item?.kind === "text" && item.text) {
       const rect: PageRect = templateRects(spec.widthPt, spec.heightPt, defaultTemplate("single"))[0];
       objects.push({ kind: "text-box", id: newId() as LayoutObjectId, rect, text: item.text,
-        style: { fontFamily: "noto-sans-sc", fontSizePt: 12, lineHeight: 1.4, color: "#171513", align: "left" } });
+        style: { fontFamily: "noto-sans-sc", fontWeight: "normal", fontStyle: "normal", fontSizePt: 12, lineHeight: 1.4, color: "#171513", align: "left" } });
     }
     pages.push({ page: { id: newId() as LayoutPageId, objects }, insertedBlank });
   };
