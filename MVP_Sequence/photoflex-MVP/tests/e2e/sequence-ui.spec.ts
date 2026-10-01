@@ -365,6 +365,57 @@ test("Layout edits frames, drops photos, crops and applies a template as one und
   await expect(layout.locator(".layout-paper.is-current .layout-object-image-frame")).toHaveCount(1);
 });
 
+test("Layout paper color and material persist across thumbnails, reading, duplication and history", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.getByRole("heading", { name: "Projects" })).toBeVisible();
+  await seedSequence(page);
+  await page.goto(`/#/projects/${PROJECT_ID}/sequences/${SEQUENCE_ID}`);
+  await page.getByRole("dialog", { name: "Sequence Street Edit" }).getByRole("button", { name: "Layout" }).click();
+  const creator = page.getByRole("dialog", { name: "Create Layout" });
+  await creator.getByLabel("One blank page").check();
+  await creator.getByRole("button", { name: "Create Layout" }).click();
+  const layout = page.getByRole("main", { name: "Layout workspace" });
+  const currentBackdrop = () => layout.locator(".layout-paper.is-current > .layout-paper-backdrop");
+  const choosePaperColor = async (name: string) => {
+    await layout.getByRole("button", { name: "Paper color" }).click();
+    await layout.getByRole("option", { name }).click();
+  };
+  const choosePaperMaterial = async (name: string) => {
+    await layout.getByRole("button", { name: "Paper material" }).click();
+    await layout.getByRole("option", { name }).click();
+  };
+  await layout.getByRole("button", { name: "Paper color" }).click();
+  const inkBlueSwatch = layout.getByRole("option", { name: "Ink Blue" }).locator(".layout-paper-color-swatch");
+  await expect(inkBlueSwatch).toHaveCSS("background-color", "rgb(30, 43, 69)");
+  await expect(inkBlueSwatch).toHaveCSS("box-shadow", "none");
+  await layout.getByRole("option", { name: "Ink Blue" }).click();
+  await expect(layout.getByRole("option", { name: "Ink Blue" })).toHaveCount(0);
+  await choosePaperMaterial("Diagonal bookcloth");
+  await expect(currentBackdrop()).toHaveCSS("background-color", "rgb(30, 43, 69)");
+  expect(await currentBackdrop().evaluate((element) => getComputedStyle(element, "::before").backgroundRepeat)).toBe("no-repeat");
+  expect(await currentBackdrop().evaluate((element) => getComputedStyle(element, "::before").backgroundSize)).toBe("cover");
+  await layout.getByRole("button", { name: "+ Blank page" }).click();
+  await expect(currentBackdrop()).toHaveCSS("background-color", "rgb(30, 43, 69)");
+  await choosePaperColor("Snow White");
+  await choosePaperMaterial("Fine cotton paper");
+  await layout.getByRole("button", { name: "Apply to all pages" }).click();
+  await expect(layout.locator(".layout-page-mini > .layout-paper-backdrop").first()).toHaveCSS("background-color", "rgb(248, 247, 243)");
+  await layout.getByRole("button", { name: "Undo" }).click();
+  await expect(layout.locator(".layout-page-mini > .layout-paper-backdrop").first()).toHaveCSS("background-color", "rgb(30, 43, 69)");
+  await layout.getByRole("button", { name: "Redo" }).click();
+  await layout.getByRole("button", { name: "Duplicate" }).click();
+  await expect(layout.locator(".layout-pages-list button")).toHaveCount(3);
+  await expect(currentBackdrop()).toHaveCSS("background-color", "rgb(248, 247, 243)");
+  await expect(layout.getByRole("status")).toContainText("Saved locally");
+  await page.reload();
+  await expect(layout.locator(".layout-pages-list button")).toHaveCount(3);
+  await expect(currentBackdrop()).toHaveCSS("background-color", "rgb(248, 247, 243)");
+  await layout.getByRole("button", { name: "Read" }).click();
+  const reader = page.getByRole("dialog", { name: /Read/ });
+  await expect(reader.locator(".layout-reader-paper > .layout-paper-backdrop").last()).toHaveCSS("background-color", "rgb(248, 247, 243)");
+  await reader.getByRole("button", { name: "← Exit reading" }).click();
+});
+
 test("Layout edits a facing spread with direct photos and multi-selection", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto("/");
@@ -434,7 +485,9 @@ test("Layout edits a facing spread with direct photos and multi-selection", asyn
   const wide = (await leftPhoto.boundingBox())!;
   expect(wide.x + wide.width).toBeGreaterThan(rightBounds.x + 10);
   await expect(right).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
-  await expect(layout.locator(".layout-spread")).toHaveCSS("background-color", "rgb(255, 255, 255)");
+  await expect(layout.locator(".layout-spread")).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+  await expect(left.locator(":scope > .layout-paper-backdrop")).toHaveCSS("background-color", "rgb(255, 255, 255)");
+  await expect(right.locator(":scope > .layout-paper-backdrop")).toHaveCSS("background-color", "rgb(255, 255, 255)");
   await expect(layout.getByRole("status")).toContainText("Saved locally");
 
   await layout.getByRole("button", { name: "Draw frame" }).click();
@@ -605,6 +658,10 @@ test("Layout exports fixed physical pages with selectable text and keeps blank p
   await creator.getByRole("button", { name: "Create Layout" }).click();
   const layout = page.getByRole("main", { name: "Layout workspace" });
   await expect(layout).toBeVisible();
+  await layout.getByRole("button", { name: "Paper color" }).click();
+  await layout.getByRole("option", { name: "Snow White" }).click();
+  await layout.getByRole("button", { name: "Paper material" }).click();
+  await layout.getByRole("option", { name: "Fine cotton paper" }).click();
   await layout.getByRole("button", { name: "Draw text box" }).click();
   const paper = (await layout.locator(".layout-paper.is-current").boundingBox())!;
   await page.mouse.move(paper.x + paper.width * .1, paper.y + paper.height * .1);
@@ -631,8 +688,8 @@ test("Layout exports fixed physical pages with selectable text and keeps blank p
     expect(physicalPage.getHeight()).toBeCloseTo(297 * 72 / 25.4, 4);
   }
   expect(pdf.getPage(0).node.Resources()?.lookup(PDFName.of("Font"), PDFDict)?.keys().length).toBeGreaterThan(0);
-  expect(pdf.getPage(0).node.Resources()?.lookup(PDFName.of("XObject"), PDFDict)?.keys().length ?? 0).toBe(0);
-  expect(pdf.getPage(1).node.Resources()?.lookup(PDFName.of("XObject"), PDFDict)?.keys().length ?? 0).toBe(0);
+  expect(pdf.getPage(0).node.Resources()?.lookup(PDFName.of("XObject"), PDFDict)?.keys().length ?? 0).toBe(1);
+  expect(pdf.getPage(1).node.Resources()?.lookup(PDFName.of("XObject"), PDFDict)?.keys().length ?? 0).toBe(1);
   await layout.getByRole("group", { name: "Template" }).getByRole("button", { name: "Single template" }).click();
   await layout.getByRole("button", { name: "Export PDF" }).click();
   await quality.getByRole("button", { name: "Export PDF" }).click();

@@ -55,6 +55,17 @@ describe("Layout PDF", () => {
     const streams = contents instanceof PDFArray ? contents.asArray() : contents ? [contents] : [];
     const operators = streams.map((entry) => new TextDecoder().decode(decodePDFRawStream(pdf.context.lookup(entry) as PDFRawStream).decode())).join("\n");
     expect(operators).toMatch(/\bre\s+W\s+n\b/);
+    let paperLoads = 0;
+    const paperSnapshot = { ...snapshot, pages: snapshot.pages.map((page, index) => ({ ...page,
+      paper: { color: index < 2 ? "#F1EDE1" : "#28282A", material: "coarse-linen" as const } })) };
+    const paperBytes = await createLayoutPdf(paperSnapshot, { ...assets, loadPaperBackground: async () => {
+      paperLoads++;
+      return { bytes: new Uint8Array(jpeg), format: "jpg" as const };
+    } });
+    const paperPdf = await PDFDocument.load(paperBytes);
+    expect(paperLoads).toBe(2); // one cached background per unique color/material combination
+    expect(paperPdf.getPage(0).node.Resources()?.lookup(PDFName.of("XObject"), PDFDict)?.keys().length).toBe(2);
+    expect(paperPdf.getPage(2).node.Resources()?.lookup(PDFName.of("XObject"), PDFDict)?.keys().length).toBe(2);
     const controller = new AbortController();
     await expect(createLayoutPdf(snapshot, assets, controller.signal, ({ completed }) => {
       if (completed === 1) controller.abort();

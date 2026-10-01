@@ -1,7 +1,8 @@
 import fontkit from "@pdf-lib/fontkit";
 import { PDFDocument, PDFHexString, PDFName, PDFOperator, PDFOperatorNames, clip, degrees, endMarkedContent, endPath, popGraphicsState, pushGraphicsState, rectangle, rgb, type PDFImage } from "pdf-lib";
-import type { LayoutDocument, LayoutFontFamily, LayoutFontStyle, LayoutFontWeight, LayoutImageFrame, LayoutObject, LayoutTextBox, PhotoId } from "../../contracts";
+import type { LayoutDocument, LayoutFontFamily, LayoutFontStyle, LayoutFontWeight, LayoutImageFrame, LayoutObject, LayoutPaper, LayoutTextBox, PhotoId } from "../../contracts";
 import { LAYOUT_CHINESE_FALLBACK_FONT, layoutFontStyle, layoutFontWeight } from "./layoutFonts";
+import { resolveLayoutPaper } from "./layoutPaper";
 import { layoutText } from "./layoutText";
 import { resolveImagePlacement } from "../page-layout/pageGeometry";
 
@@ -15,9 +16,11 @@ export interface LayoutPdfFontSource {
   readonly syntheticBold: boolean;
   readonly syntheticItalic: boolean;
 }
+export interface LayoutPdfPaperImage { readonly bytes: Uint8Array; readonly format: "jpg" | "png" }
 export interface LayoutPdfAssets {
   readonly fonts: readonly LayoutPdfFontSource[];
   loadPhoto(photoId: PhotoId, frame: LayoutImageFrame, signal?: AbortSignal): Promise<LayoutPdfPhoto>;
+  loadPaperBackground?(paper: LayoutPaper, pageSpec: LayoutDocument["pageSpec"], signal?: AbortSignal): Promise<LayoutPdfPaperImage>;
   imageKey?(frame: LayoutImageFrame): string;
   measureText?(text: string, fontSizePt: number, fontFamily: LayoutFontFamily, weight: LayoutFontWeight, style: LayoutFontStyle): number;
 }
@@ -55,12 +58,27 @@ export async function createLayoutPdf(snapshot: LayoutDocument, assets: LayoutPd
   pdf.setTitle(snapshot.name);
   pdf.setCreator("PhotoFlex");
   const embedded = new Map<string, { image: PDFImage; width: number; height: number; renderedRect?: LayoutPdfPhoto["renderedRect"] }>();
+  const paperBackgrounds = new Map<string, PDFImage>();
   onProgress?.({ completed: 0, total: snapshot.pages.length });
   for (const [index] of snapshot.pages.entries()) {
     signal?.throwIfAborted();
     const { widthPt, heightPt } = snapshot.pageSpec;
     const page = pdf.addPage([widthPt, heightPt]);
-    page.drawRectangle({ x: 0, y: 0, width: widthPt, height: heightPt, color: rgb(1, 1, 1) });
+    const paper = resolveLayoutPaper(snapshot.pages[index]);
+    const paperColor = hexColor(paper.color);
+    page.drawRectangle({ x: 0, y: 0, width: widthPt, height: heightPt, color: paperColor });
+    if (paper.material !== "none") {
+      if (!assets.loadPaperBackground) throw new Error(`The Layout paper material "${paper.material}" could not be loaded.`);
+      const key = JSON.stringify([paper.color.toUpperCase(), paper.material, widthPt, heightPt]);
+      let background = paperBackgrounds.get(key);
+      if (!background) {
+        const loaded = await assets.loadPaperBackground(paper, snapshot.pageSpec, signal);
+        signal?.throwIfAborted();
+        background = loaded.format === "png" ? await pdf.embedPng(loaded.bytes) : await pdf.embedJpg(loaded.bytes);
+        paperBackgrounds.set(key, background);
+      }
+      page.drawImage(background, { x: 0, y: 0, width: widthPt, height: heightPt });
+    }
     const visibleObjects: LayoutObject[] = [...snapshot.pages[index].objects];
     // A physical spread consists of odd/even page pairs after the cover.
     if (index > 0 && index % 2 === 0) visibleObjects.push(...snapshot.pages[index - 1].objects
@@ -109,6 +127,11 @@ interface EmbeddedFont { readonly font: Font; readonly characters: ReadonlySet<n
 interface FontRun { readonly text: string; readonly font: EmbeddedFont }
 
 const fontKey = (family: LayoutFontFamily, weight: LayoutFontWeight, style: LayoutFontStyle) => `${family}:${weight}:${style}`;
+
+function hexColor(color: string) {
+  const value = color.match(/^#([0-9a-f]{6})$/i)?.[1] ?? "ffffff";
+  return rgb(parseInt(value.slice(0, 2), 16) / 255, parseInt(value.slice(2, 4), 16) / 255, parseInt(value.slice(4, 6), 16) / 255);
+}
 
 function fontRuns(text: string, primary: EmbeddedFont, fallback: EmbeddedFont): FontRun[] {
   const runs: Array<{ text: string; font: EmbeddedFont }> = [];

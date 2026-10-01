@@ -1,6 +1,8 @@
 import type { CSSProperties } from "react";
 import type { DerivedPreviewMaxEdge, LayoutDocument, LayoutObject, LayoutRect, PhotoId, PhotoSource } from "../contracts";
+import { isDarkLayoutPaper, resolveLayoutPaper } from "../modules/layout/layoutPaper";
 import { LayoutImageFrameView } from "./LayoutImageFrameView";
+import { LayoutPaperBackdrop } from "./LayoutPaperBackdrop";
 import { LayoutTextView } from "./LayoutTextView";
 
 export function layoutObjectStyle(rect: LayoutRect, pageSpec: LayoutDocument["pageSpec"]): CSSProperties {
@@ -37,10 +39,8 @@ export function LayoutPageSurface({ document, pageIndex, slot, pageWidth, pageHe
   readonly onMissing: (photoId: PhotoId) => void;
 }) {
   const page = document.pages[pageIndex];
-  const crossesGutter = page.objects.some((object) => slot === 0
-    ? object.rect.x + object.rect.width > document.pageSpec.widthPt
-    : object.rect.x < 0);
-  return <article className="layout-paper layout-reader-paper" style={{ width: pageWidth, height: pageHeight, zIndex: crossesGutter ? 2 : 1 }} aria-label={`Page ${pageIndex + 1}`}>
+  return <article className={`layout-paper layout-reader-paper${isDarkLayoutPaper(resolveLayoutPaper(page)) ? " is-dark-paper" : ""}`} style={{ width: pageWidth, height: pageHeight }} aria-label={`Page ${pageIndex + 1}`}>
+    <LayoutPaperBackdrop page={page} />
     {page.objects.map((object) => <div key={object.id} className={`layout-object layout-object-${object.kind}`} style={layoutObjectStyle(object.rect, document.pageSpec)}>
       <LayoutObjectVisual object={object} photoSource={photoSource} sourceRevision={sourceRevision} scale={pageHeight / document.pageSpec.heightPt} previewEdge={previewEdge} eager={eager} onMetadata={onMetadata} onMissing={onMissing} />
     </div>)}

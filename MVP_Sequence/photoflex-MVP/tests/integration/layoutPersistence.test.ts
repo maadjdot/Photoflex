@@ -32,12 +32,20 @@ for (const [name, factory] of [["memory", () => new MemoryProjectStore()], ["Ind
     const frame = { kind: "image-frame" as const, id: "frame-original" as LayoutObjectId,
       rect: { x: 20, y: 20, width: 200, height: 240 }, photoId: sourcePhoto,
       crop: { mode: "fill" as const, zoom: 1.4, focal: { x: .4, y: .6 } } };
-    const edited = { ...first, pages: [{ ...first.pages[0], objects: [frame] }, { id: "page-second" as LayoutPageId, objects: [] }] };
-    const saved = await store.saveLayout(edited, first.revision);
+    const legacySaved = await store.saveLayout(first, first.revision);
+    expect(legacySaved.ok).toBe(true);
+    expect(await store.loadLayout(first.id)).toMatchObject({ ok: true, value: { pages: [{ objects: [] }] } });
+    if (!legacySaved.ok) throw Error("legacy layout save failed");
+    const edited = { ...first, pages: [{ ...first.pages[0], paper: { color: "#F1EDE1", material: "natural-fiber" as const }, objects: [frame] },
+      { id: "page-second" as LayoutPageId, paper: { color: "#28282A", material: "bookcloth" as const }, objects: [] }] };
+    const saved = await store.saveLayout(edited, legacySaved.value.revision);
     expect(saved.ok).toBe(true);
     expect(await store.saveLayout({ ...edited, name: "Stale" }, first.revision)).toMatchObject({ ok: false, error: { kind: "layout-conflict" } });
     const loaded = await store.loadLayout(first.id);
-    expect(loaded).toMatchObject({ ok: true, value: { name: "Opening", pages: [{ objects: [frame] }, { objects: [] }] } });
+    expect(loaded).toMatchObject({ ok: true, value: { name: "Opening", pages: [
+      { paper: { color: "#F1EDE1", material: "natural-fiber" }, objects: [frame] },
+      { paper: { color: "#28282A", material: "bookcloth" }, objects: [] },
+    ] } });
     expect(await store.listLayouts(imported.value)).toMatchObject({ ok: true, value: [{ id: first.id, pageCount: 2 }] });
 
     if (!loaded.ok || !saved.ok) throw Error("saved layout unavailable");
@@ -58,6 +66,7 @@ for (const [name, factory] of [["memory", () => new MemoryProjectStore()], ["Ind
     expect(copy.layouts[0].id).not.toBe(first.id);
     expect(copy.layouts[0].sequenceId).toBe(copy.sequences[0].id);
     expect(copy.layouts[0].pages[0].id).not.toBe(first.pages[0].id);
+    expect(copy.layouts[0].pages.map((page) => page.paper)).toEqual(edited.pages.map((page) => page.paper));
     expect(copy.layouts[0].pages[0].objects[0].id).not.toBe(frame.id);
     const copiedPhoto = copy.photoManifest.find((photo) => photo.relativePath === "one.jpg")!.photoId;
     expect((copy.layouts[0].pages[0].objects[0] as { photoId: PhotoId }).photoId).toBe(copiedPhoto);

@@ -55,8 +55,18 @@ export interface LayoutTextBox {
 }
 
 export type LayoutObject = LayoutImageFrame | LayoutTextBox;
+
+export type LayoutPaperMaterial = "none" | "fine-paper" | "natural-fiber" | "fine-linen" | "coarse-linen" | "bookcloth";
+
+export interface LayoutPaper {
+  readonly color: string;
+  readonly material: LayoutPaperMaterial;
+}
+
 export interface LayoutPage {
   readonly id: LayoutPageId;
+  /** Omitted in existing documents and interpreted as plain white paper. */
+  readonly paper?: LayoutPaper;
   readonly objects: readonly LayoutObject[]; // array order is paint order
 }
 
@@ -88,6 +98,7 @@ export type LayoutEditCommand =
   | { readonly type: "add-page"; readonly page: LayoutPage; readonly at?: number }
   | { readonly type: "remove-page"; readonly pageId: LayoutPageId }
   | { readonly type: "move-page"; readonly pageId: LayoutPageId; readonly to: number }
+  | { readonly type: "set-paper"; readonly pageIds: readonly LayoutPageId[]; readonly paper: LayoutPaper }
   | { readonly type: "upsert-object"; readonly pageId: LayoutPageId; readonly object: LayoutObject }
   | { readonly type: "upsert-objects"; readonly updates: readonly { readonly pageId: LayoutPageId; readonly object: LayoutObject }[] }
   | { readonly type: "remove-object"; readonly pageId: LayoutPageId; readonly objectId: LayoutObjectId }

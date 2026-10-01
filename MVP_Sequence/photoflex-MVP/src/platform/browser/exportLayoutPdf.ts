@@ -1,6 +1,7 @@
-import type { LayoutDocument, LayoutFontFamily, LayoutFontStyle, LayoutFontWeight, LayoutImageFrame, PhotoId, PhotoSource } from "../../contracts";
+import type { LayoutDocument, LayoutFontFamily, LayoutFontStyle, LayoutFontWeight, LayoutImageFrame, LayoutPaper, PhotoId, PhotoSource } from "../../contracts";
 import { createLayoutPdf, type LayoutPdfFontSource, type LayoutPdfProgress } from "../../modules/layout/layoutPdf";
 import { LAYOUT_CHINESE_FALLBACK_FONT, LAYOUT_FONT_BY_FAMILY, layoutFontCssShorthand, layoutFontStyle, layoutFontWeight } from "../../modules/layout/layoutFonts";
+import { isDarkLayoutPaper, layoutPaperMaterial } from "../../modules/layout/layoutPaper";
 import { resolveImagePlacement } from "../../modules/page-layout/pageGeometry";
 import { loadLayoutFont, resolveLayoutFontAsset } from "./layoutFontAssets";
 
@@ -74,6 +75,7 @@ export async function exportLayoutPdf(snapshot: LayoutDocument, source: PhotoSou
   const bytes = await createLayoutPdf(snapshot, {
     fonts,
     loadPhoto: (photoId, frame, currentSignal) => loadPhotoJpeg(source, photoId, frame, quality, currentSignal),
+    loadPaperBackground: renderLayoutPaperJpeg,
     imageKey: quality === "original" ? (frame) => frame.photoId! : (frame) => JSON.stringify([
       frame.photoId, frame.rect.width, frame.rect.height, frame.crop,
     ]),
@@ -86,6 +88,63 @@ export async function exportLayoutPdf(snapshot: LayoutDocument, source: PhotoSou
   link.download = `${snapshot.name.replace(/[<>:"/\\|?*\u0000-\u001f]/g, "_").replace(/[. ]+$/g, "").trim() || "Layout"}.pdf`;
   try { document.body.append(link); link.click(); }
   finally { link.remove(); window.setTimeout(() => URL.revokeObjectURL(url), 60_000); }
+}
+
+const textureBlobs = new Map<string, Promise<Blob>>();
+
+async function renderLayoutPaperJpeg(paper: LayoutPaper, pageSpec: LayoutDocument["pageSpec"], signal?: AbortSignal) {
+  signal?.throwIfAborted();
+  const material = layoutPaperMaterial(paper.material);
+  if (!material.textureUrl) throw new Error(`The Layout paper material "${paper.material}" could not be loaded.`);
+  let request = textureBlobs.get(material.textureUrl);
+  if (!request) {
+    request = fetch(material.textureUrl).then((response) => {
+      if (!response.ok) throw new Error(`The Layout paper material "${material.name}" could not be loaded.`);
+      return response.blob();
+    });
+    textureBlobs.set(material.textureUrl, request);
+  }
+  const bitmap = await createImageBitmap(await request);
+  const canvas = document.createElement("canvas");
+  const dpi = 220;
+  canvas.width = Math.max(1, Math.round(pageSpec.widthPt / 72 * dpi));
+  canvas.height = Math.max(1, Math.round(pageSpec.heightPt / 72 * dpi));
+  try {
+    signal?.throwIfAborted();
+    const context = canvas.getContext("2d");
+    if (!context) throw new Error("This browser could not prepare the Layout paper for PDF export.");
+    context.fillStyle = paper.color;
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    context.save();
+    context.globalAlpha = isDarkLayoutPaper(paper) ? material.darkOpacity : material.lightOpacity;
+    context.globalCompositeOperation = isDarkLayoutPaper(paper) ? "soft-light" : "multiply";
+    context.imageSmoothingEnabled = true;
+    context.imageSmoothingQuality = "high";
+    if (material.repeat === "repeat") {
+      const tile = document.createElement("canvas");
+      tile.width = Math.max(1, Math.round(canvas.width * material.sizeRatio));
+      tile.height = Math.max(1, Math.round(tile.width * bitmap.height / bitmap.width));
+      const tileContext = tile.getContext("2d");
+      if (!tileContext) throw new Error("This browser could not prepare the Layout paper texture.");
+      tileContext.filter = material.filter;
+      tileContext.drawImage(bitmap, 0, 0, tile.width, tile.height);
+      const pattern = context.createPattern(tile, "repeat");
+      if (!pattern) throw new Error("This browser could not prepare the Layout paper pattern.");
+      context.fillStyle = pattern;
+      context.fillRect(0, 0, canvas.width, canvas.height);
+      tile.width = tile.height = 0;
+    } else {
+      const scale = Math.max(canvas.width / bitmap.width, canvas.height / bitmap.height);
+      const width = bitmap.width * scale, height = bitmap.height * scale;
+      context.filter = material.filter;
+      context.drawImage(bitmap, (canvas.width - width) / 2, (canvas.height - height) / 2, width, height);
+    }
+    context.restore();
+    const blob = await new Promise<Blob>((resolve, reject) => canvas.toBlob(
+      (value) => value ? resolve(value) : reject(new Error("The Layout paper could not be encoded for PDF export.")), "image/jpeg", .9));
+    signal?.throwIfAborted();
+    return { bytes: new Uint8Array(await blob.arrayBuffer()), format: "jpg" as const };
+  } finally { bitmap.close(); canvas.width = canvas.height = 0; }
 }
 
 async function loadPhotoJpeg(source: PhotoSource, photoId: PhotoId, frame: LayoutImageFrame, quality: LayoutPdfQuality, signal?: AbortSignal) {

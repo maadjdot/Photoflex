@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState, useSyncExternalStore, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react";
 import type { LayoutDocument, LayoutEditCommand, LayoutId, LayoutObjectId, LayoutPage, LayoutPageId, ProjectId, SequenceDocument, SequenceId } from "../contracts";
 import { applyLayoutCommand } from "../modules/layout/layoutDocument";
-import { facingTurnIndex } from "../modules/layout/layoutPages";
+import { duplicateLayoutPage, facingTurnIndex } from "../modules/layout/layoutPages";
 import type { AppDependencies } from "./dependencies";
 import { useLocale } from "./locale";
 import { LayoutEditor } from "./LayoutEditor";
 import { LayoutReader } from "./LayoutReader";
+import { LayoutPaperBackdrop } from "./LayoutPaperBackdrop";
 import { PhotoThumb } from "./PhotoThumb";
 import { CloudSaveStatus } from "./CloudControls";
 import { exportLayoutPdf, preflightLayoutPdf, type LayoutPdfPreflight, type LayoutPdfQuality } from "../platform/browser/exportLayoutPdf";
@@ -15,7 +16,7 @@ import "../styles/layout-workspace.css";
 import "../styles/layout-visual.css";
 
 const newPageId = () => crypto.randomUUID() as LayoutPageId;
-const copyPage = (page: LayoutPage): LayoutPage => ({ id: newPageId(), objects: page.objects.map((object) => ({ ...object, id: crypto.randomUUID() as LayoutObjectId })) });
+const copyPage = (page: LayoutPage): LayoutPage => duplicateLayoutPage(page, newPageId(), () => crypto.randomUUID() as LayoutObjectId);
 
 export function LayoutWorkspace({ dependencies, persistence, projectId, sequenceId, layoutId, navigate }: {
   dependencies: AppDependencies; persistence: ProjectWriteCoordinator; projectId: ProjectId; sequenceId: SequenceId;
@@ -183,7 +184,7 @@ export function LayoutWorkspace({ dependencies, persistence, projectId, sequence
   if (!document || !sequence || projectWrite.loading) return <main className="layout-workspace layout-workspace-error"><div className="loading-mark" /><p>{zh ? "正在打开 Layout…" : "Opening Layout…"}</p></main>;
 
   const addPage = () => {
-    const next: LayoutPage = { id: newPageId(), objects: [] };
+    const next: LayoutPage = { id: newPageId(), ...(page?.paper ? { paper: { ...page.paper } } : {}), objects: [] };
     if (command({ type: "add-page", page: next, at: selectedIndex + 1 })) setSelectedIndex(selectedIndex + 1);
   };
   const nextPage = (facing: boolean) => {
@@ -276,7 +277,7 @@ export function LayoutWorkspace({ dependencies, persistence, projectId, sequence
     <div className="layout-workspace-body" style={{ "--layout-pages-width": `${panelWidths.pages}px`, "--layout-properties-width": `${panelWidths.properties}px` } as CSSProperties}>
       <aside className="layout-pages-panel" aria-label={zh ? "页面" : "Pages"}>
         <div className="layout-panel-heading"><strong>{zh ? "页面" : "Pages"}</strong><span>{document.pages.length}</span></div>
-        <div className="layout-pages-list">{document.pages.map((entry, index) => { const firstImage = entry.objects.find((object) => object.kind === "image-frame" && object.photoId); const photoId = firstImage?.kind === "image-frame" ? firstImage.photoId : null; return <button key={entry.id} draggable className={`${index === selectedIndex ? "is-selected" : ""}${dropPageId === entry.id && draggedPageId !== entry.id ? " is-drop-target" : ""}`} onClick={() => setSelectedIndex(index)} onKeyDown={(event) => { if (event.key === "Delete" || event.key === "Backspace") { event.preventDefault(); event.stopPropagation(); removePage(entry.id); } }} aria-current={index === selectedIndex ? "page" : undefined} onDragStart={(event) => { setDraggedPageId(entry.id); event.dataTransfer.setData("application/x-photoflex-layout-page-id", entry.id); event.dataTransfer.effectAllowed = "move"; }} onDragOver={(event) => { if (draggedPageId) { event.preventDefault(); setDropPageId(entry.id); } }} onDragLeave={() => setDropPageId((current) => current === entry.id ? undefined : current)} onDrop={(event) => { event.preventDefault(); dropPage(entry.id); }} onDragEnd={() => { setDraggedPageId(undefined); setDropPageId(undefined); }}><span className="layout-page-index" aria-hidden="true">{String(index + 1).padStart(2, "0")}</span><span className="layout-page-mini" style={{ aspectRatio: `${document.pageSpec.widthPt} / ${document.pageSpec.heightPt}` }}>{photoId ? <PhotoThumb photoSource={dependencies.photoSource} photoId={photoId} alt="" fit="contain" /> : entry.objects.length > 0 && <i />}</span><span className="layout-page-caption"><span>{zh ? `第 ${index + 1} 页` : `Page ${index + 1}`}</span><small>{index === selectedIndex ? (zh ? "当前页面" : "Current page") : (zh ? `${entry.objects.length} 个对象` : `${entry.objects.length} objects`)}</small></span><span className="layout-page-grip" aria-hidden="true">⠿</span></button>; })}</div>
+        <div className="layout-pages-list">{document.pages.map((entry, index) => { const firstImage = entry.objects.find((object) => object.kind === "image-frame" && object.photoId); const photoId = firstImage?.kind === "image-frame" ? firstImage.photoId : null; return <button key={entry.id} draggable className={`${index === selectedIndex ? "is-selected" : ""}${dropPageId === entry.id && draggedPageId !== entry.id ? " is-drop-target" : ""}`} onClick={() => setSelectedIndex(index)} onKeyDown={(event) => { if (event.key === "Delete" || event.key === "Backspace") { event.preventDefault(); event.stopPropagation(); removePage(entry.id); } }} aria-current={index === selectedIndex ? "page" : undefined} onDragStart={(event) => { setDraggedPageId(entry.id); event.dataTransfer.setData("application/x-photoflex-layout-page-id", entry.id); event.dataTransfer.effectAllowed = "move"; }} onDragOver={(event) => { if (draggedPageId) { event.preventDefault(); setDropPageId(entry.id); } }} onDragLeave={() => setDropPageId((current) => current === entry.id ? undefined : current)} onDrop={(event) => { event.preventDefault(); dropPage(entry.id); }} onDragEnd={() => { setDraggedPageId(undefined); setDropPageId(undefined); }}><span className="layout-page-index" aria-hidden="true">{String(index + 1).padStart(2, "0")}</span><span className="layout-page-mini" style={{ aspectRatio: `${document.pageSpec.widthPt} / ${document.pageSpec.heightPt}` }}><LayoutPaperBackdrop page={entry} />{photoId ? <PhotoThumb photoSource={dependencies.photoSource} photoId={photoId} alt="" fit="contain" /> : entry.objects.length > 0 && <i />}</span><span className="layout-page-caption"><span>{zh ? `第 ${index + 1} 页` : `Page ${index + 1}`}</span><small>{index === selectedIndex ? (zh ? "当前页面" : "Current page") : (zh ? `${entry.objects.length} 个对象` : `${entry.objects.length} objects`)}</small></span><span className="layout-page-grip" aria-hidden="true">⠿</span></button>; })}</div>
         <div className="layout-page-actions"><button onClick={addPage}>{zh ? "＋ 空白页" : "+ Blank page"}</button><button onClick={duplicatePage}>{zh ? "复制页" : "Duplicate"}</button><button disabled={document.pages.length <= 1} onClick={() => removePage()}>{zh ? "删除页" : "Delete"}</button></div>
       </aside>
       <LayoutEditor document={document} sequence={sequence} dependencies={dependencies} selectedIndex={selectedIndex} setSelectedIndex={setSelectedIndex} command={command} onRefreshPhotos={refreshPhotos} onPreviousPage={previousPage} onNextPage={nextPage} interactionEnabled={!reading && !qualityOpen} canUndo={historyPosition > 0} canRedo={historyPosition < history.current.length - 1} onUndo={() => travel(-1)} onRedo={() => travel(1)} prepareExport={prepareExport} />

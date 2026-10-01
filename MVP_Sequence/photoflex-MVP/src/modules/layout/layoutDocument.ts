@@ -1,6 +1,7 @@
 import { err, ok, type LayoutDocument, type LayoutEditCommand, type LayoutId, type LayoutObject, type LayoutPage, type LayoutPageId, type LayoutRevision, type ProjectId, type Result, type SequenceId } from "../../contracts";
 import { MM_TO_PT, validCrop } from "../page-layout/pageGeometry";
 import { isLayoutFontFamily } from "./layoutFonts";
+import { isLayoutPaper } from "./layoutPaper";
 
 export function createEmptyLayout(input: { id: LayoutId; projectId: ProjectId; sequenceId: SequenceId; pageId: LayoutPageId; name: string; createdAt: string; widthPt?: number; heightPt?: number }): LayoutDocument {
   return {
@@ -59,7 +60,8 @@ export function isLayoutDocument(value: unknown): value is LayoutDocument {
   if (!Array.isArray(document.pages) || document.pages.length === 0) return false;
   const pageIds = new Set<string>(), objectIds = new Set<string>();
   for (const [pageIndex, page] of (document.pages as readonly LayoutPage[]).entries()) {
-    if (!page || !id(page.id) || pageIds.has(page.id) || !Array.isArray(page.objects)) return false;
+    if (!page || !id(page.id) || pageIds.has(page.id) || !Array.isArray(page.objects)
+      || (page.paper !== undefined && !isLayoutPaper(page.paper))) return false;
     pageIds.add(page.id);
     for (const object of page.objects) {
       if (!validObject(object, widthPt, heightPt, pageIndex, document.pages.length) || objectIds.has(object.id)) return false;
@@ -106,6 +108,11 @@ export function applyLayoutCommand(document: LayoutDocument, command: LayoutEdit
     const moving = pages[source];
     const rest = pages.filter((page) => page.id !== command.pageId);
     pages = [...rest.slice(0, command.to), moving, ...rest.slice(command.to)];
+  } else if (command.type === "set-paper") {
+    const pageIds = new Set(command.pageIds);
+    if (!pageIds.size || pageIds.size !== command.pageIds.length || !isLayoutPaper(command.paper)
+      || [...pageIds].some((pageId) => !pages.some((page) => page.id === pageId))) return fail();
+    pages = pages.map((page) => pageIds.has(page.id) ? { ...page, paper: { ...command.paper } } : page);
   } else if (command.type === "remove-objects") {
     pages = pages.map((page) => ({ ...page, objects: page.objects.filter((object) => !command.objectIds.includes(object.id)) }));
   } else if (command.type === "upsert-objects") {

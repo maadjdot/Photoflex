@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
-import type { LayoutId, LayoutObjectId, LayoutPageId, PhotoId, ProjectId, SequenceId } from "../../contracts";
+import type { LayoutDocument, LayoutEditCommand, LayoutId, LayoutObjectId, LayoutPage, LayoutPageId, PhotoId, ProjectId, SequenceId } from "../../contracts";
 import { applyLayoutCommand, createEmptyLayout, isLayoutDocument } from "./layoutDocument";
+import { DEFAULT_LAYOUT_PAPER, resolveLayoutPaper } from "./layoutPaper";
 import { MM_TO_PT } from "../page-layout/pageGeometry";
 
 const initial = () => createEmptyLayout({
@@ -31,6 +32,21 @@ describe("Layout document commands", () => {
     expect(applyLayoutCommand(original, { type: "remove-page", pageId: original.pages[0].id })).toMatchObject({ ok: false });
     expect(applyLayoutCommand(original, { type: "add-page", page: { id: original.pages[0].id, objects: [] } })).toMatchObject({ ok: false });
     expect(isLayoutDocument({ ...original, pages: [{ ...original.pages[0], objects: [{ kind: "image-frame", id: "bad", rect: { x: 0, y: 0, width: -1, height: 100 }, photoId: null, crop: { mode: "fit", zoom: 1, focal: { x: .5, y: .5 } } }] }] })).toBe(false);
+  });
+
+  it("keeps legacy pages white and applies one paper command to one or many pages", () => {
+    const original = initial();
+    const second: LayoutPage = { id: "page-2" as LayoutPageId, objects: [] };
+    const legacy: LayoutDocument = { ...original, pages: [original.pages[0], second] };
+    expect(isLayoutDocument(legacy)).toBe(true);
+    expect(resolveLayoutPaper(legacy.pages[0])).toEqual(DEFAULT_LAYOUT_PAPER);
+    const paper = { color: "#1E2B45", material: "fine-linen" as const };
+    const changed = applyLayoutCommand(legacy, { type: "set-paper", pageIds: legacy.pages.map((page) => page.id), paper });
+    expect(changed).toMatchObject({ ok: true, value: { pages: [{ paper }, { paper }] } });
+    expect(legacy.pages[0].paper).toBeUndefined();
+    expect(applyLayoutCommand(legacy, { type: "set-paper", pageIds: ["missing" as LayoutPageId], paper }).ok).toBe(false);
+    expect(applyLayoutCommand(legacy, { type: "set-paper", pageIds: [legacy.pages[0].id],
+      paper: { color: "red", material: "unknown" } } as unknown as LayoutEditCommand).ok).toBe(false);
   });
 
   it("accepts the supported Layout fonts and rejects unknown font identifiers", () => {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { LayoutId, PhotoId, ProjectId, ReadingUnitId, SequenceDocument, SequenceId, SequenceItemId, VersionId } from "../../contracts";
-import { createLayoutFromSequence, facingPageIndices, facingTurnIndex, sequenceLayoutPreview } from "./layoutPages";
+import type { LayoutId, LayoutObjectId, LayoutPageId, PhotoId, ProjectId, ReadingUnitId, SequenceDocument, SequenceId, SequenceItemId, VersionId } from "../../contracts";
+import { createLayoutFromSequence, duplicateLayoutPage, facingPageIndices, facingTurnIndex, sequenceLayoutPreview } from "./layoutPages";
 import { MM_TO_PT } from "../page-layout/pageGeometry";
 
 const sequence = (): SequenceDocument => {
@@ -49,5 +49,14 @@ describe("Layout page initialization", () => {
   it("turns physical facing spreads instead of stepping through single pages", () => {
     expect([0, 1, 3, 5, 7].map((index) => facingTurnIndex(8, index, 1))).toEqual([1, 3, 5, 7, 7]);
     expect([0, 1, 2, 3, 7].map((index) => facingTurnIndex(8, index, -1))).toEqual([0, 0, 0, 1, 5]);
+  });
+
+  it("duplicates a page with an independent paper value and new object IDs", () => {
+    const layout = createLayoutFromSequence({ sequence: sequence(), id: "layout" as LayoutId, name: "Book", widthPt: 210 * MM_TO_PT,
+      heightPt: 297 * MM_TO_PT, start: "sequence", now: "now", newId: () => crypto.randomUUID() });
+    const source = { ...layout.pages[1], paper: { color: "#F1EDE1", material: "natural-fiber" as const } };
+    const copy = duplicateLayoutPage(source, "copy" as LayoutPageId, () => "copy-object" as LayoutObjectId);
+    expect(copy).toMatchObject({ id: "copy", paper: source.paper, objects: [{ id: "copy-object" }] });
+    expect(copy.paper).not.toBe(source.paper);
   });
 });

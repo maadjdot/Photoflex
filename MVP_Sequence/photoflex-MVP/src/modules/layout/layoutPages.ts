@@ -4,6 +4,11 @@ import { defaultCrop, defaultTemplate, templateRects, type PageRect } from "../p
 
 export type LayoutStart = "sequence" | "blank";
 
+export function duplicateLayoutPage(page: LayoutPage, pageId: LayoutPageId, newObjectId: () => LayoutObjectId): LayoutPage {
+  const copy = { ...page, id: pageId, objects: page.objects.map((object) => ({ ...object, id: newObjectId() })) };
+  return page.paper ? { ...copy, paper: { ...page.paper } } : copy;
+}
+
 export function sequenceLayoutPreview(sequence: SequenceDocument): { pages: number; insertedBlanks: number; simplifiedText: number } {
   const pages = sequenceLayoutPages(sequence, { widthPt: 210 * 72 / 25.4, heightPt: 297 * 72 / 25.4 }, () => "preview");
   return { pages: Math.max(1, pages.length), insertedBlanks: pages.filter((page) => page.insertedBlank).length,

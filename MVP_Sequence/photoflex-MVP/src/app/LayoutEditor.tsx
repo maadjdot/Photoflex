@@ -3,10 +3,13 @@ import type { LayoutDocument, LayoutEditCommand, LayoutFontFamily, LayoutImageFr
 import { alignLayoutRect, createImageFrame, drawImageRect, imageTemplateFrames, panImageCrop, replaceFramePhoto, transformImageRect, zoomImageCropAtPoint, type LayoutAlignmentGuide, type ResizeHandle } from "../modules/layout/layoutImages";
 import { DEFAULT_LAYOUT_FONT, LAYOUT_FONT_BY_FAMILY, LAYOUT_FONTS, layoutFontCssStack, layoutFontStyle, layoutFontWeight } from "../modules/layout/layoutFonts";
 import { facingPageIndices } from "../modules/layout/layoutPages";
+import { isDarkLayoutPaper, resolveLayoutPaper } from "../modules/layout/layoutPaper";
 import { visiblePhotoRange } from "../modules/sequence/horizontalSequenceViewport";
 import { LAYOUT_TEMPLATES, MM_TO_PT, PAGE_PRESETS_MM, type ImageCrop, type LayoutTemplateId } from "../modules/page-layout/pageGeometry";
 import type { AppDependencies } from "./dependencies";
 import { LayoutObjectVisual, layoutObjectStyle } from "./LayoutPageSurface";
+import { LayoutPaperBackdrop } from "./LayoutPaperBackdrop";
+import { LayoutPaperControls } from "./LayoutPaperControls";
 import { useLocale } from "./locale";
 import { PhotoThumb } from "./PhotoThumb";
 import undoIcon from "../assets/icons/table-undo.svg";
@@ -226,16 +229,6 @@ export function LayoutEditor({ document, sequence, dependencies, selectedIndex, 
   useEffect(() => {
     if (selectedIds.size && !shownPages.some((index) => document.pages[index].objects.some((object) => selectedIds.has(object.id)))) selectOnly();
   }, [selectedIndex, facing, document]);
-  const crossesGutter = (index: number, slot: number) => facing && display.every((entry) => entry !== null)
-    && ((gesture?.kind === "draw" && gesture.pageIndex === index && (() => {
-      const rect = drawnRect(gesture);
-      return !!rect && (slot === 0 ? rect.x + rect.width > document.pageSpec.widthPt : rect.x < 0);
-    })()) || document.pages[index].objects.some((object) => {
-      const rect = gesture?.kind === "frame" && gesture.object.id === object.id ? gesture.rect
-        : gesture?.kind === "group" && gesture.objects.some((entry) => entry.object.id === object.id)
-          ? { ...object.rect, x: object.rect.x + gesture.dx } : object.rect;
-      return slot === 0 ? rect.x + rect.width > document.pageSpec.widthPt : rect.x < 0;
-    }));
   const setActiveGesture = (next?: Gesture) => { gestureRef.current = next; setGesture(next); };
   const setActiveCrop = (next?: typeof cropDraft) => { cropRef.current = next; setCropDraft(next); };
   const markMissing = useCallback((photoId: PhotoId) => setMissingPhotos((current) => current.has(photoId) ? current : new Set([...current, photoId])), []);
@@ -549,7 +542,8 @@ export function LayoutEditor({ document, sequence, dependencies, selectedIndex, 
       </div>
       <div className="layout-history-controls"><button aria-label={fieldLabel(zh, "Undo", "撤销")} title={`${fieldLabel(zh, "Undo", "撤销")} (Ctrl/Cmd+Z)`} disabled={!canUndo} onClick={onUndo}><img src={undoIcon} alt="" /></button><button aria-label={fieldLabel(zh, "Redo", "重做")} title={`${fieldLabel(zh, "Redo", "重做")} (Ctrl/Cmd+Y · Ctrl/Cmd+Shift+Z)`} disabled={!canRedo} onClick={onRedo}><img src={redoIcon} alt="" /></button></div>
       </div>
-      <div className="layout-canvas"><div ref={stageRef} className={`layout-stage${panMode ? " is-pan-mode" : ""}${panning ? " is-panning" : ""}`} onPointerDownCapture={startPan} onPointerMove={movePan} onPointerUp={endPan} onPointerCancel={endPan} onAuxClick={(event) => { if (event.button === 1) event.preventDefault(); }}><div key="editing" className={`layout-spread${facing && display.every((entry) => entry !== null) ? " is-facing" : ""}`} style={{ width: display.length * pageWidth, height: pageHeight }}>{display.map((index, slot) => index === null ? <div className="layout-paper-placeholder" key={`empty-${slot}`} aria-label={fieldLabel(zh, "Facing page placeholder", "对页占位")} style={{ width: pageWidth, height: pageHeight }} /> : <div key={document.pages[index].id} ref={(element) => { if (element) paperRefs.current.set(document.pages[index].id, element); else paperRefs.current.delete(document.pages[index].id); }} className={`layout-paper${index === selectedIndex ? " is-current" : ""}${tool === "draw" || tool === "text" ? " is-drawing" : ""}`} style={{ width: pageWidth, height: pageHeight, zIndex: crossesGutter(index, slot) ? 2 : 1 }} aria-label={fieldLabel(zh, `Page ${index + 1}`, `第 ${index + 1} 页`)} onPointerDown={(event) => pointerStart(event, index)} onPointerMove={(event) => pointerMove(event, index)} onPointerUp={(event) => pointerEnd(event, index)} onPointerCancel={cancelPointer} onDoubleClick={(event) => doubleClickPaper(event, index)} onDragOver={(event) => event.preventDefault()} onDrop={(event) => dropPhoto(event, index)}>
+      <div className="layout-canvas"><div ref={stageRef} className={`layout-stage${panMode ? " is-pan-mode" : ""}${panning ? " is-panning" : ""}`} onPointerDownCapture={startPan} onPointerMove={movePan} onPointerUp={endPan} onPointerCancel={endPan} onAuxClick={(event) => { if (event.button === 1) event.preventDefault(); }}><div key="editing" className={`layout-spread${facing && display.every((entry) => entry !== null) ? " is-facing" : ""}`} style={{ width: display.length * pageWidth, height: pageHeight }}>{display.map((index, slot) => index === null ? <div className="layout-paper-placeholder" key={`empty-${slot}`} aria-label={fieldLabel(zh, "Facing page placeholder", "对页占位")} style={{ width: pageWidth, height: pageHeight }} /> : <div key={document.pages[index].id} ref={(element) => { if (element) paperRefs.current.set(document.pages[index].id, element); else paperRefs.current.delete(document.pages[index].id); }} className={`layout-paper${index === selectedIndex ? " is-current" : ""}${tool === "draw" || tool === "text" ? " is-drawing" : ""}${isDarkLayoutPaper(resolveLayoutPaper(document.pages[index])) ? " is-dark-paper" : ""}`} style={{ width: pageWidth, height: pageHeight }} aria-label={fieldLabel(zh, `Page ${index + 1}`, `第 ${index + 1} 页`)} onPointerDown={(event) => pointerStart(event, index)} onPointerMove={(event) => pointerMove(event, index)} onPointerUp={(event) => pointerEnd(event, index)} onPointerCancel={cancelPointer} onDoubleClick={(event) => doubleClickPaper(event, index)} onDragOver={(event) => event.preventDefault()} onDrop={(event) => dropPhoto(event, index)}>
+        <LayoutPaperBackdrop page={document.pages[index]} />
         {document.pages[index].objects.map((object) => {
           const currentGesture = gesture?.kind === "frame" && gesture.object.id === object.id ? gesture : undefined;
           const groupMove = gesture?.kind === "group" && gesture.objects.some((entry) => entry.object.id === object.id) ? gesture : undefined;
@@ -576,6 +570,7 @@ export function LayoutEditor({ document, sequence, dependencies, selectedIndex, 
     </section>
     <aside className="layout-properties-panel table-frame-panel" aria-label={fieldLabel(zh, "Page properties", "页面属性")}>
       <div className="table-frame-inspector">
+        <LayoutPaperControls document={document} page={page} command={command} zh={zh} />
         <section className="table-frame-section"><h3>{fieldLabel(zh, "TEMPLATE", "模板")}</h3><div className="table-frame-template-strip layout-template-strip" role="group" aria-label="Template">
           {LAYOUT_TEMPLATES.map((id) => <button key={id} type="button" title={templateLabels[id]} aria-label={`${templateLabels[id]} template`} aria-pressed={templateId === id} onClick={() => applyTemplate(id)}><span className={`table-frame-mini mini-${id}`} aria-hidden="true" /></button>)}
         </div></section>

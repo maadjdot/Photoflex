@@ -14,9 +14,9 @@
 .layout-reader-stage::-webkit-scrollbar { display: none; }
 .layout-reader.is-panning .layout-reader-stage { cursor: grabbing; }
 .layout-reader-spread { position: relative; display: flex; flex: 0 0 auto; perspective: 1800px; transform-style: preserve-3d; filter: drop-shadow(0 22px 34px rgb(0 0 0 / 42%)); }
-.layout-reader-spread.is-facing { overflow: hidden; background: #fff; }
+.layout-reader-spread.is-facing { overflow: hidden; background: transparent; }
 .layout-reader-page-shell { position: relative; flex: 0 0 auto; transform-style: preserve-3d; backface-visibility: hidden; }
-.layout-reader-paper { overflow: hidden; border: 0; border-radius: 1px; background: #fff; box-shadow: none; }
+.layout-reader-paper { overflow: hidden; border: 0; border-radius: 1px; background: transparent; box-shadow: none; }
 .layout-reader-spread.is-facing .layout-reader-paper { overflow: visible; background: transparent; }
 .layout-reader .layout-object { pointer-events: none; }
 .layout-reader .layout-placed-image { user-select: none; -webkit-user-select: none; -webkit-user-drag: none; }
