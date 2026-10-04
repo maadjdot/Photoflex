@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { LayoutDocument, LayoutId, LayoutPageId, LayoutRevision, ProjectId, SequenceId, PhotoSource } from "../contracts";
 import { LayoutReader } from "./LayoutReader";
@@ -20,14 +20,14 @@ const layout = {
 } as LayoutDocument;
 
 describe("LayoutReader", () => {
-  it("navigates responsive spreads, switches to single pages, and closes with Escape", () => {
+  it("commits responsive page curls, switches to single pages, and closes with Escape", async () => {
     const onClose = vi.fn();
     render(<LayoutReader document={layout} initialPage={0} photoSource={{} as PhotoSource} onClose={onClose} />);
     expect(screen.getByText("1 / 5")).toBeTruthy();
     fireEvent.keyDown(window, { key: "ArrowRight" });
-    expect(screen.getByText("2–3 / 5")).toBeTruthy();
+    await waitFor(() => expect(screen.getByText("2–3 / 5")).toBeTruthy());
     fireEvent.click(screen.getByRole("button", { name: "Single" }));
-    expect(screen.getByText("2 / 5")).toBeTruthy();
+    await waitFor(() => expect(screen.getByText("2 / 5")).toBeTruthy());
     fireEvent.keyDown(window, { key: "Escape" });
     expect(onClose).toHaveBeenCalledOnce();
   });
@@ -37,6 +37,7 @@ describe("LayoutReader", () => {
     const stage = container.querySelector<HTMLElement>(".layout-reader-stage")!;
     stage.setPointerCapture = vi.fn();
 
+    fireEvent.doubleClick(stage);
     expect(fireEvent.pointerDown(stage, { pointerId: 1, pointerType: "mouse", button: 0, clientX: 100, clientY: 100 })).toBe(false);
     expect(fireEvent.dragStart(stage)).toBe(false);
   });

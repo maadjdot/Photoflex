@@ -1,6 +1,7 @@
-import type { CSSProperties } from "react";
+import { useMemo, type CSSProperties } from "react";
 import type { DerivedPreviewMaxEdge, LayoutDocument, LayoutObject, LayoutRect, PhotoId, PhotoSource } from "../contracts";
 import { isDarkLayoutPaper, resolveLayoutPaper } from "../modules/layout/layoutPaper";
+import { layoutReaderPageObjects } from "../modules/layout/layoutReader";
 import { LayoutImageFrameView } from "./LayoutImageFrameView";
 import { LayoutPaperBackdrop } from "./LayoutPaperBackdrop";
 import { LayoutTextView } from "./LayoutTextView";
@@ -39,9 +40,10 @@ export function LayoutPageSurface({ document, pageIndex, slot, pageWidth, pageHe
   readonly onMissing: (photoId: PhotoId) => void;
 }) {
   const page = document.pages[pageIndex];
+  const objects = useMemo(() => layoutReaderPageObjects(document, pageIndex), [document, pageIndex]);
   return <article className={`layout-paper layout-reader-paper${isDarkLayoutPaper(resolveLayoutPaper(page)) ? " is-dark-paper" : ""}`} style={{ width: pageWidth, height: pageHeight }} aria-label={`Page ${pageIndex + 1}`}>
     <LayoutPaperBackdrop page={page} />
-    {page.objects.map((object) => <div key={object.id} className={`layout-object layout-object-${object.kind}`} style={layoutObjectStyle(object.rect, document.pageSpec)}>
+    {objects.map((object) => <div key={object.id} className={`layout-object layout-object-${object.kind}`} style={layoutObjectStyle(object.rect, document.pageSpec)}>
       <LayoutObjectVisual object={object} photoSource={photoSource} sourceRevision={sourceRevision} scale={pageHeight / document.pageSpec.heightPt} previewEdge={previewEdge} eager={eager} onMetadata={onMetadata} onMissing={onMissing} />
     </div>)}
     <span className={`layout-paper-number${slot === 0 ? " is-left" : ""}`}>{String(pageIndex + 1).padStart(2, "0")}</span>

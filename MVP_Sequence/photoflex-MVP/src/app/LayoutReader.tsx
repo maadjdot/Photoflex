@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState, type PointerEvent as ReactPointerEvent, type WheelEvent as ReactWheelEvent } from "react";
 import type { LayoutDocument, PhotoId, PhotoSource } from "../contracts";
 import { createLayoutReaderState, layoutReaderFitPage, layoutReaderPageLabel, layoutReaderPreviewEdge, layoutReaderReducer, layoutReaderSpreadIndex, layoutReaderSpreads, layoutReaderVisiblePages, resolveLayoutReaderMode, type LayoutReaderMode } from "../modules/layout/layoutReader";
+import { beginPageCurlGoTo, beginPageCurlTurn, cancelPageCurlTurn, commitPageCurlTurn, createPageCurlNavigationState, type PageCurlDirection, type PageCurlNavigationState } from "../modules/layout/pageCurl";
 import { useDialogKeyboard } from "./AppPrimitives";
+import { LayoutPageCurl, type LayoutPageCurlHandle } from "./LayoutPageCurl";
 import { LayoutPageSurface } from "./LayoutPageSurface";
 import { useLocale } from "./locale";
 import "../styles/layout-reader.css";
@@ -18,13 +20,17 @@ export function LayoutReader({ document: layout, initialPage, photoSource, onClo
   const zh = locale === "zh-CN";
   const rootRef = useRef<HTMLElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
+  const curlRef = useRef<LayoutPageCurlHandle>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
   const [state, dispatch] = useReducer(layoutReaderReducer, undefined, () => createLayoutReaderState(initialPage, layout.pages.length));
+  const [curlNavigation, setCurlNavigation] = useState<PageCurlNavigationState>(() => createPageCurlNavigationState(initialPage, layout.pages.length));
+  const curlNavigationRef = useRef(curlNavigation);
   const [viewport, setViewport] = useState(() => ({ width: globalThis.innerWidth || 1280, height: globalThis.innerHeight || 800 }));
   const [chromeVisible, setChromeVisible] = useState(true);
   const [fullscreen, setFullscreen] = useState(false);
   const [panning, setPanning] = useState(false);
   const chromeTimer = useRef<number | undefined>(undefined);
+  const resolvedModeRef = useRef<ReturnType<typeof resolveLayoutReaderMode> | undefined>(undefined);
   const pointers = useRef(new Map<number, PointerPosition>());
   const drag = useRef<{ pointerId: number; x: number; y: number; left: number; top: number; zoom: number; pointerType: string; pan: boolean } | undefined>(undefined);
   const pinch = useRef<{ distance: number; zoom: number } | undefined>(undefined);
@@ -34,12 +40,29 @@ export function LayoutReader({ document: layout, initialPage, photoSource, onClo
   const spreads = useMemo(() => layoutReaderSpreads(layout.pages.length, resolvedMode), [layout.pages.length, resolvedMode]);
   const spreadIndex = layoutReaderSpreadIndex(spreads, state.currentPage);
   const spread = spreads[spreadIndex];
-  const visiblePages = layoutReaderVisiblePages(spread);
+  const visiblePages = useMemo(() => layoutReaderVisiblePages(spread), [spread]);
   const fit = layoutReaderFitPage(viewport, layout.pageSpec, spread?.slots.length ?? 1);
   const pageWidth = fit.width * state.zoom, pageHeight = fit.height * state.zoom;
   const previewEdge = layoutReaderPreviewEdge(fit, state.zoom, globalThis.devicePixelRatio || 1);
   const canPrevious = spreadIndex > 0, canNext = spreadIndex < spreads.length - 1;
   const label = layoutReaderPageLabel(spread, layout.pages.length);
+
+  const updateCurlNavigation = useCallback((next: PageCurlNavigationState) => {
+    curlNavigationRef.current = next;
+    setCurlNavigation(next);
+  }, []);
+
+  const cancelCurlNavigation = useCallback(() => {
+    const next = cancelPageCurlTurn(curlNavigationRef.current);
+    if (next !== curlNavigationRef.current) updateCurlNavigation(next);
+  }, [updateCurlNavigation]);
+
+  useEffect(() => {
+    if (resolvedModeRef.current !== undefined && resolvedModeRef.current !== resolvedMode) {
+      updateCurlNavigation(createPageCurlNavigationState(state.currentPage, layout.pages.length));
+    }
+    resolvedModeRef.current = resolvedMode;
+  }, [layout.pages.length, resolvedMode, state.currentPage, updateCurlNavigation]);
 
   const revealChrome = useCallback(() => {
     setChromeVisible(true);
@@ -69,11 +92,36 @@ export function LayoutReader({ document: layout, initialPage, photoSource, onClo
   }, [revealChrome]);
 
   const navigate = useCallback((direction: -1 | 1) => {
-    dispatch({ type: "navigate", direction, pageCount: layout.pages.length, resolvedMode });
+    const next = beginPageCurlTurn(curlNavigationRef.current, direction, layout.pages.length, resolvedMode);
+    if (next !== curlNavigationRef.current) {
+      updateCurlNavigation(next);
+      if (!curlRef.current?.turn(direction)) cancelCurlNavigation();
+    }
     revealChrome();
-  }, [layout.pages.length, resolvedMode, revealChrome]);
+  }, [cancelCurlNavigation, layout.pages.length, resolvedMode, revealChrome, updateCurlNavigation]);
+
+  const goToPage = useCallback((page: number, animated = false) => {
+    const next = beginPageCurlGoTo(curlNavigationRef.current, page, layout.pages.length, resolvedMode);
+    if (next === curlNavigationRef.current || next.status !== "turning") return;
+    updateCurlNavigation(next);
+    if (!curlRef.current?.goTo(next.targetPage, animated)) cancelCurlNavigation();
+    revealChrome();
+  }, [cancelCurlNavigation, layout.pages.length, resolvedMode, revealChrome, updateCurlNavigation]);
+
+  const commitPage = useCallback((page: number) => {
+    const next = commitPageCurlTurn(curlNavigationRef.current, page, layout.pages.length);
+    updateCurlNavigation(next);
+    dispatch({ type: "go-to-page", page: next.committedPage, pageCount: layout.pages.length });
+  }, [layout.pages.length, updateCurlNavigation]);
+
+  const noteTurnIntent = useCallback((direction: PageCurlDirection) => {
+    const next = beginPageCurlTurn(curlNavigationRef.current, direction, layout.pages.length, resolvedMode);
+    if (next !== curlNavigationRef.current) updateCurlNavigation(next);
+  }, [layout.pages.length, resolvedMode, updateCurlNavigation]);
 
   const setZoom = useCallback((zoom: number) => {
+    curlRef.current?.cancel();
+    cancelCurlNavigation();
     const stage = stageRef.current;
     const fractionX = stage && stage.scrollWidth ? (stage.scrollLeft + stage.clientWidth / 2) / stage.scrollWidth : .5;
     const fractionY = stage && stage.scrollHeight ? (stage.scrollTop + stage.clientHeight / 2) / stage.scrollHeight : .5;
@@ -84,7 +132,7 @@ export function LayoutReader({ document: layout, initialPage, photoSource, onClo
       next.scrollLeft = Math.max(0, fractionX * next.scrollWidth - next.clientWidth / 2);
       next.scrollTop = Math.max(0, fractionY * next.scrollHeight - next.clientHeight / 2);
     });
-  }, []);
+  }, [cancelCurlNavigation]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -97,53 +145,44 @@ export function LayoutReader({ document: layout, initialPage, photoSource, onClo
       }
       if (event.key === "ArrowLeft" || event.key === "PageUp") { event.preventDefault(); navigate(-1); }
       else if (event.key === "ArrowRight" || event.key === "PageDown" || event.key === " ") { event.preventDefault(); navigate(1); }
-      else if (event.key === "Home") { event.preventDefault(); dispatch({ type: "go-to-page", page: 0, pageCount: layout.pages.length }); }
-      else if (event.key === "End") { event.preventDefault(); dispatch({ type: "go-to-page", page: layout.pages.length - 1, pageCount: layout.pages.length }); }
+      else if (event.key === "Home") { event.preventDefault(); goToPage(0); }
+      else if (event.key === "End") { event.preventDefault(); goToPage(layout.pages.length - 1); }
       else if (event.key === "+" || event.key === "=") { event.preventDefault(); setZoom(state.zoom + .25); }
       else if (event.key === "-") { event.preventDefault(); setZoom(state.zoom - .25); }
-      else if (event.key === "0") { event.preventDefault(); dispatch({ type: "reset-fit" }); }
+      else if (event.key === "0") { event.preventDefault(); setZoom(1); }
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [layout.pages.length, navigate, setZoom, state.zoom]);
-
-  useEffect(() => {
-    let active = true;
-    const neighborPages = [spreads[spreadIndex - 1], spreads[spreadIndex + 1]].flatMap(layoutReaderVisiblePages);
-    const photoIds = [...new Set(neighborPages.flatMap((pageIndex) => layout.pages[pageIndex]?.objects.flatMap((object) => object.kind === "image-frame" && object.photoId ? [object.photoId] : []) ?? []))];
-    const warm = async () => {
-      let cursor = 0;
-      const worker = async () => {
-        while (active && cursor < photoIds.length) {
-          const photoId = photoIds[cursor++];
-          const result = await photoSource.derivedPreview(photoId, previewEdge);
-          if (result.ok) result.value.release();
-        }
-      };
-      await Promise.all(Array.from({ length: Math.min(3, photoIds.length) }, worker));
-    };
-    void warm();
-    return () => { active = false; };
-  }, [layout.pages, photoSource, previewEdge, spreadIndex, spreads]);
+  }, [goToPage, layout.pages.length, navigate, setZoom, state.zoom]);
 
   const noteMetadata = useCallback((_photoId: PhotoId, _size: { width: number; height: number }) => {}, []);
   const noteMissing = useCallback((_photoId: PhotoId) => {}, []);
+  // Keep page identity stable while turn progress updates the reader chrome.
+  const readerPages = useMemo(() => layout.pages.map((page, pageIndex) =>
+    <LayoutPageSurface key={page.id} document={layout} pageIndex={pageIndex} slot={resolvedMode === "single" ? 0 : pageIndex === 0 || pageIndex % 2 === 0 ? 1 : 0} pageWidth={pageWidth} pageHeight={pageHeight} photoSource={photoSource} previewEdge={previewEdge} eager={visiblePages.some((visible) => Math.abs(visible - pageIndex) <= 2)} onMetadata={noteMetadata} onMissing={noteMissing} />),
+  [layout, resolvedMode, pageWidth, pageHeight, photoSource, previewEdge, visiblePages, noteMetadata, noteMissing]);
 
   const pointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
     if ((event.target as HTMLElement).closest("button, input, .layout-reader-chrome")) return;
     if (event.pointerType === "mouse" && event.button !== 0 && event.button !== 1) return;
     const stage = stageRef.current;
     if (!stage) return;
-    event.preventDefault();
-    event.currentTarget.setPointerCapture(event.pointerId);
     pointers.current.set(event.pointerId, { x: event.clientX, y: event.clientY });
     if (pointers.current.size === 2) {
+      event.preventDefault(); event.stopPropagation();
+      curlRef.current?.cancel(); cancelCurlNavigation();
+      event.currentTarget.setPointerCapture(event.pointerId);
       const [first, second] = [...pointers.current.values()];
       pinch.current = { distance: Math.hypot(first.x - second.x, first.y - second.y), zoom: state.zoom };
       drag.current = undefined; setPanning(true); return;
     }
-    drag.current = { pointerId: event.pointerId, x: event.clientX, y: event.clientY, left: stage.scrollLeft, top: stage.scrollTop, zoom: state.zoom, pointerType: event.pointerType, pan: state.zoom > 1 || event.button === 1 };
-    if (state.zoom > 1 || event.button === 1) setPanning(true);
+    const pan = state.zoom > 1 || event.button === 1;
+    if (!pan) { drag.current = undefined; return; }
+    event.preventDefault(); event.stopPropagation();
+    curlRef.current?.cancel(); cancelCurlNavigation();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    drag.current = { pointerId: event.pointerId, x: event.clientX, y: event.clientY, left: stage.scrollLeft, top: stage.scrollTop, zoom: state.zoom, pointerType: event.pointerType, pan };
+    setPanning(true);
   };
   const pointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (!pointers.current.has(event.pointerId)) return;
@@ -151,6 +190,7 @@ export function LayoutReader({ document: layout, initialPage, photoSource, onClo
     if (pinch.current && pointers.current.size >= 2) {
       const [first, second] = [...pointers.current.values()];
       const distance = Math.hypot(first.x - second.x, first.y - second.y);
+      event.preventDefault();
       dispatch({ type: "set-zoom", zoom: pinch.current.zoom * distance / Math.max(1, pinch.current.distance) });
       return;
     }
@@ -160,26 +200,22 @@ export function LayoutReader({ document: layout, initialPage, photoSource, onClo
     stage.scrollTop = start.top - (event.clientY - start.y);
   };
   const pointerEnd = (event: ReactPointerEvent<HTMLDivElement>) => {
-    const start = drag.current;
-    const wasPinching = !!pinch.current;
     pointers.current.delete(event.pointerId);
     if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
     if (pointers.current.size < 2) pinch.current = undefined;
     if (!pointers.current.size) { drag.current = undefined; setPanning(false); }
-    if (!wasPinching && start?.pointerId === event.pointerId && start.pointerType !== "mouse" && start.zoom <= 1) {
-      const dx = event.clientX - start.x, dy = event.clientY - start.y;
-      if (Math.abs(dx) > 56 && Math.abs(dx) > Math.abs(dy) * 1.25) navigate(dx < 0 ? 1 : -1);
-    }
   };
 
-  const setMode = (mode: LayoutReaderMode) => dispatch({ type: "set-mode", mode });
+  const setMode = (mode: LayoutReaderMode) => {
+    curlRef.current?.cancel();
+    updateCurlNavigation(createPageCurlNavigationState(state.currentPage, layout.pages.length));
+    dispatch({ type: "set-mode", mode });
+  };
   const toggleFullscreen = async () => {
     if (document.fullscreenElement) await document.exitFullscreen();
     else await rootRef.current?.requestFullscreen?.();
   };
-  const leafSlot = resolvedMode === "single" ? 0 : state.direction < 0 ? 1 : 0;
-
-  return <section ref={rootRef} className={`layout-reader${chromeVisible ? " is-chrome-visible" : ""}${panning ? " is-panning" : ""}`} role="dialog" aria-modal="true" aria-label={zh ? `阅读 ${layout.name}` : `Read ${layout.name}`} onPointerMove={revealChrome} onFocusCapture={revealChrome}>
+  return <section ref={rootRef} className={`layout-reader${chromeVisible ? " is-chrome-visible" : ""}${panning ? " is-panning" : ""}${state.zoom > 1 ? " is-zoomed" : ""}${curlNavigation.status === "turning" ? " is-turning" : ""}`} role="dialog" aria-modal="true" aria-label={zh ? `阅读 ${layout.name}` : `Read ${layout.name}`} onPointerMove={revealChrome} onFocusCapture={revealChrome}>
     <header className="layout-reader-header layout-reader-chrome">
       <button ref={closeRef} className="layout-reader-exit" onClick={onClose}>{zh ? "← 退出阅读" : "← Exit reading"}</button>
       <strong title={layout.name}>{layout.name}</strong>
@@ -188,20 +224,17 @@ export function LayoutReader({ document: layout, initialPage, photoSource, onClo
         <button onClick={() => void toggleFullscreen()}>{fullscreen ? (zh ? "退出全屏" : "Exit fullscreen") : (zh ? "全屏" : "Fullscreen")}</button>
       </div>
     </header>
-    <div ref={stageRef} className="layout-reader-stage" onPointerDown={pointerDown} onPointerMove={pointerMove} onPointerUp={pointerEnd} onPointerCancel={pointerEnd} onDragStart={(event) => event.preventDefault()} onDoubleClick={() => setZoom(state.zoom === 1 ? 2 : 1)} onWheel={(event: ReactWheelEvent) => { if (event.ctrlKey || event.metaKey) { event.preventDefault(); setZoom(state.zoom * Math.exp(-event.deltaY * .002)); } }}>
-      <div key={`${resolvedMode}-${spreadIndex}-${state.turnKey}`} className={`layout-reader-spread${spread?.slots.length === 2 && spread.slots.every((page) => page !== null) ? " is-facing" : ""}${state.direction > 0 ? " is-turn-forward" : state.direction < 0 ? " is-turn-back" : ""}`} style={{ width: pageWidth * (spread?.slots.length ?? 1) + fit.gap, height: pageHeight, gap: fit.gap }}>
-        {spread?.slots.map((pageIndex, slot) => <div key={pageIndex === null ? `empty-${slot}` : layout.pages[pageIndex].id} className={`layout-reader-page-shell${state.direction && slot === leafSlot && pageIndex !== null ? " is-turn-leaf" : ""}`} style={{ width: pageWidth, height: pageHeight }}>
-          {pageIndex === null ? <div className="layout-paper-placeholder layout-reader-placeholder" aria-hidden="true" style={{ width: pageWidth, height: pageHeight }} />
-            : <LayoutPageSurface document={layout} pageIndex={pageIndex} slot={slot} pageWidth={pageWidth} pageHeight={pageHeight} photoSource={photoSource} previewEdge={previewEdge} eager={visiblePages.includes(pageIndex)} onMetadata={noteMetadata} onMissing={noteMissing} />}
-        </div>)}
-      </div>
+    <div ref={stageRef} className="layout-reader-stage" onPointerDownCapture={pointerDown} onPointerMove={pointerMove} onPointerUp={pointerEnd} onPointerCancel={pointerEnd} onDragStart={(event) => event.preventDefault()} onDoubleClick={() => setZoom(state.zoom === 1 ? 2 : 1)} onWheel={(event: ReactWheelEvent) => { if (event.ctrlKey || event.metaKey) { event.preventDefault(); setZoom(state.zoom * Math.exp(-event.deltaY * .002)); } }}>
+      <LayoutPageCurl key={resolvedMode} ref={curlRef} pageWidth={pageWidth} pageHeight={pageHeight} currentPage={state.currentPage} mode={resolvedMode} ariaLabel={zh ? `${layout.name} 翻页阅读` : `${layout.name} page curl reader`} pageBackground="#f4f1e9" onPageChange={commitPage} onTurnIntent={noteTurnIntent} onTurnSettled={cancelCurlNavigation}>
+        {readerPages}
+      </LayoutPageCurl>
     </div>
-    <button className="layout-reader-edge is-previous" aria-label={zh ? "上一页" : "Previous"} disabled={!canPrevious} onClick={() => navigate(-1)}>‹</button>
-    <button className="layout-reader-edge is-next" aria-label={zh ? "下一页" : "Next"} disabled={!canNext} onClick={() => navigate(1)}>›</button>
+    <button className="layout-reader-edge is-previous" aria-label={zh ? "上一页" : "Previous"} disabled={!canPrevious || curlNavigation.status === "turning"} onClick={() => navigate(-1)}>‹</button>
+    <button className="layout-reader-edge is-next" aria-label={zh ? "下一页" : "Next"} disabled={!canNext || curlNavigation.status === "turning"} onClick={() => navigate(1)}>›</button>
     <footer className="layout-reader-footer layout-reader-chrome">
-      <div className="layout-reader-zoom" role="group" aria-label={zh ? "阅读缩放" : "Read zoom"}><button disabled={state.zoom <= .5} onClick={() => setZoom(state.zoom - .25)}>−</button><button className="layout-reader-fit" onClick={() => dispatch({ type: "reset-fit" })}>{Math.round(state.zoom * 100)}%</button><button disabled={state.zoom >= 3} onClick={() => setZoom(state.zoom + .25)}>＋</button></div>
-      <div className="layout-reader-progress"><input type="range" min="1" max={layout.pages.length} value={state.currentPage + 1} aria-label={zh ? "跳到页面" : "Go to page"} onChange={(event) => dispatch({ type: "go-to-page", page: Number(event.target.value) - 1, pageCount: layout.pages.length })} /><output aria-live="polite">{label}</output></div>
-      <div className="layout-reader-navigation"><button disabled={!canPrevious} onClick={() => navigate(-1)}>{zh ? "上一页" : "Previous"}</button><button disabled={!canNext} onClick={() => navigate(1)}>{zh ? "下一页" : "Next"}</button></div>
+      <div className="layout-reader-zoom" role="group" aria-label={zh ? "阅读缩放" : "Read zoom"}><button disabled={state.zoom <= .5} onClick={() => setZoom(state.zoom - .25)}>−</button><button className="layout-reader-fit" onClick={() => setZoom(1)}>{Math.round(state.zoom * 100)}%</button><button disabled={state.zoom >= 3} onClick={() => setZoom(state.zoom + .25)}>＋</button></div>
+      <div className="layout-reader-progress"><input type="range" min="1" max={layout.pages.length} value={state.currentPage + 1} aria-label={zh ? "跳到页面" : "Go to page"} onChange={(event) => goToPage(Number(event.target.value) - 1)} /><output aria-live="polite">{label}</output></div>
+      <div className="layout-reader-navigation"><button disabled={!canPrevious || curlNavigation.status === "turning"} onClick={() => navigate(-1)}>{zh ? "上一页" : "Previous"}</button><button disabled={!canNext || curlNavigation.status === "turning"} onClick={() => navigate(1)}>{zh ? "下一页" : "Next"}</button></div>
     </footer>
   </section>;
 }

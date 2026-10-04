@@ -1,7 +1,28 @@
 import { describe, expect, it } from "vitest";
-import { createLayoutReaderState, layoutReaderFitPage, layoutReaderPageLabel, layoutReaderPreviewEdge, layoutReaderReducer, layoutReaderSpreads, navigateLayoutReaderPage, resolveLayoutReaderMode } from "./layoutReader";
+import type { LayoutDocument } from "../../contracts";
+import { createLayoutReaderState, layoutReaderFitPage, layoutReaderPageLabel, layoutReaderPageObjects, layoutReaderPreviewEdge, layoutReaderReducer, layoutReaderSpreads, navigateLayoutReaderPage, resolveLayoutReaderMode } from "./layoutReader";
 
 describe("Layout reader presentation", () => {
+  it("renders both halves of spanning content on their own physical faces without changing the document", () => {
+    const document = {
+      pageSpec: { widthPt: 200, heightPt: 300 },
+      pages: [
+        { objects: [] },
+        { objects: [{ id: "from-left", rect: { x: 180, y: 20, width: 40, height: 100 } }] },
+        { objects: [{ id: "from-right", rect: { x: -10, y: 150, width: 30, height: 100 } }] },
+        { objects: [] },
+      ],
+    } as unknown as LayoutDocument;
+    expect(layoutReaderPageObjects(document, 0)).toEqual([]);
+    expect(layoutReaderPageObjects(document, 1).map((object) => [object.id, object.rect.x]))
+      .toEqual([["from-left", 180], ["from-right", 190]]);
+    expect(layoutReaderPageObjects(document, 2).map((object) => [object.id, object.rect.x]))
+      .toEqual([["from-right", -10], ["from-left", -20]]);
+    expect(layoutReaderPageObjects(document, 3)).toEqual([]);
+    expect(document.pages[1].objects[0].rect.x).toBe(180);
+    expect(document.pages[2].objects[0].rect.x).toBe(-10);
+  });
+
   it("builds a right-hand cover and stable physical facing spreads", () => {
     expect(layoutReaderSpreads(1, "facing")).toEqual([{ slots: [null, 0] }]);
     expect(layoutReaderSpreads(4, "facing")).toEqual([{ slots: [null, 0] }, { slots: [1, 2] }, { slots: [3, null] }]);
@@ -19,8 +40,8 @@ describe("Layout reader presentation", () => {
   it("keeps transient reader state out of the document and resets fit on mode changes", () => {
     const initial = createLayoutReaderState(2, 8);
     const zoomed = layoutReaderReducer(initial, { type: "set-zoom", zoom: 2.25 });
-    const turned = layoutReaderReducer(zoomed, { type: "navigate", direction: 1, pageCount: 8, resolvedMode: "facing" });
-    expect(turned).toMatchObject({ currentPage: 3, zoom: 2.25, direction: 1, turnKey: 1 });
+    const turned = layoutReaderReducer(zoomed, { type: "go-to-page", page: 3, pageCount: 8 });
+    expect(turned).toMatchObject({ currentPage: 3, zoom: 2.25 });
     expect(layoutReaderReducer(turned, { type: "set-mode", mode: "single" })).toMatchObject({ currentPage: 3, zoom: 1, mode: "single" });
   });
 

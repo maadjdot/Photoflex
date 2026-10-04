@@ -532,18 +532,32 @@ test("Layout edits a facing spread with direct photos and multi-selection", asyn
   await expect(reader.locator(".layout-reader-progress")).toContainText("4 / 4");
   await reader.getByRole("button", { name: "Previous", exact: true }).last().click();
   await expect(reader.locator(".layout-reader-progress")).toContainText("2–3 / 4");
-  await expect(reader.locator(".layout-reader-page-shell.is-turn-leaf")).toHaveCount(1);
-  const readerImage = reader.locator(".layout-placed-image").first();
-  const readerImageBounds = (await readerImage.boundingBox())!;
-  await page.mouse.move(readerImageBounds.x + readerImageBounds.width * .25, readerImageBounds.y + readerImageBounds.height * .25);
+  await expect(reader.locator(".layout-page-curl .stf__wrapper.--landscape")).toHaveCount(1);
+  await expect(reader.locator(".layout-page-curl-flyleaf")).toHaveCount(1);
+  const readerBookBounds = (await reader.locator(".layout-page-curl").boundingBox())!;
+  await page.mouse.move(readerBookBounds.x + readerBookBounds.width * .06, readerBookBounds.y + readerBookBounds.height * .5);
   await page.mouse.down();
-  await page.mouse.move(readerImageBounds.x + readerImageBounds.width * .75, readerImageBounds.y + readerImageBounds.height * .75, { steps: 6 });
+  await page.mouse.move(readerBookBounds.x + readerBookBounds.width * .45, readerBookBounds.y + readerBookBounds.height * .52, { steps: 5 });
+  await expect(reader).toHaveClass(/is-turning/);
+  await page.mouse.move(readerBookBounds.x + readerBookBounds.width * .82, readerBookBounds.y + readerBookBounds.height * .52, { steps: 5 });
   await page.mouse.up();
+  await expect(reader.locator(".layout-reader-progress")).toContainText("1 / 4");
   expect(await page.evaluate(() => window.getSelection()?.toString())).toBe("");
   await expect(reader.locator(".layout-reader-stage")).toHaveCSS("user-select", "none");
-  await page.keyboard.press("ArrowLeft");
-  await expect(reader.locator(".layout-reader-progress")).toContainText("1 / 4");
   await page.keyboard.press("ArrowRight");
+  await expect(reader.locator(".layout-reader-progress")).toContainText("2–3 / 4");
+  const returnedBookBounds = (await reader.locator(".layout-page-curl").boundingBox())!;
+  await page.mouse.move(returnedBookBounds.x + returnedBookBounds.width * .25, returnedBookBounds.y + returnedBookBounds.height * .5);
+  await page.mouse.down();
+  await page.mouse.move(returnedBookBounds.x + returnedBookBounds.width * .27, returnedBookBounds.y + returnedBookBounds.height * .5, { steps: 3 });
+  await page.mouse.up();
+  await expect(reader).not.toHaveClass(/is-turning/);
+  await expect(reader.locator(".layout-reader-progress")).toContainText("2–3 / 4");
+  await reader.getByRole("button", { name: "Single" }).click();
+  await expect(reader.locator(".layout-page-curl .stf__wrapper.--portrait")).toHaveCount(1);
+  await expect(reader.locator(".layout-reader-progress")).toContainText("2 / 4");
+  await reader.getByRole("button", { name: "Facing" }).click();
+  await expect(reader.locator(".layout-page-curl .stf__wrapper.--landscape")).toHaveCount(1);
   await expect(reader.locator(".layout-reader-progress")).toContainText("2–3 / 4");
   await reader.getByRole("button", { name: "Exit reading" }).click();
   await expect(reader).toHaveCount(0);
@@ -697,6 +711,170 @@ test("Layout exports fixed physical pages with selectable text and keeps blank p
   await expect(layout.locator(".layout-export-status")).toContainText("Page 2");
   await expect(layout.locator(".layout-export-status").getByRole("button", { name: "Continue export" })).toHaveCount(0);
 });
+
+test("Layout Read turns rigid faces, reverses drags and centers closed covers", async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto("/");
+  await expect(page.getByRole("heading", { name: "Projects" })).toBeVisible();
+  await seedSequence(page);
+  await seedHardReaderLayout(page, 6);
+  await page.goto(`/#/projects/${PROJECT_ID}/sequences/${SEQUENCE_ID}/layout/hard-reader-layout`);
+  await page.getByRole("button", { name: "Read", exact: true }).click();
+  const reader = page.getByRole("dialog", { name: "Read Street / Light" });
+  const book = reader.locator(".layout-page-curl");
+  const counter = reader.locator(".layout-reader-progress");
+  await expect(counter).toContainText("1 / 6");
+  await expect(book.locator(".stf__item.--hard")).toHaveCount(7);
+  await expect(book.locator(".stf__item.--soft")).toHaveCount(0);
+  const cover = (await reader.locator('article[aria-label="Page 1"]').boundingBox())!;
+  expect(cover.x + cover.width / 2).toBeCloseTo(720, 0);
+  await page.screenshot({ path: `design-output/Layout/read-hard-cover-${testInfo.project.name}.png` });
+
+  await page.keyboard.press("ArrowRight");
+  await expect(counter).toContainText("2–3 / 6");
+  await expect(book).not.toHaveAttribute("data-turning");
+  // The same panorama is clipped into the two faces, including the right half.
+  await expect(reader.locator('article[aria-label="Page 2"] img.layout-placed-image')).toHaveCount(1);
+  await expect(reader.locator('article[aria-label="Page 3"] img.layout-placed-image')).toHaveCount(1);
+  await page.screenshot({ path: `design-output/Layout/read-hard-spread-${testInfo.project.name}.png` });
+  const bounds = (await book.boundingBox())!;
+  const rightDepth = await book.evaluate((element) => (element as HTMLElement).style.getPropertyValue("--book-right-depth"));
+  await page.mouse.move(bounds.x + bounds.width * .96, bounds.y + bounds.height * .5);
+  await page.mouse.down();
+  await page.mouse.move(bounds.x + bounds.width * .72, bounds.y + bounds.height * .5, { steps: 8 });
+  await expect(book).toHaveAttribute("data-turning", "next");
+  await expect(counter).toContainText("2–3 / 6");
+  await expect.poll(() => book.locator(".stf__item.--shown").evaluateAll((leaves) => leaves.some((leaf) =>
+    (leaf as HTMLElement).style.transform.includes("rotateY") && (leaf as HTMLElement).style.clipPath === "none"))).toBe(true);
+  expect(await book.evaluate((element) => (element as HTMLElement).style.getPropertyValue("--book-right-depth"))).not.toBe(rightDepth);
+  await page.screenshot({ path: `design-output/Layout/read-hard-turn-${testInfo.project.name}.png` });
+  await page.mouse.move(bounds.x + bounds.width * .96, bounds.y + bounds.height * .5, { steps: 8 });
+  await page.mouse.up();
+  await expect(book).not.toHaveAttribute("data-turning");
+  await expect(counter).toContainText("2–3 / 6");
+  expect(await book.locator(".layout-page-curl-leaf").evaluateAll((leaves) => leaves.every((leaf) =>
+    !(leaf as HTMLElement).style.getPropertyValue("--turn-shade")))).toBe(true);
+
+  await page.mouse.move(bounds.x + bounds.width * .96, bounds.y + bounds.height * .5);
+  await page.mouse.down();
+  await page.mouse.move(bounds.x + bounds.width * .08, bounds.y + bounds.height * .5, { steps: 12 });
+  await page.mouse.up();
+  await expect(counter).toContainText("4–5 / 6");
+  await page.keyboard.press("End");
+  await expect(counter).toContainText("6 / 6");
+  const back = (await reader.locator('article[aria-label="Page 6"]').boundingBox())!;
+  expect(back.x + back.width / 2).toBeCloseTo(720, 0);
+  await reader.getByRole("button", { name: "Fullscreen", exact: true }).click();
+  await expect.poll(() => reader.evaluate((element) => document.fullscreenElement === element)).toBe(true);
+  await reader.getByRole("button", { name: "Exit fullscreen", exact: true }).click();
+  await expect.poll(() => page.evaluate(() => document.fullscreenElement === null)).toBe(true);
+  await page.keyboard.press("Home");
+  await expect(counter).toContainText("1 / 6");
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.keyboard.press("ArrowRight");
+  await expect(counter).toContainText("2–3 / 6");
+  await expect(book).not.toHaveAttribute("data-turning");
+  await page.keyboard.press("Escape");
+  await expect(reader).toHaveCount(0);
+  expect(await page.evaluate(async () => {
+    const request = indexedDB.open("photoflex-mvp");
+    const database = await new Promise<IDBDatabase>((resolve) => { request.onsuccess = () => resolve(request.result); });
+    const layout = await new Promise<{ revision: number }>((resolve) => {
+      const get = database.transaction("layouts").objectStore("layouts").get("hard-reader-layout");
+      get.onsuccess = () => resolve(get.result);
+    });
+    database.close();
+    return layout.revision;
+  })).toBe(7);
+});
+
+test.describe("Layout Read on touch screens", () => {
+  test.use({ hasTouch: true });
+  test("keeps single pages rigid through touch turns, zoom and an odd final spread", async ({ page }, testInfo) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto("/");
+    await expect(page.getByRole("heading", { name: "Projects" })).toBeVisible();
+    await seedSequence(page);
+    await seedHardReaderLayout(page, 5);
+    await page.goto(`/#/projects/${PROJECT_ID}/sequences/${SEQUENCE_ID}/layout/hard-reader-layout`);
+    await page.getByRole("button", { name: "Read", exact: true }).click();
+    const reader = page.getByRole("dialog", { name: "Read Street / Light" });
+    const book = reader.locator(".layout-page-curl");
+    const counter = reader.locator(".layout-reader-progress");
+    await expect(book.locator(".stf__wrapper.--portrait")).toHaveCount(1);
+    const bounds = (await book.boundingBox())!;
+    await page.touchscreen.tap(bounds.x + bounds.width * .92, bounds.y + bounds.height * .5);
+    await expect(counter).toContainText("2 / 5");
+    await expect(book).not.toHaveAttribute("data-turning");
+    const session = await page.context().newCDPSession(page);
+    await session.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x: bounds.x + bounds.width * .92, y: bounds.y + bounds.height * .5 }] });
+    for (const fraction of [.8, .65, .45, .2]) {
+      await session.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [{ x: bounds.x + bounds.width * fraction, y: bounds.y + bounds.height * .5 }] });
+    }
+    await session.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+    await expect(counter).toContainText("3 / 5");
+    await expect(book).not.toHaveAttribute("data-turning");
+    await session.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [
+      { x: bounds.x + bounds.width * .3, y: bounds.y + bounds.height * .5 },
+      { x: bounds.x + bounds.width * .7, y: bounds.y + bounds.height * .5 },
+    ] });
+    await session.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [
+      { x: bounds.x + bounds.width * .2, y: bounds.y + bounds.height * .5 },
+      { x: bounds.x + bounds.width * .8, y: bounds.y + bounds.height * .5 },
+    ] });
+    await session.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+    await expect(reader).toHaveClass(/is-zoomed/);
+    await expect(counter).toContainText("3 / 5");
+    await reader.locator(".layout-reader-fit").click();
+    await expect(reader.locator(".layout-reader-fit")).toHaveText("100%");
+    await reader.getByRole("button", { name: "＋", exact: true }).click();
+    await expect(reader.locator(".layout-reader-fit")).toHaveText("125%");
+    await reader.locator(".layout-reader-fit").click();
+    await expect(reader.locator(".layout-reader-fit")).toHaveText("100%");
+    await page.screenshot({ path: `design-output/Layout/read-hard-mobile-${testInfo.project.name}.png` });
+    await reader.getByRole("button", { name: "Facing", exact: true }).click();
+    await expect(book.locator(".stf__wrapper.--landscape")).toHaveCount(1);
+    await expect(book.locator(".stf__item.--shown")).toHaveCount(2);
+    await page.keyboard.press("End");
+    await expect(counter).toContainText("4–5 / 5");
+    await expect(book.locator(".stf__item.--soft")).toHaveCount(0);
+    await page.keyboard.press("Escape");
+    await expect(reader).toHaveCount(0);
+  });
+});
+
+async function seedHardReaderLayout(page: Page, pageCount: number) {
+  await page.evaluate(async ({ projectId, sequenceId, pageCount }) => {
+    const request = indexedDB.open("photoflex-mvp");
+    const database = await new Promise<IDBDatabase>((resolve, reject) => {
+      request.onsuccess = () => resolve(request.result); request.onerror = () => reject(request.error);
+    });
+    const transaction = database.transaction(["projects", "layouts"], "readwrite");
+    const get = transaction.objectStore("projects").get(projectId);
+    get.onsuccess = () => transaction.objectStore("projects").put({ ...get.result, layoutIds: ["hard-reader-layout"] });
+    const timestamp = "2026-10-02T00:00:00.000Z";
+    transaction.objectStore("layouts").put({
+      schemaVersion: 1, id: "hard-reader-layout", projectId, sequenceId, name: "Street / Light",
+      pageSpec: { widthPt: 600, heightPt: 840 }, revision: 7, createdAt: timestamp, updatedAt: timestamp,
+      pages: Array.from({ length: pageCount }, (_, index) => ({
+        id: `hard-page-${index}`, paper: { color: index === 0 ? "#465146" : "#F4EFE5", material: "fine-paper" },
+        objects: [
+          { kind: "text-box", id: `hard-heading-${index}`, rect: { x: 40, y: 40, width: 520, height: 90 },
+            text: index === 0 ? "STREET / LIGHT" : `${String(index + 1).padStart(2, "0")}     Shanghai, 2026`,
+            style: { fontFamily: "eb-garamond", fontSizePt: index === 0 ? 46 : 23, lineHeight: 1.2, color: index === 0 ? "#F4EFE5" : "#252922", align: "left" } },
+          ...(index === 2 ? [] : [{ kind: "image-frame", id: `hard-image-${index}`,
+            rect: { x: 40, y: 170, width: index === 1 ? 1120 : 520, height: 440 }, photoId: `sequence-photo-${index + 1}`,
+            crop: { mode: "fill", zoom: 1, focal: { x: .5, y: .5 } } }]),
+          { kind: "text-box", id: `hard-caption-${index}`, rect: { x: 40, y: 700, width: 520, height: 70 },
+            text: "摄影集 · 街景与光影\nA photographic collection",
+            style: { fontFamily: "noto-serif-sc", fontSizePt: 14, lineHeight: 1.6, color: index === 0 ? "#F4EFE5" : "#55594F", align: "left" } },
+        ],
+      })),
+    });
+    await new Promise<void>((resolve, reject) => { transaction.oncomplete = () => resolve(); transaction.onerror = () => reject(transaction.error); });
+    database.close();
+  }, { projectId: PROJECT_ID, sequenceId: SEQUENCE_ID, pageCount });
+}
 
 async function seedSequence(page: Page) {
   await page.evaluate(async ({ projectId, sequenceId }) => {

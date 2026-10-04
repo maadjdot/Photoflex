@@ -8,12 +8,15 @@ importers:
 
   .:
     dependencies:
-      '@pdf-lib/fontkit':
-        specifier: 1.1.1
-        version: 1.1.1
       '@cloudbase/js-sdk':
         specifier: ^3.9.4
         version: 3.9.4
+      '@gullabs/react-flipbook':
+        specifier: 3.2.2
+        version: 3.2.2(react-dom@19.1.1(react@19.1.1))(react@19.1.1)
+      '@pdf-lib/fontkit':
+        specifier: 1.1.1
+        version: 1.1.1
       '@supabase/supabase-js':
         specifier: ^2.116.0
         version: 2.116.0
@@ -352,6 +355,17 @@ packages:
     cpu: [x64]
     os: [win32]
 
+  '@gullabs/flipbook-core@3.2.2':
+    resolution: {integrity: sha512-W2MC/6SBrQWD6qktCnay/IJPJOe4zSGKhHPr4dnJbrRhj+vr5RTjYa+8tWx8rOuJc8bp2jnWgTBC7JDIdHxDug==}
+    engines: {node: '>=22.18.0'}
+
+  '@gullabs/react-flipbook@3.2.2':
+    resolution: {integrity: sha512-Ii4K9uc20Zw6j2/CoAh7/0XO8+iSGTezQLmevGFpYW9Lz8U3v5NBS7N9yAtz2X4cjqz45ZCcRXYiRe5nNv7tMg==}
+    engines: {node: '>=22.18.0'}
+    peerDependencies:
+      react: '>=18'
+      react-dom: '>=18'
+
   '@jridgewell/gen-mapping@0.3.13':
     resolution: {integrity: sha512-2kkt/7niJ6MgEPxF0bYdQ6etZaA+fQvDcLKckhy1yIQOzaoKjBBjSj63/aLVjYE3qhRt5dvM+uUyfCg6UKCBbA==}
 
@@ -377,6 +391,9 @@ packages:
     engines: {node: ^22.20 || ^24.12 || >=25}
     cpu: [x64]
     os: [linux]
+
+  '@pdf-lib/fontkit@1.1.1':
+    resolution: {integrity: sha512-KjMd7grNapIWS/Dm0gvfHEilSyAmeLvrEGVcqLGi0VYebuqqzTbgF29efCx7tvx+IEbG3zQciRSWl3GkUSvjZg==}
 
   '@pdf-lib/standard-fonts@1.0.0':
     resolution: {integrity: sha512-hU30BK9IUN/su0Mn9VdlVKsWBS6GyhVfqjwl1FjZN4TxP6cCw0jP2w7V3Hf5uX7M0AZJ16vey9yE0ny7Sa59ZA==}
@@ -1577,6 +1594,14 @@ snapshots:
   '@esbuild/win32-x64@0.25.12':
     optional: true
 
+  '@gullabs/flipbook-core@3.2.2': {}
+
+  '@gullabs/react-flipbook@3.2.2(react-dom@19.1.1(react@19.1.1))(react@19.1.1)':
+    dependencies:
+      '@gullabs/flipbook-core': 3.2.2
+      react: 19.1.1
+      react-dom: 19.1.1(react@19.1.1)
+
   '@jridgewell/gen-mapping@0.3.13':
     dependencies:
       '@jridgewell/sourcemap-codec': 1.5.5
@@ -1600,6 +1625,10 @@ snapshots:
 
   '@napi-rs/lzma-linux-x64-gnu@1.5.1':
     optional: true
+
+  '@pdf-lib/fontkit@1.1.1':
+    dependencies:
+      pako: 1.0.11
 
   '@pdf-lib/standard-fonts@1.0.0':
     dependencies:

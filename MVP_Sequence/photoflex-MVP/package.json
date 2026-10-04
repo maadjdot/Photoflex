@@ -18,8 +18,9 @@
     "check": "vitest run && tsc --noEmit && vite build"
   },
   "dependencies": {
-    "@pdf-lib/fontkit": "1.1.1",
     "@cloudbase/js-sdk": "^3.9.4",
+    "@gullabs/react-flipbook": "3.2.2",
+    "@pdf-lib/fontkit": "1.1.1",
     "@supabase/supabase-js": "^2.116.0",
     "pdf-lib": "1.17.1",
     "react": "19.1.1",

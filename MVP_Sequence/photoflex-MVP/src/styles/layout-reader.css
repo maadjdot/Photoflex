@@ -13,20 +13,32 @@
 .layout-reader-stage { position: absolute; inset: 0; display: grid; overflow: auto; padding: 72px 48px; box-sizing: border-box; place-items: safe center; overscroll-behavior: contain; scrollbar-width: none; touch-action: none; user-select: none; -webkit-user-select: none; cursor: default; }
 .layout-reader-stage::-webkit-scrollbar { display: none; }
 .layout-reader.is-panning .layout-reader-stage { cursor: grabbing; }
-.layout-reader-spread { position: relative; display: flex; flex: 0 0 auto; perspective: 1800px; transform-style: preserve-3d; filter: drop-shadow(0 22px 34px rgb(0 0 0 / 42%)); }
-.layout-reader-spread.is-facing { overflow: hidden; background: transparent; }
-.layout-reader-page-shell { position: relative; flex: 0 0 auto; transform-style: preserve-3d; backface-visibility: hidden; }
+.layout-page-curl { position: relative; flex: 0 0 auto; transform: translate3d(var(--book-offset, 0px), 0, 0); }
+.layout-page-curl-engine { position: relative; z-index: 2; }
+.layout-page-curl-stack { position: absolute; top: 0; width: var(--book-page-width); height: 100%; border-radius: 1px; background: #d7d0c2; box-shadow: 0 12px 24px rgb(0 0 0 / 30%), 0 2px 4px rgb(0 0 0 / 35%); pointer-events: none; }
+.layout-page-curl-stack::after { position: absolute; right: 0; bottom: 0; left: 0; height: var(--stack-depth); background: repeating-linear-gradient(to bottom, #eee9df 0px, #eee9df .8px, #bdb5a5 .8px, #bdb5a5 1.5px); content: ""; }
+.layout-page-curl-stack.is-left { left: 0; --stack-depth: var(--book-left-depth, 0px); transform: translate(calc(-1 * var(--stack-depth)), var(--stack-depth)); opacity: var(--book-left-opacity, 0); }
+.layout-page-curl-stack.is-right { right: 0; --stack-depth: var(--book-right-depth, 0px); transform: translate(var(--stack-depth), var(--stack-depth)); opacity: var(--book-right-opacity, 1); }
+.layout-page-curl.is-single .layout-page-curl-stack.is-left { display: none; }
+.layout-page-curl-spine { position: absolute; top: 0; bottom: 0; left: 50%; z-index: 5; width: 28px; transform: translateX(-50%); background: linear-gradient(to right, transparent, rgb(0 0 0 / 5%) 28%, rgb(0 0 0 / 22%) 49%, rgb(255 255 255 / 15%) 51%, rgb(0 0 0 / 6%) 65%, transparent); opacity: var(--book-spine, 0); pointer-events: none; }
+.layout-page-curl.is-single .layout-page-curl-spine { display: none; }
+.layout-page-curl .stf__block { perspective: calc(var(--book-page-width) * 10); perspective-origin: 50% 50%; }
+.layout-page-curl :is(.stf__hardShadow, .stf__hardInnerShadow) { filter: blur(1px); mix-blend-mode: multiply; pointer-events: none; }
+.layout-page-curl-leaf, .layout-page-curl-face { width: 100%; height: 100%; overflow: hidden; box-sizing: border-box; }
+.layout-page-curl-leaf { cursor: grab; }
+.layout-page-curl[data-turning] .layout-page-curl-leaf { cursor: grabbing; }
+.layout-page-curl-face { position: relative; background: #f4f1e9; border-radius: 1px; box-shadow: inset 0 0 0 .5px rgb(49 45 36 / 12%); }
+.layout-page-curl-face::before, .layout-page-curl-face::after { position: absolute; inset: 0; z-index: 3; content: ""; pointer-events: none; }
+.layout-page-curl-face::before { background: linear-gradient(to right, rgb(0 0 0 / 8%), transparent 7%, transparent 98%, rgb(0 0 0 / 3%)); }
+.layout-page-curl-leaf[data-face-side="left"] .layout-page-curl-face::before { transform: scaleX(-1); }
+.layout-page-curl-face::after { background: linear-gradient(110deg, #000 0%, #181710 65%, #716956 100%); opacity: var(--turn-shade, 0); }
+.layout-page-curl-flyleaf { background: transparent !important; background-image: none !important; }
+.layout-page-curl-flyleaf .layout-page-curl-face { background: transparent; }
+.layout-reader.is-zoomed .layout-page-curl { pointer-events: none; }
 .layout-reader-paper { overflow: hidden; border: 0; border-radius: 1px; background: transparent; box-shadow: none; }
-.layout-reader-spread.is-facing .layout-reader-paper { overflow: visible; background: transparent; }
+.layout-page-curl.is-facing .layout-reader-paper { overflow: visible; background: transparent; }
 .layout-reader .layout-object { pointer-events: none; }
 .layout-reader .layout-placed-image { user-select: none; -webkit-user-select: none; -webkit-user-drag: none; }
-.layout-reader-placeholder { border: 0; background: transparent; }
-.layout-reader-page-shell.is-turn-leaf::after { position: absolute; inset: 0; z-index: 5; background: linear-gradient(90deg, rgb(0 0 0 / 34%), transparent 24%, transparent 78%, rgb(0 0 0 / 12%)); content: ""; pointer-events: none; animation: layout-reader-shadow 320ms ease-out both; }
-.layout-reader-spread.is-turn-forward .layout-reader-page-shell.is-turn-leaf { transform-origin: right center; animation: layout-reader-turn-forward 320ms cubic-bezier(.2,.72,.2,1) both; }
-.layout-reader-spread.is-turn-back .layout-reader-page-shell.is-turn-leaf { transform-origin: left center; animation: layout-reader-turn-back 320ms cubic-bezier(.2,.72,.2,1) both; }
-@keyframes layout-reader-turn-forward { from { opacity: .58; transform: rotateY(64deg) translateZ(1px); } to { opacity: 1; transform: rotateY(0deg) translateZ(0); } }
-@keyframes layout-reader-turn-back { from { opacity: .58; transform: rotateY(-64deg) translateZ(1px); } to { opacity: 1; transform: rotateY(0deg) translateZ(0); } }
-@keyframes layout-reader-shadow { from { opacity: .75; } to { opacity: 0; } }
 .layout-reader-edge { position: absolute; top: 50%; z-index: 7; display: grid; width: 48px; height: 64px; place-items: center; border-radius: 24px; background: #11131899; color: #fff; font-size: 35px; opacity: 0; transform: translateY(-50%); pointer-events: none; transition: opacity 160ms ease, background 120ms ease; }
 .layout-reader.is-chrome-visible .layout-reader-edge, .layout-reader-edge:focus-visible { opacity: .72; pointer-events: auto; }
 .layout-reader-edge:hover:not(:disabled) { background: #30333acc; opacity: 1; }
@@ -61,6 +73,5 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .layout-reader-header, .layout-reader-footer, .layout-reader-edge { transition: none; }
-  .layout-reader-page-shell.is-turn-leaf, .layout-reader-page-shell.is-turn-leaf::after { animation: none !important; }
+  .layout-reader-header, .layout-reader-footer, .layout-reader-edge, .layout-page-curl { transition: none; }
 }
