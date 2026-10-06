@@ -22,10 +22,12 @@ describe("CloudControls", () => {
       signIn: vi.fn(), signUp: vi.fn(), signOut: vi.fn(async () => ok(undefined)),
     };
     let notify: (() => void) | undefined;
-    let status = "saved" as "saved" | "saving";
+    let status = "saved" as "saved" | "saving" | "conflict";
     const cloudSave = { subscribe: (listener: () => void) => { notify = listener; return () => undefined; }, getStatus: () => status };
     render(<LocaleProvider><CloudControls projectId={"project-1" as ProjectId} dependencies={{ projectStore: new MemoryProjectStore(), photoSource: new MemoryPhotoSource(), accountSession, cloudSave }} /></LocaleProvider>);
     expect(await screen.findByText("Saved to cloud")).toBeTruthy();
+    act(() => { status = "conflict"; notify?.(); });
+    expect(screen.queryByRole("status")).toBeNull();
     act(() => { status = "saving"; notify?.(); });
     expect(screen.getByText("Saving to cloud…")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Sync" })).toBeNull();

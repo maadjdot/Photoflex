@@ -115,10 +115,10 @@ export function TableFloatingToolbar({ storageKey = "photoflex:table-toolbar", a
     {selectedMemo && <div className="memo-toolbar-controls"><label>Size<input type="number" aria-label="Memo font size" min={10} max={72} value={selectedMemo.fontSize} onChange={(event) => { const size = Number(event.target.value); if (size >= 10 && size <= 72) onExecute({ type: "update-memo", memoId: selectedMemo.id, changes: { fontSize: size } }); }} /></label><TableToolButton icon={linkIcon} label="Link memo to selected photos" text="Link" disabled={!actions.mutablePhotoIds.length} onClick={() => onExecute({ type: "update-memo", memoId: selectedMemo.id, changes: { photoIds: [...new Set([...selectedMemo.photoIds, ...actions.mutablePhotoIds])] } })} />{selectedMemo.photoIds.length > 0 && <button type="button" className="memo-unlink" onClick={() => onExecute({ type: "update-memo", memoId: selectedMemo.id, changes: { photoIds: [] } })}>Unlink</button>}</div>}
     <TableArrangementTools actions={actions} onExecute={onExecute} />
   </div>}
-    <div className="table-history-controls" role="group" aria-label={`${t("table.undo")} / ${t("table.redo")}`}>
+    {visible && <div className="table-history-controls" role="group" aria-label={`${t("table.undo")} / ${t("table.redo")}`}>
       <TableToolButton icon={undoIcon} label={t("table.undo")} iconOnly shortcut="Ctrl/Cmd+Z" disabled={!canUndo} onClick={onUndo} />
       <TableToolButton icon={redoIcon} label={t("table.redo")} iconOnly shortcut="Ctrl/Cmd+Shift+Z" disabled={!canRedo} onClick={onRedo} />
-    </div>
+    </div>}
   </div>;
 }
 

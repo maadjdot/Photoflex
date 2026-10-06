@@ -54,7 +54,7 @@ export function CloudControls({ dependencies, projectId, showSaveStatus = true, 
 
   if (!account) return null;
   return <>
-    {showSaveStatus && user && projectId && save && <span role="status" className={`cloud-save-status is-${status}`}>{t(`cloud.save.${status}`)}</span>}
+    {showSaveStatus && user && projectId && save && status !== "conflict" && <span role="status" className={`cloud-save-status is-${status}`}>{t(`cloud.save.${status}`)}</span>}
     {user && (compact ? <div className="table-account" ref={accountRef} onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) setAccountOpen(false); }}>
       <button ref={accountButtonRef} className="table-account-button" type="button" aria-label={t("cloud.account")} title={user.email} aria-expanded={accountOpen} aria-controls="table-account-popover" onClick={() => setAccountOpen((open) => !open)}>
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true"><circle cx="12" cy="8" r="3.25" /><path d="M5.5 20v-2a6.5 6.5 0 0 1 13 0v2" /></svg>
@@ -87,6 +87,6 @@ export function CloudSaveStatus({ dependencies, projectId, compact = false }: { 
     return () => { active = false; unsubscribe(); };
   }, [account]);
 
-  if (!user || !save) return null;
+  if (!user || !save || status === "conflict") return null;
   return <span role="status" title={t(`cloud.save.${status}`)} className={`cloud-save-status is-${status}`}>{compact && status === "saved" ? t("status.saved") : t(`cloud.save.${status}`)}</span>;
 }

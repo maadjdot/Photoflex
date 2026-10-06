@@ -432,14 +432,17 @@ describe("TablePage", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Hide left toolbar" }));
     expect(screen.queryByRole("group", { name: "Canvas tools" })).toBeNull();
+    expect(screen.queryByRole("group", { name: "Undo / Redo" })).toBeNull();
     expect(screen.getByRole("button", { name: "Show left toolbar" })).toBeTruthy();
     view.unmount();
 
     render(<App dependencies={dependencies} />);
     await screen.findByLabelText("Photo worktable");
     expect(screen.queryByRole("group", { name: "Canvas tools" })).toBeNull();
+    expect(screen.queryByRole("group", { name: "Undo / Redo" })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Show left toolbar" }));
     expect(screen.getByRole("group", { name: "Canvas tools" })).toBeTruthy();
+    expect(screen.getByRole("group", { name: "Undo / Redo" })).toBeTruthy();
   });
 
   it("arranges selected photos using the chosen photos-per-row count", async () => {
