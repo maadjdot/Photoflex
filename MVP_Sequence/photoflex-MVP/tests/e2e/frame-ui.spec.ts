@@ -302,6 +302,7 @@ test("browses all template families and persists paper, captions and dark frame 
   await settings.getByRole("spinbutton", { name: "Inner edge width mm", exact: true }).fill("2");
   await settings.getByRole("spinbutton", { name: "Inner edge width mm", exact: true }).press("Tab");
   await expect(frame.locator(".table-frame-inner-edge")).toHaveCount(1);
+  await expect(frame.locator(".table-frame-inner-edge")).toHaveCSS("border-radius", "0px");
   await expect(frame.locator(".table-frame-gallery-edge")).toHaveClass(/edge-material-wood/);
   const downloadEvent = page.waitForEvent("download");
   await settings.getByRole("button", { name: "Export JPEG", exact: true }).click();
@@ -340,6 +341,19 @@ test("browses all template families and persists paper, captions and dark frame 
   expect(footprint.edgeHeight).toBeCloseTo(footprint.imageHeight);
   expect(footprint.elevationHeight).toBeCloseTo(footprint.imageHeight);
   expect(footprint.edgeHeight).toBeLessThan(footprint.slotHeight);
+  await photoBox.click();
+  await settings.getByRole("slider", { name: "Corner radius", exact: true }).focus();
+  await page.keyboard.press("End");
+  await expect(frame.locator(".table-frame-photo-clip")).toHaveCSS("border-radius", "32px");
+  const rounded = await frame.locator("[data-frame-slot-id]").evaluate((slot) => {
+    const clip = slot.querySelector(".table-frame-photo-clip") as HTMLElement;
+    const edge = slot.querySelector(".table-frame-inner-edge") as HTMLElement;
+    const edgeStyle = getComputedStyle(edge);
+    return { photoRadius: parseFloat(getComputedStyle(clip).borderRadius), edgeRadius: parseFloat(edgeStyle.borderRadius),
+      edgeWidth: parseFloat(edge.style.borderWidth), clipHeight: parseFloat(clip.style.height), edgeHeight: parseFloat(edge.style.height) };
+  });
+  expect(rounded.edgeRadius - rounded.edgeWidth).toBeCloseTo(rounded.photoRadius);
+  expect(rounded.edgeHeight - rounded.edgeWidth * 2).toBeCloseTo(rounded.clipHeight);
   await page.setViewportSize({ width: 1280, height: 800 });
   await page.screenshot({ path: testInfo.outputPath("gallery-template-1280.png") });
   await page.reload();

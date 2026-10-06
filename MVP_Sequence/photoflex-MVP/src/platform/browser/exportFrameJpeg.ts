@@ -75,15 +75,17 @@ export async function createFrameJpeg(frame: WorktableFrame, page: HTMLElement, 
     target.querySelectorAll(".table-frame-loading, .table-frame-missing").forEach((node) => node.remove());
     const image = target.querySelector("img") ?? document.createElement("img");
     const placed = resolveFramePhoto(photo, slot.rect, slot.crop);
-    image.removeAttribute("srcset");
-    image.src = photo.url;
-    Object.assign(image.style, { position: "absolute", left: `${placed.x}px`, top: `${placed.y}px`, width: `${placed.width}px`, height: `${placed.height}px`,
-      visibility: "visible", opacity: "1", animation: "none", transform: "none" });
-    if (snapshot.page.templateSource.id === "sheet-bw") image.style.filter = "grayscale(1) contrast(1.15)";
-    if (!image.parentElement) target.querySelector(".table-frame-photo-clip")?.append(image);
     const x = Math.max(0, placed.x), y = Math.max(0, placed.y);
     const width = Math.min(slot.rect.width, placed.x + placed.width) - x;
     const height = Math.min(slot.rect.height, placed.y + placed.height) - y;
+    const clip = target.querySelector<HTMLElement>(".table-frame-photo-clip");
+    if (clip) Object.assign(clip.style, { left: `${x}px`, top: `${y}px`, width: `${width}px`, height: `${height}px` });
+    image.removeAttribute("srcset");
+    image.src = photo.url;
+    Object.assign(image.style, { position: "absolute", left: `${placed.x - x}px`, top: `${placed.y - y}px`, width: `${placed.width}px`, height: `${placed.height}px`,
+      visibility: "visible", opacity: "1", animation: "none", transform: "none" });
+    if (snapshot.page.templateSource.id === "sheet-bw") image.style.filter = "grayscale(1) contrast(1.15)";
+    if (!image.parentElement) target.querySelector(".table-frame-photo-clip")?.append(image);
     const elevation = target.querySelector<HTMLElement>(".table-frame-photo-elevation");
     if (elevation) Object.assign(elevation.style, { left: `${x}px`, top: `${y}px`, width: `${width}px`, height: `${height}px` });
     const edge = target.querySelector<HTMLElement>(".table-frame-inner-edge");

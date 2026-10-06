@@ -58,7 +58,7 @@ export function PaperControls({ paper, onChange, zh = false, onApplyAll, allSame
         {LAYOUT_PAPER_COLORS.map((entry) => <button key={entry.color} type="button" role="option" aria-selected={paper.color.toUpperCase() === entry.color} aria-label={zh ? entry.nameZh : entry.name} className="layout-paper-dropdown-option" title={`${zh ? entry.nameZh : entry.name} · ${entry.color}`} onClick={() => choosePaper({ ...paper, color: entry.color })}>
           <span className="layout-paper-color-swatch" style={{ backgroundColor: entry.color }} /><span>{zh ? entry.nameZh : entry.name}</span><span className="layout-paper-color-code">{entry.color}</span>
         </button>)}
-        <button type="button" role="option" aria-selected={!presetColor} aria-label={label("Custom", "自定义")} className="layout-paper-dropdown-option" onClick={() => setOpenMenu("custom")}><span className="layout-paper-color-swatch" style={{ background: "conic-gradient(#c06767, #d7c881, #719c78, #7294b1, #c06767)" }} /><span>{label("Custom", "自定义")}</span></button>
+        <button type="button" role="option" aria-selected={!presetColor} aria-label={label("Custom", "自定义")} className="layout-paper-dropdown-option" onClick={() => setOpenMenu("custom")}><span className="layout-paper-color-swatch" style={{ background: "conic-gradient(#333, #777, #bbb, #f5f5f5, #333)" }} /><span>{label("Custom", "自定义")}</span></button>
       </div>}
       {openMenu === "custom" && <div className="layout-paper-custom-color">
         <input type="color" aria-label={label("Custom paper color", "自定义纸张颜色")} value={paper.color} onChange={(event) => onChange({ ...paper, color: event.currentTarget.value })} />

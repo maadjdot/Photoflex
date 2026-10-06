@@ -14,7 +14,6 @@ import { useLocale } from "./locale";
 import { PhotoThumb } from "./PhotoThumb";
 import undoIcon from "../assets/icons/table-undo.svg";
 import redoIcon from "../assets/icons/table-redo.svg";
-import "../styles/table-frame.css";
 
 type Point = { x: number; y: number };
 type Gesture =

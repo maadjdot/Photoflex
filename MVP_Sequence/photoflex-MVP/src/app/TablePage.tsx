@@ -338,7 +338,7 @@ export function TablePage({ dependencies, projectId, navigate, sequenceOverlay }
   return <main className="table-page page">
     {notice && <p className="table-notice" role="status">{notice}</p>}
     <div className="table-cloud-save-status"><CloudSaveStatus dependencies={dependencies} projectId={projectId} compact /></div>
-    <TableWorkspace sidebar={selectedFrameId ? <aside className="table-frame-settings" aria-label="Frame settings"><div ref={setFrameSettingsHost} className="table-frame-settings-content" /></aside> : sourceBrowser} sidebarMode={selectedFrameId ? "compact" : sourcePanelMode} storageKey={`photoflex:table-sidebar:${projectId}`}>
+    <TableWorkspace sidebar={selectedFrameId ? <aside className="table-frame-settings" aria-label={locale === "zh-CN" ? "画框设置" : "Frame settings"}><div ref={setFrameSettingsHost} className="table-frame-settings-content" /></aside> : sourceBrowser} sidebarMode={selectedFrameId ? "compact" : sourcePanelMode} storageKey={`photoflex:table-sidebar:${projectId}`}>
     <div className="table-canvas-area" aria-label={t("table.toolbar")}>
     <TableCanvas
       ref={canvasRef}

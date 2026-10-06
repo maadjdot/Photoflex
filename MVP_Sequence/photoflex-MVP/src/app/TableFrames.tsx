@@ -59,13 +59,13 @@ function resizeSlot(rect: FrameRect, dx: number, dy: number, handle: string, kee
 
 type FramePreview = { url: string; size?: { width: number; height: number } };
 
-function FrameImage({ photoId, slot, preview, onSize, missing }: { photoId: PhotoId; slot: FrameSlot; preview?: FramePreview; onSize: (id: PhotoId, size: { width: number; height: number }) => void; missing: boolean }) {
+function FrameImage({ photoId, slot, preview, origin, onSize, missing }: { photoId: PhotoId; slot: FrameSlot; preview?: FramePreview; origin: { x: number; y: number }; onSize: (id: PhotoId, size: { width: number; height: number }) => void; missing: boolean }) {
   if (missing) return <span className="table-frame-missing">Photo unavailable</span>;
   const image = preview?.size ? resolveFramePhoto(preview.size, slot.rect, slot.crop) : undefined;
   return <>{preview?.url && <img src={preview.url} alt="" draggable={false} className={image ? "table-frame-image-enter" : undefined} onLoad={(event) => {
     const next = { width: event.currentTarget.naturalWidth, height: event.currentTarget.naturalHeight };
     if (next.width > 0 && next.height > 0) onSize(photoId, next);
-  }} style={image ? { position: "absolute", left: image.x, top: image.y, width: image.width, height: image.height } : { visibility: "hidden" }} />}{!image && <span className="table-frame-loading">Loading photo…</span>}</>;
+  }} style={image ? { position: "absolute", left: image.x - origin.x, top: image.y - origin.y, width: image.width, height: image.height } : { visibility: "hidden" }} />}{!image && <span className="table-frame-loading">Loading photo…</span>}</>;
 }
 
 export function TableFrameCard({ frame, layerZ, selected, settingsHost, selectedSlotId, onSelectSlot, viewportZoom, photoSource, sourceRevision, missingPhotoIds, onPhotoError, onSelect, onClose, onExecute, dropTarget, onGeometryPreview }: FrameCardProps) {
@@ -259,7 +259,7 @@ export function TableFrameCard({ frame, layerZ, selected, settingsHost, selected
           onDoubleClick={(event) => { event.stopPropagation(); onSelect(frame.id); selectSlot(item.id); if (item.photoId) setCropDraft(item.crop); }}>
           {item.photoId && edge.photoElevationPt > 0 && <span className="table-frame-photo-elevation" aria-hidden="true" style={{ left: photoRect.x, top: photoRect.y, width: photoRect.width, height: photoRect.height,
             borderRadius: item.cornerRadiusPt ?? frame.page.cornerRadiusPt ?? 0, boxShadow: `0 ${edge.photoElevationPt}px ${edge.photoElevationPt * 2.5}px rgb(0 0 0 / .3)` }} />}
-          <div className="table-frame-photo-clip" style={{ borderRadius: item.cornerRadiusPt ?? frame.page.cornerRadiusPt ?? 0 }}>{item.photoId ? <FrameImage photoId={item.photoId} slot={{ ...displayed, rect: drawn }} preview={previews[item.photoId]} onSize={(id, next) => setPreviews((current) => !current[id] || (current[id].size?.width === next.width && current[id].size?.height === next.height) ? current : { ...current, [id]: { ...current[id], size: next } })} missing={missingPhotoIds.has(item.photoId)} /> : <span className="table-frame-empty-slot">{String(index + 1).padStart(2, "0")}<small>DROP PHOTO</small></span>}</div>
+          <div className="table-frame-photo-clip" style={{ left: photoRect.x, top: photoRect.y, width: photoRect.width, height: photoRect.height, borderRadius: item.cornerRadiusPt ?? frame.page.cornerRadiusPt ?? 0 }}>{item.photoId ? <FrameImage photoId={item.photoId} slot={{ ...displayed, rect: drawn }} preview={previews[item.photoId]} origin={photoRect} onSize={(id, next) => setPreviews((current) => !current[id] || (current[id].size?.width === next.width && current[id].size?.height === next.height) ? current : { ...current, [id]: { ...current[id], size: next } })} missing={missingPhotoIds.has(item.photoId)} /> : <span className="table-frame-empty-slot">{String(index + 1).padStart(2, "0")}<small>DROP PHOTO</small></span>}</div>
           {film && <div className="table-frame-film-code" aria-hidden="true" style={{ height: frame.page.widthPt * (frame.page.templateSource.id === "sheet-proof" ? .025 : .012), fontSize: frame.page.widthPt * (frame.page.templateSource.id === "sheet-proof" ? .006 : .0045) }}><b>{String(index + 1).padStart(2, "0")}</b><span>{frame.page.templateSource.id === "sheet-bw" ? `F${index % 2 ? "11" : "8"} ◃` : "KODAK PORTRA 400"}</span><i>{index + 1}A</i></div>}
           <FramePhotoEdge edge={innerEdge} rect={photoRect} cornerRadiusPt={item.cornerRadiusPt ?? frame.page.cornerRadiusPt ?? 0} />
           {chosen && !cropDraft && handles.map((handle) => <button key={handle} type="button" className={`table-frame-slot-handle handle-${handle}`} aria-label={`Resize photo frame ${handle}`} onPointerDown={(event) => begin(event, "resize-slot", item, handle)} />)}

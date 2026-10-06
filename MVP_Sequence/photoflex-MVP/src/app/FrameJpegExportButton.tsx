@@ -31,7 +31,7 @@ export function FrameJpegExportButton({ frame, pageRef, photoSource }: {
     }
   };
   return <div className="table-frame-export"><button type="button" disabled={busy} onClick={() => void start()}>{busy ? (zh ? "正在导出…" : "Exporting…") : (zh ? "导出 JPEG" : "Export JPEG")}</button>
-    <p className="table-frame-hint">{zh ? "完整 Frame · 高画质单张图片" : "Full Frame · high quality image"}</p>
+    <p className="table-frame-hint">{zh ? "完整画框 · 高画质单张图片" : "Full Frame · high quality image"}</p>
     {notice && <p className="table-frame-hint" role="status">{notice}</p>}
   </div>;
 }
