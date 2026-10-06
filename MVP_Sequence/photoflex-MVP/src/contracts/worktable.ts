@@ -1,4 +1,5 @@
 import type { PhotoId, ProjectId, Result, SequenceId, WorktableItemId } from "./ids";
+import type { FrameCommandError, FrameEditCommand, FrameId, WorktableFrame } from "./frame";
 
 export interface WorktablePoint {
   readonly x: number;
@@ -37,6 +38,23 @@ export interface WorktableLink {
   readonly photoIds: readonly WorktableItemId[];
 }
 
+export interface WorktableConnectorBinding {
+  readonly kind: "photo" | "memo" | "frame" | "pile";
+  readonly id: string;
+  /** Relative position on the object's border, preserved through resize. */
+  readonly anchor: WorktablePoint;
+}
+
+export interface WorktableConnectorEndpoint extends WorktablePoint {
+  readonly binding?: WorktableConnectorBinding;
+}
+
+export interface WorktableConnector {
+  readonly id: string;
+  readonly start: WorktableConnectorEndpoint;
+  readonly end: WorktableConnectorEndpoint;
+}
+
 export interface WorktableSequencePilePlacement extends WorktablePoint {
   readonly sequenceId: SequenceId;
   readonly z: number;
@@ -63,8 +81,13 @@ export interface WorktableDraft {
   readonly placements: Readonly<Record<WorktableItemId, WorktablePlacement>>;
   readonly groups: readonly WorktableGroup[];
   readonly links: readonly WorktableLink[];
+  /** Optional for projects saved before free connectors were introduced. */
+  readonly connectors?: readonly WorktableConnector[];
   readonly pileOrder: readonly SequenceId[];
   readonly pilePlacements: Readonly<Record<SequenceId, WorktableSequencePilePlacement>>;
+  /** Optional only while reading pre-Frame fixtures and older documents. */
+  readonly frameOrder?: readonly FrameId[];
+  readonly frames?: Readonly<Record<FrameId, WorktableFrame>>;
 }
 
 export interface WorktablePlacementSeed {
@@ -93,6 +116,9 @@ export type WorktableLayout =
   | { readonly type: "align"; readonly edge: WorktableAlignment };
 
 export type WorktableEditCommand =
+  | FrameEditCommand
+  | { readonly type: "create-connector"; readonly connector: WorktableConnector }
+  | { readonly type: "remove-connector"; readonly connectorId: string }
   | { readonly type: "create-memo"; readonly memo: WorktableMemo }
   | { readonly type: "update-memo"; readonly memoId: string; readonly changes: Partial<Omit<WorktableMemo, "id">> }
   | { readonly type: "remove-memo"; readonly memoId: string }
@@ -127,6 +153,7 @@ export type WorktableEditCommand =
   | { readonly type: "remove"; readonly photoIds: readonly WorktableItemId[] };
 
 export type WorktableCommandError =
+  | FrameCommandError
   | { readonly kind: "unknown-placement"; readonly photoId: WorktableItemId }
   | { readonly kind: "locked-placement"; readonly photoId: WorktableItemId }
   | { readonly kind: "unknown-sequence-pile"; readonly sequenceId: SequenceId }

@@ -13,7 +13,7 @@ export function useAppNavigationState(dependencies: AppDependencies, route: AppR
   const lastSequenceIdRef = useRef<SequenceId | undefined>(undefined);
 
   useEffect(() => {
-    if (route.name === "sequence") lastSequenceIdRef.current = route.sequenceId;
+    if (route.name === "sequence" || route.name === "layout") lastSequenceIdRef.current = route.sequenceId;
   }, [route]);
 
   useEffect(() => {

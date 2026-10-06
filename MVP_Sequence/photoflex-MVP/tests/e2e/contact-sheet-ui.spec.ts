@@ -20,14 +20,14 @@ test("M2.1 Contact Sheet 提供 Place on Table，并移除 Pool 栏", async ({ p
     const transaction = database.transaction(storeNames, "readwrite");
     storeNames.forEach((name) => transaction.objectStore(name).clear());
     transaction.objectStore("projects").put({
-      schemaVersion: 7,
+      schemaVersion: 9,
       projectId,
       name: projectName,
       memo: "",
       expectedPhotoCount: null,
       sources: [{ id: sourceId, displayName: "Raw Selects", createdAt }],
       photoStates: {},
-      worktableDraft: { projectId, entryOrder: [], placements: {}, groups: [], links: [], pileOrder: [], pilePlacements: {} },
+      worktableDraft: { projectId, entryOrder: [], placements: {}, groups: [], links: [], pileOrder: [], pilePlacements: {}, frameOrder: [], frames: {} },
       sequenceIds: [],
       versionIds: [],
       revision: 0,

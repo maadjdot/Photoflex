@@ -1,8 +1,9 @@
 @import "./table-chrome.css";
+@import "./table-frame.css";
 
 @font-face {
   font-family: "Ancizar Serif";
-  src: url("../assets/fonts/AncizarSerif.ttf") format("truetype");
+  src: url("../assets/fonts/AncizarSerif/AncizarSerif.ttf") format("truetype");
   font-style: normal;
   font-weight: 100 900;
   font-display: swap;
@@ -107,7 +108,7 @@ h1, h2, p { margin-top: 0; }
 .account-auth-switch { margin: 20px 0 0; color: oklch(70.7% .022 261.325); font-size: 12px; line-height: 1.5; text-align: center; }
 .account-auth-switch button { padding: 0; border: 0; background: transparent; color: oklch(37.3% .034 259.733); font-size: inherit; font-weight: 500; }
 .account-auth-switch button:hover { text-decoration: underline; }
-.topbar.is-home { grid-template-columns: minmax(0, 1fr) auto; border-bottom: 0; }
+.topbar.is-home { z-index: 20; grid-template-columns: minmax(0, 1fr) auto; border-bottom: 0; }
 .home-header-actions, .topbar-actions { display: flex; align-items: center; justify-self: end; gap: 10px; }
 .language-switcher { display: inline-flex; align-items: center; height: 32px; padding: 3px; border: 1px solid #d4d2cc; border-radius: 8px; background: #f5f4f1; box-shadow: inset 0 1px 2px rgb(26 25 23 / 4%); }
 .language-switcher button { display: grid; place-items: center; min-width: 37px; height: 24px; padding: 0 8px; border: 0; border-radius: 5px; background: transparent; color: #7a7772; font-size: 10px; font-weight: 600; line-height: 1; letter-spacing: .02em; }
@@ -448,6 +449,15 @@ h1, h2, p { margin-top: 0; }
 .worktable-world { position: absolute; inset: 0; transform-origin: 0 0; pointer-events: none; }
 .worktable-links { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; }
 .worktable-links line { stroke: #6b6966; stroke-width: 1px; stroke-linecap: round; vector-effect: non-scaling-stroke; opacity: .72; }
+.worktable-stage.is-connecting, .worktable-stage.is-connecting * { cursor: crosshair; }
+.table-tool-button.is-active { background: #e4e8ed; color: #345c85; }
+.worktable-connector-hit { fill: none; stroke: transparent; stroke-width: 12px; vector-effect: non-scaling-stroke; pointer-events: stroke; cursor: pointer; }
+.worktable-links g.is-selected line { stroke: #4778a7; stroke-width: 2px; opacity: 1; }
+.worktable-connector-preview { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; transform-origin: 0 0; pointer-events: none; }
+.worktable-connector-preview line { stroke: #4778a7; stroke-width: 1.5px; stroke-dasharray: 5 4; vector-effect: non-scaling-stroke; }
+.worktable-connector-preview circle { fill: #fff; stroke: #4778a7; stroke-width: 1.5px; vector-effect: non-scaling-stroke; }
+.worktable-connector-target { fill: rgb(71 120 167 / 7%); stroke: #4778a7; stroke-width: 2px; vector-effect: non-scaling-stroke; }
+.worktable-connector-hint { position: absolute; bottom: 20px; left: 50%; z-index: 3; margin: 0; padding: 7px 12px; border-radius: 6px; background: rgb(255 255 255 / 92%); color: #52677d; font-size: 11px; transform: translateX(-50%); pointer-events: none; white-space: nowrap; }
 .worktable-alignment-guides { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; }
 .worktable-alignment-line { fill: none; stroke: #9c4f42; stroke-width: 1px; stroke-dasharray: 6 4; vector-effect: non-scaling-stroke; opacity: .9; }
 .worktable-spacing-guide line { fill: none; stroke: #4d6f76; stroke-width: 1px; stroke-dasharray: 3 3; vector-effect: non-scaling-stroke; opacity: .9; }

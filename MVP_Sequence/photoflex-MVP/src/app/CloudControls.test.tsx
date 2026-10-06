@@ -1,0 +1,70 @@
+// @vitest-environment jsdom
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { ok, type AccountSession, type ProjectId } from "../contracts";
+import { MemoryPhotoSource } from "../platform/memory/MemoryPhotoSource";
+import { MemoryProjectStore } from "../platform/memory/MemoryProjectStore";
+import { LocaleProvider } from "./locale";
+import { CloudControls } from "./CloudControls";
+
+afterEach(cleanup);
+describe("CloudControls", () => {
+  it("does not offer manual backup or sync when CloudBase is unconfigured", () => {
+    render(<LocaleProvider><CloudControls dependencies={{ projectStore: new MemoryProjectStore(), photoSource: new MemoryPhotoSource() }} /></LocaleProvider>);
+    expect(screen.queryByRole("button", { name: /Sync|Login/ })).toBeNull();
+  });
+
+  it("shows automatic cloud save status and sign out", async () => {
+    const user = { id: "user-1", email: "photo@example.com" };
+    const accountSession: AccountSession = {
+      getCurrentUser: vi.fn(async () => ok(user)),
+      subscribe: vi.fn(() => () => undefined),
+      signIn: vi.fn(), signUp: vi.fn(), signOut: vi.fn(async () => ok(undefined)),
+    };
+    let notify: (() => void) | undefined;
+    let status = "saved" as "saved" | "saving" | "conflict";
+    const cloudSave = { subscribe: (listener: () => void) => { notify = listener; return () => undefined; }, getStatus: () => status };
+    render(<LocaleProvider><CloudControls projectId={"project-1" as ProjectId} dependencies={{ projectStore: new MemoryProjectStore(), photoSource: new MemoryPhotoSource(), accountSession, cloudSave }} /></LocaleProvider>);
+    expect(await screen.findByText("Saved to cloud")).toBeTruthy();
+    act(() => { status = "conflict"; notify?.(); });
+    expect(screen.queryByRole("status")).toBeNull();
+    act(() => { status = "saving"; notify?.(); });
+    expect(screen.getByText("Saving to cloud…")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Sync" })).toBeNull();
+    screen.getByRole("button", { name: "Sign out" }).click();
+    await waitFor(() => expect(accountSession.signOut).toHaveBeenCalled());
+  });
+
+  it("waits for the save barrier before signing out", async () => {
+    const user = { id: "user-1", email: "photo@example.com" };
+    const accountSession: AccountSession = {
+      getCurrentUser: vi.fn(async () => ok(user)), subscribe: vi.fn(() => () => undefined),
+      signIn: vi.fn(), signUp: vi.fn(), signOut: vi.fn(async () => ok(undefined)),
+    };
+    const beforeSignOut = vi.fn(async () => false);
+    render(<LocaleProvider><CloudControls dependencies={{ projectStore: new MemoryProjectStore(), photoSource: new MemoryPhotoSource(), accountSession }} beforeSignOut={beforeSignOut} /></LocaleProvider>);
+    (await screen.findByRole("button", { name: "Sign out" })).click();
+    await waitFor(() => expect(beforeSignOut).toHaveBeenCalledOnce());
+    expect(accountSession.signOut).not.toHaveBeenCalled();
+  });
+
+  it("keeps sign out behind the Table account icon and preserves the save barrier", async () => {
+    const accountSession: AccountSession = {
+      getCurrentUser: vi.fn(async () => ok({ id: "user-1", email: "photo@example.com" })),
+      subscribe: vi.fn(() => () => undefined), signIn: vi.fn(), signUp: vi.fn(), signOut: vi.fn(async () => ok(undefined)),
+    };
+    const beforeSignOut = vi.fn(async () => false);
+    render(<LocaleProvider><CloudControls compact dependencies={{ projectStore: new MemoryProjectStore(), photoSource: new MemoryPhotoSource(), accountSession }} beforeSignOut={beforeSignOut} /></LocaleProvider>);
+    const accountButton = await screen.findByRole("button", { name: "PhotoFlex account" });
+    expect(screen.queryByRole("button", { name: "Sign out" })).toBeNull();
+    fireEvent.click(accountButton);
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Sign out" }));
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(screen.queryByRole("button", { name: "Sign out" })).toBeNull();
+    expect(document.activeElement).toBe(accountButton);
+    fireEvent.click(accountButton);
+    fireEvent.click(screen.getByRole("button", { name: "Sign out" }));
+    await waitFor(() => expect(beforeSignOut).toHaveBeenCalledOnce());
+    expect(accountSession.signOut).not.toHaveBeenCalled();
+  });
+});

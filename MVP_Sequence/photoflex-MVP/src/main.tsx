@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import { App } from "./app/App";
 import { createBrowserDependencies } from "./app/dependencies";
 import "./styles/global.css";
+import "./styles/table-workspace.css";
 
 const root = document.getElementById("root");
 

@@ -9,6 +9,10 @@ export type PhotoId = Brand<string, "PhotoId">;
 // ids cannot accidentally cross into PhotoSource or Sequence APIs.
 export type WorktableItemId = Brand<string, "PhotoId" | "WorktableItemId">;
 export type SequenceId = Brand<string, "SequenceId">;
+export type LayoutId = Brand<string, "LayoutId">;
+export type LayoutPageId = Brand<string, "LayoutPageId">;
+export type LayoutObjectId = Brand<string, "LayoutObjectId">;
+export type LayoutRevision = Brand<number, "LayoutRevision">;
 export type SequenceItemId = Brand<string, "SequenceItemId">;
 export type ReadingUnitId = Brand<string, "ReadingUnitId">;
 export type SequenceSegmentId = Brand<string, "SequenceSegmentId">;

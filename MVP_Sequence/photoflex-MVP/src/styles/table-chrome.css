@@ -27,6 +27,11 @@
 .table-floating-drag-handle span { width: 14px; height: 2px; border-top: 1px solid #b8b6b0; border-bottom: 1px solid #b8b6b0; }
 .table-floating-drag-handle:hover { background: #f0efeb; }
 .table-floating-drag-handle:focus-visible { outline: 2px solid #1a1917; outline-offset: 2px; }
+.table-floating-toolbar .table-floating-drag-handle { left: 7px; width: 25px; }
+.table-toolbar-hide { position: absolute; top: 1px; right: 5px; width: 19px; height: 15px; padding: 0; border: 0; border-radius: 4px; background: transparent; color: #6b6966; font-size: 17px; line-height: 12px; cursor: pointer; }
+.table-toolbar-show { position: absolute; z-index: 4; left: 12px; width: 28px; height: 32px; padding: 0; border: 1px solid #d4d2cc; border-radius: 7px; background: #fff; color: #34322d; box-shadow: 0 4px 8px rgb(0 0 0 / 8%); font-size: 22px; cursor: pointer; }
+.table-toolbar-hide:hover, .table-toolbar-show:hover { background: #f0efeb; }
+.table-toolbar-hide:focus-visible, .table-toolbar-show:focus-visible { outline: 2px solid #1a1917; outline-offset: 2px; }
 .table-floating-toolbar .table-tool-button { width: 32px; height: 32px; padding: 0; }
 .table-floating-divider { height: 1px; margin: 4px 0; background: #d4d2cc; }
 .table-floating-align { position: relative; display: grid; place-items: center; width: 32px; height: 32px; border-radius: 4px; }

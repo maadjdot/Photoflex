@@ -2,6 +2,8 @@ export type Locale = "en" | "zh-CN";
 export type TranslationVariables = Readonly<Record<string, string | number>>;
 
 const en: Record<string, string> = {
+  "table.drawLine": "Draw line", "table.lineHint": "Drag to draw · Snap to photos, memos or frames · Esc to exit",
+  "table.hideTools": "Hide left toolbar", "table.showTools": "Show left toolbar", "table.gridSettings": "Grid layout", "table.gridColumns": "{count} per row", "table.photosPerRow": "Photos per row", "table.applyGrid": "Apply",
   "language.label": "Language", "language.english": "English", "language.chinese": "中文",
   "app.backHome": "Back to Home", "nav.main": "Main navigation", "nav.home": "Home", "nav.project": "Project", "nav.projectSettings": "Project settings", "nav.contactSheet": "Contact Sheet", "nav.table": "Table", "nav.sequence": "Sequence", "nav.login": "Login", "nav.backToTable": "Back to Table", "nav.openLastSequence": "Open the last Sequence",
   "common.retry": "Retry", "common.cancel": "Cancel", "common.close": "Close", "common.save": "Save", "common.delete": "Delete", "common.open": "Open", "common.create": "Create", "common.loading": "Loading…", "common.updated": "Updated", "common.photos": "photos", "common.items": "items", "common.current": "Current", "common.selectedPhotos": "{count} selected photos", "common.photoCount": "{count} photos", "common.itemCount": "{count} items", "common.sequenceCount": "{count} sequences", "common.thumbnailLoading": "{name} thumbnail loading", "common.resizePhotoSources": "Resize Photo Sources",
@@ -18,11 +20,13 @@ const en: Record<string, string> = {
   "error.generic": "Something went wrong. Please try again.", "error.photoMissing": "Photo is unavailable.",
   "cloud.account": "PhotoFlex account", "cloud.email": "Email", "cloud.password": "Password", "cloud.fullName": "Full name", "cloud.fullNamePlaceholder": "Jane Smith", "cloud.signIn": "Sign in", "cloud.signInTitle": "Sign in to Photoflex", "cloud.signInDetail": "Welcome back. Enter your details below.", "cloud.signUp": "Create account", "cloud.signUpShort": "Sign up", "cloud.createAccountTitle": "Create an account", "cloud.createAccountDetail": "Start organizing your photos today.", "cloud.noAccount": "Don't have an account?", "cloud.haveAccount": "Already have an account?", "cloud.forgotPassword": "Forgot password?", "cloud.passwordResetUnavailable": "Password reset is not available yet.", "cloud.or": "or", "cloud.continueWithGoogle": "Continue with Google", "cloud.googleUnavailable": "Google sign-in is not configured.", "cloud.signOut": "Sign out", "cloud.checkEmail": "Enter the verification code sent to your email.", "cloud.verificationCode": "Verification code", "cloud.verifyEmail": "Verify email", "cloud.invalidCredentials": "Email or password is incorrect.", "cloud.emailNotConfirmed": "Confirm your email before signing in.", "cloud.alreadyRegistered": "This email is already registered.", "cloud.weakPassword": "Use a stronger password.", "cloud.authFailed": "Account request failed. Try again.", "cloud.notConfigured": "CloudBase is not configured for this checkout.", "cloud.openingWorkspace": "Opening your local workspace…", "cloud.signInRequired": "Sign in to open your workspace", "cloud.signInRequiredDetail": "Projects and local photo access are isolated for each PhotoFlex account on this device.", "cloud.sync.idle": "Sync", "cloud.sync.syncing": "Syncing…", "cloud.sync.synced": "Synced", "cloud.sync.failed": "Retry sync", "cloud.sync.conflict": "The cloud copy changed elsewhere. Restore a separate copy from the home page before resolving this conflict.",
   "cloud.savedProjects": "Cloud projects", "cloud.restoreCopy": "Restore copy", "cloud.restoreCopyDetail": "Restore a separate local copy. Reconnect original photo folders afterward.", "cloud.listFailed": "Could not load cloud projects.", "cloud.restoreFailed": "Could not restore the cloud project.",
-  "cloud.save.saved": "Saved to cloud", "cloud.save.saving": "Saving to cloud…", "cloud.save.retrying": "Cloud unavailable · retrying automatically", "cloud.save.conflict": "Cloud changed elsewhere · local edits kept",
+  "cloud.save.saved": "Saved to cloud", "cloud.save.saving": "Saving to cloud…", "cloud.save.retrying": "Cloud unavailable · retrying automatically",
   "cloud.legacyTitle": "Import from old Supabase account", "cloud.legacyDetail": "Sign in to your old Supabase account to copy its cloud projects into this CloudBase account. Existing projects will not be overwritten. Your old password is not saved here.", "cloud.legacyEmail": "Old account email", "cloud.legacyPassword": "Old account password", "cloud.legacyStart": "Copy cloud projects", "cloud.legacyWorking": "Copying…", "cloud.legacySignInFailed": "Could not sign in to the old account. Check its email and password.", "cloud.legacyUnavailable": "Could not read old cloud projects. Try again later.", "cloud.legacyResult": "Copied {imported}; already present {present}; conflicts {conflicts}; failed {failed}. Old data was not deleted.",
 };
 
 const zhCN: Record<string, string> = {
+  "table.drawLine": "绘制连线", "table.lineHint": "按住拖动绘制 · 靠近照片、便笺或 Frame 自动连接 · Esc 退出",
+  "table.hideTools": "隐藏左侧工具栏", "table.showTools": "显示左侧工具栏", "table.gridSettings": "网格排列", "table.gridColumns": "每行 {count} 张", "table.photosPerRow": "每行照片数", "table.applyGrid": "应用",
   "language.label": "语言", "language.english": "English", "language.chinese": "中文",
   "app.backHome": "返回首页", "nav.main": "主导航", "nav.home": "首页", "nav.project": "项目", "nav.projectSettings": "项目设置", "nav.contactSheet": "照片库", "nav.table": "桌面", "nav.sequence": "序列", "nav.login": "登录", "nav.backToTable": "返回桌面", "nav.openLastSequence": "打开最近使用的序列",
   "common.retry": "重试", "common.cancel": "取消", "common.close": "关闭", "common.save": "保存", "common.delete": "删除", "common.open": "打开", "common.create": "创建", "common.loading": "加载中…", "common.updated": "更新于", "common.photos": "张照片", "common.items": "项", "common.current": "当前", "common.selectedPhotos": "已选择 {count} 张照片", "common.photoCount": "{count} 张照片", "common.itemCount": "{count} 项", "common.sequenceCount": "{count} 个序列", "common.thumbnailLoading": "正在加载{name}缩略图", "common.resizePhotoSources": "调整照片来源面板宽度",
@@ -39,7 +43,7 @@ const zhCN: Record<string, string> = {
   "error.generic": "发生错误，请重试。", "error.photoMissing": "照片不可用。",
   "cloud.account": "PhotoFlex 账户", "cloud.email": "邮箱", "cloud.password": "密码", "cloud.fullName": "姓名", "cloud.fullNamePlaceholder": "你的姓名", "cloud.signIn": "登录", "cloud.signInTitle": "登录 Photoflex", "cloud.signInDetail": "欢迎回来，请在下方输入账号信息。", "cloud.signUp": "创建账号", "cloud.signUpShort": "注册", "cloud.createAccountTitle": "创建账号", "cloud.createAccountDetail": "从今天开始整理你的照片。", "cloud.noAccount": "还没有账号？", "cloud.haveAccount": "已经有账号？", "cloud.forgotPassword": "忘记密码？", "cloud.passwordResetUnavailable": "暂未开放密码重置。", "cloud.or": "或", "cloud.continueWithGoogle": "使用 Google 继续", "cloud.googleUnavailable": "尚未配置 Google 登录。", "cloud.signOut": "退出登录", "cloud.checkEmail": "请输入发送到邮箱的验证码。", "cloud.verificationCode": "邮箱验证码", "cloud.verifyEmail": "验证邮箱", "cloud.invalidCredentials": "邮箱或密码不正确。", "cloud.emailNotConfirmed": "请先确认邮箱再登录。", "cloud.alreadyRegistered": "该邮箱已经注册。", "cloud.weakPassword": "请使用更强的密码。", "cloud.authFailed": "账户请求失败，请重试。", "cloud.notConfigured": "当前检出目录尚未配置 CloudBase。", "cloud.openingWorkspace": "正在打开你的本地工作区…", "cloud.signInRequired": "登录后打开工作区", "cloud.signInRequiredDetail": "这台设备上的项目和本地照片访问会按 PhotoFlex 账号隔离。", "cloud.sync.idle": "同步", "cloud.sync.syncing": "同步中…", "cloud.sync.synced": "已同步", "cloud.sync.failed": "重试同步", "cloud.sync.conflict": "云端版本已变化。请先在首页恢复为独立副本，再处理冲突；现有项目不会被覆盖。",
   "cloud.savedProjects": "云端项目", "cloud.restoreCopy": "恢复副本", "cloud.restoreCopyDetail": "恢复为独立的本地副本，之后需重新连接原始照片文件夹。", "cloud.listFailed": "无法读取云端项目。", "cloud.restoreFailed": "无法恢复云端项目。",
-  "cloud.save.saved": "已保存到云端", "cloud.save.saving": "正在保存到云端…", "cloud.save.retrying": "云端暂不可用 · 自动重试中", "cloud.save.conflict": "云端版本已变化 · 本地编辑已保留",
+  "cloud.save.saved": "已保存到云端", "cloud.save.saving": "正在保存到云端…", "cloud.save.retrying": "云端暂不可用 · 自动重试中",
   "cloud.legacyTitle": "从旧 Supabase 账号迁移", "cloud.legacyDetail": "登录旧 Supabase 账号，把该账号的云端项目复制到当前 CloudBase 账号。不会覆盖已有项目，也不会在这里保存旧密码。", "cloud.legacyEmail": "旧账号邮箱", "cloud.legacyPassword": "旧账号密码", "cloud.legacyStart": "复制云端项目", "cloud.legacyWorking": "正在复制…", "cloud.legacySignInFailed": "旧账号登录失败，请检查邮箱和密码。", "cloud.legacyUnavailable": "无法读取旧云端项目，请稍后重试。", "cloud.legacyResult": "已复制 {imported} 个；已存在 {present} 个；冲突 {conflicts} 个；失败 {failed} 个。旧数据未删除。",
 };
 
@@ -51,6 +55,19 @@ zhCN["table.lock"] = "锁定";
 zhCN["table.unlock"] = "解锁";
 zhCN["table.locked"] = "已锁定";
 zhCN["sequence.folderUnsafeDestination"] = "请选择原始照片资料夹之外的目标资料夹。";
+
+en["table.creationTools"] = "Canvas tools";
+zhCN["table.creationTools"] = "画布工具";
+en["status.saved"] = "Saved";
+zhCN["status.saved"] = "已保存";
+en["table.frame"] = "Frame";
+en["table.frameHint"] = "Frame · Arrange photos on a page";
+en["table.memoHint"] = "Memo · Add a note to the canvas · M";
+en["table.sequenceHint"] = "Create a reading sequence from selected photos · S";
+zhCN["table.frame"] = "画框";
+zhCN["table.frameHint"] = "画框 · 将照片排入版面";
+zhCN["table.memoHint"] = "便笺 · 在画布上添加笔记 · M";
+zhCN["table.sequenceHint"] = "将所选照片编排为阅读序列 · S";
 
 export const translations: Record<Locale, Record<string, string>> = { en, "zh-CN": zhCN };
 

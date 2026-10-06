@@ -1,3 +1,5 @@
+import { readFile } from "node:fs/promises";
+import { PDFDocument, PDFDict, PDFName } from "pdf-lib";
 import { expect, test, type Page } from "@playwright/test";
 
 const PROJECT_ID = "sequence-visual-project";
@@ -132,6 +134,752 @@ test("Sequence opens over Table as a clean grid and reads uncropped photos", asy
   await page.screenshot({ path: "design-output/Sequence/sequence-table-card.png", fullPage: true });
 });
 
+test("Layout opens from Sequence and keeps page order at 1280 and 1440", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto("/");
+  await expect(page.getByRole("heading", { name: "Projects" })).toBeVisible();
+  await seedSequence(page);
+  await page.goto(`/#/projects/${PROJECT_ID}/sequences/${SEQUENCE_ID}`);
+  await page.getByRole("dialog", { name: "Sequence Street Edit" }).getByRole("button", { name: "Layout" }).click();
+  const creator = page.getByRole("dialog", { name: "Create Layout" });
+  await expect(creator).toBeVisible();
+  await expect(page.locator(".layout-create-backdrop")).toHaveCSS("position", "fixed");
+  await expect(creator).toHaveCSS("background-color", "rgb(255, 255, 255)");
+  await expect(creator).toContainText("From Sequence (10 pages, including covers)");
+  await creator.getByRole("button", { name: "Create Layout" }).click();
+  const layout = page.getByRole("main", { name: "Layout workspace" });
+  await expect(layout).toBeVisible();
+  await expect(layout.getByRole("status")).toContainText("Saved locally");
+  await expect(layout.getByRole("button", { name: "Previous page" })).toBeDisabled();
+  await layout.getByRole("button", { name: "Next page" }).click();
+  await expect(layout.locator(".layout-pages-list button[aria-current=page]")).toContainText("Page 2");
+  await layout.getByRole("button", { name: "Next page" }).click();
+  await expect(layout.locator(".layout-pages-list button[aria-current=page]")).toContainText("Page 4");
+  await layout.getByRole("button", { name: "Previous page" }).click();
+  await expect(layout.locator(".layout-pages-list button[aria-current=page]")).toContainText("Page 2");
+  await layout.getByRole("button", { name: "Previous page" }).click();
+  await expect(layout.locator(".layout-pages-list button[aria-current=page]")).toContainText("Front cover");
+  await layout.getByRole("button", { name: "Single", exact: true }).click();
+  await layout.getByRole("button", { name: "Next page" }).click();
+  await layout.getByRole("button", { name: "Next page" }).click();
+  await expect(layout.locator(".layout-pages-list button[aria-current=page]")).toContainText("Page 3");
+  await layout.getByRole("button", { name: "Facing pages" }).click();
+  await layout.getByRole("button", { name: "Previous page" }).click();
+  await expect(layout.locator(".layout-pages-list button[aria-current=page]")).toContainText("Front cover");
+  const route = new URL(page.url()).hash;
+  expect(route).toMatch(/\/layout\//);
+  await layout.locator(".layout-pages-list button").nth(1).click();
+  await layout.locator(".layout-paper.is-current .layout-object-image-frame").click();
+  await page.screenshot({ path: "design-output/Layout/layout-figma-1440.png", fullPage: true });
+  await expect(layout.getByRole("group", { name: "Template" })).toBeVisible();
+  await page.screenshot({ path: "design-output/Layout/layout-style-1440.png", fullPage: true });
+  await layout.locator(".layout-pages-list button").first().click();
+  const initialSize = await layout.locator(".layout-paper").first().boundingBox();
+  expect(initialSize!.height / initialSize!.width).toBeCloseTo(297 / 210, 1);
+  await layout.getByRole("button", { name: "Page size" }).click();
+  await expect(layout.getByRole("group", { name: "Page size presets" })).toBeVisible();
+  await page.screenshot({ path: "design-output/Layout/layout-page-size-popup-1440.png", fullPage: true });
+  await layout.getByRole("group", { name: "Page size presets" }).getByRole("button", { name: "A5" }).click();
+  await expect(layout.getByRole("button", { name: "Page size" })).toContainText("A5");
+  expect((await layout.locator(".layout-paper").first().boundingBox())!.width).toBeLessThan(initialSize!.width);
+  await expect(layout.getByRole("status")).toContainText("Saved locally");
+  await page.reload();
+  await expect(layout.getByRole("button", { name: "Page size" })).toContainText("A5");
+  await layout.getByRole("button", { name: "Page size" }).click();
+  await layout.getByRole("group", { name: "Page size presets" }).getByRole("button", { name: "A4" }).click();
+  await page.keyboard.press("Control+z");
+  await expect(layout.getByRole("button", { name: "Page size" })).toContainText("A5");
+  await page.keyboard.press("Control+y");
+  await expect(layout.getByRole("button", { name: "Page size" })).toContainText("A4");
+  await layout.getByRole("group", { name: "Orientation" }).getByRole("button", { name: "Landscape" }).click();
+  await expect(layout.locator(".layout-page-size-popover").getByRole("spinbutton", { name: "W mm" })).toHaveValue("297");
+  await layout.getByRole("button", { name: "Undo" }).click();
+  await layout.getByRole("button", { name: "Page size" }).click();
+  await layout.locator(".layout-page-size-popover").getByRole("spinbutton", { name: "W mm" }).fill("220");
+  await layout.locator(".layout-page-size-popover").getByRole("spinbutton", { name: "W mm" }).press("Enter");
+  await expect(layout.getByRole("button", { name: "Page size" })).toContainText("220 × 297 mm");
+  await layout.getByRole("button", { name: "Undo" }).click();
+  await expect(layout.getByRole("button", { name: "Page size" })).toContainText("A4");
+  const pagesPanel = layout.locator(".layout-pages-panel");
+  const originalPagesWidth = (await pagesPanel.boundingBox())!.width;
+  const pagesDivider = (await layout.getByRole("separator", { name: "Resize Pages panel" }).boundingBox())!;
+  await page.mouse.move(pagesDivider.x + pagesDivider.width / 2, pagesDivider.y + 80);
+  await page.mouse.down();
+  await page.mouse.move(pagesDivider.x + pagesDivider.width / 2 + 40, pagesDivider.y + 80, { steps: 4 });
+  await page.mouse.up();
+  expect((await pagesPanel.boundingBox())!.width).toBeGreaterThan(originalPagesWidth + 25);
+  const propertyPanel = layout.locator(".layout-properties-panel");
+  const originalPropertyWidth = (await propertyPanel.boundingBox())!.width;
+  const propertiesDivider = (await layout.getByRole("separator", { name: "Resize Properties panel" }).boundingBox())!;
+  await page.mouse.move(propertiesDivider.x + propertiesDivider.width / 2, propertiesDivider.y + 80);
+  await page.mouse.down();
+  await page.mouse.move(propertiesDivider.x + propertiesDivider.width / 2 - 40, propertiesDivider.y + 80, { steps: 4 });
+  await page.mouse.up();
+  expect((await propertyPanel.boundingBox())!.width).toBeGreaterThan(originalPropertyWidth + 25);
+  expect((await layout.locator(".layout-photo-insert").first().boundingBox())!.width).toBeGreaterThan(100);
+  await expect(layout.locator(".layout-photo-used, .layout-empty-frame-tool")).toHaveCount(0);
+  await layout.getByRole("button", { name: "+ Blank page" }).click();
+  await expect(layout.locator(".layout-pages-list button")).toHaveCount(11);
+  await layout.locator(".layout-pages-list button[aria-current=page]").press("Delete");
+  await expect(layout.locator(".layout-pages-list button")).toHaveCount(10);
+  await layout.getByRole("button", { name: "Undo" }).click();
+  await expect(layout.locator(".layout-pages-list button")).toHaveCount(11);
+  await layout.getByRole("button", { name: "Single", exact: true }).click();
+  await expect(layout.locator(".layout-paper")).toHaveCount(1);
+  await page.setViewportSize({ width: 1280, height: 720 });
+  for (const name of ["+ Blank page", "Duplicate", "Delete", "Single", "Facing pages"]) {
+    const control = layout.getByRole("button", { name, exact: true });
+    await expect(control).toBeVisible();
+    const bounds = await control.boundingBox();
+    expect(bounds!.x).toBeGreaterThanOrEqual(0);
+    expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(1280);
+  }
+  await page.screenshot({ path: "design-output/Layout/layout-figma-1280.png", fullPage: true });
+  await page.reload();
+  await expect(layout.locator(".layout-pages-list button")).toHaveCount(11);
+  await expect(layout.getByRole("status")).toContainText("Saved locally");
+  await layout.getByRole("button", { name: "← Sequence" }).click();
+  await expect(page.getByRole("dialog", { name: "Sequence Street Edit" })).toBeVisible();
+  await page.getByRole("dialog", { name: "Sequence Street Edit" }).getByRole("button", { name: "Layout" }).click();
+  await expect(layout).toBeVisible();
+  expect(new URL(page.url()).hash).toBe(route);
+});
+
+test("Layout edits frames, drops photos, crops and applies a template as one undo action", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.getByRole("heading", { name: "Projects" })).toBeVisible();
+  await seedSequence(page);
+  await page.goto(`/#/projects/${PROJECT_ID}/sequences/${SEQUENCE_ID}`);
+  await page.getByRole("dialog", { name: "Sequence Street Edit" }).getByRole("button", { name: "Layout" }).click();
+  const creator = page.getByRole("dialog", { name: "Create Layout" });
+  await creator.getByLabel("Blank book (front cover, body page, back cover)").check();
+  await creator.getByRole("button", { name: "Create Layout" }).click();
+  await removeCoversForLegacyEditing(page);
+  const layout = page.getByRole("main", { name: "Layout workspace" });
+  const inspector = layout.getByRole("complementary", { name: "Page properties" });
+  await expect(inspector).toHaveCSS("border-top-left-radius", "0px");
+  const inspectorBounds = (await inspector.boundingBox())!;
+  expect(inspectorBounds.x + inspectorBounds.width).toBeCloseTo(page.viewportSize()!.width, 0);
+  const paper = layout.locator(".layout-paper");
+  await expect(paper).toBeVisible();
+  await layout.getByRole("button", { name: "Draw frame" }).click();
+  const bounds = (await paper.boundingBox())!;
+  await page.mouse.move(bounds.x + bounds.width * .2, bounds.y + bounds.height * .2);
+  await page.mouse.down();
+  await page.mouse.move(bounds.x + bounds.width * .65, bounds.y + bounds.height * .6, { steps: 6 });
+  await page.mouse.up();
+  await expect(paper.locator(".layout-object-image-frame")).toHaveCount(1);
+  const frame = paper.locator(".layout-object-image-frame").first();
+  await layout.locator(".layout-photo-item").first().dragTo(frame);
+  await expect(frame.locator("img")).toBeVisible();
+  const imageBox = (await frame.locator("img").boundingBox())!;
+  expect(imageBox.width / imageBox.height).toBeCloseTo(1400 / 800, 1);
+  await expect(frame).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+  await frame.click();
+  await expect(layout.getByRole("button", { name: "Fit", exact: true })).toHaveAttribute("aria-pressed", "true");
+  const initialCropPoint = (await frame.boundingBox())!;
+  await page.mouse.move(initialCropPoint.x + initialCropPoint.width / 2, initialCropPoint.y + initialCropPoint.height / 2);
+  await page.mouse.down({ button: "right" });
+  await page.mouse.move(initialCropPoint.x + initialCropPoint.width / 2 + 25, initialCropPoint.y + initialCropPoint.height / 2, { steps: 4 });
+  await page.mouse.up({ button: "right" });
+  await expect(layout.getByRole("button", { name: "Fill", exact: true })).toHaveAttribute("aria-pressed", "true");
+  await layout.getByRole("button", { name: "Fit", exact: true }).click();
+  const beforeMove = (await frame.boundingBox())!;
+  await page.mouse.move(beforeMove.x + beforeMove.width / 2, beforeMove.y + beforeMove.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(beforeMove.x + beforeMove.width / 2 + 26, beforeMove.y + beforeMove.height / 2 + 18, { steps: 5 });
+  await expect(paper.locator(".layout-alignment-guides line")).not.toHaveCount(0);
+  await page.mouse.up();
+  await expect(paper.locator(".layout-alignment-guides line")).toHaveCount(0);
+  const afterMove = (await frame.boundingBox())!;
+  expect(afterMove.x).toBeGreaterThan(beforeMove.x + 15);
+  await layout.getByRole("button", { name: "Undo" }).click();
+  expect((await frame.boundingBox())!.x).toBeCloseTo(beforeMove.x, 0);
+  await layout.getByRole("button", { name: "Redo" }).click();
+  expect((await frame.boundingBox())!.x).toBeCloseTo(afterMove.x, 0);
+  const beforeCancelledResize = (await frame.boundingBox())!;
+  const corner = frame.getByRole("button", { name: "Resize se" });
+  const cornerBox = (await corner.boundingBox())!;
+  await page.mouse.move(cornerBox.x + cornerBox.width / 2, cornerBox.y + cornerBox.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(cornerBox.x + cornerBox.width / 2 + 25, cornerBox.y + cornerBox.height / 2 + 25, { steps: 3 });
+  await page.keyboard.press("Escape");
+  await page.mouse.up();
+  expect((await frame.boundingBox())!.width).toBeCloseTo(beforeCancelledResize.width, 0);
+  await frame.click();
+  await layout.getByRole("button", { name: "Fit", exact: true }).click();
+  await layout.getByRole("button", { name: "Crop photo" }).click();
+  const cropPoint = (await frame.boundingBox())!;
+  await page.mouse.move(cropPoint.x + cropPoint.width / 2, cropPoint.y + cropPoint.height / 2);
+  await page.mouse.wheel(0, -220);
+  await expect(frame.locator(".layout-crop-overlay")).not.toContainText("100%");
+  await page.keyboard.press("Escape");
+  await frame.click();
+  await frame.dblclick();
+  await expect(frame.locator(".layout-crop-overlay")).toContainText("100%");
+  await page.mouse.move(cropPoint.x + cropPoint.width / 2, cropPoint.y + cropPoint.height / 2);
+  await page.mouse.wheel(0, -220);
+  await frame.getByRole("button", { name: "Done" }).click();
+  await expect(layout.getByRole("button", { name: "Crop photo" })).toBeVisible();
+  const beforeQuickCrop = await frame.locator("img").getAttribute("style");
+  await page.mouse.move(cropPoint.x + cropPoint.width / 2, cropPoint.y + cropPoint.height / 2);
+  await page.mouse.down({ button: "right" });
+  await page.mouse.move(cropPoint.x + cropPoint.width / 2 + 28, cropPoint.y + cropPoint.height / 2, { steps: 4 });
+  await page.mouse.up({ button: "right" });
+  expect(await frame.locator("img").getAttribute("style")).not.toBe(beforeQuickCrop);
+  await layout.getByRole("group", { name: "Template" }).getByRole("button", { name: "Diptych template" }).click();
+  await expect(paper.locator(".layout-object-image-frame")).toHaveCount(2);
+  await layout.getByRole("button", { name: "Undo" }).click();
+  await expect(paper.locator(".layout-object-image-frame")).toHaveCount(1);
+  await expect(layout.getByRole("status")).toContainText("Saved locally");
+  await page.reload();
+  await expect(paper.locator(".layout-object-image-frame")).toHaveCount(1);
+  await expect(paper.locator("img")).toBeVisible();
+  await layout.getByRole("checkbox", { name: "Select photo 1 for template" }).check();
+  await layout.getByRole("checkbox", { name: "Select photo 2 for template" }).check();
+  await layout.getByRole("group", { name: "Template" }).getByRole("button", { name: "Diptych template" }).click();
+  await expect(paper.locator(".layout-object-image-frame")).toHaveCount(2);
+  await paper.locator(".layout-object-image-frame").first().click();
+  await layout.getByRole("spinbutton", { name: "X mm" }).fill("25");
+  await layout.getByRole("spinbutton", { name: "X mm" }).press("Tab");
+  await expect(layout.getByRole("status")).toContainText("Saved locally");
+  await page.reload();
+  await expect(paper.locator(".layout-object-image-frame")).toHaveCount(2);
+  await paper.locator(".layout-object-image-frame").first().click();
+  await expect(layout.getByRole("spinbutton", { name: "X mm" })).toHaveValue("25");
+  await layout.getByRole("button", { name: "+ Blank page" }).click();
+  const newPaper = layout.locator(".layout-paper.is-current");
+  await expect(newPaper.locator(".layout-object-image-frame")).toHaveCount(0);
+  await layout.locator(".layout-photo-item").nth(2).dragTo(newPaper);
+  await expect(newPaper.locator(".layout-object-image-frame")).toHaveCount(1);
+  await expect(newPaper.locator("img")).toBeVisible();
+  const pages = layout.locator(".layout-pages-list button");
+  await pages.nth(1).dragTo(pages.nth(0));
+  await expect(pages.first()).toHaveAttribute("aria-current", "page");
+  await expect(layout.locator(".layout-paper.is-current .layout-object-image-frame")).toHaveCount(1);
+  await layout.getByRole("button", { name: "Undo" }).click();
+  await expect(pages.nth(1)).toHaveAttribute("aria-current", "page");
+  await layout.getByRole("button", { name: "Redo" }).click();
+  await expect(pages.first()).toHaveAttribute("aria-current", "page");
+  await expect(layout.getByRole("status")).toContainText("Saved locally");
+  await page.reload();
+  await expect(layout.locator(".layout-paper.is-current .layout-object-image-frame")).toHaveCount(1);
+});
+
+test("Layout paper color and material persist across thumbnails, reading, duplication and history", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.getByRole("heading", { name: "Projects" })).toBeVisible();
+  await seedSequence(page);
+  await page.goto(`/#/projects/${PROJECT_ID}/sequences/${SEQUENCE_ID}`);
+  await page.getByRole("dialog", { name: "Sequence Street Edit" }).getByRole("button", { name: "Layout" }).click();
+  const creator = page.getByRole("dialog", { name: "Create Layout" });
+  await creator.getByLabel("Blank book (front cover, body page, back cover)").check();
+  await creator.getByRole("button", { name: "Create Layout" }).click();
+  await removeCoversForLegacyEditing(page);
+  const layout = page.getByRole("main", { name: "Layout workspace" });
+  const currentBackdrop = () => layout.locator(".layout-paper.is-current > .layout-paper-backdrop");
+  const choosePaperColor = async (name: string) => {
+    await layout.getByRole("button", { name: "Paper color" }).click();
+    await layout.getByRole("option", { name }).click();
+  };
+  const choosePaperMaterial = async (name: string) => {
+    await layout.getByRole("button", { name: "Paper material" }).click();
+    await layout.getByRole("option", { name }).click();
+  };
+  await layout.getByRole("button", { name: "Paper color" }).click();
+  const inkBlueSwatch = layout.getByRole("option", { name: "Ink Blue" }).locator(".layout-paper-color-swatch");
+  await expect(inkBlueSwatch).toHaveCSS("background-color", "rgb(30, 43, 69)");
+  await expect(inkBlueSwatch).toHaveCSS("box-shadow", "none");
+  await layout.getByRole("option", { name: "Ink Blue" }).click();
+  await expect(layout.getByRole("option", { name: "Ink Blue" })).toHaveCount(0);
+  await choosePaperMaterial("Diagonal bookcloth");
+  await expect(currentBackdrop()).toHaveCSS("background-color", "rgb(30, 43, 69)");
+  expect(await currentBackdrop().evaluate((element) => getComputedStyle(element, "::before").backgroundRepeat)).toBe("no-repeat");
+  expect(await currentBackdrop().evaluate((element) => getComputedStyle(element, "::before").backgroundSize)).toBe("cover");
+  await layout.getByRole("button", { name: "+ Blank page" }).click();
+  await expect(currentBackdrop()).toHaveCSS("background-color", "rgb(30, 43, 69)");
+  await choosePaperColor("Snow White");
+  await choosePaperMaterial("Fine cotton paper");
+  await layout.getByRole("button", { name: "Apply to all pages" }).click();
+  await expect(layout.locator(".layout-page-mini > .layout-paper-backdrop").first()).toHaveCSS("background-color", "rgb(248, 247, 243)");
+  await layout.getByRole("button", { name: "Undo" }).click();
+  await expect(layout.locator(".layout-page-mini > .layout-paper-backdrop").first()).toHaveCSS("background-color", "rgb(30, 43, 69)");
+  await layout.getByRole("button", { name: "Redo" }).click();
+  await layout.getByRole("button", { name: "Duplicate" }).click();
+  await expect(layout.locator(".layout-pages-list button")).toHaveCount(3);
+  await expect(currentBackdrop()).toHaveCSS("background-color", "rgb(248, 247, 243)");
+  await expect(layout.getByRole("status")).toContainText("Saved locally");
+  await page.reload();
+  await expect(layout.locator(".layout-pages-list button")).toHaveCount(3);
+  await expect(currentBackdrop()).toHaveCSS("background-color", "rgb(248, 247, 243)");
+  await layout.getByRole("button", { name: "Read" }).click();
+  const reader = page.getByRole("dialog", { name: /Read/ });
+  await expect(reader.locator(".layout-reader-paper > .layout-paper-backdrop").last()).toHaveCSS("background-color", "rgb(248, 247, 243)");
+  await reader.getByRole("button", { name: "← Exit reading" }).click();
+});
+
+test("Layout edits a facing spread with direct photos and multi-selection", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto("/");
+  await expect(page.getByRole("heading", { name: "Projects" })).toBeVisible();
+  await seedSequence(page);
+  await page.goto(`/#/projects/${PROJECT_ID}/sequences/${SEQUENCE_ID}`);
+  await page.getByRole("dialog", { name: "Sequence Street Edit" }).getByRole("button", { name: "Layout" }).click();
+  const creator = page.getByRole("dialog", { name: "Create Layout" });
+  await creator.getByLabel("Blank book (front cover, body page, back cover)").check();
+  await creator.getByRole("button", { name: "Create Layout" }).click();
+  await removeCoversForLegacyEditing(page);
+  const layout = page.locator('main[aria-label="Layout workspace"]');
+  const next = layout.getByRole("button", { name: "Next page" });
+  await next.click();
+  await expect(layout.locator(".layout-pages-list button")).toHaveCount(2);
+  const left = layout.locator('.layout-paper[aria-label="Page 2"]');
+  await layout.locator(".layout-photo-item").first().dragTo(left);
+  const leftPhoto = left.locator(".layout-object-image-frame");
+  await expect(leftPhoto.locator("img")).toBeVisible();
+  const leftPhotoBox = (await leftPhoto.boundingBox())!;
+  const leftImageBox = (await leftPhoto.locator("img").boundingBox())!;
+  expect(leftPhotoBox.width / leftPhotoBox.height).toBeCloseTo(1400 / 800, 1);
+  expect(leftImageBox.width).toBeCloseTo(leftPhotoBox.width, 0);
+  expect(leftImageBox.height).toBeCloseTo(leftPhotoBox.height, 0);
+  await expect(leftPhoto).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+
+  await next.click();
+  await expect(layout.locator(".layout-pages-list button")).toHaveCount(3);
+  const right = layout.locator('.layout-paper[aria-label="Page 3"]');
+  await layout.locator(".layout-photo-item").nth(1).dragTo(right);
+  await expect(right.locator(".layout-object-image-frame img")).toBeVisible();
+  const leftBounds = (await left.boundingBox())!, rightBounds = (await right.boundingBox())!;
+  const beforeAlign = (await leftPhoto.boundingBox())!;
+  const toGutter = rightBounds.x - (beforeAlign.x + beforeAlign.width);
+  await page.mouse.move(beforeAlign.x + beforeAlign.width / 2, beforeAlign.y + beforeAlign.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(beforeAlign.x + beforeAlign.width / 2 + toGutter, beforeAlign.y + beforeAlign.height / 2, { steps: 6 });
+  await expect(left.locator(".layout-alignment-guides line")).not.toHaveCount(0);
+  await page.keyboard.press("Escape");
+  await page.mouse.up();
+  const resizeToGutter = (await leftPhoto.getByRole("button", { name: "Resize e" }).boundingBox())!;
+  await page.mouse.move(resizeToGutter.x + resizeToGutter.width / 2, resizeToGutter.y + resizeToGutter.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(rightBounds.x - 5, resizeToGutter.y + resizeToGutter.height / 2, { steps: 6 });
+  await expect(left.locator(".layout-alignment-guides line")).not.toHaveCount(0);
+  await page.keyboard.press("Escape");
+  await page.mouse.up();
+  await page.mouse.move(leftBounds.x + leftBounds.width * .06, leftBounds.y + leftBounds.height * .06);
+  await page.mouse.down();
+  await page.mouse.move(rightBounds.x + rightBounds.width * .94, rightBounds.y + rightBounds.height * .94, { steps: 8 });
+  await page.mouse.up();
+  await expect(layout.locator(".layout-object.is-selected")).toHaveCount(2);
+  const beforeLeft = (await leftPhoto.boundingBox())!, beforeRight = (await right.locator(".layout-object-image-frame").boundingBox())!;
+  await page.mouse.move(beforeLeft.x + beforeLeft.width / 2, beforeLeft.y + beforeLeft.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(beforeLeft.x + beforeLeft.width / 2 + 25, beforeLeft.y + beforeLeft.height / 2 + 15, { steps: 5 });
+  await page.mouse.up();
+  expect((await leftPhoto.boundingBox())!.x).toBeGreaterThan(beforeLeft.x + 15);
+  expect((await right.locator(".layout-object-image-frame").boundingBox())!.x).toBeGreaterThan(beforeRight.x + 15);
+
+  await page.mouse.click(leftBounds.x + leftBounds.width * .05, leftBounds.y + leftBounds.height * .05);
+  await leftPhoto.click();
+  const east = (await leftPhoto.getByRole("button", { name: "Resize e" }).boundingBox())!;
+  await page.mouse.move(east.x + east.width / 2, east.y + east.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(east.x + east.width / 2 + leftBounds.width * .45, east.y + east.height / 2, { steps: 8 });
+  await page.mouse.up();
+  const wide = (await leftPhoto.boundingBox())!;
+  expect(wide.x + wide.width).toBeGreaterThan(rightBounds.x + 10);
+  await expect(right).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+  await expect(layout.locator(".layout-spread")).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+  await expect(left.locator(":scope > .layout-paper-backdrop")).toHaveCSS("background-color", "rgb(255, 255, 255)");
+  await expect(right.locator(":scope > .layout-paper-backdrop")).toHaveCSS("background-color", "rgb(255, 255, 255)");
+  await expect(layout.getByRole("status")).toContainText("Saved locally");
+
+  await layout.getByRole("button", { name: "Draw frame" }).click();
+  await page.mouse.move(leftBounds.x + leftBounds.width * .8, leftBounds.y + leftBounds.height * .08);
+  await page.mouse.down();
+  await page.mouse.move(rightBounds.x + rightBounds.width * .2, rightBounds.y + rightBounds.height * .28, { steps: 6 });
+  await page.mouse.up();
+  await expect(left.locator(".layout-object-image-frame")).toHaveCount(2);
+  const drawn = (await left.locator(".layout-object-image-frame").last().boundingBox())!;
+  expect(drawn.x + drawn.width).toBeGreaterThan(rightBounds.x + 10);
+
+  await next.click();
+  await expect(layout.locator(".layout-pages-list button")).toHaveCount(3);
+  await next.click();
+  await expect(layout.locator(".layout-pages-list button")).toHaveCount(4);
+  const stage = layout.locator(".layout-stage");
+  await stage.hover();
+  await page.mouse.wheel(0, -1500);
+  await expect(layout.locator(".layout-view-controls")).toContainText("300%");
+  const stageBounds = (await stage.boundingBox())!;
+  const beforeMiddlePan = await stage.evaluate((element) => element.scrollTop);
+  await page.mouse.move(stageBounds.x + stageBounds.width / 2, stageBounds.y + stageBounds.height / 2);
+  await page.mouse.down({ button: "middle" });
+  await page.mouse.move(stageBounds.x + stageBounds.width / 2, stageBounds.y + stageBounds.height / 2 - 60, { steps: 5 });
+  await page.mouse.up({ button: "middle" });
+  expect(await stage.evaluate((element) => element.scrollTop)).toBeGreaterThan(beforeMiddlePan);
+  await layout.getByRole("button", { name: "Pan" }).click();
+  const beforeLeftPan = await stage.evaluate((element) => element.scrollTop);
+  await page.mouse.move(stageBounds.x + stageBounds.width / 2, stageBounds.y + stageBounds.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(stageBounds.x + stageBounds.width / 2, stageBounds.y + stageBounds.height / 2 + 50, { steps: 5 });
+  await page.mouse.up();
+  expect(await stage.evaluate((element) => element.scrollTop)).toBeLessThan(beforeLeftPan);
+  await layout.getByRole("button", { name: "Pan" }).click();
+  await layout.getByRole("button", { name: "Fit page" }).click();
+  await expect(layout.locator(".layout-view-controls")).toContainText("100%");
+  await layout.getByRole("button", { name: "Read", exact: true }).click();
+  const reader = page.getByRole("dialog", { name: /Read .*Layout/ });
+  await expect(reader).toBeVisible();
+  await expect(layout).toHaveAttribute("aria-hidden", "true");
+  await expect(reader.getByRole("button", { name: "Auto" })).toHaveAttribute("aria-pressed", "true");
+  await expect(reader.locator(".layout-reader-progress")).toContainText("4 / 4");
+  await reader.getByRole("button", { name: "Previous", exact: true }).last().click();
+  await expect(reader.locator(".layout-reader-progress")).toContainText("2–3 / 4");
+  await expect(reader.locator(".layout-page-curl .stf__wrapper.--landscape")).toHaveCount(1);
+  await expect(reader.locator(".layout-page-curl-flyleaf")).toHaveCount(1);
+  const readerBookBounds = (await reader.locator(".layout-page-curl").boundingBox())!;
+  await page.mouse.move(readerBookBounds.x + readerBookBounds.width * .06, readerBookBounds.y + readerBookBounds.height * .5);
+  await page.mouse.down();
+  await page.mouse.move(readerBookBounds.x + readerBookBounds.width * .45, readerBookBounds.y + readerBookBounds.height * .52, { steps: 5 });
+  await expect(reader).toHaveClass(/is-turning/);
+  await page.mouse.move(readerBookBounds.x + readerBookBounds.width * .82, readerBookBounds.y + readerBookBounds.height * .52, { steps: 5 });
+  await page.mouse.up();
+  await expect(reader.locator(".layout-reader-progress")).toContainText("1 / 4");
+  expect(await page.evaluate(() => window.getSelection()?.toString())).toBe("");
+  await expect(reader.locator(".layout-reader-stage")).toHaveCSS("user-select", "none");
+  await page.keyboard.press("ArrowRight");
+  await expect(reader.locator(".layout-reader-progress")).toContainText("2–3 / 4");
+  const returnedBookBounds = (await reader.locator(".layout-page-curl").boundingBox())!;
+  await page.mouse.move(returnedBookBounds.x + returnedBookBounds.width * .25, returnedBookBounds.y + returnedBookBounds.height * .5);
+  await page.mouse.down();
+  await page.mouse.move(returnedBookBounds.x + returnedBookBounds.width * .27, returnedBookBounds.y + returnedBookBounds.height * .5, { steps: 3 });
+  await page.mouse.up();
+  await expect(reader).not.toHaveClass(/is-turning/);
+  await expect(reader.locator(".layout-reader-progress")).toContainText("2–3 / 4");
+  await reader.getByRole("button", { name: "Single" }).click();
+  await expect(reader.locator(".layout-page-curl .stf__wrapper.--portrait")).toHaveCount(1);
+  await expect(reader.locator(".layout-reader-progress")).toContainText("2 / 4");
+  await reader.getByRole("button", { name: "Facing" }).click();
+  await expect(reader.locator(".layout-page-curl .stf__wrapper.--landscape")).toHaveCount(1);
+  await expect(reader.locator(".layout-reader-progress")).toContainText("2–3 / 4");
+  await reader.getByRole("button", { name: "Exit reading" }).click();
+  await expect(reader).toHaveCount(0);
+});
+
+test("Layout text survives refresh and reading uses the same lines", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.getByRole("heading", { name: "Projects" })).toBeVisible();
+  await seedSequence(page);
+  await page.goto(`/#/projects/${PROJECT_ID}/sequences/${SEQUENCE_ID}`);
+  await page.getByRole("dialog", { name: "Sequence Street Edit" }).getByRole("button", { name: "Layout" }).click();
+  await page.getByRole("dialog", { name: "Create Layout" }).getByRole("button", { name: "Create Layout" }).click();
+  const layout = page.getByRole("main", { name: "Layout workspace" });
+  await layout.getByRole("button", { name: "Draw text box" }).click();
+  const textPage = (await layout.locator(".layout-paper.is-current").boundingBox())!;
+  await page.mouse.move(textPage.x + textPage.width * .15, textPage.y + textPage.height * .15);
+  await page.mouse.down();
+  await page.mouse.move(textPage.x + textPage.width * .8, textPage.y + textPage.height * .4, { steps: 6 });
+  await page.mouse.up();
+  const frame = layout.locator(".layout-object-text-box");
+  const input = frame.getByRole("textbox", { name: "Edit text in frame" });
+  await expect(input).toBeFocused();
+  await expect(layout.locator(".layout-properties-panel textarea")).toHaveCount(0);
+  const sample = "摄影集：上海街景，人物与光影。\n第二页 2026 / Café";
+  await input.fill(sample);
+  await page.mouse.click(textPage.x + textPage.width * .03, textPage.y + textPage.height * .5);
+  await expect(input).toHaveCount(0);
+  await expect(layout.getByRole("button", { name: "Select", exact: true })).toHaveAttribute("aria-pressed", "true");
+  await expect(frame).not.toHaveClass(/is-selected/);
+  await frame.click();
+  await expect(layout.locator(".layout-properties-panel h3", { hasText: "TEXT BOX" })).toHaveCount(0);
+  await expect(layout.locator(".layout-properties-panel h3", { hasText: "TYPE" })).toBeVisible();
+  const fontSelect = layout.getByRole("combobox", { name: "Font" });
+  await expect(fontSelect.locator("option")).toHaveCount(15);
+  const fontOptions = await fontSelect.locator("option").allTextContents();
+  expect(fontOptions).toEqual(expect.arrayContaining(["Ancizar Serif", "EB Garamond", "LXGW WenKai TC"]));
+  expect(fontOptions).not.toContain("ZCOOL KuaiLe");
+  await fontSelect.selectOption("architects-daughter");
+  await expect(layout.locator(".layout-text-content")).toHaveCSS("font-family", /PhotoFlex Architects Daughter.*PhotoFlex Noto Serif SC/);
+  await layout.getByRole("button", { name: "Bold", exact: true }).click();
+  await layout.getByRole("button", { name: "Italic", exact: true }).click();
+  await expect(layout.locator(".layout-text-content")).toHaveCSS("font-weight", "700");
+  await expect(layout.locator(".layout-text-content")).toHaveCSS("font-style", "italic");
+  await layout.getByRole("button", { name: "Centre" }).click();
+  await expect(layout.locator(".layout-text-content")).toHaveCSS("text-align", "center");
+  await expect(layout.getByRole("spinbutton", { name: "Size pt" })).toHaveAttribute("step", "1");
+  await layout.getByRole("spinbutton", { name: "Size pt" }).fill("14");
+  await layout.getByRole("spinbutton", { name: "Size pt" }).press("Tab");
+  await expect(layout.getByRole("spinbutton", { name: "Size pt" })).toHaveValue("14");
+  await expect(layout.locator(".layout-object-text-box .layout-text-line")).toHaveCount(2);
+  const editLines = await layout.locator(".layout-object-text-box .layout-text-line").allTextContents();
+  const editLineHeightRatio = await layout.locator(".layout-text-content").evaluate((element) => {
+    const style = getComputedStyle(element);
+    return Number.parseFloat(style.lineHeight) / Number.parseFloat(style.fontSize);
+  });
+  expect(await page.evaluate(() => document.fonts.check('italic 700 16px "PhotoFlex Architects Daughter"'))).toBe(true);
+  expect(await page.evaluate(() => document.fonts.check('italic 700 16px "PhotoFlex Noto Serif SC"'))).toBe(true);
+  await expect(layout.locator(".layout-save-status")).toContainText("Saved locally");
+
+  await frame.dblclick();
+  await expect(input).toBeFocused();
+  await input.evaluate((element: HTMLTextAreaElement) => {
+    element.dispatchEvent(new CompositionEvent("compositionstart", { bubbles: true }));
+    const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!;
+    setter.call(element, `${element.value}中`);
+    element.dispatchEvent(new InputEvent("input", { bubbles: true, data: "中", inputType: "insertCompositionText", isComposing: true }));
+  });
+  await input.evaluate((element: HTMLTextAreaElement) => element.dispatchEvent(new CompositionEvent("compositionend", { bubbles: true, data: "中" })));
+  await input.press("Escape");
+  await expect(layout.locator(".layout-object-text-box")).toContainText("Café中");
+
+  await frame.dblclick();
+  await input.fill("中文排版".repeat(200));
+  await input.press("Escape");
+  await expect(layout.locator(".layout-properties-panel [role=alert], .layout-text-warning")).toHaveCount(0);
+
+  await frame.dblclick();
+  await input.fill("A🦄");
+  await input.press("Escape");
+  await expect(layout.locator(".layout-properties-panel [role=alert], .layout-text-warning")).toHaveCount(0);
+  await frame.dblclick();
+  await input.fill(sample);
+  await layout.getByRole("button", { name: "Read", exact: true }).click();
+  const reader = page.getByRole("dialog", { name: /Read .*Layout/ });
+  await expect(reader).toBeVisible();
+  expect(await reader.locator(".layout-object-text-box .layout-text-line").allTextContents()).toEqual(editLines);
+  const readerLineHeightRatio = await reader.locator(".layout-text-content").evaluate((element) => {
+    const style = getComputedStyle(element);
+    return Number.parseFloat(style.lineHeight) / Number.parseFloat(style.fontSize);
+  });
+  expect(readerLineHeightRatio).toBeCloseTo(editLineHeightRatio, 3);
+  await reader.getByRole("button", { name: "Next", exact: true }).last().click();
+  await expect(reader.locator(".layout-reader-progress")).toContainText("2–3 / 10");
+  await reader.getByRole("button", { name: "Exit reading" }).click();
+  await expect(layout.locator(".layout-pages-list button[aria-current=page]")).toContainText("Front cover");
+  await expect(layout.locator(".layout-save-status")).toContainText("Saved locally");
+  await page.reload();
+  await expect(layout.locator(".layout-object-text-box .layout-text-line")).toHaveCount(2);
+  expect(await layout.locator(".layout-object-text-box .layout-text-line").allTextContents()).toEqual(editLines);
+  await expect(layout.locator(".layout-text-content")).toHaveCSS("font-weight", "700");
+  await expect(layout.locator(".layout-text-content")).toHaveCSS("font-style", "italic");
+});
+
+test("Layout exports fixed physical pages with selectable text and keeps blank pages", async ({ page }, testInfo) => {
+  await page.goto("/");
+  await expect(page.getByRole("heading", { name: "Projects" })).toBeVisible();
+  await seedSequence(page);
+  await page.goto(`/#/projects/${PROJECT_ID}/sequences/${SEQUENCE_ID}`);
+  await page.getByRole("dialog", { name: "Sequence Street Edit" }).getByRole("button", { name: "Layout" }).click();
+  const creator = page.getByRole("dialog", { name: "Create Layout" });
+  await creator.getByLabel("Blank book (front cover, body page, back cover)").check();
+  await creator.getByRole("button", { name: "Create Layout" }).click();
+  await removeCoversForLegacyEditing(page);
+  const layout = page.getByRole("main", { name: "Layout workspace" });
+  await expect(layout).toBeVisible();
+  await layout.getByRole("button", { name: "Paper color" }).click();
+  await layout.getByRole("option", { name: "Snow White" }).click();
+  await layout.getByRole("button", { name: "Paper material" }).click();
+  await layout.getByRole("option", { name: "Fine cotton paper" }).click();
+  await layout.getByRole("button", { name: "Draw text box" }).click();
+  const paper = (await layout.locator(".layout-paper.is-current").boundingBox())!;
+  await page.mouse.move(paper.x + paper.width * .1, paper.y + paper.height * .1);
+  await page.mouse.down();
+  await page.mouse.move(paper.x + paper.width * .9, paper.y + paper.height * .4, { steps: 5 });
+  await page.mouse.up();
+  const sample = "摄影集：上海街景，人物与光影。\n第二页 2026 / Café";
+  await layout.getByRole("textbox", { name: "Edit text in frame" }).fill(sample);
+  await layout.getByRole("button", { name: "+ Blank page" }).click();
+  const downloadEvent = page.waitForEvent("download", { timeout: 120_000 });
+  await layout.getByRole("button", { name: "Export PDF" }).click();
+  const quality = page.getByRole("dialog", { name: "PDF export quality" });
+  await expect(quality).toBeVisible();
+  await expect(quality.getByRole("radio")).toHaveCount(4);
+  await expect(quality.getByRole("radio", { name: /Medium/ })).toBeChecked();
+  await quality.getByRole("button", { name: "Export PDF" }).click();
+  const download = await downloadEvent;
+  const path = testInfo.outputPath("layout.pdf");
+  await download.saveAs(path);
+  const pdf = await PDFDocument.load(await readFile(path));
+  expect(pdf.getPageCount()).toBe(2);
+  for (const physicalPage of pdf.getPages()) {
+    expect(physicalPage.getWidth()).toBeCloseTo(210 * 72 / 25.4, 4);
+    expect(physicalPage.getHeight()).toBeCloseTo(297 * 72 / 25.4, 4);
+  }
+  expect(pdf.getPage(0).node.Resources()?.lookup(PDFName.of("Font"), PDFDict)?.keys().length).toBeGreaterThan(0);
+  expect(pdf.getPage(0).node.Resources()?.lookup(PDFName.of("XObject"), PDFDict)?.keys().length ?? 0).toBe(1);
+  expect(pdf.getPage(1).node.Resources()?.lookup(PDFName.of("XObject"), PDFDict)?.keys().length ?? 0).toBe(1);
+  await layout.getByRole("group", { name: "Template" }).getByRole("button", { name: "Single template" }).click();
+  await layout.getByRole("button", { name: "Export PDF" }).click();
+  await quality.getByRole("button", { name: "Export PDF" }).click();
+  await expect(layout.locator(".layout-export-status")).toContainText("empty frame");
+  await expect(layout.locator(".layout-export-status")).toContainText("Page 2");
+  await expect(layout.locator(".layout-export-status").getByRole("button", { name: "Continue export" })).toHaveCount(0);
+});
+
+test("Layout Read turns rigid faces, reverses drags and centers closed covers", async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto("/");
+  await expect(page.getByRole("heading", { name: "Projects" })).toBeVisible();
+  await seedSequence(page);
+  await seedHardReaderLayout(page, 6);
+  await page.goto(`/#/projects/${PROJECT_ID}/sequences/${SEQUENCE_ID}/layout/hard-reader-layout`);
+  await page.getByRole("button", { name: "Read", exact: true }).click();
+  const reader = page.getByRole("dialog", { name: "Read Street / Light" });
+  const book = reader.locator(".layout-page-curl");
+  const counter = reader.locator(".layout-reader-progress");
+  await expect(counter).toContainText("1 / 6");
+  await expect(book.locator(".stf__item.--hard")).toHaveCount(7);
+  await expect(book.locator(".stf__item.--soft")).toHaveCount(0);
+  const cover = (await reader.locator('article[aria-label="Page 1"]').boundingBox())!;
+  expect(cover.x + cover.width / 2).toBeCloseTo(720, 0);
+  await page.screenshot({ path: `design-output/Layout/read-hard-cover-${testInfo.project.name}.png` });
+
+  await page.keyboard.press("ArrowRight");
+  await expect(counter).toContainText("2–3 / 6");
+  await expect(book).not.toHaveAttribute("data-turning");
+  // The same panorama is clipped into the two faces, including the right half.
+  await expect(reader.locator('article[aria-label="Page 2"] img.layout-placed-image')).toHaveCount(1);
+  await expect(reader.locator('article[aria-label="Page 3"] img.layout-placed-image')).toHaveCount(1);
+  await page.screenshot({ path: `design-output/Layout/read-hard-spread-${testInfo.project.name}.png` });
+  const bounds = (await book.boundingBox())!;
+  const rightDepth = await book.evaluate((element) => (element as HTMLElement).style.getPropertyValue("--book-right-depth"));
+  await page.mouse.move(bounds.x + bounds.width * .96, bounds.y + bounds.height * .5);
+  await page.mouse.down();
+  await page.mouse.move(bounds.x + bounds.width * .72, bounds.y + bounds.height * .5, { steps: 8 });
+  await expect(book).toHaveAttribute("data-turning", "next");
+  await expect(counter).toContainText("2–3 / 6");
+  await expect.poll(() => book.locator(".stf__item.--shown").evaluateAll((leaves) => leaves.some((leaf) =>
+    (leaf as HTMLElement).style.transform.includes("rotateY") && (leaf as HTMLElement).style.clipPath === "none"))).toBe(true);
+  expect(await book.evaluate((element) => (element as HTMLElement).style.getPropertyValue("--book-right-depth"))).not.toBe(rightDepth);
+  await page.screenshot({ path: `design-output/Layout/read-hard-turn-${testInfo.project.name}.png` });
+  await page.mouse.move(bounds.x + bounds.width * .96, bounds.y + bounds.height * .5, { steps: 8 });
+  await page.mouse.up();
+  await expect(book).not.toHaveAttribute("data-turning");
+  await expect(counter).toContainText("2–3 / 6");
+  expect(await book.locator(".layout-page-curl-leaf").evaluateAll((leaves) => leaves.every((leaf) =>
+    !(leaf as HTMLElement).style.getPropertyValue("--turn-shade")))).toBe(true);
+
+  await page.mouse.move(bounds.x + bounds.width * .96, bounds.y + bounds.height * .5);
+  await page.mouse.down();
+  await page.mouse.move(bounds.x + bounds.width * .08, bounds.y + bounds.height * .5, { steps: 12 });
+  await page.mouse.up();
+  await expect(counter).toContainText("4–5 / 6");
+  await page.keyboard.press("End");
+  await expect(counter).toContainText("6 / 6");
+  const back = (await reader.locator('article[aria-label="Page 6"]').boundingBox())!;
+  expect(back.x + back.width / 2).toBeCloseTo(720, 0);
+  await reader.getByRole("button", { name: "Fullscreen", exact: true }).click();
+  await expect.poll(() => reader.evaluate((element) => document.fullscreenElement === element)).toBe(true);
+  await reader.getByRole("button", { name: "Exit fullscreen", exact: true }).click();
+  await expect.poll(() => page.evaluate(() => document.fullscreenElement === null)).toBe(true);
+  await page.keyboard.press("Home");
+  await expect(counter).toContainText("1 / 6");
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.keyboard.press("ArrowRight");
+  await expect(counter).toContainText("2–3 / 6");
+  await expect(book).not.toHaveAttribute("data-turning");
+  await page.keyboard.press("Escape");
+  await expect(reader).toHaveCount(0);
+  expect(await page.evaluate(async () => {
+    const request = indexedDB.open("photoflex-mvp");
+    const database = await new Promise<IDBDatabase>((resolve) => { request.onsuccess = () => resolve(request.result); });
+    const layout = await new Promise<{ revision: number }>((resolve) => {
+      const get = database.transaction("layouts").objectStore("layouts").get("hard-reader-layout");
+      get.onsuccess = () => resolve(get.result);
+    });
+    database.close();
+    return layout.revision;
+  })).toBe(7);
+});
+
+test.describe("Layout Read on touch screens", () => {
+  test.use({ hasTouch: true });
+  test("keeps single pages rigid through touch turns, zoom and an odd final spread", async ({ page }, testInfo) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto("/");
+    await expect(page.getByRole("heading", { name: "Projects" })).toBeVisible();
+    await seedSequence(page);
+    await seedHardReaderLayout(page, 5);
+    await page.goto(`/#/projects/${PROJECT_ID}/sequences/${SEQUENCE_ID}/layout/hard-reader-layout`);
+    await page.getByRole("button", { name: "Read", exact: true }).click();
+    const reader = page.getByRole("dialog", { name: "Read Street / Light" });
+    const book = reader.locator(".layout-page-curl");
+    const counter = reader.locator(".layout-reader-progress");
+    await expect(book.locator(".stf__wrapper.--portrait")).toHaveCount(1);
+    const bounds = (await book.boundingBox())!;
+    await page.touchscreen.tap(bounds.x + bounds.width * .92, bounds.y + bounds.height * .5);
+    await expect(counter).toContainText("2 / 5");
+    await expect(book).not.toHaveAttribute("data-turning");
+    const session = await page.context().newCDPSession(page);
+    await session.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x: bounds.x + bounds.width * .92, y: bounds.y + bounds.height * .5 }] });
+    for (const fraction of [.8, .65, .45, .2]) {
+      await session.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [{ x: bounds.x + bounds.width * fraction, y: bounds.y + bounds.height * .5 }] });
+    }
+    await session.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+    await expect(counter).toContainText("3 / 5");
+    await expect(book).not.toHaveAttribute("data-turning");
+    await session.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [
+      { x: bounds.x + bounds.width * .3, y: bounds.y + bounds.height * .5 },
+      { x: bounds.x + bounds.width * .7, y: bounds.y + bounds.height * .5 },
+    ] });
+    await session.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [
+      { x: bounds.x + bounds.width * .2, y: bounds.y + bounds.height * .5 },
+      { x: bounds.x + bounds.width * .8, y: bounds.y + bounds.height * .5 },
+    ] });
+    await session.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+    await expect(reader).toHaveClass(/is-zoomed/);
+    await expect(counter).toContainText("3 / 5");
+    await reader.locator(".layout-reader-fit").click();
+    await expect(reader.locator(".layout-reader-fit")).toHaveText("100%");
+    await reader.getByRole("button", { name: "＋", exact: true }).click();
+    await expect(reader.locator(".layout-reader-fit")).toHaveText("125%");
+    await reader.locator(".layout-reader-fit").click();
+    await expect(reader.locator(".layout-reader-fit")).toHaveText("100%");
+    await page.screenshot({ path: `design-output/Layout/read-hard-mobile-${testInfo.project.name}.png` });
+    await reader.getByRole("button", { name: "Facing", exact: true }).click();
+    await expect(book.locator(".stf__wrapper.--landscape")).toHaveCount(1);
+    await expect(book.locator(".stf__item.--shown")).toHaveCount(2);
+    await page.keyboard.press("End");
+    await expect(counter).toContainText("4–5 / 5");
+    await expect(book.locator(".stf__item.--soft")).toHaveCount(0);
+    await page.keyboard.press("Escape");
+    await expect(reader).toHaveCount(0);
+  });
+});
+
+async function seedHardReaderLayout(page: Page, pageCount: number) {
+  await page.evaluate(async ({ projectId, sequenceId, pageCount }) => {
+    const request = indexedDB.open("photoflex-mvp");
+    const database = await new Promise<IDBDatabase>((resolve, reject) => {
+      request.onsuccess = () => resolve(request.result); request.onerror = () => reject(request.error);
+    });
+    const transaction = database.transaction(["projects", "layouts"], "readwrite");
+    const get = transaction.objectStore("projects").get(projectId);
+    get.onsuccess = () => transaction.objectStore("projects").put({ ...get.result, layoutIds: ["hard-reader-layout"] });
+    const timestamp = "2026-10-02T00:00:00.000Z";
+    transaction.objectStore("layouts").put({
+      schemaVersion: 1, id: "hard-reader-layout", projectId, sequenceId, name: "Street / Light",
+      pageSpec: { widthPt: 600, heightPt: 840 }, revision: 7, createdAt: timestamp, updatedAt: timestamp,
+      pages: Array.from({ length: pageCount }, (_, index) => ({
+        id: `hard-page-${index}`, paper: { color: index === 0 ? "#465146" : "#F4EFE5", material: "fine-paper" },
+        objects: [
+          { kind: "text-box", id: `hard-heading-${index}`, rect: { x: 40, y: 40, width: 520, height: 90 },
+            text: index === 0 ? "STREET / LIGHT" : `${String(index + 1).padStart(2, "0")}     Shanghai, 2026`,
+            style: { fontFamily: "eb-garamond", fontSizePt: index === 0 ? 46 : 23, lineHeight: 1.2, color: index === 0 ? "#F4EFE5" : "#252922", align: "left" } },
+          ...(index === 2 ? [] : [{ kind: "image-frame", id: `hard-image-${index}`,
+            rect: { x: 40, y: 170, width: index === 1 ? 1120 : 520, height: 440 }, photoId: `sequence-photo-${index + 1}`,
+            crop: { mode: "fill", zoom: 1, focal: { x: .5, y: .5 } } }]),
+          { kind: "text-box", id: `hard-caption-${index}`, rect: { x: 40, y: 700, width: 520, height: 70 },
+            text: "摄影集 · 街景与光影\nA photographic collection",
+            style: { fontFamily: "noto-serif-sc", fontSizePt: 14, lineHeight: 1.6, color: index === 0 ? "#F4EFE5" : "#55594F", align: "left" } },
+        ],
+      })),
+    });
+    await new Promise<void>((resolve, reject) => { transaction.oncomplete = () => resolve(); transaction.onerror = () => reject(transaction.error); });
+    database.close();
+  }, { projectId: PROJECT_ID, sequenceId: SEQUENCE_ID, pageCount });
+}
+
 async function seedSequence(page: Page) {
   await page.evaluate(async ({ projectId, sequenceId }) => {
     const request = indexedDB.open("photoflex-mvp");
@@ -150,9 +898,9 @@ async function seedSequence(page: Page) {
     const readingUnits = items.map((item, index) => ({ id: `sequence-unit-${index + 1}`, kind: "single", itemId: item.id }));
     const transaction = database.transaction(["projects", "sequences", "versions", "photo-index", "photo-thumbnails", "photo-derived-previews"], "readwrite");
     transaction.objectStore("projects").put({
-      schemaVersion: 8, projectId, name: "Sequence Visual", memo: "", expectedPhotoCount: null, sources: [], photoStates: {},
-      worktableDraft: { projectId, entryOrder: [], placements: {}, groups: [], links: [], pileOrder: [sequenceId], pilePlacements: { [sequenceId]: { sequenceId, x: 120, y: 110, z: 1, width: 402, height: 176 } } },
-      sequenceIds: [sequenceId], versionIds: [versionId], revision: 0, createdAt, updatedAt: createdAt, lastOpenedAt: createdAt,
+      schemaVersion: 10, projectId, name: "Sequence Visual", memo: "", expectedPhotoCount: null, sources: [], photoStates: {},
+      worktableDraft: { projectId, entryOrder: [], placements: {}, groups: [], links: [], pileOrder: [sequenceId], pilePlacements: { [sequenceId]: { sequenceId, x: 120, y: 110, z: 1, width: 402, height: 176 } }, frameOrder: [], frames: {} },
+      sequenceIds: [sequenceId], versionIds: [versionId], layoutIds: [], revision: 0, createdAt, updatedAt: createdAt, lastOpenedAt: createdAt,
     });
     transaction.objectStore("sequences").put({ id: sequenceId, projectId, name: "Street Edit", items, segments: [], readingUnits, currentVersionId: versionId, revision: 0, createdAt, updatedAt: createdAt });
     transaction.objectStore("versions").put({ id: versionId, projectId, sequenceId, name: "Initial · Street Edit", itemCount: items.length, items, segments: [], readingUnits, createdAt });
@@ -163,7 +911,7 @@ async function seedSequence(page: Page) {
       const markerY = photo.height * .16;
       const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${photo.width}" height="${photo.height}"><rect width="100%" height="100%" fill="hsl(${hue} 22% 78%)"/><path d="M0 ${photo.height} L${photo.width * .32} ${photo.height * .35} L${photo.width * .63} ${photo.height * .7} L${photo.width} ${photo.height * .2} V${photo.height}Z" fill="hsl(${hue} 25% 34%)"/><circle cx="${markerX}" cy="${markerY}" r="${Math.min(photo.width, photo.height) * .06}" fill="#fff"/></svg>`;
       const blob = new Blob([svg], { type: "image/svg+xml" });
-      const sourceVersion = `SEQ_${index + 1}.jpg|${photo.width}|${photo.height}|unknown-size|unknown-mtime`;
+      const sourceVersion = `SEQ_${index + 1}.jpg|${photo.width}|${photo.height}|unknown-size|unknown-mtime|unknown-fingerprint`;
       transaction.objectStore("photo-thumbnails").put({ photoId: photo.id, maxEdge: 512, sourceVersion, blob });
       transaction.objectStore("photo-derived-previews").put({ photoId: photo.id, maxEdge: 768, sourceVersion, blob });
     }
@@ -191,4 +939,15 @@ async function sequenceRevision(page: Page) {
     database.close();
     return Number(row.revision);
   }, SEQUENCE_ID);
+}
+
+async function removeCoversForLegacyEditing(page: Page) {
+  const workspace = page.getByRole("main", { name: "Layout workspace" });
+  const pages = workspace.locator(".layout-pages-list button");
+  await expect(pages).toHaveCount(3);
+  await pages.last().click();
+  await workspace.getByRole("button", { name: "Delete", exact: true }).click();
+  await pages.first().click();
+  await workspace.getByRole("button", { name: "Delete", exact: true }).click();
+  await expect(pages).toHaveCount(1);
 }

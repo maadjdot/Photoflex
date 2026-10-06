@@ -64,6 +64,182 @@ async function createPileFixture() {
 }
 
 describe("TablePage", () => {
+  it("creates a Diptych Frame from selected photos and restores it from the workspace", async () => {
+    const dependencies = await createFixture();
+    const view = render(<App dependencies={dependencies} />);
+    const stage = await screen.findByLabelText("Photo worktable");
+    fireEvent.keyDown(stage, { key: "a", ctrlKey: true });
+    expect(screen.queryByRole("combobox", { name: "Place selected photos in Frame" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Frame templates" }));
+    fireEvent.click(screen.getByRole("button", { name: /^Plain Page/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Diptych 2 slots/ }));
+    await waitFor(() => expect(stage.querySelectorAll("[data-frame-id]")).toHaveLength(1));
+    await waitFor(async () => {
+      const workspace = await dependencies.projectStore.loadWorkspace(projectId);
+      expect(workspace.ok && workspace.value.worktableDraft.frameOrder).toHaveLength(1);
+      if (!workspace.ok) return;
+      const saved = workspace.value.worktableDraft.frames?.[workspace.value.worktableDraft.frameOrder![0]];
+      expect(saved?.page.slots.map((slot) => slot.photoId)).toEqual([photoA, photoB]);
+      expect(workspace.value.worktableDraft.entryOrder).toHaveLength(2);
+    });
+    view.unmount();
+    render(<App dependencies={dependencies} />);
+    const restoredStage = await screen.findByLabelText("Photo worktable");
+    await waitFor(() => expect(restoredStage.querySelectorAll("[data-frame-id]")).toHaveLength(1));
+  });
+
+  it("keeps a loaded photo visible when its photo box is brought to front", async () => {
+    const dependencies = await createFixture();
+    render(<App dependencies={dependencies} />);
+    const stage = await screen.findByLabelText("Photo worktable");
+    fireEvent.keyDown(stage, { key: "a", ctrlKey: true });
+    fireEvent.click(screen.getByRole("button", { name: "Frame templates" }));
+    fireEvent.click(screen.getByRole("button", { name: /^Plain Page/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Diptych 2 slots/ }));
+    const frame = stage.querySelector<HTMLElement>("[data-frame-id]")!;
+    const first = frame.querySelector<HTMLElement>("[data-frame-slot-id]")!;
+    const image = await waitFor(() => {
+      const value = first.querySelector<HTMLImageElement>("img");
+      expect(value?.getAttribute("src")).toContain("data:image");
+      return value!;
+    });
+    Object.defineProperty(image, "naturalWidth", { configurable: true, value: 1200 });
+    Object.defineProperty(image, "naturalHeight", { configurable: true, value: 900 });
+    fireEvent.load(image);
+    await waitFor(() => expect(first.querySelector(".table-frame-loading")).toBeNull());
+    expect(first.querySelector("img")?.classList.contains("table-frame-image-enter")).toBe(true);
+    fireEvent.pointerDown(first, { pointerId: 37, button: 0, clientX: 420, clientY: 240 });
+    fireEvent.pointerUp(frame, { pointerId: 37, button: 0, clientX: 420, clientY: 240 });
+    fireEvent.click(screen.getByRole("button", { name: "Front photo box" }));
+    expect(frame.querySelector("[data-frame-slot-id]:last-child")?.getAttribute("data-frame-slot-id")).toBe(first.getAttribute("data-frame-slot-id"));
+    expect(first.querySelector(".table-frame-loading")).toBeNull();
+    expect(first.querySelector("img")?.getAttribute("src")).toBe(image.getAttribute("src"));
+  });
+
+  it("places Table photos above a Frame by default and honors Frame Front", async () => {
+    const dependencies = await createFixture();
+    render(<App dependencies={dependencies} />);
+    const stage = await screen.findByLabelText("Photo worktable");
+    fireEvent.keyDown(stage, { key: "a", ctrlKey: true });
+    fireEvent.click(screen.getByRole("button", { name: "Frame templates" }));
+    fireEvent.click(screen.getByRole("button", { name: /^Plain Page/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Diptych 2 slots/ }));
+    const frame = stage.querySelector<HTMLElement>("[data-frame-id]")!;
+    const photos = [...stage.querySelectorAll<HTMLElement>("[data-worktable-photo-id]")];
+    const lowestPhotoZ = Math.min(...photos.map((photo) => Number(photo.style.zIndex)));
+    expect(Number(frame.style.zIndex)).toBeLessThan(lowestPhotoZ);
+    const settings = within(screen.getByRole("complementary", { name: "Frame settings" }));
+    fireEvent.click(settings.getByRole("button", { name: /^Front$/ }));
+    expect(Number(frame.style.zIndex)).toBeGreaterThan(Math.max(...photos.map((photo) => Number(photo.style.zIndex))));
+    fireEvent.click(settings.getByRole("button", { name: "Duplicate" }));
+    const duplicate = [...stage.querySelectorAll<HTMLElement>("[data-frame-id]")].find((item) => item !== frame)!;
+    expect(Number(duplicate.style.zIndex)).toBeLessThan(lowestPhotoZ);
+  });
+
+  it("drops a Table photo into a Frame without moving its original card", async () => {
+    const dependencies = await createFixture();
+    render(<App dependencies={dependencies} />);
+    const stage = await screen.findByLabelText("Photo worktable");
+    fireEvent.click(screen.getByRole("button", { name: "Frame templates" }));
+    fireEvent.click(screen.getByRole("button", { name: /^Plain Page/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Single 1 slots/ }));
+    const frame = stage.querySelector<HTMLElement>("[data-frame-id]")!;
+    const page = frame.querySelector<HTMLElement>(".table-frame-page")!;
+    const slot = frame.querySelector<HTMLElement>("[data-frame-slot-id]")!;
+    const rect = (left: number, top: number, width: number, height: number) => ({ left, top, width, height, right: left + width, bottom: top + height, x: left, y: top, toJSON() {} });
+    Object.defineProperty(page, "getBoundingClientRect", { configurable: true, value: () => rect(350, 100, 300, 420) });
+    Object.defineProperty(slot, "getBoundingClientRect", { configurable: true, value: () => rect(370, 120, 260, 380) });
+    const before = await dependencies.projectStore.loadWorkspace(projectId);
+    expect(before.ok).toBe(true);
+    if (!before.ok) return;
+    const cardId = before.value.worktableDraft.entryOrder[0];
+    const placement = before.value.worktableDraft.placements[cardId];
+    const card = screen.getByLabelText("A.jpg");
+    fireEvent.pointerDown(card, { pointerId: 91, button: 0, clientX: 100, clientY: 100 });
+    fireEvent.pointerMove(stage, { pointerId: 91, clientX: 430, clientY: 245 });
+    fireEvent.pointerUp(stage, { pointerId: 91, clientX: 430, clientY: 245 });
+    await waitFor(async () => {
+      const after = await dependencies.projectStore.loadWorkspace(projectId);
+      expect(after.ok).toBe(true);
+      if (!after.ok) return;
+      const id = after.value.worktableDraft.frameOrder![0];
+      expect(after.value.worktableDraft.frames?.[id].page.slots[0].photoId).toBe(photoA);
+      expect(after.value.worktableDraft.placements[cardId]).toEqual(placement);
+    });
+  });
+
+  it("moves a Fill photo crop with a right-button drag and saves it on release", async () => {
+    const dependencies = await createFixture();
+    render(<App dependencies={dependencies} />);
+    const stage = await screen.findByLabelText("Photo worktable");
+    fireEvent.keyDown(stage, { key: "a", ctrlKey: true });
+    fireEvent.click(screen.getByRole("button", { name: "Frame templates" }));
+    fireEvent.click(screen.getByRole("button", { name: /^Plain Page/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Diptych 2 slots/ }));
+    const frame = await waitFor(() => {
+      const value = stage.querySelector<HTMLElement>("[data-frame-id]");
+      expect(value).toBeTruthy();
+      return value!;
+    });
+    const slot = frame.querySelector<HTMLElement>("[data-frame-slot-id]")!;
+    fireEvent.pointerDown(slot, { pointerId: 81, button: 2, clientX: 200, clientY: 200 });
+    fireEvent.pointerMove(frame, { pointerId: 81, button: 2, clientX: 235, clientY: 200 });
+    fireEvent.pointerUp(frame, { pointerId: 81, button: 2, clientX: 235, clientY: 200 });
+    await waitFor(async () => {
+      const workspace = await dependencies.projectStore.loadWorkspace(projectId);
+      expect(workspace.ok).toBe(true);
+      if (!workspace.ok) return;
+      const id = workspace.value.worktableDraft.frameOrder![0];
+      expect(workspace.value.worktableDraft.frames?.[id].page.slots[0].crop.focal.x).toBeLessThan(.5);
+    });
+  });
+
+  it("discards an unfinished crop when another photo box is selected", async () => {
+    const dependencies = await createFixture();
+    render(<App dependencies={dependencies} />);
+    const stage = await screen.findByLabelText("Photo worktable");
+    fireEvent.keyDown(stage, { key: "a", ctrlKey: true });
+    fireEvent.click(screen.getByRole("button", { name: "Frame templates" }));
+    fireEvent.click(screen.getByRole("button", { name: /^Plain Page/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Diptych 2 slots/ }));
+    const frame = await waitFor(() => {
+      const value = stage.querySelector<HTMLElement>("[data-frame-id]");
+      expect(value).toBeTruthy();
+      return value!;
+    });
+    const [first, second] = frame.querySelectorAll<HTMLElement>("[data-frame-slot-id]");
+    fireEvent.pointerDown(first, { pointerId: 82, button: 0, clientX: 200, clientY: 200 });
+    fireEvent.pointerUp(frame, { pointerId: 82, button: 0, clientX: 200, clientY: 200 });
+    fireEvent.click(screen.getByRole("button", { name: "Adjust crop" }));
+    fireEvent.change(screen.getByRole("slider", { name: /Zoom/ }), { target: { value: "2" } });
+    expect(screen.getByRole("button", { name: "Done" })).toBeTruthy();
+
+    fireEvent.pointerDown(second, { pointerId: 83, button: 0, clientX: 400, clientY: 200 });
+    fireEvent.pointerUp(frame, { pointerId: 83, button: 0, clientX: 400, clientY: 200 });
+
+    expect(screen.getByRole("heading", { name: /PHOTO BOX 02/ })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Done" })).toBeNull();
+  });
+
+  it("requires an explicit choice before using only the first selected photo", async () => {
+    const dependencies = await createFixture();
+    render(<App dependencies={dependencies} />);
+    const stage = await screen.findByLabelText("Photo worktable");
+    fireEvent.keyDown(stage, { key: "a", ctrlKey: true });
+    fireEvent.click(screen.getByRole("button", { name: "Frame templates" }));
+    fireEvent.click(screen.getByRole("button", { name: /^Plain Page/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Single 1 slots/ }));
+    expect(stage.querySelectorAll("[data-frame-id]")).toHaveLength(0);
+    fireEvent.click(within(screen.getByRole("button", { name: /Single 1 slots/ }).closest(".table-frame-template-choice") as HTMLElement).getByRole("button", { name: "Use first 1 of 2" }));
+    await waitFor(() => expect(stage.querySelectorAll("[data-frame-id]")).toHaveLength(1));
+    const workspace = await dependencies.projectStore.loadWorkspace(projectId);
+    expect(workspace.ok).toBe(true);
+    if (!workspace.ok) return;
+    const id = workspace.value.worktableDraft.frameOrder![0];
+    expect(workspace.value.worktableDraft.frames?.[id].page.slots[0].photoId).toBe(photoA);
+    expect(workspace.value.worktableDraft.entryOrder).toHaveLength(2);
+  });
+
   it("does not show Open Photos for an empty Table", async () => {
     const projectStore = new MemoryProjectStore();
     const created = await projectStore.createProject({
@@ -214,6 +390,7 @@ describe("TablePage", () => {
   });
   beforeEach(() => {
     window.location.hash = `#/projects/${projectId}/table`;
+    window.sessionStorage.removeItem(`photoflex:table-toolbar:${projectId}:visible`);
     if (!("PointerEvent" in window)) Object.defineProperty(window, "PointerEvent", { value: MouseEvent });
     Object.defineProperties(HTMLElement.prototype, {
       setPointerCapture: { configurable: true, value: vi.fn() },
@@ -267,14 +444,14 @@ describe("TablePage", () => {
     const cardA = screen.getByLabelText("A.jpg");
     expect(cardA).toBeTruthy();
     expect(screen.getByLabelText("B.jpg")).toBeTruthy();
-    expect(screen.queryByText("A.jpg")).toBeNull();
+    expect(within(cardA).queryByText("A.jpg")).toBeNull();
     const toolbar = within(screen.getByLabelText("Table toolbar"));
     expect(toolbar.queryByRole("button", { name: "Contact Sheet" })).toBeNull();
     expect(within(screen.getByRole("button", { name: "Back to Home" }).closest("header")!).getByText("Table Project")).toBeTruthy();
     expect(toolbar.queryByRole("button", { name: "Preview" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Hand" })).toBeNull();
     expect(screen.queryByRole("group", { name: "Table selection actions" })).toBeNull();
-    expect(screen.getByRole("group", { name: "Table arrangement tools" })).toBeTruthy();
+    expect(screen.getByRole("group", { name: "Canvas tools" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Move toolbar vertically" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: /登录/ })).toBeNull();
     expect(screen.queryByText(/Juxtapose/)).toBeNull();
@@ -289,6 +466,51 @@ describe("TablePage", () => {
     expect(preview.querySelector(".table-photo-preview-image")?.getAttribute("data-rotation")).toBe("90");
     fireEvent.click(screen.getByRole("button", { name: "Close preview" }));
 
+  });
+
+  it("hides and restores the left toolbar, keeping its visibility for the current session", async () => {
+    const dependencies = await createFixture();
+    const view = render(<App dependencies={dependencies} />);
+    await screen.findByLabelText("Photo worktable");
+
+    fireEvent.click(screen.getByRole("button", { name: "Hide left toolbar" }));
+    expect(screen.queryByRole("group", { name: "Canvas tools" })).toBeNull();
+    expect(screen.queryByRole("group", { name: "Undo / Redo" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Show left toolbar" })).toBeTruthy();
+    view.unmount();
+
+    render(<App dependencies={dependencies} />);
+    await screen.findByLabelText("Photo worktable");
+    expect(screen.queryByRole("group", { name: "Canvas tools" })).toBeNull();
+    expect(screen.queryByRole("group", { name: "Undo / Redo" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Show left toolbar" }));
+    expect(screen.getByRole("group", { name: "Canvas tools" })).toBeTruthy();
+    expect(screen.getByRole("group", { name: "Undo / Redo" })).toBeTruthy();
+  });
+
+  it("arranges selected photos using the chosen photos-per-row count", async () => {
+    const dependencies = await createFixture();
+    render(<App dependencies={dependencies} />);
+    const stage = await screen.findByLabelText("Photo worktable");
+    fireEvent.keyDown(stage, { key: "a", ctrlKey: true });
+
+    fireEvent.click(screen.getByRole("button", { name: "Grid" }));
+    fireEvent.click(within(screen.getByRole("dialog", { name: "Grid layout" })).getByRole("button", { name: "1 per row" }));
+    await waitFor(async () => {
+      const workspace = await dependencies.projectStore.loadWorkspace(projectId);
+      if (!workspace.ok) throw new Error("workspace not loaded");
+      expect(new Set(Object.values(workspace.value.worktableDraft.placements).map((photo) => photo.y)).size).toBe(2);
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Grid" }));
+    const grid = within(screen.getByRole("dialog", { name: "Grid layout" }));
+    fireEvent.change(grid.getByRole("spinbutton", { name: "Photos per row" }), { target: { value: "2" } });
+    fireEvent.click(grid.getByRole("button", { name: "Apply" }));
+    await waitFor(async () => {
+      const workspace = await dependencies.projectStore.loadWorkspace(projectId);
+      if (!workspace.ok) throw new Error("workspace not loaded");
+      expect(new Set(Object.values(workspace.value.worktableDraft.placements).map((photo) => photo.y)).size).toBe(1);
+    });
   });
 
   it("用 Space 预览选中照片，用 C 打开比较", async () => {
@@ -358,7 +580,7 @@ describe("TablePage", () => {
     fireEvent.keyDown(stage, { key: "a", ctrlKey: true });
     const toolbar = within(screen.getByRole("group", { name: "Table selection actions" }));
     expect(toolbar.getByText("2 photos")).toBeTruthy();
-    expect(within(screen.getByRole("group", { name: "Table arrangement tools" })).getByRole("button", { name: "Create Sequence" }).textContent).toContain("Sequence");
+    expect(toolbar.getByRole("button", { name: "Create Sequence" }).textContent).toContain("Sequence");
     const cardA = screen.getByLabelText("A.jpg");
     const cardB = screen.getByLabelText("B.jpg");
     const beforeShuffle = [cardA.style.transform, cardB.style.transform];
@@ -369,14 +591,13 @@ describe("TablePage", () => {
     fireEvent.click(screen.getByRole("button", { name: "Undo" }));
     expect([cardA.style.transform, cardB.style.transform]).toEqual(beforeShuffle);
     expect(toolbar.queryByRole("button", { name: "Clear" })).toBeNull();
-    fireEvent.click(toolbar.getByRole("button", { name: "Link" }));
-    expect(toolbar.getByRole("button", { name: "Unlink" })).toBeTruthy();
-    expect(stage.querySelectorAll(".worktable-links line")).toHaveLength(1);
-    fireEvent.click(screen.getByRole("button", { name: "Undo" }));
-    expect(stage.querySelectorAll(".worktable-links line")).toHaveLength(0);
-    fireEvent.click(screen.getByRole("button", { name: "Redo" }));
-    expect(stage.querySelectorAll(".worktable-links line")).toHaveLength(1);
-    fireEvent.click(toolbar.getByRole("button", { name: "Unlink" }));
+    expect(toolbar.queryByRole("button", { name: "Link" })).toBeNull();
+    const lineTool = screen.getByRole("button", { name: "Draw line" });
+    fireEvent.click(lineTool);
+    expect(lineTool.getAttribute("aria-pressed")).toBe("true");
+    expect(stage.classList.contains("is-connecting")).toBe(true);
+    fireEvent.keyDown(stage, { key: "Escape" });
+    expect(stage.classList.contains("is-connecting")).toBe(false);
     expect(stage.querySelectorAll(".worktable-links line")).toHaveLength(0);
     const arrangement = within(screen.getByRole("group", { name: "Table arrangement tools" }));
     fireEvent.click(arrangement.getByRole("button", { name: "Group selection" }));
@@ -418,11 +639,17 @@ describe("TablePage", () => {
   });
 
   it("单选组内照片即可解除分组和链接，并可撤销", async () => {
-    render(<App dependencies={await createFixture()} />);
+    const dependencies = await createFixture();
+    const loaded = await dependencies.projectStore.loadWorkspace(projectId);
+    if (!loaded.ok) throw Error("Fixture missing");
+    const editor = createWorktableEditor(loaded.value.worktableDraft);
+    const linked = editor.execute({ type: "create-link", photoIds: [photoA, photoB] });
+    if (!linked.ok) throw Error("Legacy link fixture failed");
+    await dependencies.projectStore.saveWorktable(projectId, linked.value, loaded.value.revision);
+    render(<App dependencies={dependencies} />);
     const stage = await screen.findByLabelText("Photo worktable");
     fireEvent.keyDown(stage, { key: "a", ctrlKey: true });
     fireEvent.keyDown(stage, { key: "g" });
-    fireEvent.keyDown(stage, { key: "l" });
     fireEvent.keyDown(stage, { key: "Escape" });
     fireEvent.pointerDown(screen.getByLabelText("A.jpg"), { pointerId: 31, button: 0, clientX: 100, clientY: 100 });
     fireEvent.pointerUp(stage, { pointerId: 31, clientX: 100, clientY: 100 });
@@ -488,12 +715,21 @@ describe("TablePage", () => {
     expect(card.classList.contains("is-missing")).toBe(false);
   });
 
-  it("keeps header controls together and does not render the retired Sequence Order panel", async () => {
+  it("keeps history separate from left tools and zoom beside photo sources in the header", async () => {
     render(<App dependencies={await createPileFixture()} />);
     await screen.findByLabelText("Photo worktable");
     const header = screen.getByRole("button", { name: "Back to Home" }).closest("header")!;
-    for (const name of ["Undo", "Redo", "Zoom in", "Zoom out", "Hide Photo Sources"]) {
-      expect(within(header).getByRole("button", { name })).toBeTruthy();
+    const navigation = within(header).getByLabelText("Canvas controls");
+    for (const name of ["Zoom in", "Zoom out"]) {
+      expect(within(navigation).getByRole("button", { name })).toBeTruthy();
+    }
+    const tools = screen.getByRole("group", { name: "Canvas tools" });
+    const history = screen.getByRole("group", { name: "Undo / Redo" });
+    expect(history.parentElement).toBe(tools.parentElement);
+    for (const name of ["Undo", "Redo"]) {
+      expect(within(history).getByRole("button", { name })).toBeTruthy();
+      expect(within(tools).queryByRole("button", { name })).toBeNull();
+      expect(within(navigation).queryByRole("button", { name })).toBeNull();
     }
     expect(screen.queryByRole("button", { name: "Shortcuts" })).toBeNull();
     fireEvent.click(within(header).getByRole("button", { name: "Hide Photo Sources" }));

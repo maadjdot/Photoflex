@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { SourceId } from "../../contracts";
+import type { ProjectId, SourceId } from "../../contracts";
 import { BrowserPhotoSource } from "./BrowserPhotoSource";
 import { IndexedDbProjectStore } from "./IndexedDbProjectStore";
 import { backupBytes, backupFixture } from "../../../tests/helpers/projectBackup";
@@ -320,6 +320,59 @@ describe("BrowserPhotoSource", () => {
     databases.push(source);
     expect(await source.reconnectFoldersFromParent(loaded.value.sources)).toEqual({ ok: true, value: { reconnected: [], unmatched: [loaded.value.sources[0].id] } });
     expect(await source.getSourceState(loaded.value.sources[0].id)).toMatchObject({ ok: true, value: { status: "offline" } });
+    await store.close();
+  });
+  it("rejects a same-named folder when one matching photo hides another mismatched photo", async () => {
+    const databaseName = `bulk-partial-mismatch-${crypto.randomUUID()}`;
+    const store = IndexedDbProjectStore.open({ databaseName });
+    const backup = backupFixture();
+    const imported = await store.importBackup(backupBytes({ ...backup, photoManifest: backup.photoManifest.map((photo) => ({
+      ...photo, fileSize: photo.relativePath.length,
+    })) }));
+    if (!imported.ok) throw Error("import failed");
+    const loaded = await store.loadWorkspace(imported.value);
+    if (!loaded.ok) throw Error("workspace missing");
+    const sourceId = loaded.value.sources[0].id;
+    const expectedIds = loaded.value.worktableDraft.entryOrder.map((id) => loaded.value.worktableDraft.placements[id].photoId);
+    const wrong = createDirectory("wrong-partial", "Photos", ["one.jpg", "two.jpg"]);
+    wrong.files.set("two.jpg", new File(["different photo bytes"], "two.jpg", { type: "image/jpeg" }));
+    const right = createDirectory("right-partial", "Photos", ["one.jpg", "two.jpg"]);
+    let selected = wrong;
+    const parent = { name: "Collection", async getDirectoryHandle() { return selected.handle; } } as unknown as FileSystemDirectoryHandle;
+    const source = new BrowserPhotoSource({ databaseName, picker: async () => parent });
+    databases.push(source);
+
+    expect(await source.reconnectFoldersFromParent(loaded.value.sources)).toEqual({ ok: true, value: { reconnected: [], unmatched: [sourceId] } });
+    selected = right;
+    expect(await source.reconnectFoldersFromParent(loaded.value.sources)).toEqual({ ok: true, value: { reconnected: [sourceId], unmatched: [] } });
+    await scanToEnd(source, sourceId);
+    const original = await source.readOriginalFile(expectedIds[1]);
+    expect(original.ok && await original.value.text()).toBe("two.jpg");
+    await store.close();
+  });
+  it("does not reconnect equal-sized but different photo bytes under the original names", async () => {
+    const original = createDirectory("fingerprint-original", "Photos", ["one.jpg", "two.jpg"]);
+    const wrong = createDirectory("fingerprint-wrong", "Photos", ["one.jpg", "two.jpg"]);
+    wrong.files.set("one.jpg", new File(["not.jpg"], "one.jpg", { type: "image/jpeg" }));
+    wrong.files.set("two.jpg", new File(["bad.jpg"], "two.jpg", { type: "image/jpeg" }));
+    let selected = original;
+    const databaseName = `same-size-wrong-${crypto.randomUUID()}`;
+    const source = new BrowserPhotoSource({ databaseName, picker: async () => selected.handle });
+    databases.push(source);
+    const grant = await source.chooseFolder([]);
+    if (!grant.ok) throw Error("folder grant failed");
+    const store = IndexedDbProjectStore.open({ databaseName });
+    const created = await store.createProject({ id: crypto.randomUUID() as ProjectId, name: "Identity check", createdAt: new Date().toISOString(), initialSource: { id: grant.value.sourceId, displayName: grant.value.displayName, createdAt: new Date().toISOString() } });
+    if (!created.ok) throw Error("project not created");
+    await scanToEnd(source, grant.value.sourceId);
+    const photos = await source.listPhotos(grant.value.sourceId);
+    if (!photos.ok) throw Error("photo index missing");
+    const firstId = photos.value.items[0].id;
+
+    selected = wrong;
+    expect(await source.restoreFolder(grant.value.sourceId, { reselect: true })).toMatchObject({ ok: false, error: { kind: "folder-mismatch" } });
+    const stillOriginal = await source.readOriginalFile(firstId);
+    expect(stillOriginal.ok && await stillOriginal.value.text()).toBe("one.jpg");
     await store.close();
   });
   it("reconnects a child folder through the webkitdirectory fallback", async () => {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { ProjectId, SequenceId, SourceId, VersionId } from "../contracts";
+import type { LayoutId, ProjectId, SequenceId, SourceId, VersionId } from "../contracts";
 import { readRoute, routeToHash } from "./router";
 
 describe("readRoute", () => {
@@ -39,5 +39,14 @@ describe("readRoute", () => {
     expect(routeToHash({ name: "version-compare", projectId, leftVersionId: left, rightVersionId: right })).toBe("#/projects/project-1/versions/compare/version-a/version-b");
     expect(readRoute("#/projects/project-1/versions/compare/version-a/version-b")).toEqual({ name: "version-compare", projectId, leftVersionId: left, rightVersionId: right });
     expect(readRoute("#/projects/project-1/sequences/sequence-a?openVersion=version-b")).toEqual({ name: "sequence", projectId, sequenceId, openVersionId: right });
+  });
+
+  it("reads a Layout route with all three matching identities", () => {
+    const projectId = "project-1" as ProjectId;
+    const sequenceId = "sequence-a" as SequenceId;
+    const layoutId = "layout-a" as LayoutId;
+    const route = { name: "layout" as const, projectId, sequenceId, layoutId };
+    expect(routeToHash(route)).toBe("#/projects/project-1/sequences/sequence-a/layout/layout-a");
+    expect(readRoute(routeToHash(route))).toEqual(route);
   });
 });

@@ -118,12 +118,27 @@ const initialState = (sourceId: SourceId, status: SourceRuntimeState["status"]):
 
 const isJpeg = (name: string): boolean => /\.(jpe?g)$/i.test(name);
 
+const FINGERPRINT_SAMPLE_SIZE = 64 * 1024;
+
+async function contentFingerprint(file: File): Promise<string | undefined> {
+  if (!globalThis.crypto?.subtle) return undefined;
+  const sample = FINGERPRINT_SAMPLE_SIZE;
+  const starts = file.size <= sample * 3 ? [0] : [0, Math.floor((file.size - sample) / 2), file.size - sample];
+  const chunks = await Promise.all(starts.map(async (start) => new Uint8Array(await file.slice(start, starts.length === 1 ? file.size : start + sample).arrayBuffer())));
+  const bytes = new Uint8Array(chunks.reduce((total, chunk) => total + chunk.length, 0));
+  let offset = 0;
+  for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.length; }
+  const digest = await globalThis.crypto.subtle.digest("SHA-256", bytes);
+  return `sha256-sample-v1:${Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("")}`;
+}
+
 const photoVersion = (photo: PhotoRef): string => [
   photo.relativePath,
   photo.width,
   photo.height,
   photo.fileSize ?? "unknown-size",
   photo.fileLastModified ?? "unknown-mtime",
+  photo.contentFingerprint ?? "unknown-fingerprint",
 ].join("|");
 
 const toSourceError = (): SourceError => ({ kind: "io", retryable: true });
@@ -305,10 +320,15 @@ export class BrowserPhotoSource implements PhotoSource {
             const parts = photo.relativePath.split("/");
             for (const part of parts.slice(0, -1)) directory = await directory.getDirectoryHandle(part);
             const fileHandle = await directory.getFileHandle(parts.at(-1)!);
-            if (photo.fileSize !== undefined && (await fileHandle.getFile()).size !== photo.fileSize) continue;
+            const file = await fileHandle.getFile();
+            if (photo.fileSize !== undefined && file.size !== photo.fileSize) return err({ kind: "folder-mismatch", sourceId });
+            if (photo.contentFingerprint !== undefined && await contentFingerprint(file) !== photo.contentFingerprint) return err({ kind: "folder-mismatch", sourceId });
             matched = true;
-            break;
-          } catch { /* A moved/deleted image must not prevent partial recovery. */ }
+          } catch (error) {
+            // A missing image permits partial recovery; unreadable images cannot
+            // be treated as proof that this is the original folder.
+            if (!(error instanceof DOMException && error.name === "NotFoundError")) return err({ kind: "folder-mismatch", sourceId });
+          }
         }
         if (!matched) return err({ kind: "folder-mismatch", sourceId });
       }
@@ -462,6 +482,7 @@ export class BrowserPhotoSource implements PhotoSource {
         try {
           const file = await entry.handle.getFile();
           const dimensions = await readDimensions(file);
+          const fingerprint = await contentFingerprint(file);
           const previous = byPath.get(entry.relativePath);
           const indexedPhoto: PhotoRef = {
             id: previous?.id ?? (crypto.randomUUID() as PhotoId),
@@ -471,6 +492,7 @@ export class BrowserPhotoSource implements PhotoSource {
             height: dimensions.height,
             fileSize: file.size,
             fileLastModified: file.lastModified,
+            contentFingerprint: fingerprint,
           };
           batch.push(indexedPhoto);
           this.photoVersions.set(indexedPhoto.id, photoVersion(indexedPhoto));
