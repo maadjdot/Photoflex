@@ -448,34 +448,28 @@ function shuffle(
   const ordered = draft.entryOrder.filter((photoId) => requested.has(photoId));
   const movable = ordered.filter((photoId) => !draft.placements[photoId].locked);
   if (movable.length < 2) return ok(draft);
-  const horizontalRows = findHorizontalRows(draft, ordered).filter((row) => row.length > 1);
-  const rowMembers = new Set(horizontalRows.flat());
-  const ungrouped = ordered.filter((photoId) => !rowMembers.has(photoId) && !draft.placements[photoId].locked);
+  const shuffled = shufflePhotos(movable);
+  const slots = movable.map((photoId) => ({ x: draft.placements[photoId].x, y: draft.placements[photoId].y }));
+  const photoBySlot = new Map(movable.map((photoId, index) => [photoId, shuffled[index]]));
   const placements = { ...draft.placements } as Record<WorktableItemId, WorktablePlacement>;
+  placePhotosInSlots(placements, shuffled, slots);
 
-  horizontalRows.forEach((row) => {
-    // Locked photos remain both in the detected row and in their original
-    // slots. Only the unlocked owners are permuted into the other row slots.
+  // Rows describe the destination layout, not separate random pools. Photos
+  // can cross rows while retaining their size and the row's existing spacing.
+  findHorizontalRows(draft, ordered).forEach((row) => {
     const slotOwners = row.filter((photoId) => !draft.placements[photoId].locked);
     if (slotOwners.length < 2) return;
-    const shuffled = shuffleCycle(slotOwners);
-    const slots = slotOwners.map((photoId) => ({ x: draft.placements[photoId].x, y: draft.placements[photoId].y }));
-    placePhotosInSlots(placements, shuffled, slots);
-    reflowHorizontalShuffle(draft, placements, slotOwners, shuffled, slots);
+    const rowPhotos = slotOwners.map((photoId) => photoBySlot.get(photoId)!);
+    const rowSlots = slotOwners.map((photoId) => ({ x: draft.placements[photoId].x, y: draft.placements[photoId].y }));
+    reflowHorizontalShuffle(draft, placements, slotOwners, rowPhotos, rowSlots);
   });
 
-  if (ungrouped.length > 1) {
-    const shuffled = shuffleCycle(ungrouped);
-    const slots = ungrouped.map((photoId) => ({ x: draft.placements[photoId].x, y: draft.placements[photoId].y }));
-    placePhotosInSlots(placements, shuffled, slots);
-    ungrouped.forEach((photoId) => {
-      const current = placements[photoId];
-      const stayedInPlace = current.x === draft.placements[photoId].x && current.y === draft.placements[photoId].y;
-      if (stayedInPlace || !shufflePositionIsAllowed(draft, placements, photoId, current)) {
-        placements[photoId] = findSafeShufflePosition(draft, placements, photoId, current);
-      }
-    });
-  }
+  movable.forEach((photoId) => {
+    const current = placements[photoId];
+    if (!shufflePositionIsAllowed(draft, placements, photoId, current)) {
+      placements[photoId] = findSafeShufflePosition(draft, placements, photoId, current);
+    }
+  });
   const changed = ordered.some((photoId) => {
     const before = draft.placements[photoId];
     const after = placements[photoId];
@@ -484,14 +478,17 @@ function shuffle(
   return ok(changed ? { ...draft, placements } : draft);
 }
 
-function shuffleCycle(photoIds: readonly WorktableItemId[]): WorktableItemId[] {
-  const shuffled = [...photoIds];
-  for (let index = shuffled.length - 1; index > 0; index -= 1) {
-    // Sattolo's algorithm creates one cycle, so every selected photo leaves
-    // its own slot instead of a shuffle degenerating into a two-photo swap.
-    const swapIndex = Math.floor(Math.random() * index);
-    [shuffled[index], shuffled[swapIndex]] = [shuffled[swapIndex], shuffled[index]];
-  }
+function shufflePhotos(photoIds: readonly WorktableItemId[]): WorktableItemId[] {
+  let shuffled: WorktableItemId[];
+  do {
+    shuffled = [...photoIds];
+    // Fisher–Yates includes the current index, allowing every permutation
+    // rather than only a single cycle. Retry only a completely unchanged order.
+    for (let index = shuffled.length - 1; index > 0; index -= 1) {
+      const swapIndex = Math.floor(Math.random() * (index + 1));
+      [shuffled[index], shuffled[swapIndex]] = [shuffled[swapIndex], shuffled[index]];
+    }
+  } while (shuffled.every((photoId, index) => photoId === photoIds[index]));
   return shuffled;
 }
 

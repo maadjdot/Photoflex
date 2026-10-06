@@ -159,7 +159,7 @@ describe("WorktableEditor", () => {
     expect(grid.value.placements[lower]).toMatchObject({ x: 20, y: 150 });
   });
 
-  it("shuffles detected grid rows independently without changing photo geometry", () => {
+  it("shuffles across grid rows without changing photo geometry and supports undo/redo", () => {
     const editor = createWorktableEditor(createEmptyWorktable(projectId));
     editor.execute({ type: "place", items: [seed("a"), seed("b", 146, 196), seed("c"), seed("d", 160, 180)] });
     editor.execute({ type: "arrange", photoIds: ["a", "b", "c", "d"] as PhotoId[], layout: { type: "grid", columns: 2, gap: 20 } });
@@ -170,13 +170,19 @@ describe("WorktableEditor", () => {
       z: before.placements[id].z,
     }]));
 
+    const random = vi.spyOn(Math, "random").mockReturnValue(0);
     const result = editor.execute({ type: "shuffle", photoIds: ["d", "b", "a", "c"] as PhotoId[] });
+    random.mockRestore();
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(horizontalGapsFor(result.value, [photoId("a"), photoId("b")])).toEqual([20]);
-    expect(horizontalGapsFor(result.value, [photoId("c"), photoId("d")])).toEqual([20]);
-    expect(new Set([result.value.placements[photoId("a")].y, result.value.placements[photoId("b")].y])).toEqual(new Set([64]));
-    expect(new Set([result.value.placements[photoId("c")].y, result.value.placements[photoId("d")].y])).toEqual(new Set([300]));
+    expect(result.value.placements[photoId("a")].y).toBe(300);
+    expect(result.value.placements[photoId("c")].y).toBe(64);
+    for (const y of [64, 300]) {
+      const row = result.value.entryOrder.filter((id) => result.value.placements[id].y === y);
+      expect(row).toHaveLength(2);
+      expect(horizontalGapsFor(result.value, row)).toEqual([20]);
+    }
+    expect(newPhotoOverlaps(result.value, before)).toEqual([]);
     expect(result.value.entryOrder).toEqual(before.entryOrder);
     expect(Object.fromEntries(result.value.entryOrder.map((id) => [id, {
       width: result.value.placements[id].width,
@@ -191,6 +197,60 @@ describe("WorktableEditor", () => {
     expect(editor.redo()).toEqual(result.value);
   });
 
+  it("can produce every changed permutation across the whole selection", () => {
+    const ids = ["a", "b", "c", "d"] as PhotoId[];
+    const permutations = new Set<string>();
+    // Enumerate all Fisher–Yates choices, including fixed points and multiple
+    // cycles that the previous single-cycle shuffle could never produce.
+    for (let last = 0; last < 4; last += 1) {
+      for (let middle = 0; middle < 3; middle += 1) {
+        for (let first = 0; first < 2; first += 1) {
+          if (last === 3 && middle === 2 && first === 1) continue;
+          const editor = createWorktableEditor(createEmptyWorktable(projectId));
+          editor.execute({ type: "place", items: ids.map((id) => seed(id)) });
+          editor.execute({ type: "arrange", photoIds: ids, layout: { type: "grid", columns: 2 } });
+          const before = editor.snapshot();
+          const random = vi.spyOn(Math, "random")
+            .mockReturnValueOnce((last + .5) / 4)
+            .mockReturnValueOnce((middle + .5) / 3)
+            .mockReturnValueOnce((first + .5) / 2)
+            .mockReturnValue(0);
+          const result = editor.execute({ type: "shuffle", photoIds: ids });
+          random.mockRestore();
+          expect(result.ok).toBe(true);
+          if (!result.ok) return;
+          const order = [...ids].sort((left, right) => (
+            result.value.placements[left].y - result.value.placements[right].y
+            || result.value.placements[left].x - result.value.placements[right].x
+          ));
+          permutations.add(order.join(","));
+          expect(newPhotoOverlaps(result.value, before)).toEqual([]);
+        }
+      }
+    }
+    expect(permutations.size).toBe(23);
+    expect(permutations.has("a,b,d,c")).toBe(true);
+    expect(permutations.has("c,d,a,b")).toBe(true);
+  });
+
+  it("retries a completely unchanged order without restricting individual fixed points", () => {
+    const editor = createWorktableEditor(createEmptyWorktable(projectId));
+    const ids = ["a", "b", "c"] as PhotoId[];
+    editor.execute({ type: "place", items: ids.map((id) => seed(id)) });
+    const before = editor.snapshot();
+    const random = vi.spyOn(Math, "random")
+      .mockReturnValueOnce(.99).mockReturnValueOnce(.99)
+      .mockReturnValueOnce(.99).mockReturnValueOnce(0);
+    const result = editor.execute({ type: "shuffle", photoIds: ids });
+    expect(random).toHaveBeenCalledTimes(4);
+    random.mockRestore();
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.placements[photoId("c")]).toEqual(before.placements[photoId("c")]);
+    expect(result.value.placements[photoId("a")].x).toBe(before.placements[photoId("b")].x);
+    expect(result.value.placements[photoId("b")].x).toBe(before.placements[photoId("a")].x);
+  });
+
   it("keeps locked photos in place while shuffling the other selected photos", () => {
     const editor = createWorktableEditor(createEmptyWorktable(projectId));
     const ids = ["a", "b", "c", "d", "e"] as PhotoId[];
@@ -198,7 +258,7 @@ describe("WorktableEditor", () => {
     editor.execute({ type: "arrange", photoIds: ids, layout: { type: "row", gap: 24 } });
     editor.execute({ type: "set-locked", photoIds: [photoId("c")], locked: true });
     const before = editor.snapshot();
-    const random = vi.spyOn(Math, "random").mockReturnValue(.9);
+    const random = vi.spyOn(Math, "random").mockReturnValue(0);
 
     const result = editor.execute({ type: "shuffle", photoIds: ids });
     random.mockRestore();
@@ -216,17 +276,39 @@ describe("WorktableEditor", () => {
     expect(ids.filter((id) => id !== "c").every((id) => result.value.placements[id].x !== before.placements[id].x)).toBe(true);
   });
 
+  it("mixes a partial selection across rows and groups while preserving locked and unselected photos", () => {
+    const ids = ["a", "b", "c", "d", "e", "f"] as PhotoId[];
+    const setup = createWorktableEditor(createEmptyWorktable(projectId));
+    setup.execute({ type: "place", items: ids.map((id) => seed(id)) });
+    setup.execute({ type: "arrange", photoIds: ids, layout: { type: "grid", columns: 3 } });
+    setup.execute({ type: "set-locked", photoIds: [photoId("b")], locked: true });
+    const editor = createWorktableEditor({ ...setup.snapshot(), groups: [
+      { id: "group-1", name: "First", photoIds: ids.slice(0, 3) },
+      { id: "group-2", name: "Second", photoIds: ids.slice(3) },
+    ] });
+    const before = editor.snapshot();
+    const random = vi.spyOn(Math, "random").mockReturnValue(0);
+    const result = editor.execute({ type: "shuffle", photoIds: ids.slice(0, 5) });
+    random.mockRestore();
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.placements[photoId("a")].y).toBe(before.placements[photoId("e")].y);
+    expect(result.value.placements[photoId("d")].y).toBe(before.placements[photoId("c")].y);
+    expect(result.value.placements[photoId("b")]).toEqual(before.placements[photoId("b")]);
+    expect(result.value.placements[photoId("f")]).toEqual(before.placements[photoId("f")]);
+    expect(result.value.groups).toEqual(before.groups);
+    expect(newPhotoOverlaps(result.value, before)).toEqual([]);
+  });
+
   it("does not create photo overlaps when differently sized photos change slots", () => {
     const editor = createWorktableEditor(createEmptyWorktable(projectId));
     editor.execute({ type: "place", items: [seed("a", 100, 100), seed("b", 10, 10), seed("c", 10, 10)] });
     editor.execute({ type: "move", photoIds: [photoId("b")], by: { x: -165, y: 0 } });
     editor.execute({ type: "move", photoIds: [photoId("c")], by: { x: -420, y: 0 } });
     const before = editor.snapshot();
-    const random = vi.spyOn(Math, "random").mockReturnValueOnce(.9).mockReturnValue(0);
+    const random = vi.spyOn(Math, "random").mockReturnValue(0);
 
     const result = editor.execute({ type: "shuffle", photoIds: [photoId("a"), photoId("b"), photoId("c")] });
-    random.mockRestore();
-
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.value.entryOrder.every((id) => (
@@ -240,6 +322,7 @@ describe("WorktableEditor", () => {
 
     const afterFirstShuffle = result.value;
     const repeated = editor.execute({ type: "shuffle", photoIds: [photoId("a"), photoId("b"), photoId("c")] });
+    random.mockRestore();
     expect(repeated.ok).toBe(true);
     if (!repeated.ok) return;
     expect(horizontalGaps(repeated.value)).toEqual([10, 10]);
@@ -256,7 +339,9 @@ describe("WorktableEditor", () => {
     editor.execute({ type: "move", photoIds: [photoId("c")], by: { x: -330, y: 46 } });
     const before = editor.snapshot();
 
+    const random = vi.spyOn(Math, "random").mockReturnValue(0);
     const result = editor.execute({ type: "shuffle", photoIds: [photoId("a"), photoId("b"), photoId("c")] });
+    random.mockRestore();
 
     expect(result.ok).toBe(true);
     if (!result.ok) return;
@@ -269,22 +354,26 @@ describe("WorktableEditor", () => {
     ))).toBe(true);
   });
 
-  it("does not merge a forty-percent overlap chain into one horizontal row", () => {
+  it("includes isolated photos in the same shuffle as a detected horizontal row", () => {
     const editor = createWorktableEditor(createEmptyWorktable(projectId));
     editor.execute({ type: "place", items: [seed("a", 100, 100), seed("b", 100, 100), seed("c", 100, 100)] });
     editor.execute({ type: "move", photoIds: [photoId("b")], by: { x: -165, y: 60 } });
     editor.execute({ type: "move", photoIds: [photoId("c")], by: { x: -320, y: 120 } });
     const before = editor.snapshot();
 
+    const random = vi.spyOn(Math, "random").mockReturnValue(0);
     const result = editor.execute({ type: "shuffle", photoIds: [photoId("a"), photoId("b"), photoId("c")] });
+    random.mockRestore();
 
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(result.value.placements[photoId("c")]).toEqual(before.placements[photoId("c")]);
+    expect(result.value.placements[photoId("c")].y).toBe(before.placements[photoId("b")].y);
+    expect(result.value.placements[photoId("a")].y).toBe(before.placements[photoId("c")].y);
     expect(new Set(result.value.entryOrder.map((id) => result.value.placements[id].y)).size).toBeGreaterThan(1);
+    expect(newPhotoOverlaps(result.value, before)).toEqual([]);
   });
 
-  it("keeps two detected horizontal rows separate while shuffling each row", () => {
+  it("shuffles across staggered rows while preserving the destination row positions", () => {
     const editor = createWorktableEditor(createEmptyWorktable(projectId));
     editor.execute({ type: "place", items: [seed("a", 100, 100), seed("b", 100, 100), seed("c", 100, 100), seed("d", 100, 100)] });
     editor.execute({ type: "move", photoIds: [photoId("b")], by: { x: -165, y: 20 } });
@@ -292,12 +381,16 @@ describe("WorktableEditor", () => {
     editor.execute({ type: "move", photoIds: [photoId("d")], by: { x: -715, y: 280 } });
     const before = editor.snapshot();
 
+    const random = vi.spyOn(Math, "random").mockReturnValue(0);
     const result = editor.execute({ type: "shuffle", photoIds: [photoId("a"), photoId("b"), photoId("c"), photoId("d")] });
+    random.mockRestore();
 
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(new Set([result.value.placements[photoId("a")].y, result.value.placements[photoId("b")].y])).toEqual(new Set([64, 84]));
-    expect(new Set([result.value.placements[photoId("c")].y, result.value.placements[photoId("d")].y])).toEqual(new Set([324, 344]));
+    expect(result.value.placements[photoId("a")].y).toBe(344);
+    expect(result.value.placements[photoId("c")].y).toBe(84);
+    expect(new Set(result.value.entryOrder.map((id) => result.value.placements[id].y))).toEqual(new Set([64, 84, 324, 344]));
+    expect(newPhotoOverlaps(result.value, before)).toEqual([]);
     expect(result.value.entryOrder.every((id) => (
       result.value.placements[id].x !== before.placements[id].x
       || result.value.placements[id].y !== before.placements[id].y

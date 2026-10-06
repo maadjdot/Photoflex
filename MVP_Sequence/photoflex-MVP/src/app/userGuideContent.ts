@@ -60,7 +60,7 @@ export const userGuideContent: Record<Locale, GuideContent> = {
           { title: "排列照片", body: "选中至少两张未锁定的照片后，左侧会出现以下工具：", details: [
             { title: "网格", body: "将照片排成多行，可以设置每行的照片数量。" },
             { title: "横排", body: "将照片排成一行。" },
-            { title: "打乱", body: "随机交换照片的位置。" },
+            { title: "打乱", body: "将选中的未锁定照片整体随机打乱，支持跨行混排。" },
             { title: "对齐", body: "将照片的左边、右边、顶部、底部或中心对齐。" },
             { title: "分组", body: "将照片组成一组，方便一起选择和移动。" },
           ] },
@@ -138,7 +138,7 @@ export const userGuideContent: Record<Locale, GuideContent> = {
           { title: "Arrange photos", body: "Select at least two unlocked photos to reveal these tools on the left:", details: [
             { title: "Grid", body: "Arrange photos in several rows and choose how many photos each row contains." },
             { title: "Row", body: "Arrange photos in a single row." },
-            { title: "Shuffle", body: "Randomly swap the photos' positions." },
+            { title: "Shuffle", body: "Randomly shuffle all selected unlocked photos, including across rows." },
             { title: "Align", body: "Align the photos' left, right, top, bottom or centre." },
             { title: "Group", body: "Keep photos in a group to select and move them together." },
           ] },
