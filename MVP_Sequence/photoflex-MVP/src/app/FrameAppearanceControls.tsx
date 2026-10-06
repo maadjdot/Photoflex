@@ -6,7 +6,7 @@ import "../styles/layout-fonts.css";
 import { useLocale } from "./locale";
 import { frameEdgeColorLabel, frameEdgeMaterialLabel } from "./frameLabels";
 
-function NumberField({ label, value, unit = "mm", min = 0, max = 1000, onCommit }: {
+export function FrameAppearanceNumberField({ label, value, unit = "mm", min = 0, max = 1000, onCommit }: {
   label: string; value: number; unit?: "mm" | "pt"; min?: number; max?: number; onCommit: (value: number) => void;
 }) {
   const factor = unit === "mm" ? FRAME_MM_TO_PT : 1;
@@ -17,14 +17,18 @@ function NumberField({ label, value, unit = "mm", min = 0, max = 1000, onCommit 
     else event.currentTarget.value = String(displayed);
   }} /><em>{unit}</em></span></label>;
 }
+const NumberField = FrameAppearanceNumberField;
 
 type Props = { readonly frame: WorktableFrame; readonly onExecute: (command: FrameEditCommand) => void };
 export function FrameInnerEdgeControls({ frame, onExecute }: Props) {
+  return <PhotoInnerEdgeControls edge={frameInnerEdge(frame.page)} onChange={(edge) => onExecute({ type: "set-frame-inner-edge", frameId: frame.id, edge })} />;
+}
+
+export function PhotoInnerEdgeControls({ edge, onChange }: { readonly edge: FrameInnerEdge; readonly onChange: (edge: FrameInnerEdge) => void }) {
   const { locale } = useLocale();
   const zh = locale === "zh-CN";
   const label = (english: string, chinese: string) => zh ? chinese : english;
-  const edge = frameInnerEdge(frame.page);
-  const update = (changes: Partial<FrameInnerEdge>) => onExecute({ type: "set-frame-inner-edge", frameId: frame.id, edge: { ...edge, ...changes } });
+  const update = (changes: Partial<FrameInnerEdge>) => onChange({ ...edge, ...changes });
   return <section className="table-frame-section"><h3>{label("INNER EDGE", "内边框")} <span>{label("Photo edges", "照片边缘")}</span></h3>
     <div className="table-frame-segments" role="group" aria-label={label("Inner edge", "内边框")}>{(["none", "color", "bevel"] as const).map((mode) => <button key={mode} type="button" aria-pressed={edge.mode === mode} onClick={() => update({ mode })}>{mode === "none" ? label("None", "无") : mode === "color" ? label("Color", "纯色") : label("Mat bevel", "卡纸斜边")}</button>)}</div>
     {edge.mode !== "none" && <div className="table-frame-field-grid"><NumberField label={label("Inner edge width", "内边框宽度")} value={edge.widthPt} max={20} onCommit={(widthPt) => update({ widthPt })} /><label className="table-frame-number">{label("Color", "颜色")}<input type="color" aria-label={label("Inner edge color", "内边框颜色")} value={edge.color} onChange={(event) => update({ color: event.currentTarget.value })} /></label></div>}

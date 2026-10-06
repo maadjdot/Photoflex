@@ -1,4 +1,5 @@
 import type { LayoutId, LayoutObjectId, LayoutPageId, LayoutRevision, PhotoId, ProjectId, SequenceId } from "./ids";
+import type { FrameInnerEdge } from "./frame";
 
 export interface LayoutRect {
   readonly x: number;
@@ -65,8 +66,11 @@ export interface LayoutPaper {
 
 export interface LayoutPage {
   readonly id: LayoutPageId;
+  readonly kind?: "cover" | "back-cover";
   /** Omitted in existing documents and interpreted as plain white paper. */
   readonly paper?: LayoutPaper;
+  readonly innerEdge?: FrameInnerEdge;
+  readonly photoElevationPt?: number;
   readonly objects: readonly LayoutObject[]; // array order is paint order
 }
 
@@ -99,6 +103,7 @@ export type LayoutEditCommand =
   | { readonly type: "remove-page"; readonly pageId: LayoutPageId }
   | { readonly type: "move-page"; readonly pageId: LayoutPageId; readonly to: number }
   | { readonly type: "set-paper"; readonly pageIds: readonly LayoutPageId[]; readonly paper: LayoutPaper }
+  | { readonly type: "set-photo-appearance"; readonly pageIds: readonly LayoutPageId[]; readonly innerEdge: FrameInnerEdge; readonly photoElevationPt: number }
   | { readonly type: "upsert-object"; readonly pageId: LayoutPageId; readonly object: LayoutObject }
   | { readonly type: "upsert-objects"; readonly updates: readonly { readonly pageId: LayoutPageId; readonly object: LayoutObject }[] }
   | { readonly type: "remove-object"; readonly pageId: LayoutPageId; readonly objectId: LayoutObjectId }

@@ -2,6 +2,7 @@ import { err, ok, type LayoutDocument, type LayoutEditCommand, type LayoutId, ty
 import { MM_TO_PT, validCrop } from "../page-layout/pageGeometry";
 import { isLayoutFontFamily } from "./layoutFonts";
 import { isLayoutPaper } from "./layoutPaper";
+import { validFrameInnerEdge } from "../worktable/frameAppearance";
 
 export function createEmptyLayout(input: { id: LayoutId; projectId: ProjectId; sequenceId: SequenceId; pageId: LayoutPageId; name: string; createdAt: string; widthPt?: number; heightPt?: number }): LayoutDocument {
   return {
@@ -15,21 +16,22 @@ export function createEmptyLayout(input: { id: LayoutId; projectId: ProjectId; s
 const finite = (value: unknown): value is number => typeof value === "number" && Number.isFinite(value);
 const id = (value: unknown): value is string => typeof value === "string" && value.length > 0;
 
-function validRect(value: unknown, widthPt: number, heightPt: number, pageIndex: number, pageCount: number): boolean {
+function validRect(value: unknown, widthPt: number, heightPt: number, pageIndex: number, pageCount: number, backCover: boolean): boolean {
   if (!value || typeof value !== "object") return false;
   const rect = value as Record<string, unknown>;
   if (![rect.x, rect.y, rect.width, rect.height].every(finite)) return false;
   const { x, y, width, height } = rect as unknown as { x: number; y: number; width: number; height: number };
-  const leftPage = pageIndex > 0 && pageIndex % 2 === 1 && pageIndex + 1 < pageCount;
-  const rightPage = pageIndex > 0 && pageIndex % 2 === 0;
+  const bodyEnd = backCover ? pageCount - 1 : pageCount;
+  const leftPage = pageIndex > 0 && pageIndex % 2 === 1 && pageIndex + 1 < bodyEnd;
+  const rightPage = pageIndex > 0 && pageIndex < bodyEnd && pageIndex % 2 === 0;
   return width >= MM_TO_PT && height >= MM_TO_PT && x + width >= (rightPage ? -widthPt : 0) + MM_TO_PT && y + height >= MM_TO_PT
     && x <= (leftPage ? 2 * widthPt : widthPt) - MM_TO_PT && y <= heightPt - MM_TO_PT;
 }
 
-function validObject(value: unknown, widthPt: number, heightPt: number, pageIndex: number, pageCount: number): value is LayoutObject {
+function validObject(value: unknown, widthPt: number, heightPt: number, pageIndex: number, pageCount: number, backCover: boolean): value is LayoutObject {
   if (!value || typeof value !== "object") return false;
   const object = value as Partial<LayoutObject>;
-  if (!id(object.id) || !validRect(object.rect, widthPt, heightPt, pageIndex, pageCount)) return false;
+  if (!id(object.id) || !validRect(object.rect, widthPt, heightPt, pageIndex, pageCount, backCover)) return false;
   if (object.kind === "image-frame") {
     return (object.photoId === null || id(object.photoId)) && Boolean(object.crop?.focal) && validCrop(object.crop!)
       && (object.photoAspectRatio === undefined || (finite(object.photoAspectRatio) && object.photoAspectRatio > 0));
@@ -61,10 +63,13 @@ export function isLayoutDocument(value: unknown): value is LayoutDocument {
   const pageIds = new Set<string>(), objectIds = new Set<string>();
   for (const [pageIndex, page] of (document.pages as readonly LayoutPage[]).entries()) {
     if (!page || !id(page.id) || pageIds.has(page.id) || !Array.isArray(page.objects)
-      || (page.paper !== undefined && !isLayoutPaper(page.paper))) return false;
+      || (page.paper !== undefined && !isLayoutPaper(page.paper))
+      || (page.kind !== undefined && !((page.kind === "cover" && pageIndex === 0) || (page.kind === "back-cover" && pageIndex === document.pages.length - 1)))
+      || (page.innerEdge !== undefined && !validFrameInnerEdge(page.innerEdge))
+      || (page.photoElevationPt !== undefined && (!finite(page.photoElevationPt) || page.photoElevationPt < 0 || page.photoElevationPt > 20 * MM_TO_PT))) return false;
     pageIds.add(page.id);
     for (const object of page.objects) {
-      if (!validObject(object, widthPt, heightPt, pageIndex, document.pages.length) || objectIds.has(object.id)) return false;
+      if (!validObject(object, widthPt, heightPt, pageIndex, document.pages.length, document.pages.at(-1)?.kind === "back-cover") || objectIds.has(object.id)) return false;
       objectIds.add(object.id);
     }
   }
@@ -85,8 +90,9 @@ export function applyLayoutCommand(document: LayoutDocument, command: LayoutEdit
     pages = pages.map((page, pageIndex) => ({ ...page, objects: page.objects.map((object) => {
       const width = Math.max(MM_TO_PT, object.rect.width * scaleX);
       const height = Math.max(MM_TO_PT, object.rect.height * scaleY);
-      const leftPage = pageIndex > 0 && pageIndex % 2 === 1 && pageIndex + 1 < pages.length;
-      const rightPage = pageIndex > 0 && pageIndex % 2 === 0;
+      const bodyEnd = pages.at(-1)?.kind === "back-cover" ? pages.length - 1 : pages.length;
+      const leftPage = pageIndex > 0 && pageIndex % 2 === 1 && pageIndex + 1 < bodyEnd;
+      const rightPage = pageIndex > 0 && pageIndex < bodyEnd && pageIndex % 2 === 0;
       return { ...object, rect: {
         x: Math.max((rightPage ? -command.widthPt : 0) + MM_TO_PT - width,
           Math.min((leftPage ? 2 * command.widthPt : command.widthPt) - MM_TO_PT, object.rect.x * scaleX)),
@@ -113,6 +119,12 @@ export function applyLayoutCommand(document: LayoutDocument, command: LayoutEdit
     if (!pageIds.size || pageIds.size !== command.pageIds.length || !isLayoutPaper(command.paper)
       || [...pageIds].some((pageId) => !pages.some((page) => page.id === pageId))) return fail();
     pages = pages.map((page) => pageIds.has(page.id) ? { ...page, paper: { ...command.paper } } : page);
+  } else if (command.type === "set-photo-appearance") {
+    const pageIds = new Set(command.pageIds);
+    if (!pageIds.size || pageIds.size !== command.pageIds.length || !validFrameInnerEdge(command.innerEdge)
+      || !finite(command.photoElevationPt) || command.photoElevationPt < 0 || command.photoElevationPt > 20 * MM_TO_PT
+      || [...pageIds].some((pageId) => !pages.some((page) => page.id === pageId))) return fail();
+    pages = pages.map((page) => pageIds.has(page.id) ? { ...page, innerEdge: { ...command.innerEdge }, photoElevationPt: command.photoElevationPt } : page);
   } else if (command.type === "remove-objects") {
     pages = pages.map((page) => ({ ...page, objects: page.objects.filter((object) => !command.objectIds.includes(object.id)) }));
   } else if (command.type === "upsert-objects") {

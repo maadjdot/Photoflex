@@ -3,6 +3,29 @@ import type { LayoutDocument } from "../../contracts";
 import { createLayoutReaderState, layoutReaderFitPage, layoutReaderPageLabel, layoutReaderPageObjects, layoutReaderPreviewEdge, layoutReaderReducer, layoutReaderSpreads, navigateLayoutReaderPage, resolveLayoutReaderMode } from "./layoutReader";
 
 describe("Layout reader presentation", () => {
+  it("keeps the back cover separate for odd and even page counts and navigates both ways", () => {
+    expect(layoutReaderSpreads(5, "facing", true)).toEqual([
+      { slots: [null, 0] }, { slots: [1, 2] }, { slots: [3, null] }, { slots: [4, null] },
+    ]);
+    expect(layoutReaderSpreads(6, "facing", true)).toEqual([
+      { slots: [null, 0] }, { slots: [1, 2] }, { slots: [3, 4] }, { slots: [5, null] },
+    ]);
+    expect(layoutReaderSpreads(2, "facing", true)).toEqual([{ slots: [null, 0] }, { slots: [1, null] }]);
+    expect(navigateLayoutReaderPage(5, 3, "facing", 1, true)).toBe(4);
+    expect(navigateLayoutReaderPage(5, 4, "facing", -1, true)).toBe(3);
+    expect(navigateLayoutReaderPage(5, 4, "facing", 1, true)).toBe(4);
+    expect(layoutReaderPageLabel(layoutReaderSpreads(5, "facing", true).at(-1), 5)).toBe("5 / 5");
+  });
+
+  it("does not bleed body objects into a back cover or cover objects into the body", () => {
+    const document = { pageSpec: { widthPt: 200, heightPt: 300 }, pages: [
+      { objects: [] }, { objects: [] }, { objects: [] },
+      { objects: [{ id: "body", rect: { x: 180, y: 20, width: 40, height: 100 } }] },
+      { kind: "back-cover", objects: [{ id: "back", rect: { x: -10, y: 20, width: 30, height: 100 } }] },
+    ] } as unknown as LayoutDocument;
+    expect(layoutReaderPageObjects(document, 3).map((object) => object.id)).toEqual(["body"]);
+    expect(layoutReaderPageObjects(document, 4).map((object) => object.id)).toEqual(["back"]);
+  });
   it("renders both halves of spanning content on their own physical faces without changing the document", () => {
     const document = {
       pageSpec: { widthPt: 200, heightPt: 300 },

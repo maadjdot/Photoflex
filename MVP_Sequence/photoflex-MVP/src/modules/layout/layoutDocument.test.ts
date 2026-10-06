@@ -10,6 +10,27 @@ const initial = () => createEmptyLayout({
 });
 
 describe("Layout document commands", () => {
+  it("saves photo effects on selected pages and accepts legacy defaults", () => {
+    const original = initial();
+    const innerEdge = { mode: "bevel" as const, color: "#F1EDE1", widthPt: 3 * MM_TO_PT };
+    const edited = applyLayoutCommand(original, { type: "set-photo-appearance", pageIds: [original.pages[0].id], innerEdge, photoElevationPt: 5 * MM_TO_PT });
+    expect(edited).toMatchObject({ ok: true, value: { pages: [{ innerEdge, photoElevationPt: 5 * MM_TO_PT }] } });
+    expect(original.pages[0].innerEdge).toBeUndefined();
+    expect(isLayoutDocument(original)).toBe(true);
+    expect(applyLayoutCommand(original, { type: "set-photo-appearance", pageIds: [original.pages[0].id], innerEdge, photoElevationPt: -1 }).ok).toBe(false);
+    expect(isLayoutDocument({ ...original, pages: [{ ...original.pages[0], innerEdge: { ...innerEdge, color: "bad" } }] })).toBe(false);
+  });
+
+  it("adds explicit covers at book boundaries and keeps them out of body reordering", () => {
+    const original = initial();
+    const front = applyLayoutCommand(original, { type: "add-page", at: 0, page: { id: "front" as LayoutPageId, kind: "cover", objects: [] } });
+    if (!front.ok) throw Error("cover rejected");
+    const back = applyLayoutCommand(front.value, { type: "add-page", page: { id: "back" as LayoutPageId, kind: "back-cover", objects: [] } });
+    expect(back.ok).toBe(true);
+    if (!back.ok) return;
+    expect(back.value.pages.map((page) => page.kind)).toEqual(["cover", undefined, "back-cover"]);
+    expect(applyLayoutCommand(back.value, { type: "move-page", pageId: "back" as LayoutPageId, to: 1 }).ok).toBe(false);
+  });
   it("keeps editable pages and photo references while leaving the previous document intact", () => {
     const original = initial();
     const frame = { kind: "image-frame" as const, id: "frame-1" as LayoutObjectId,

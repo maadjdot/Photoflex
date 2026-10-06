@@ -37,7 +37,8 @@ export function LayoutReader({ document: layout, initialPage, photoSource, onClo
   useDialogKeyboard(rootRef, onClose);
 
   const resolvedMode = resolveLayoutReaderMode(state.mode, viewport);
-  const spreads = useMemo(() => layoutReaderSpreads(layout.pages.length, resolvedMode), [layout.pages.length, resolvedMode]);
+  const backCover = layout.pages.at(-1)?.kind === "back-cover";
+  const spreads = useMemo(() => layoutReaderSpreads(layout.pages.length, resolvedMode, backCover), [layout.pages.length, resolvedMode, backCover]);
   const spreadIndex = layoutReaderSpreadIndex(spreads, state.currentPage);
   const spread = spreads[spreadIndex];
   const visiblePages = useMemo(() => layoutReaderVisiblePages(spread), [spread]);
@@ -92,21 +93,21 @@ export function LayoutReader({ document: layout, initialPage, photoSource, onClo
   }, [revealChrome]);
 
   const navigate = useCallback((direction: -1 | 1) => {
-    const next = beginPageCurlTurn(curlNavigationRef.current, direction, layout.pages.length, resolvedMode);
+    const next = beginPageCurlTurn(curlNavigationRef.current, direction, layout.pages.length, resolvedMode, backCover);
     if (next !== curlNavigationRef.current) {
       updateCurlNavigation(next);
       if (!curlRef.current?.turn(direction)) cancelCurlNavigation();
     }
     revealChrome();
-  }, [cancelCurlNavigation, layout.pages.length, resolvedMode, revealChrome, updateCurlNavigation]);
+  }, [cancelCurlNavigation, layout.pages.length, resolvedMode, revealChrome, updateCurlNavigation, backCover]);
 
   const goToPage = useCallback((page: number, animated = false) => {
-    const next = beginPageCurlGoTo(curlNavigationRef.current, page, layout.pages.length, resolvedMode);
+    const next = beginPageCurlGoTo(curlNavigationRef.current, page, layout.pages.length, resolvedMode, backCover);
     if (next === curlNavigationRef.current || next.status !== "turning") return;
     updateCurlNavigation(next);
     if (!curlRef.current?.goTo(next.targetPage, animated)) cancelCurlNavigation();
     revealChrome();
-  }, [cancelCurlNavigation, layout.pages.length, resolvedMode, revealChrome, updateCurlNavigation]);
+  }, [cancelCurlNavigation, layout.pages.length, resolvedMode, revealChrome, updateCurlNavigation, backCover]);
 
   const commitPage = useCallback((page: number) => {
     const next = commitPageCurlTurn(curlNavigationRef.current, page, layout.pages.length);
@@ -115,9 +116,9 @@ export function LayoutReader({ document: layout, initialPage, photoSource, onClo
   }, [layout.pages.length, updateCurlNavigation]);
 
   const noteTurnIntent = useCallback((direction: PageCurlDirection) => {
-    const next = beginPageCurlTurn(curlNavigationRef.current, direction, layout.pages.length, resolvedMode);
+    const next = beginPageCurlTurn(curlNavigationRef.current, direction, layout.pages.length, resolvedMode, backCover);
     if (next !== curlNavigationRef.current) updateCurlNavigation(next);
-  }, [layout.pages.length, resolvedMode, updateCurlNavigation]);
+  }, [layout.pages.length, resolvedMode, updateCurlNavigation, backCover]);
 
   const setZoom = useCallback((zoom: number) => {
     curlRef.current?.cancel();
@@ -225,7 +226,7 @@ export function LayoutReader({ document: layout, initialPage, photoSource, onClo
       </div>
     </header>
     <div ref={stageRef} className="layout-reader-stage" onPointerDownCapture={pointerDown} onPointerMove={pointerMove} onPointerUp={pointerEnd} onPointerCancel={pointerEnd} onDragStart={(event) => event.preventDefault()} onDoubleClick={() => setZoom(state.zoom === 1 ? 2 : 1)} onWheel={(event: ReactWheelEvent) => { if (event.ctrlKey || event.metaKey) { event.preventDefault(); setZoom(state.zoom * Math.exp(-event.deltaY * .002)); } }}>
-      <LayoutPageCurl key={resolvedMode} ref={curlRef} pageWidth={pageWidth} pageHeight={pageHeight} currentPage={state.currentPage} mode={resolvedMode} ariaLabel={zh ? `${layout.name} 翻页阅读` : `${layout.name} page curl reader`} pageBackground="#f4f1e9" onPageChange={commitPage} onTurnIntent={noteTurnIntent} onTurnSettled={cancelCurlNavigation}>
+      <LayoutPageCurl key={resolvedMode} ref={curlRef} pageWidth={pageWidth} pageHeight={pageHeight} currentPage={state.currentPage} mode={resolvedMode} backCover={backCover} ariaLabel={zh ? `${layout.name} 翻页阅读` : `${layout.name} page curl reader`} pageBackground="#f4f1e9" onPageChange={commitPage} onTurnIntent={noteTurnIntent} onTurnSettled={cancelCurlNavigation}>
         {readerPages}
       </LayoutPageCurl>
     </div>

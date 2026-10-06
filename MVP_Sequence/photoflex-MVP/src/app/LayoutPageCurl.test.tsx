@@ -82,4 +82,26 @@ describe("LayoutPageCurl", () => {
     await waitFor(() => expect(view.container.querySelector(".stf__wrapper.--portrait")).toBeTruthy());
     expect(view.container.querySelector(".layout-page-curl-flyleaf")).toBeNull();
   });
+
+  it.each([5, 6])("shows the back cover alone with %i logical pages and can return to the body", async (count) => {
+    const curl = createRef<LayoutPageCurlHandle>();
+    const commits: number[] = [];
+    function Harness() {
+      const [page, setPage] = useState(0);
+      return <LayoutPageCurl ref={curl} pageWidth={300} pageHeight={420} currentPage={page} mode="facing" backCover ariaLabel="Book"
+        onPageChange={(next) => { commits.push(next); setPage(next); }}>
+        {Array.from({ length: count }, (_, index) => <article key={index}>Page {index + 1}</article>)}
+      </LayoutPageCurl>;
+    }
+    const view = render(<Harness />);
+    await waitFor(() => expect(view.container.querySelector(".stf__block")).toBeTruthy());
+    act(() => { expect(curl.current?.goTo(count - 1)).toBe(true); });
+    await waitFor(() => expect(commits.at(-1)).toBe(count - 1));
+    const book = view.container.querySelector<HTMLElement>(".layout-page-curl")!;
+    expect(book.style.getPropertyValue("--book-offset")).toBe("150px");
+    expect(book.style.getPropertyValue("--book-spine")).toBe("0");
+    act(() => { expect(curl.current?.goTo(3)).toBe(true); });
+    await waitFor(() => expect(commits.at(-1)).toBe(3));
+    expect(book.style.getPropertyValue("--book-offset")).toBe(count === 5 ? "150px" : "0px");
+  });
 });

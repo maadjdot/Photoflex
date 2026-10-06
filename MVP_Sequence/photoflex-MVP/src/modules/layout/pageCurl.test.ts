@@ -7,9 +7,21 @@ import {
   createPageCurlNavigationState,
   pageCurlEnginePage,
   pageCurlLogicalPage,
+  pageCurlBookPose,
 } from "./pageCurl";
 
 describe("page curl navigation", () => {
+  it("maps a detached back cover through padding without exposing an extra document page", () => {
+    expect(pageCurlEnginePage(4, "facing", 5, true)).toBe(6);
+    expect(pageCurlLogicalPage(6, "facing", 5, true)).toBe(4);
+    expect(pageCurlEnginePage(5, "facing", 6, true)).toBe(6);
+    expect(pageCurlLogicalPage(6, "facing", 6, true)).toBe(5);
+    expect(pageCurlBookPose(4, 5, "facing", true)).toMatchObject({ offset: .5, spine: 0 });
+    expect(beginPageCurlGoTo(createPageCurlNavigationState(0, 5), 4, 5, "facing", true))
+      .toMatchObject({ targetPage: 4 });
+    expect(beginPageCurlTurn(createPageCurlNavigationState(4, 5), -1, 5, "facing", true))
+      .toMatchObject({ targetPage: 3 });
+  });
   it("keeps the committed spread stable until a turn lands", () => {
     const initial = createPageCurlNavigationState(0, 8);
     const turning = beginPageCurlTurn(initial, 1, 8, "facing");

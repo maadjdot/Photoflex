@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import type { LayoutId, LayoutObjectId, LayoutPageId, PhotoId, ProjectBackupV1, ProjectStore } from "../../src/contracts";
+import type { LayoutDocument, LayoutId, LayoutObjectId, LayoutPageId, PhotoId, ProjectBackupV1, ProjectStore } from "../../src/contracts";
 import { applyLayoutCommand, createEmptyLayout } from "../../src/modules/layout/layoutDocument";
 import { MM_TO_PT } from "../../src/modules/page-layout/pageGeometry";
 import { IndexedDbProjectStore } from "../../src/platform/browser/IndexedDbProjectStore";
@@ -36,8 +36,9 @@ for (const [name, factory] of [["memory", () => new MemoryProjectStore()], ["Ind
     expect(legacySaved.ok).toBe(true);
     expect(await store.loadLayout(first.id)).toMatchObject({ ok: true, value: { pages: [{ objects: [] }] } });
     if (!legacySaved.ok) throw Error("legacy layout save failed");
-    const edited = { ...first, pages: [{ ...first.pages[0], paper: { color: "#F1EDE1", material: "natural-fiber" as const }, objects: [frame] },
-      { id: "page-second" as LayoutPageId, paper: { color: "#28282A", material: "bookcloth" as const }, objects: [] }] };
+    const edited: LayoutDocument = { ...first, pages: [{ ...first.pages[0], kind: "cover" as const, innerEdge: { mode: "bevel" as const, color: "#F1EDE1", widthPt: 3 }, photoElevationPt: 6,
+      paper: { color: "#F1EDE1", material: "natural-fiber" as const }, objects: [frame] },
+      { id: "page-second" as LayoutPageId, kind: "back-cover" as const, paper: { color: "#28282A", material: "bookcloth" as const }, objects: [] }] };
     const saved = await store.saveLayout(edited, legacySaved.value.revision);
     expect(saved.ok).toBe(true);
     expect(await store.saveLayout({ ...edited, name: "Stale" }, first.revision)).toMatchObject({ ok: false, error: { kind: "layout-conflict" } });
@@ -67,6 +68,9 @@ for (const [name, factory] of [["memory", () => new MemoryProjectStore()], ["Ind
     expect(copy.layouts[0].sequenceId).toBe(copy.sequences[0].id);
     expect(copy.layouts[0].pages[0].id).not.toBe(first.pages[0].id);
     expect(copy.layouts[0].pages.map((page) => page.paper)).toEqual(edited.pages.map((page) => page.paper));
+    expect(copy.layouts[0].pages.map((page) => page.kind)).toEqual(["cover", "back-cover"]);
+    expect(copy.layouts[0].pages[0].innerEdge).toEqual(edited.pages[0].innerEdge);
+    expect(copy.layouts[0].pages[0].photoElevationPt).toBe(6);
     expect(copy.layouts[0].pages[0].objects[0].id).not.toBe(frame.id);
     const copiedPhoto = copy.photoManifest.find((photo) => photo.relativePath === "one.jpg")!.photoId;
     expect((copy.layouts[0].pages[0].objects[0] as { photoId: PhotoId }).photoId).toBe(copiedPhoto);

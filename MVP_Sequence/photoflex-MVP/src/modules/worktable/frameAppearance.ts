@@ -8,7 +8,7 @@ export const FRAME_EDGE_MATERIALS = [
   { id: "flat", label: "Flat" }, { id: "wood", label: "Wood grain" },
   { id: "metal", label: "Brushed metal" }, { id: "beveled", label: "Beveled / 3D" },
 ] as const;
-export function frameInnerEdge(page: Page): FrameInnerEdge { return page.innerEdge ?? { mode: "none", color: "#FFFFFF", widthPt: FRAME_MM_TO_PT }; }
+export function frameInnerEdge(page: Pick<Page, "innerEdge">): FrameInnerEdge { return page.innerEdge ?? { mode: "none", color: "#FFFFFF", widthPt: FRAME_MM_TO_PT }; }
 export function frameEdgeStyle(page: Page): FrameEdgeStyle { return page.edgeStyle ?? { widthPt: page.widthPt * .025, material: "flat", shadowStrength: .25, photoElevationPt: 0 }; }
 export function frameCaptionStyle(page: Page): FrameCaptionStyle {
   return page.captionStyle ?? { rect: { x: page.widthPt * .08, y: page.heightPt * .87, width: page.widthPt * .84, height: page.heightPt * .09 },

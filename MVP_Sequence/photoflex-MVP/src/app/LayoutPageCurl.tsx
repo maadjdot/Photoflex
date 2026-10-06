@@ -38,6 +38,7 @@ export interface LayoutPageCurlProps {
   readonly pageHeight: number;
   readonly currentPage: number;
   readonly mode: ResolvedLayoutReaderMode;
+  readonly backCover?: boolean;
   readonly ariaLabel: string;
   readonly pageBackground?: string;
   readonly children: ReactNode;
@@ -55,6 +56,7 @@ export const LayoutPageCurl = forwardRef<LayoutPageCurlHandle, LayoutPageCurlPro
   pageHeight,
   currentPage,
   mode,
+  backCover = false,
   ariaLabel,
   pageBackground = "#fff",
   children,
@@ -67,35 +69,37 @@ export const LayoutPageCurl = forwardRef<LayoutPageCurlHandle, LayoutPageCurlPro
   const settledPage = useRef(currentPage);
   const litLeaves = useRef<HTMLElement[]>([]);
   const grab = useRef<{ pointerId: number; x: number; y: number } | undefined>(undefined);
-  const initialPage = useRef(pageCurlEnginePage(currentPage, mode));
   const pageCount = Children.count(children);
-  const depth = Math.min(12, 2 + Math.ceil(pageCount / 2) * .16) * pageWidth / 420;
+  const initialPage = useRef(pageCurlEnginePage(currentPage, mode, pageCount, backCover));
+  const depth = Math.min(5, 1 + Math.ceil(pageCount / 2) * .1) * pageWidth / 420;
   // The library's lazy shells omit density attributes. Keep hard roots mounted
   // and window only their content, so every page retains rigid geometry.
   const leaves = useMemo(() => {
     const pages = Children.map(children, (child, index) => (
-      <div className="layout-page-curl-leaf" data-density="hard" data-face-side={mode === "facing" && index % 2 === 1 ? "left" : "right"} key={isValidElement(child) && child.key !== null ? child.key : index}>
+      <div className="layout-page-curl-leaf" data-density="hard" data-face-side={mode === "facing" && (index % 2 === 1 || (backCover && index === pageCount - 1)) ? "left" : "right"} key={isValidElement(child) && child.key !== null ? child.key : index}>
         <div className="layout-page-curl-face">{Math.abs(index - currentPage) <= (mode === "single" ? 2 : 3) ? child : null}</div>
       </div>
     )) ?? [];
     if (mode === "single") return pages;
+    if (backCover && pageCount > 1 && pageCount % 2 === 1) pages.splice(pages.length - 1, 0,
+      <div className="layout-page-curl-leaf layout-page-curl-flyleaf" data-density="hard" key="layout-page-curl-back-flyleaf" aria-hidden="true" inert />);
     return [
       <div className="layout-page-curl-leaf layout-page-curl-flyleaf" data-density="hard" key="layout-page-curl-flyleaf" aria-hidden="true" inert />,
       ...pages,
     ];
-  }, [children, mode, currentPage]);
+  }, [children, mode, currentPage, pageCount, backCover]);
 
   const paintPose = (page: number, target = page, progress = 0) => {
     const book = bookRef.current;
     if (!book) return;
-    const from = pageCurlBookPose(page, pageCount, mode), to = pageCurlBookPose(target, pageCount, mode);
+    const from = pageCurlBookPose(page, pageCount, mode, backCover), to = pageCurlBookPose(target, pageCount, mode, backCover);
     const mix = (start: number, end: number) => start + (end - start) * progress;
     book.style.setProperty("--book-offset", `${mix(from.offset, to.offset) * pageWidth}px`);
     book.style.setProperty("--book-spine", String(mix(from.spine, to.spine)));
     book.style.setProperty("--book-left-depth", `${mix(from.left, to.left) * depth}px`);
     book.style.setProperty("--book-right-depth", `${mix(from.right, to.right) * depth}px`);
-    book.style.setProperty("--book-left-opacity", String(Math.min(1, mix(from.left, to.left) * 8)));
-    book.style.setProperty("--book-right-opacity", String(Math.min(1, mix(from.right, to.right) * 8)));
+    book.style.setProperty("--book-left-opacity", String(Math.min(1, mix(from.left + from.spine, to.left + to.spine) * 8)));
+    book.style.setProperty("--book-right-opacity", String(Math.min(1, mix(from.right + from.spine, to.right + to.spine) * 8)));
   };
   const settleVisuals = (page = settledPage.current) => {
     settledPage.current = page;
@@ -105,20 +109,20 @@ export const LayoutPageCurl = forwardRef<LayoutPageCurlHandle, LayoutPageCurlPro
     paintPose(page);
   };
 
-  useLayoutEffect(() => { settleVisuals(currentPage); }, [currentPage, mode, pageCount, pageWidth, pageHeight]);
+  useLayoutEffect(() => { settleVisuals(currentPage); }, [currentPage, mode, pageCount, pageWidth, pageHeight, backCover]);
 
   useImperativeHandle(ref, () => ({
     turn: (direction) => direction > 0
       ? engineRef.current?.flipNext() ?? false
       : engineRef.current?.flipPrev() ?? false,
     goTo: (page, animated = false) => {
-      const enginePage = pageCurlEnginePage(page, mode);
+      const enginePage = pageCurlEnginePage(page, mode, pageCount, backCover);
       return animated
         ? engineRef.current?.flipToPage(enginePage) ?? false
         : engineRef.current?.turnToPage(enginePage) ?? false;
     },
     cancel: () => engineRef.current?.cancelTurn() ?? false,
-  }), [mode]);
+  }), [mode, pageCount, backCover]);
 
   return <div ref={bookRef} className={`layout-page-curl is-${mode}`} onPointerDownCapture={(event) => {
     if (event.button === 0) grab.current = { pointerId: event.pointerId, x: event.clientX, y: event.clientY };
@@ -141,7 +145,7 @@ export const LayoutPageCurl = forwardRef<LayoutPageCurlHandle, LayoutPageCurlPro
     width={pageWidth}
     height={pageHeight}
     initialPage={initialPage.current}
-    page={pageCurlEnginePage(currentPage, mode)}
+    page={pageCurlEnginePage(currentPage, mode, pageCount, backCover)}
     pageTransition="instant"
     sizing={mode === "single" ? "responsive" : "fixed"}
     minWidth={pageWidth}
@@ -167,7 +171,7 @@ export const LayoutPageCurl = forwardRef<LayoutPageCurlHandle, LayoutPageCurlPro
     className="layout-page-curl-engine"
     style={{ width: pageWidth * (mode === "single" ? 1 : 2), height: pageHeight }}
     onPageChange={(snapshot) => {
-      const page = pageCurlLogicalPage(snapshot.page, mode);
+      const page = pageCurlLogicalPage(snapshot.page, mode, pageCount, backCover);
       settleVisuals(page);
       onPageChange(page);
     }}
@@ -188,7 +192,7 @@ export const LayoutPageCurl = forwardRef<LayoutPageCurlHandle, LayoutPageCurlPro
       }
       const shade = Math.sin(progress * Math.PI) * .18;
       for (const leaf of litLeaves.current) leaf.style.setProperty("--turn-shade", String(shade));
-      paintPose(settledPage.current, navigateLayoutReaderPage(pageCount, settledPage.current, mode, turnDirection), progress);
+      paintPose(settledPage.current, navigateLayoutReaderPage(pageCount, settledPage.current, mode, turnDirection, backCover), progress);
     }}
     onTurnRejected={() => { settleVisuals(); onTurnSettled?.(); }}
   >{leaves}</HTMLFlipBook>

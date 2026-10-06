@@ -3,10 +3,10 @@ import type { DerivedPreviewMaxEdge, LayoutDocument, LayoutObject } from "../../
 /** Clip each physical face independently, including content crossing its spine. */
 export function layoutReaderPageObjects(document: LayoutDocument, pageIndex: number): readonly LayoutObject[] {
   const objects = document.pages[pageIndex].objects;
-  if (pageIndex === 0) return objects;
+  if (pageIndex === 0 || document.pages[pageIndex].kind === "back-cover") return objects;
   const left = pageIndex % 2 === 1;
   const neighbour = document.pages[pageIndex + (left ? 1 : -1)];
-  if (!neighbour) return objects;
+  if (!neighbour || neighbour.kind === "back-cover") return objects;
   const width = document.pageSpec.widthPt;
   const overflow = neighbour.objects.filter((object) => left ? object.rect.x < 0 : object.rect.x + object.rect.width > width)
     .map((object) => ({ ...object, rect: { ...object.rect, x: object.rect.x + (left ? width : -width) } }));
@@ -43,11 +43,13 @@ export function resolveLayoutReaderMode(mode: LayoutReaderMode, viewport: { widt
 }
 
 /** Page zero is a right-hand cover. Physical pages then pair as 2-3, 4-5, and so on. */
-export function layoutReaderSpreads(pageCount: number, mode: ResolvedLayoutReaderMode): readonly LayoutReaderSpread[] {
+export function layoutReaderSpreads(pageCount: number, mode: ResolvedLayoutReaderMode, backCover = false): readonly LayoutReaderSpread[] {
   if (pageCount <= 0) return [];
   if (mode === "single") return Array.from({ length: pageCount }, (_, index) => ({ slots: [index] }));
   const spreads: LayoutReaderSpread[] = [{ slots: [null, 0] }];
-  for (let index = 1; index < pageCount; index += 2) spreads.push({ slots: [index, index + 1 < pageCount ? index + 1 : null] });
+  const bodyEnd = backCover && pageCount > 1 ? pageCount - 1 : pageCount;
+  for (let index = 1; index < bodyEnd; index += 2) spreads.push({ slots: [index, index + 1 < bodyEnd ? index + 1 : null] });
+  if (backCover && pageCount > 1) spreads.push({ slots: [pageCount - 1, null] });
   return spreads;
 }
 
@@ -65,8 +67,8 @@ export function layoutReaderPageLabel(spread: LayoutReaderSpread | undefined, pa
   return `${pages.join("–")} / ${pageCount}`;
 }
 
-export function navigateLayoutReaderPage(pageCount: number, currentPage: number, mode: ResolvedLayoutReaderMode, direction: -1 | 1): number {
-  const spreads = layoutReaderSpreads(pageCount, mode);
+export function navigateLayoutReaderPage(pageCount: number, currentPage: number, mode: ResolvedLayoutReaderMode, direction: -1 | 1, backCover = false): number {
+  const spreads = layoutReaderSpreads(pageCount, mode, backCover);
   if (!spreads.length) return 0;
   const currentSpread = layoutReaderSpreadIndex(spreads, currentPage);
   const target = spreads[clamp(currentSpread + direction, 0, spreads.length - 1)];

@@ -185,21 +185,29 @@ export function LayoutWorkspace({ dependencies, persistence, projectId, sequence
   if (!document || !sequence || projectWrite.loading) return <main className="layout-workspace layout-workspace-error"><div className="loading-mark" /><p>{zh ? "正在打开 Layout…" : "Opening Layout…"}</p></main>;
 
   const addPage = () => {
-    const next: LayoutPage = { id: newPageId(), ...(page?.paper ? { paper: { ...page.paper } } : {}), objects: [] };
-    if (command({ type: "add-page", page: next, at: selectedIndex + 1 })) setSelectedIndex(selectedIndex + 1);
+    const next: LayoutPage = { id: newPageId(), ...(page?.paper ? { paper: { ...page.paper } } : {}),
+      ...(page?.innerEdge ? { innerEdge: { ...page.innerEdge } } : {}), photoElevationPt: page?.photoElevationPt, objects: [] };
+    const at = Math.min(selectedIndex + 1, document.pages.at(-1)?.kind === "back-cover" ? document.pages.length - 1 : document.pages.length);
+    if (command({ type: "add-page", page: next, at })) setSelectedIndex(at);
+  };
+  const addCover = (kind: "cover" | "back-cover") => {
+    const at = kind === "cover" ? 0 : document.pages.length;
+    const next: LayoutPage = { id: newPageId(), kind, objects: [] };
+    if (command({ type: "add-page", page: next, at })) setSelectedIndex(at);
   };
   const nextPage = (facing: boolean) => {
     const nextIndex = facing
-      ? facingTurnIndex(document.pages.length, selectedIndex, 1)
+      ? facingTurnIndex(document.pages.length, selectedIndex, 1, document.pages.at(-1)?.kind === "back-cover")
       : Math.min(document.pages.length - 1, selectedIndex + 1);
     if (nextIndex !== selectedIndex) setSelectedIndex(nextIndex);
     else addPage();
   };
   const previousPage = (facing: boolean) => setSelectedIndex(facing
-    ? facingTurnIndex(document.pages.length, selectedIndex, -1)
+    ? facingTurnIndex(document.pages.length, selectedIndex, -1, document.pages.at(-1)?.kind === "back-cover")
     : Math.max(0, selectedIndex - 1));
   const duplicatePage = () => {
-    if (page && command({ type: "add-page", page: copyPage(page), at: selectedIndex + 1 })) setSelectedIndex(selectedIndex + 1);
+    const at = Math.min(selectedIndex + 1, document.pages.at(-1)?.kind === "back-cover" ? document.pages.length - 1 : document.pages.length);
+    if (page && command({ type: "add-page", page: copyPage(page), at })) setSelectedIndex(at);
   };
   const removePage = (targetId = page?.id) => {
     if (!targetId || document.pages.length <= 1) return;
@@ -227,8 +235,10 @@ export function LayoutWorkspace({ dependencies, persistence, projectId, sequence
     setDraggedPageId(undefined); setDropPageId(undefined);
     if (!sourceId || sourceId === targetId) return;
     const from = document.pages.findIndex((entry) => entry.id === sourceId);
-    const to = document.pages.findIndex((entry) => entry.id === targetId);
-    if (from < 0 || to < 0) return;
+    const target = document.pages.findIndex((entry) => entry.id === targetId);
+    const to = Math.max(document.pages[0]?.kind === "cover" ? 1 : 0,
+      Math.min(document.pages.at(-1)?.kind === "back-cover" ? document.pages.length - 2 : document.pages.length - 1, target));
+    if (from < 0 || target < 0 || document.pages[from].kind || from === to) return;
     const selectedPageId = document.pages[selectedIndex].id;
     const reordered = [...document.pages];
     const [moving] = reordered.splice(from, 1);
@@ -278,8 +288,8 @@ export function LayoutWorkspace({ dependencies, persistence, projectId, sequence
     <div className="layout-workspace-body" style={{ "--layout-pages-width": `${panelWidths.pages}px`, "--layout-properties-width": `${panelWidths.properties}px` } as CSSProperties}>
       <aside className="layout-pages-panel" aria-label={zh ? "页面" : "Pages"}>
         <div className="layout-panel-heading"><strong>{zh ? "页面" : "Pages"}</strong><span>{document.pages.length}</span></div>
-        <div className="layout-pages-list">{document.pages.map((entry, index) => { const firstImage = entry.objects.find((object) => object.kind === "image-frame" && object.photoId); const photoId = firstImage?.kind === "image-frame" ? firstImage.photoId : null; return <button key={entry.id} draggable className={`${index === selectedIndex ? "is-selected" : ""}${dropPageId === entry.id && draggedPageId !== entry.id ? " is-drop-target" : ""}`} onClick={() => setSelectedIndex(index)} onKeyDown={(event) => { if (event.key === "Delete" || event.key === "Backspace") { event.preventDefault(); event.stopPropagation(); removePage(entry.id); } }} aria-current={index === selectedIndex ? "page" : undefined} onDragStart={(event) => { setDraggedPageId(entry.id); event.dataTransfer.setData("application/x-photoflex-layout-page-id", entry.id); event.dataTransfer.effectAllowed = "move"; }} onDragOver={(event) => { if (draggedPageId) { event.preventDefault(); setDropPageId(entry.id); } }} onDragLeave={() => setDropPageId((current) => current === entry.id ? undefined : current)} onDrop={(event) => { event.preventDefault(); dropPage(entry.id); }} onDragEnd={() => { setDraggedPageId(undefined); setDropPageId(undefined); }}><span className="layout-page-index" aria-hidden="true">{String(index + 1).padStart(2, "0")}</span><span className="layout-page-mini" style={{ aspectRatio: `${document.pageSpec.widthPt} / ${document.pageSpec.heightPt}` }}><LayoutPaperBackdrop page={entry} />{photoId ? <PhotoThumb photoSource={dependencies.photoSource} photoId={photoId} alt="" fit="contain" /> : entry.objects.length > 0 && <i />}</span><span className="layout-page-caption"><span>{zh ? `第 ${index + 1} 页` : `Page ${index + 1}`}</span><small>{index === selectedIndex ? (zh ? "当前页面" : "Current page") : (zh ? `${entry.objects.length} 个对象` : `${entry.objects.length} objects`)}</small></span><span className="layout-page-grip" aria-hidden="true">⠿</span></button>; })}</div>
-        <div className="layout-page-actions"><button onClick={addPage}>{zh ? "＋ 空白页" : "+ Blank page"}</button><button onClick={duplicatePage}>{zh ? "复制页" : "Duplicate"}</button><button disabled={document.pages.length <= 1} onClick={() => removePage()}>{zh ? "删除页" : "Delete"}</button></div>
+        <div className="layout-pages-list">{document.pages.map((entry, index) => { const firstImage = entry.objects.find((object) => object.kind === "image-frame" && object.photoId); const photoId = firstImage?.kind === "image-frame" ? firstImage.photoId : null; return <button key={entry.id} draggable={!entry.kind} className={`${index === selectedIndex ? "is-selected" : ""}${dropPageId === entry.id && draggedPageId !== entry.id ? " is-drop-target" : ""}`} onClick={() => setSelectedIndex(index)} onKeyDown={(event) => { if (event.key === "Delete" || event.key === "Backspace") { event.preventDefault(); event.stopPropagation(); removePage(entry.id); } }} aria-current={index === selectedIndex ? "page" : undefined} onDragStart={(event) => { if (entry.kind) { event.preventDefault(); return; } setDraggedPageId(entry.id); event.dataTransfer.setData("application/x-photoflex-layout-page-id", entry.id); event.dataTransfer.effectAllowed = "move"; }} onDragOver={(event) => { if (draggedPageId) { event.preventDefault(); setDropPageId(entry.id); } }} onDragLeave={() => setDropPageId((current) => current === entry.id ? undefined : current)} onDrop={(event) => { event.preventDefault(); dropPage(entry.id); }} onDragEnd={() => { setDraggedPageId(undefined); setDropPageId(undefined); }}><span className="layout-page-index" aria-hidden="true">{String(index + 1).padStart(2, "0")}</span><span className="layout-page-mini" style={{ aspectRatio: `${document.pageSpec.widthPt} / ${document.pageSpec.heightPt}` }}><LayoutPaperBackdrop page={entry} />{photoId ? <PhotoThumb photoSource={dependencies.photoSource} photoId={photoId} alt="" fit="contain" /> : entry.objects.length > 0 && <i />}</span><span className="layout-page-caption"><span>{entry.kind === "cover" ? (zh ? "封面" : "Front cover") : entry.kind === "back-cover" ? (zh ? "封底" : "Back cover") : (zh ? `第 ${index + 1} 页` : `Page ${index + 1}`)}</span>{index === selectedIndex && <small>{zh ? "当前页面" : "Current page"}</small>}</span><span className="layout-page-grip" aria-hidden="true">⠿</span></button>; })}</div>
+        <div className="layout-page-actions">{document.pages[0].kind !== "cover" && <button onClick={() => addCover("cover")}>{zh ? "＋ 封面" : "+ Front cover"}</button>}{document.pages.at(-1)?.kind !== "back-cover" && <button onClick={() => addCover("back-cover")}>{zh ? "＋ 封底" : "+ Back cover"}</button>}<button onClick={addPage}>{zh ? "＋ 空白页" : "+ Blank page"}</button><button onClick={duplicatePage}>{zh ? "复制页" : "Duplicate"}</button><button disabled={document.pages.length <= 1} onClick={() => removePage()}>{zh ? "删除页" : "Delete"}</button></div>
       </aside>
       <LayoutEditor document={document} sequence={sequence} dependencies={dependencies} selectedIndex={selectedIndex} setSelectedIndex={setSelectedIndex} command={command} onRefreshPhotos={refreshPhotos} onPreviousPage={previousPage} onNextPage={nextPage} interactionEnabled={!reading && !qualityOpen} canUndo={historyPosition > 0} canRedo={historyPosition < history.current.length - 1} onUndo={() => travel(-1)} onRedo={() => travel(1)} prepareExport={prepareExport} />
       {(["pages", "properties"] as const).map((side) => <div key={side} className={`layout-panel-resizer is-${side}`} role="separator" aria-label={side === "pages" ? (zh ? "调整页面栏宽度" : "Resize Pages panel") : (zh ? "调整属性栏宽度" : "Resize Properties panel")} aria-orientation="vertical" aria-valuemin={120} aria-valuemax={400} aria-valuenow={panelWidths[side]} tabIndex={0} onPointerDown={panelPointerDown} onPointerMove={(event) => { if (event.currentTarget.hasPointerCapture(event.pointerId)) resizePanel(side, event.clientX, event.currentTarget); }} onPointerUp={(event) => { if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId); }} onKeyDown={(event) => { if (event.key === "ArrowLeft" || event.key === "ArrowRight") { event.preventDefault(); const delta = event.key === "ArrowRight" ? 16 : -16; const bounds = event.currentTarget.getBoundingClientRect(); resizePanel(side, bounds.left + delta, event.currentTarget); } }} />)}

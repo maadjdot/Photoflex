@@ -1,5 +1,5 @@
 import { useMemo, type CSSProperties } from "react";
-import type { DerivedPreviewMaxEdge, LayoutDocument, LayoutObject, LayoutRect, PhotoId, PhotoSource } from "../contracts";
+import type { DerivedPreviewMaxEdge, LayoutDocument, LayoutObject, LayoutPage, LayoutRect, PhotoId, PhotoSource } from "../contracts";
 import { isDarkLayoutPaper, resolveLayoutPaper } from "../modules/layout/layoutPaper";
 import { layoutReaderPageObjects } from "../modules/layout/layoutReader";
 import { LayoutImageFrameView } from "./LayoutImageFrameView";
@@ -11,18 +11,19 @@ export function layoutObjectStyle(rect: LayoutRect, pageSpec: LayoutDocument["pa
     width: `${rect.width / pageSpec.widthPt * 100}%`, height: `${rect.height / pageSpec.heightPt * 100}%` };
 }
 
-export function LayoutObjectVisual({ object, photoSource, sourceRevision, scale, previewEdge = 768, eager = false, onMetadata, onMissing }: {
+export function LayoutObjectVisual({ object, photoSource, sourceRevision, scale, previewEdge = 768, eager = false, onMetadata, onMissing, page }: {
   readonly object: LayoutObject;
   readonly photoSource: PhotoSource;
   readonly sourceRevision: number;
   readonly scale: number;
+  readonly page?: LayoutPage;
   readonly previewEdge?: DerivedPreviewMaxEdge;
   readonly eager?: boolean;
   readonly onMetadata: (photoId: PhotoId, size: { width: number; height: number }) => void;
   readonly onMissing: (photoId: PhotoId) => void;
 }) {
   return object.kind === "image-frame"
-    ? <LayoutImageFrameView frame={object} photoSource={photoSource} sourceRevision={sourceRevision} previewEdge={previewEdge} eager={eager} onMetadata={onMetadata} onMissing={onMissing} />
+    ? <LayoutImageFrameView frame={object} page={page} scale={scale} photoSource={photoSource} sourceRevision={sourceRevision} previewEdge={previewEdge} eager={eager} onMetadata={onMetadata} onMissing={onMissing} />
     : <LayoutTextView box={object} scale={scale} />;
 }
 
@@ -44,7 +45,7 @@ export function LayoutPageSurface({ document, pageIndex, slot, pageWidth, pageHe
   return <article className={`layout-paper layout-reader-paper${isDarkLayoutPaper(resolveLayoutPaper(page)) ? " is-dark-paper" : ""}`} style={{ width: pageWidth, height: pageHeight }} aria-label={`Page ${pageIndex + 1}`}>
     <LayoutPaperBackdrop page={page} />
     {objects.map((object) => <div key={object.id} className={`layout-object layout-object-${object.kind}`} style={layoutObjectStyle(object.rect, document.pageSpec)}>
-      <LayoutObjectVisual object={object} photoSource={photoSource} sourceRevision={sourceRevision} scale={pageHeight / document.pageSpec.heightPt} previewEdge={previewEdge} eager={eager} onMetadata={onMetadata} onMissing={onMissing} />
+      <LayoutObjectVisual object={object} page={page} photoSource={photoSource} sourceRevision={sourceRevision} scale={pageHeight / document.pageSpec.heightPt} previewEdge={previewEdge} eager={eager} onMetadata={onMetadata} onMissing={onMissing} />
     </div>)}
     <span className={`layout-paper-number${slot === 0 ? " is-left" : ""}`}>{String(pageIndex + 1).padStart(2, "0")}</span>
   </article>;

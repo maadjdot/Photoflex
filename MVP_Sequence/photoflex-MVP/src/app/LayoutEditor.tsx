@@ -10,6 +10,7 @@ import type { AppDependencies } from "./dependencies";
 import { LayoutObjectVisual, layoutObjectStyle } from "./LayoutPageSurface";
 import { LayoutPaperBackdrop } from "./LayoutPaperBackdrop";
 import { LayoutPaperControls } from "./LayoutPaperControls";
+import { LayoutPhotoAppearanceControls } from "./LayoutPhotoAppearanceControls";
 import { useLocale } from "./locale";
 import { PhotoThumb } from "./PhotoThumb";
 import undoIcon from "../assets/icons/table-undo.svg";
@@ -213,7 +214,7 @@ export function LayoutEditor({ document, sequence, dependencies, selectedIndex, 
   });
   const sequencePhotoIds = useMemo(() => new Set(photos.map((item) => item.photoId)), [photos]);
   const visible = visiblePhotoRange(strip.left, { count: photos.length, itemWidth: 104, gap: 10, sidePadding: 0, viewportWidth: strip.width });
-  const display = facing ? facingPageIndices(document.pages.length, selectedIndex) : [selectedIndex];
+  const display = facing ? facingPageIndices(document.pages.length, selectedIndex, document.pages.at(-1)?.kind === "back-cover") : [selectedIndex];
   const pageHeight = 460 * zoom;
   const pageWidth = pageHeight * document.pageSpec.widthPt / document.pageSpec.heightPt;
   const shownPages = [...display].filter((index): index is number => index !== null);
@@ -549,7 +550,7 @@ export function LayoutEditor({ document, sequence, dependencies, selectedIndex, 
           const rect = currentGesture?.rect ?? (groupMove ? { ...object.rect, x: object.rect.x + groupMove.dx, y: object.rect.y + groupMove.dy } : object.rect);
           const shown = object.kind === "image-frame" ? { ...object, rect, crop: cropDraft?.frameId === object.id ? cropDraft.crop : object.crop } : { ...object, rect };
           return <div key={object.id} className={`layout-object layout-object-${object.kind}${selectedIds.has(object.id) ? " is-selected" : ""}${cropDraft?.frameId === object.id ? " is-cropping" : ""}`} style={formatRect(rect)} onClick={(event) => { event.stopPropagation(); setSelectedIndex(index); if (!event.shiftKey && !selectedIds.has(object.id)) selectOnly(object.id); }} onDoubleClick={(event) => { event.stopPropagation(); if (object.kind === "image-frame") beginCrop(object, document.pages[index].id); else { setSelectedIndex(index); selectOnly(object.id); setEditingTextId(object.id); } }} onPointerDown={(event) => pointerStart(event, index, object)} onWheel={object.kind === "image-frame" ? (event) => wheelCrop(event, object, index) : undefined} onContextMenu={object.kind === "image-frame" && object.photoId ? (event) => event.preventDefault() : undefined} onDragOver={object.kind === "image-frame" ? (event) => event.preventDefault() : undefined} onDrop={object.kind === "image-frame" ? (event) => dropPhoto(event, index, object) : undefined}>
-            {shown.kind === "text-box" && editingTextId === object.id ? renderTextEditor(shown, document.pages[index].id) : <LayoutObjectVisual object={shown} photoSource={dependencies.photoSource} sourceRevision={sourceRevision} scale={pageHeight / document.pageSpec.heightPt} onMetadata={noteSize} onMissing={markMissing} />}
+            {shown.kind === "text-box" && editingTextId === object.id ? renderTextEditor(shown, document.pages[index].id) : <LayoutObjectVisual object={shown} page={document.pages[index]} photoSource={dependencies.photoSource} sourceRevision={sourceRevision} scale={pageHeight / document.pageSpec.heightPt} onMetadata={noteSize} onMissing={markMissing} />}
             {shown.kind === "image-frame" && shown.photoId && (!sequencePhotoIds.has(shown.photoId) || missingPhotos.has(shown.photoId)) && <span className="layout-image-warning">{fieldLabel(zh, "Photo unavailable", "照片不可用")}</span>}
             {object.kind === "image-frame" && cropDraft?.frameId === object.id && gesture?.kind !== "crop" && <div className="layout-crop-overlay" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => event.stopPropagation()}><span>{fieldLabel(zh, `Drag photo · scroll to zoom · ${Math.round(cropDraft.crop.zoom * 100)}%`, `拖动照片 · 滚轮缩放 · ${Math.round(cropDraft.crop.zoom * 100)}%`)}</span><div><button onClick={cancel}>{fieldLabel(zh, "Cancel", "取消")}</button><button onClick={finishCrop}>{fieldLabel(zh, "Done", "完成")}</button></div></div>}
             {object.id === selectedId && selectedIds.size === 1 && !cropDraft && (["nw", "n", "ne", "e", "se", "s", "sw", "w"] as const).map((handle) => <button key={handle} className={`layout-resize-handle is-${handle}`} aria-label={`Resize ${handle}`} onPointerDown={(event) => pointerStart(event, index, object, handle)} />)}
@@ -570,6 +571,7 @@ export function LayoutEditor({ document, sequence, dependencies, selectedIndex, 
     <aside className="layout-properties-panel table-frame-panel" aria-label={fieldLabel(zh, "Page properties", "页面属性")}>
       <div className="table-frame-inspector">
         <LayoutPaperControls document={document} page={page} command={command} zh={zh} />
+        <LayoutPhotoAppearanceControls document={document} page={page} command={command} zh={zh} />
         <section className="table-frame-section"><h3>{fieldLabel(zh, "TEMPLATE", "模板")}</h3><div className="table-frame-template-strip layout-template-strip" role="group" aria-label="Template">
           {LAYOUT_TEMPLATES.map((id) => <button key={id} type="button" title={templateLabels[id]} aria-label={`${templateLabels[id]} template`} aria-pressed={templateId === id} onClick={() => applyTemplate(id)}><span className={`table-frame-mini mini-${id}`} aria-hidden="true" /></button>)}
         </div></section>

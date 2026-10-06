@@ -22,13 +22,15 @@ const sequence = (): SequenceDocument => {
 };
 
 describe("Layout page initialization", () => {
-  it("keeps a first spread on a facing pair by inserting a real blank page", () => {
+  it("adds covers and keeps a first Sequence spread on the first body pair", () => {
     const source = sequence();
-    expect(sequenceLayoutPreview(source)).toEqual({ pages: 5, insertedBlanks: 1, simplifiedText: 1 });
+    expect(sequenceLayoutPreview(source)).toEqual({ pages: 6, insertedBlanks: 0, simplifiedText: 1 });
     let count = 0;
     const layout = createLayoutFromSequence({ sequence: source, id: "layout" as LayoutId, name: "Book", widthPt: 210 * MM_TO_PT,
       heightPt: 297 * MM_TO_PT, start: "sequence", now: "now", newId: () => `new-${++count}` });
-    expect(layout.pages).toHaveLength(5);
+    expect(layout.pages).toHaveLength(6);
+    expect(layout.pages[0].kind).toBe("cover");
+    expect(layout.pages[5]).toMatchObject({ kind: "back-cover", objects: [] });
     expect(layout.pages[0].objects).toHaveLength(0);
     expect(layout.pages[1].objects[0]).toMatchObject({ kind: "image-frame", photoId: "photo-a" });
     expect(layout.pages[2].objects[0]).toMatchObject({ kind: "image-frame", photoId: "photo-b" });
@@ -39,16 +41,33 @@ describe("Layout page initialization", () => {
     expect(facingPageIndices(5, 4)).toEqual([3, 4]);
   });
 
-  it("creates one blank page without importing Sequence items", () => {
+  it("creates a blank body page between independently identified covers", () => {
+    let count = 0;
     const layout = createLayoutFromSequence({ sequence: sequence(), id: "layout" as LayoutId, name: "Book", widthPt: 297 * MM_TO_PT,
-      heightPt: 148 * MM_TO_PT, start: "blank", now: "now", newId: () => "blank-page" });
-    expect(layout.pages).toEqual([{ id: "blank-page", objects: [] }]);
+      heightPt: 148 * MM_TO_PT, start: "blank", now: "now", newId: () => `blank-${++count}` });
+    expect(layout.pages).toEqual([{ id: "blank-1", kind: "cover", objects: [] }, { id: "blank-3", objects: [] }, { id: "blank-2", kind: "back-cover", objects: [] }]);
     expect(layout.pageSpec).toEqual({ widthPt: 297 * MM_TO_PT, heightPt: 148 * MM_TO_PT });
+  });
+
+  it("inserts a body blank when a single item precedes a Sequence spread", () => {
+    const source = sequence();
+    const units = source.readingUnits;
+    const layout = createLayoutFromSequence({ sequence: { ...source, readingUnits: [units[2], units[0]] },
+      id: "layout" as LayoutId, name: "Book", widthPt: 210 * MM_TO_PT, heightPt: 297 * MM_TO_PT,
+      start: "sequence", now: "now" });
+    expect(layout.pages[1].objects[0]).toMatchObject({ kind: "text-box" });
+    expect(layout.pages[2].objects).toEqual([]);
+    expect(layout.pages[3].objects[0]).toMatchObject({ photoId: "photo-a" });
+    expect(layout.pages[4].objects[0]).toMatchObject({ photoId: "photo-b" });
+    expect(layout.pages[5].kind).toBe("back-cover");
   });
 
   it("turns physical facing spreads instead of stepping through single pages", () => {
     expect([0, 1, 3, 5, 7].map((index) => facingTurnIndex(8, index, 1))).toEqual([1, 3, 5, 7, 7]);
     expect([0, 1, 2, 3, 7].map((index) => facingTurnIndex(8, index, -1))).toEqual([0, 0, 0, 1, 5]);
+    expect(facingTurnIndex(3, 1, 1)).toBe(2);
+    expect(facingTurnIndex(3, 2, 1)).toBe(2);
+    expect(facingTurnIndex(5, 3, 1, true)).toBe(4);
   });
 
   it("duplicates a page with an independent paper value and new object IDs", () => {

@@ -9,8 +9,8 @@ import {
 export type PageCurlDirection = -1 | 1;
 
 /** Physical book pose, independent of the engine's extra flyleaf. */
-export function pageCurlBookPose(page: number, pageCount: number, mode: ResolvedLayoutReaderMode) {
-  const spreads = layoutReaderSpreads(pageCount, mode);
+export function pageCurlBookPose(page: number, pageCount: number, mode: ResolvedLayoutReaderMode, backCover = false) {
+  const spreads = layoutReaderSpreads(pageCount, mode, backCover);
   const spreadIndex = layoutReaderSpreadIndex(spreads, page);
   const spread = spreads[spreadIndex];
   if (mode === "single") {
@@ -42,14 +42,16 @@ const clampPage = (page: number, pageCount: number) => Math.max(0, Math.min(Math
  * the engine's [0,1], [2,3] spreads match the reader's [blank,0], [1,2]
  * spreads without enabling the engine's incompatible hard-back-cover model.
  */
-export function pageCurlEnginePage(page: number, mode: ResolvedLayoutReaderMode): number {
+export function pageCurlEnginePage(page: number, mode: ResolvedLayoutReaderMode, pageCount = 0, backCover = false): number {
   if (mode === "single") return Math.max(0, page);
+  if (backCover && pageCount > 1 && pageCount % 2 === 1 && page === pageCount - 1) return page + 2;
   return page <= 0 ? 0 : page + 1;
 }
 
 /** Translate an engine spread head back to the reader's logical page index. */
-export function pageCurlLogicalPage(page: number, mode: ResolvedLayoutReaderMode): number {
+export function pageCurlLogicalPage(page: number, mode: ResolvedLayoutReaderMode, pageCount = 0, backCover = false): number {
   if (mode === "single") return Math.max(0, page);
+  if (backCover && pageCount > 1 && pageCount % 2 === 1 && page >= pageCount + 1) return pageCount - 1;
   return page <= 1 ? 0 : page - 1;
 }
 
@@ -63,9 +65,10 @@ export function beginPageCurlTurn(
   direction: PageCurlDirection,
   pageCount: number,
   mode: ResolvedLayoutReaderMode,
+  backCover = false,
 ): PageCurlNavigationState {
   if (state.status === "turning") return state;
-  const targetPage = navigateLayoutReaderPage(pageCount, state.committedPage, mode, direction);
+  const targetPage = navigateLayoutReaderPage(pageCount, state.committedPage, mode, direction, backCover);
   return targetPage === state.committedPage
     ? state
     : { status: "turning", committedPage: state.committedPage, targetPage, direction };
@@ -77,9 +80,10 @@ export function beginPageCurlGoTo(
   page: number,
   pageCount: number,
   mode: ResolvedLayoutReaderMode,
+  backCover = false,
 ): PageCurlNavigationState {
   if (state.status === "turning" || pageCount <= 0) return state;
-  const spreads = layoutReaderSpreads(pageCount, mode);
+  const spreads = layoutReaderSpreads(pageCount, mode, backCover);
   const requestedPage = clampPage(page, pageCount);
   const targetPage = layoutReaderVisiblePages(spreads[layoutReaderSpreadIndex(spreads, requestedPage)])[0]
     ?? state.committedPage;

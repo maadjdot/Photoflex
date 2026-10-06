@@ -145,7 +145,7 @@ test("Layout opens from Sequence and keeps page order at 1280 and 1440", async (
   await expect(creator).toBeVisible();
   await expect(page.locator(".layout-create-backdrop")).toHaveCSS("position", "fixed");
   await expect(creator).toHaveCSS("background-color", "rgb(255, 255, 255)");
-  await expect(creator).toContainText("From Sequence (8 pages)");
+  await expect(creator).toContainText("From Sequence (10 pages, including covers)");
   await creator.getByRole("button", { name: "Create Layout" }).click();
   const layout = page.getByRole("main", { name: "Layout workspace" });
   await expect(layout).toBeVisible();
@@ -158,14 +158,14 @@ test("Layout opens from Sequence and keeps page order at 1280 and 1440", async (
   await layout.getByRole("button", { name: "Previous page" }).click();
   await expect(layout.locator(".layout-pages-list button[aria-current=page]")).toContainText("Page 2");
   await layout.getByRole("button", { name: "Previous page" }).click();
-  await expect(layout.locator(".layout-pages-list button[aria-current=page]")).toContainText("Page 1");
+  await expect(layout.locator(".layout-pages-list button[aria-current=page]")).toContainText("Front cover");
   await layout.getByRole("button", { name: "Single", exact: true }).click();
   await layout.getByRole("button", { name: "Next page" }).click();
   await layout.getByRole("button", { name: "Next page" }).click();
   await expect(layout.locator(".layout-pages-list button[aria-current=page]")).toContainText("Page 3");
   await layout.getByRole("button", { name: "Facing pages" }).click();
   await layout.getByRole("button", { name: "Previous page" }).click();
-  await expect(layout.locator(".layout-pages-list button[aria-current=page]")).toContainText("Page 1");
+  await expect(layout.locator(".layout-pages-list button[aria-current=page]")).toContainText("Front cover");
   const route = new URL(page.url()).hash;
   expect(route).toMatch(/\/layout\//);
   await layout.locator(".layout-pages-list button").nth(1).click();
@@ -219,11 +219,11 @@ test("Layout opens from Sequence and keeps page order at 1280 and 1440", async (
   expect((await layout.locator(".layout-photo-insert").first().boundingBox())!.width).toBeGreaterThan(100);
   await expect(layout.locator(".layout-photo-used, .layout-empty-frame-tool")).toHaveCount(0);
   await layout.getByRole("button", { name: "+ Blank page" }).click();
-  await expect(layout.locator(".layout-pages-list button")).toHaveCount(9);
+  await expect(layout.locator(".layout-pages-list button")).toHaveCount(11);
   await layout.locator(".layout-pages-list button[aria-current=page]").press("Delete");
-  await expect(layout.locator(".layout-pages-list button")).toHaveCount(8);
+  await expect(layout.locator(".layout-pages-list button")).toHaveCount(10);
   await layout.getByRole("button", { name: "Undo" }).click();
-  await expect(layout.locator(".layout-pages-list button")).toHaveCount(9);
+  await expect(layout.locator(".layout-pages-list button")).toHaveCount(11);
   await layout.getByRole("button", { name: "Single", exact: true }).click();
   await expect(layout.locator(".layout-paper")).toHaveCount(1);
   await page.setViewportSize({ width: 1280, height: 720 });
@@ -236,7 +236,7 @@ test("Layout opens from Sequence and keeps page order at 1280 and 1440", async (
   }
   await page.screenshot({ path: "design-output/Layout/layout-figma-1280.png", fullPage: true });
   await page.reload();
-  await expect(layout.locator(".layout-pages-list button")).toHaveCount(9);
+  await expect(layout.locator(".layout-pages-list button")).toHaveCount(11);
   await expect(layout.getByRole("status")).toContainText("Saved locally");
   await layout.getByRole("button", { name: "← Sequence" }).click();
   await expect(page.getByRole("dialog", { name: "Sequence Street Edit" })).toBeVisible();
@@ -252,8 +252,9 @@ test("Layout edits frames, drops photos, crops and applies a template as one und
   await page.goto(`/#/projects/${PROJECT_ID}/sequences/${SEQUENCE_ID}`);
   await page.getByRole("dialog", { name: "Sequence Street Edit" }).getByRole("button", { name: "Layout" }).click();
   const creator = page.getByRole("dialog", { name: "Create Layout" });
-  await creator.getByLabel("One blank page").check();
+  await creator.getByLabel("Blank book (front cover, body page, back cover)").check();
   await creator.getByRole("button", { name: "Create Layout" }).click();
+  await removeCoversForLegacyEditing(page);
   const layout = page.getByRole("main", { name: "Layout workspace" });
   const inspector = layout.getByRole("complementary", { name: "Page properties" });
   await expect(inspector).toHaveCSS("border-top-left-radius", "0px");
@@ -372,8 +373,9 @@ test("Layout paper color and material persist across thumbnails, reading, duplic
   await page.goto(`/#/projects/${PROJECT_ID}/sequences/${SEQUENCE_ID}`);
   await page.getByRole("dialog", { name: "Sequence Street Edit" }).getByRole("button", { name: "Layout" }).click();
   const creator = page.getByRole("dialog", { name: "Create Layout" });
-  await creator.getByLabel("One blank page").check();
+  await creator.getByLabel("Blank book (front cover, body page, back cover)").check();
   await creator.getByRole("button", { name: "Create Layout" }).click();
+  await removeCoversForLegacyEditing(page);
   const layout = page.getByRole("main", { name: "Layout workspace" });
   const currentBackdrop = () => layout.locator(".layout-paper.is-current > .layout-paper-backdrop");
   const choosePaperColor = async (name: string) => {
@@ -424,8 +426,9 @@ test("Layout edits a facing spread with direct photos and multi-selection", asyn
   await page.goto(`/#/projects/${PROJECT_ID}/sequences/${SEQUENCE_ID}`);
   await page.getByRole("dialog", { name: "Sequence Street Edit" }).getByRole("button", { name: "Layout" }).click();
   const creator = page.getByRole("dialog", { name: "Create Layout" });
-  await creator.getByLabel("One blank page").check();
+  await creator.getByLabel("Blank book (front cover, body page, back cover)").check();
   await creator.getByRole("button", { name: "Create Layout" }).click();
+  await removeCoversForLegacyEditing(page);
   const layout = page.locator('main[aria-label="Layout workspace"]');
   const next = layout.getByRole("button", { name: "Next page" });
   await next.click();
@@ -650,9 +653,9 @@ test("Layout text survives refresh and reading uses the same lines", async ({ pa
   });
   expect(readerLineHeightRatio).toBeCloseTo(editLineHeightRatio, 3);
   await reader.getByRole("button", { name: "Next", exact: true }).last().click();
-  await expect(reader.locator(".layout-reader-progress")).toContainText("2–3 / 8");
+  await expect(reader.locator(".layout-reader-progress")).toContainText("2–3 / 10");
   await reader.getByRole("button", { name: "Exit reading" }).click();
-  await expect(layout.locator(".layout-pages-list button[aria-current=page]")).toContainText("Page 1");
+  await expect(layout.locator(".layout-pages-list button[aria-current=page]")).toContainText("Front cover");
   await expect(layout.locator(".layout-save-status")).toContainText("Saved locally");
   await page.reload();
   await expect(layout.locator(".layout-object-text-box .layout-text-line")).toHaveCount(2);
@@ -668,8 +671,9 @@ test("Layout exports fixed physical pages with selectable text and keeps blank p
   await page.goto(`/#/projects/${PROJECT_ID}/sequences/${SEQUENCE_ID}`);
   await page.getByRole("dialog", { name: "Sequence Street Edit" }).getByRole("button", { name: "Layout" }).click();
   const creator = page.getByRole("dialog", { name: "Create Layout" });
-  await creator.getByLabel("One blank page").check();
+  await creator.getByLabel("Blank book (front cover, body page, back cover)").check();
   await creator.getByRole("button", { name: "Create Layout" }).click();
+  await removeCoversForLegacyEditing(page);
   const layout = page.getByRole("main", { name: "Layout workspace" });
   await expect(layout).toBeVisible();
   await layout.getByRole("button", { name: "Paper color" }).click();
@@ -935,4 +939,15 @@ async function sequenceRevision(page: Page) {
     database.close();
     return Number(row.revision);
   }, SEQUENCE_ID);
+}
+
+async function removeCoversForLegacyEditing(page: Page) {
+  const workspace = page.getByRole("main", { name: "Layout workspace" });
+  const pages = workspace.locator(".layout-pages-list button");
+  await expect(pages).toHaveCount(3);
+  await pages.last().click();
+  await workspace.getByRole("button", { name: "Delete", exact: true }).click();
+  await pages.first().click();
+  await workspace.getByRole("button", { name: "Delete", exact: true }).click();
+  await expect(pages).toHaveCount(1);
 }

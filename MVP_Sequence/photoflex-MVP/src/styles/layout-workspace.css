@@ -39,7 +39,9 @@
 .layout-paper-number { position: absolute; right: 8px; bottom: 6px; z-index: 3; color: #79756e; font-size: 9px; text-shadow: 0 1px 1px rgb(255 255 255 / 72%); }
 .layout-paper.is-dark-paper .layout-paper-number { color: rgb(255 255 255 / 82%); text-shadow: 0 1px 2px rgb(0 0 0 / 65%); }
 .layout-object { position: absolute; z-index: 1; overflow: hidden; }
-.layout-object-image-frame { background: #e8e6e1; color: #777; font-size: 10px; cursor: grab; touch-action: none; }
+.layout-object-image-frame { overflow: visible; background: #e8e6e1; color: #777; font-size: 10px; cursor: grab; touch-action: none; }
+.layout-image-clip { position: absolute; inset: 0; overflow: hidden; }
+.layout-photo-elevation { position: absolute; pointer-events: none; }
 .layout-object-image-frame.is-selected { outline: 1px solid #1b1a18; outline-offset: 0; }
 .layout-object-image-frame.is-cropping { outline: 2px solid #9c6b2f; }
 .layout-object-image-frame:active { cursor: grabbing; }

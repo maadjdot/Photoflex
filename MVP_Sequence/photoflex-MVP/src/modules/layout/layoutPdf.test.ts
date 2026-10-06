@@ -36,7 +36,7 @@ describe("Layout PDF", () => {
     const frame = { kind: "image-frame" as const, id: "image" as LayoutObjectId,
       rect: { x: 30, y: 40, width: 100, height: 100 }, photoId: "photo" as PhotoId,
       crop: { mode: "fill" as const, zoom: 2, focal: { x: .7, y: .5 } } };
-    const snapshot = { ...base, pages: [{ ...base.pages[0], objects: [frame] },
+    const snapshot = { ...base, pages: [{ ...base.pages[0], innerEdge: { mode: "bevel" as const, color: "#F1EDE1", widthPt: 3 }, photoElevationPt: 4, objects: [frame] },
       { id: "two" as LayoutPageId, objects: [{ ...frame, id: "image-again" as LayoutObjectId,
         rect: { ...frame.rect, x: base.pageSpec.widthPt - 50 } }] },
       { id: "three" as LayoutPageId, objects: [] }] };
@@ -55,6 +55,12 @@ describe("Layout PDF", () => {
     const streams = contents instanceof PDFArray ? contents.asArray() : contents ? [contents] : [];
     const operators = streams.map((entry) => new TextDecoder().decode(decodePDFRawStream(pdf.context.lookup(entry) as PDFRawStream).decode())).join("\n");
     expect(operators).toMatch(/\bre\s+W\s+n\b/);
+    expect(operators).toMatch(/\bgs\b/); // translucent photo elevation
+    expect(operators).toMatch(/0 0 m\s+106 0 l\s+103 3 l\s+3 3 l/); // the top bevel surrounds the visible crop
+    const coverSnapshot = { ...snapshot, pages: snapshot.pages.map((page, index) => index === 2 ? { ...page, kind: "back-cover" as const } : page) };
+    const coverPdf = await PDFDocument.load(await createLayoutPdf(coverSnapshot, assets));
+    expect(coverPdf.getPageCount()).toBe(3);
+    expect(coverPdf.getPage(2).node.Resources()?.lookup(PDFName.of("XObject"), PDFDict)?.keys().length ?? 0).toBe(0);
     let paperLoads = 0;
     const paperSnapshot = { ...snapshot, pages: snapshot.pages.map((page, index) => ({ ...page,
       paper: { color: index < 2 ? "#F1EDE1" : "#28282A", material: "coarse-linen" as const } })) };

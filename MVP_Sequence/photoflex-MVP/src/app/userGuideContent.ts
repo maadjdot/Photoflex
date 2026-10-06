@@ -198,7 +198,7 @@ export const layoutGuideContent: Record<Locale, GuideContent> = {
       {
         id: "pages", title: "页面与视图",
         steps: [
-          { title: "管理页面", body: "在左侧选择页面，可以添加空白页、复制页或删除页。拖动页面缩略图可以改变顺序。" },
+            { title: "管理页面", body: "新建 Layout 自动包含封面和封底；已有 Layout 可在左侧添加。在左侧选择页面，可以添加空白页、复制页或删除页。拖动正文页面缩略图可以改变顺序。" },
           { title: "页面尺寸", body: "点击工具栏中的页面尺寸，选择预设尺寸或输入自定义尺寸。" },
           { title: "查看页面", body: "单页显示一张页面，对页显示相邻页面。缩放和「适应页面」方便查看版式；「拖动画布」可以移动查看区域。" },
         ],
@@ -210,6 +210,7 @@ export const layoutGuideContent: Record<Locale, GuideContent> = {
           { title: "移动与调整大小", body: "拖动图像框改变位置，拖动边缘手柄调整大小。选中图像框后，也可以在右侧输入位置和尺寸。" },
           { title: "照片适配", body: "Fit：完整显示照片。Fill：让照片填满图像框。双击照片进入裁切后，可拖动照片调整位置，滚轮调整大小，点击「完成」保存裁切。" },
           { title: "使用模板", body: "在底部素材栏勾选照片，再点击右侧模板，可以将照片放入预设版式。" },
+            { title: "照片效果", body: "在右侧设置当前页照片的内边框模式、宽度、颜色与浮起高度，也可以将照片效果应用到全部页面。" },
         ],
       },
       {
@@ -224,7 +225,7 @@ export const layoutGuideContent: Record<Locale, GuideContent> = {
         id: "export", title: "阅读与导出",
         steps: [
           { title: "撤销与重做", body: "工具栏的撤销和重做按钮，可以退回或恢复刚才的排版操作。" },
-          { title: "阅读", body: "点击右上角「阅读」，查看摄影集页面的整体呈现效果。" },
+            { title: "阅读", body: "点击右上角「阅读」，查看摄影集页面的整体呈现效果。封面和封底始终独立显示，正文可切换单页和对页。" },
           { title: "导出 PDF", body: "点击「导出 PDF」，选择质量并导出。若提示有空图像框或照片不可用，先处理提示中的页面再重试。" },
         ],
       },
@@ -236,7 +237,7 @@ export const layoutGuideContent: Record<Locale, GuideContent> = {
       {
         id: "pages", title: "Pages & views",
         steps: [
-          { title: "Manage pages", body: "Select pages on the left. Add blank pages, duplicate or delete pages, and drag thumbnails to change their order." },
+            { title: "Manage pages", body: "New Layouts include front and back covers. Existing Layouts can add them on the left. Select pages to add blank pages, duplicate or delete pages, and drag body thumbnails to change their order." },
           { title: "Page size", body: "Use the page size control in the toolbar to choose a preset or enter custom dimensions." },
           { title: "View pages", body: "Single shows one page; Facing pages shows adjacent pages. Zoom and Fit page help you review the design. Pan moves the viewing area." },
         ],
@@ -248,6 +249,7 @@ export const layoutGuideContent: Record<Locale, GuideContent> = {
           { title: "Move and resize", body: "Drag a frame to move it and drag its edge handles to resize. Select it to enter its position and dimensions on the right." },
           { title: "Fit and crop", body: "Fit: show the whole photo. Fill: cover the frame. Double-click to crop, drag the photo to reposition it and scroll to resize. Choose Done to save the crop." },
           { title: "Use templates", body: "Select photos using the checkboxes in the bottom asset tray, then choose a template on the right to place them in a preset design." },
+            { title: "Photo effects", body: "Set the current page's photo edge mode, width, colour and elevation on the right. You can also apply these effects to every page." },
         ],
       },
       {

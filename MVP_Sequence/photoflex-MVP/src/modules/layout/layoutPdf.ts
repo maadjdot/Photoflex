@@ -1,9 +1,12 @@
 import fontkit from "@pdf-lib/fontkit";
 import { PDFDocument, PDFHexString, PDFName, PDFOperator, PDFOperatorNames, clip, degrees, endMarkedContent, endPath, popGraphicsState, pushGraphicsState, rectangle, rgb, type PDFImage } from "pdf-lib";
-import type { LayoutDocument, LayoutFontFamily, LayoutFontStyle, LayoutFontWeight, LayoutImageFrame, LayoutObject, LayoutPaper, LayoutTextBox, PhotoId } from "../../contracts";
+import type { LayoutDocument, LayoutFontFamily, LayoutFontStyle, LayoutFontWeight, LayoutImageFrame, LayoutPage, LayoutPaper, LayoutRect, LayoutTextBox, PhotoId } from "../../contracts";
 import { LAYOUT_CHINESE_FALLBACK_FONT, layoutFontStyle, layoutFontWeight } from "./layoutFonts";
 import { resolveLayoutPaper } from "./layoutPaper";
 import { layoutText } from "./layoutText";
+import { layoutVisiblePhotoRect } from "./layoutPhotoAppearance";
+import { layoutReaderPageObjects } from "./layoutReader";
+import { frameInnerEdge } from "../worktable/frameAppearance";
 import { resolveImagePlacement } from "../page-layout/pageGeometry";
 
 export interface LayoutPdfPhoto { readonly bytes: Uint8Array; readonly width: number; readonly height: number;
@@ -79,14 +82,7 @@ export async function createLayoutPdf(snapshot: LayoutDocument, assets: LayoutPd
       }
       page.drawImage(background, { x: 0, y: 0, width: widthPt, height: heightPt });
     }
-    const visibleObjects: LayoutObject[] = [...snapshot.pages[index].objects];
-    // A physical spread consists of odd/even page pairs after the cover.
-    if (index > 0 && index % 2 === 0) visibleObjects.push(...snapshot.pages[index - 1].objects
-      .filter((object) => object.rect.x + object.rect.width > widthPt)
-      .map((object) => ({ ...object, rect: { ...object.rect, x: object.rect.x - widthPt } })));
-    if (index > 0 && index % 2 === 1 && index + 1 < snapshot.pages.length) visibleObjects.push(...snapshot.pages[index + 1].objects
-      .filter((object) => object.rect.x < 0)
-      .map((object) => ({ ...object, rect: { ...object.rect, x: object.rect.x + widthPt } })));
+    const visibleObjects = layoutReaderPageObjects(snapshot, index);
     for (const object of visibleObjects) {
       signal?.throwIfAborted();
       if (object.kind === "image-frame") {
@@ -100,6 +96,8 @@ export async function createLayoutPdf(snapshot: LayoutDocument, assets: LayoutPd
           embedded.set(key, entry);
         }
         const x = object.rect.x, y = heightPt - object.rect.y - object.rect.height;
+        const photoRect = entry.renderedRect ?? layoutVisiblePhotoRect(object, entry);
+        drawPhotoAppearance(page, { ...photoRect, x: x + photoRect.x, y: object.rect.y + photoRect.y }, snapshot.pages[index], heightPt);
         if (entry.renderedRect) page.drawImage(entry.image, { x: x + entry.renderedRect.x,
           y: y + object.rect.height - entry.renderedRect.y - entry.renderedRect.height,
           width: entry.renderedRect.width, height: entry.renderedRect.height });
@@ -122,6 +120,33 @@ export async function createLayoutPdf(snapshot: LayoutDocument, assets: LayoutPd
 }
 
 type Page = ReturnType<PDFDocument["addPage"]>;
+
+function drawPhotoAppearance(page: Page, rect: LayoutRect, appearance: LayoutPage, pageHeight: number) {
+  const elevation = appearance.photoElevationPt ?? 0;
+  const x = rect.x, y = pageHeight - rect.y - rect.height;
+  if (elevation > 0) {
+    // Layer translucent rings to approximate the same soft shadow as the reader.
+    for (let step = 8; step >= 1; step--) {
+      const spread = elevation * 1.25 * step / 8;
+      page.drawRectangle({ x: x - spread, y: y - elevation - spread, width: rect.width + spread * 2,
+        height: rect.height + spread * 2, color: rgb(0, 0, 0), opacity: .3 / 8 });
+    }
+  }
+  const edge = frameInnerEdge(appearance), w = edge.widthPt;
+  if (edge.mode === "none" || w <= 0) return;
+  const color = hexColor(edge.color);
+  const mix = (ratio: number, target: number) => rgb(color.red * ratio + target * (1 - ratio),
+    color.green * ratio + target * (1 - ratio), color.blue * ratio + target * (1 - ratio));
+  const colors = edge.mode === "bevel" ? [mix(.65, 0), mix(.9, 1), mix(.7, 1), mix(.82, 0)] : [color, color, color, color];
+  const width = rect.width + 2 * w, height = rect.height + 2 * w;
+  const paths = [
+    `M 0 0 L ${width} 0 L ${width - w} ${w} L ${w} ${w} Z`,
+    `M ${width} 0 L ${width} ${height} L ${width - w} ${height - w} L ${width - w} ${w} Z`,
+    `M ${width} ${height} L 0 ${height} L ${w} ${height - w} L ${width - w} ${height - w} Z`,
+    `M 0 ${height} L 0 0 L ${w} ${w} L ${w} ${height - w} Z`,
+  ];
+  paths.forEach((path, index) => page.drawSvgPath(path, { color: colors[index], x: x - w, y: y + rect.height + w }));
+}
 type Font = Awaited<ReturnType<PDFDocument["embedFont"]>>;
 interface EmbeddedFont { readonly font: Font; readonly characters: ReadonlySet<number>; readonly syntheticBold: boolean; readonly syntheticItalic: boolean }
 interface FontRun { readonly text: string; readonly font: EmbeddedFont }
