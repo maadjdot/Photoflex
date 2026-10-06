@@ -52,7 +52,7 @@ export function frameTemplateSource(id: FrameTemplateId, direction: FrameDirecti
 export function defaultFrameCrop(id: FrameTemplateId) { return defaultCrop(frameFamily(id).id === "plain" ? id as PlainFrameTemplateId : "full-page"); }
 export function framePaper(page: WorktableFrame["page"]): LayoutPaper {
   const family = frameFamily(page.templateSource.id).id;
-  return page.paper ?? { color: page.background === "black" ? "#161616" : family === "plain" || family === "instax" || family === "polaroid" ? "#FFFFFF" : family === "sheets" ? page.templateSource.id === "sheet-bw" ? "#080808" : "#170B07" : "#F4EFE5", material: "none" };
+  return page.paper ?? { color: page.background === "black" ? "#161616" : family === "sheets" ? page.templateSource.id === "sheet-bw" ? "#080808" : "#170B07" : "#FFFFFF", material: "none" };
 }
 export function frameTemplateRects(width: number, height: number, template: FrameTemplateSource) {
   const family = frameFamily(template.id);

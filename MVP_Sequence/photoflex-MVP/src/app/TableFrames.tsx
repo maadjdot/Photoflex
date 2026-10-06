@@ -9,6 +9,8 @@ import { frameCaptionStyle, frameEdgeStyle, frameInnerEdge } from "../modules/wo
 import { layoutFontCssStack } from "../modules/layout/layoutFonts";
 import { FrameEdge, FramePhotoEdge } from "./FrameEdges";
 import { FrameSettingsPanel } from "./FrameSettingsPanel";
+import { zoomImageCropAtPoint } from "../modules/layout/layoutImages";
+import { FrameJpegExportButton } from "./FrameJpegExportButton";
 
 interface FrameCardProps {
   readonly frame: WorktableFrame;
@@ -29,7 +31,7 @@ interface FrameCardProps {
   readonly onGeometryPreview?: (id: FrameId, rect?: FrameRect) => void;
 }
 
-type DragState = { kind: "frame" | "scale" | "slot" | "resize-slot" | "crop" | "quick-crop" | "caption"; pointerId: number; startX: number; startY: number; slotId?: FrameSlotId; handle?: string; baseRect?: FrameRect; baseCrop?: FrameCrop };
+type DragState = { kind: "frame" | "scale" | "slot" | "resize-slot" | "crop" | "quick-crop" | "caption"; pointerId: number; captureTarget: Element; startX: number; startY: number; slotId?: FrameSlotId; handle?: string; baseRect?: FrameRect; baseCrop?: FrameCrop };
 const handles = ["nw", "n", "ne", "e", "se", "s", "sw", "w"];
 const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
 
@@ -102,6 +104,7 @@ export function TableFrameCard({ frame, layerZ, selected, settingsHost, selected
   const previewRef = useRef(preview);
   const cropDraftRef = useRef(cropDraft);
   const articleRef = useRef<HTMLElement>(null);
+  const pageRef = useRef<HTMLDivElement>(null);
   previewRef.current = preview;
   cropDraftRef.current = cropDraft;
   const size = frameWorldSize(frame);
@@ -114,6 +117,27 @@ export function TableFrameCard({ frame, layerZ, selected, settingsHost, selected
   const edge = frameEdgeStyle(frame.page);
   useEffect(() => () => onGeometryPreview?.(frame.id), [frame.id, onGeometryPreview]);
   const slot = frame.page.slots.find((item) => item.id === selectedSlotId);
+  useEffect(() => {
+    const article = articleRef.current;
+    if (!article) return;
+    const wheel = (event: WheelEvent) => {
+      const draft = cropDraftRef.current;
+      const target = (event.target as HTMLElement).closest<HTMLElement>("[data-frame-slot-id]");
+      if (!selected || !draft || !slot?.photoId || target?.dataset.frameSlotId !== slot.id) return;
+      event.preventDefault(); event.stopPropagation();
+      const photoSize = previews[slot.photoId]?.size;
+      if (!photoSize) return;
+      const bounds = target.getBoundingClientRect();
+      const next = zoomImageCropAtPoint(draft, photoSize, slot.rect, draft.zoom * Math.exp(-event.deltaY * .002), {
+        x: (event.clientX - bounds.left) * slot.rect.width / bounds.width,
+        y: (event.clientY - bounds.top) * slot.rect.height / bounds.height,
+      });
+      cropDraftRef.current = next;
+      setCropDraft(next);
+    };
+    article.addEventListener("wheel", wheel, { passive: false });
+    return () => article.removeEventListener("wheel", wheel);
+  }, [selected, slot, previews]);
   const selectSlot = (nextSlotId: FrameSlotId | undefined) => {
     if (nextSlotId !== selectedSlotId) {
       cropDraftRef.current = undefined;
@@ -141,8 +165,8 @@ export function TableFrameCard({ frame, layerZ, selected, settingsHost, selected
     if (kind === "frame") selectSlot(undefined);
     else if (kind !== "scale") selectSlot(targetSlot?.id);
     if (kind === "quick-crop") { cropDraftRef.current = targetSlot?.crop; setCropDraft(targetSlot?.crop); }
-    drag.current = { kind, pointerId: event.pointerId, startX: event.clientX, startY: event.clientY, slotId: targetSlot?.id, handle, baseRect: kind === "caption" ? caption.rect : targetSlot?.rect, baseCrop: kind === "quick-crop" ? targetSlot?.crop : kind === "crop" ? cropDraft : undefined };
-    articleRef.current?.setPointerCapture(event.pointerId);
+    drag.current = { kind, pointerId: event.pointerId, captureTarget: event.currentTarget, startX: event.clientX, startY: event.clientY, slotId: targetSlot?.id, handle, baseRect: kind === "caption" ? caption.rect : targetSlot?.rect, baseCrop: kind === "quick-crop" ? targetSlot?.crop : kind === "crop" ? cropDraft : undefined };
+    event.currentTarget.setPointerCapture(event.pointerId);
   };
   const move = (event: ReactPointerEvent) => {
     const current = drag.current;
@@ -182,7 +206,7 @@ export function TableFrameCard({ frame, layerZ, selected, settingsHost, selected
   const end = (event: ReactPointerEvent, cancelled = false) => {
     const current = drag.current;
     if (!current || current.pointerId !== event.pointerId) return;
-    if (articleRef.current?.hasPointerCapture(event.pointerId)) articleRef.current.releasePointerCapture(event.pointerId);
+    if (current.captureTarget.hasPointerCapture(event.pointerId)) current.captureTarget.releasePointerCapture(event.pointerId);
     drag.current = undefined;
     const value = previewRef.current;
     if (!cancelled && current.kind === "frame" && (Math.abs(value.dx) > .25 || Math.abs(value.dy) > .25)) onExecute({ type: "move-frame", frameId: frame.id, by: { x: value.dx, y: value.dy } });
@@ -214,7 +238,7 @@ export function TableFrameCard({ frame, layerZ, selected, settingsHost, selected
       width: (frame.page.widthPt + 2 * (frame.page.bleedPt ?? 0)) * (preview.scale ?? frame.displayScale),
       height: (frame.page.heightPt + 2 * (frame.page.bleedPt ?? 0)) * (preview.scale ?? frame.displayScale),
     }} />}
-    <div className={`table-frame-page frame-family-${family} frame-style-${frame.page.templateSource.id}${darkPaper ? " is-black" : ""}`} style={{ width: frame.page.widthPt, height: frame.page.heightPt, backgroundColor: paper.color, boxShadow: family === "frames" ? edge.shadowStrength ? `0 ${frame.page.widthPt * .02}px ${frame.page.widthPt * .065}px rgb(0 0 0 / ${edge.shadowStrength * .65})` : "none" : undefined, transform: `scale(${preview.scale ?? frame.displayScale})` }}
+    <div ref={pageRef} className={`table-frame-page frame-family-${family} frame-style-${frame.page.templateSource.id}${darkPaper ? " is-black" : ""}`} style={{ width: frame.page.widthPt, height: frame.page.heightPt, backgroundColor: paper.color, boxShadow: family === "frames" ? edge.shadowStrength ? `0 ${frame.page.widthPt * .02}px ${frame.page.widthPt * .065}px rgb(0 0 0 / ${edge.shadowStrength * .65})` : "none" : undefined, transform: `scale(${preview.scale ?? frame.displayScale})` }}
       onPointerDown={(event) => begin(event, "frame")}>
       <LayoutPaperBackdrop paper={paper} />
       {film && <><div className="table-frame-film-surface" aria-hidden="true" /><div className="table-frame-film-heading" style={{ fontSize: frame.page.widthPt * .007 }}>{frame.page.caption || (frame.page.templateSource.id === "sheet-bw" ? "FULL FRAME / CONTACT" : "CONTACT / 01")}<span>{frame.page.templateSource.id === "sheet-bw" ? "B&W · PROOF" : "35 MM · KODAK PORTRA 400"}</span></div></>}
@@ -247,6 +271,7 @@ export function TableFrameCard({ frame, layerZ, selected, settingsHost, selected
     </div>
     <div className="table-frame-title" onPointerDown={(event) => begin(event, "frame")}><strong>{frame.name}</strong><span>{Math.round(frame.page.widthPt / FRAME_MM_TO_PT)} × {Math.round(frame.page.heightPt / FRAME_MM_TO_PT)} mm</span></div>
     {selected && <button type="button" className="table-frame-scale-handle" aria-label="Resize Frame display" onPointerDown={(event) => begin(event, "scale")}>◢</button>}
-    {selected && settingsHost && createPortal(<FrameSettingsPanel frame={frame} slot={slot} cropDraft={cropDraft} onCropDraft={setCropDraft} onFinishCrop={finishCrop} onSelectSlot={selectSlot} onClose={onClose} onExecute={onExecute} />, settingsHost)}
+    {selected && settingsHost && createPortal(<FrameSettingsPanel frame={frame} slot={slot} cropDraft={cropDraft} onCropDraft={setCropDraft} onFinishCrop={finishCrop} onSelectSlot={selectSlot} onClose={onClose} onExecute={onExecute}
+      exportButton={<FrameJpegExportButton frame={cropDraft && slot ? { ...frame, page: { ...frame.page, slots: frame.page.slots.map((item) => item.id === slot.id ? { ...item, crop: cropDraft } : item) } } : frame} pageRef={pageRef} photoSource={photoSource} />} />, settingsHost)}
   </article>;
 }

@@ -6,6 +6,14 @@
 
 对应：[功能需求](./Frame_PRD.md) · [技术架构设计基线](./Frame_Technical_Architecture.md)
 
+## 2026-10-06 更新
+
+- 所有当前可创建的模板默认使用 Pure White（纯白）纸张，包括 Gallery；模板预览同步显示纯白。
+- 常规裁切与右键拖动裁切支持以鼠标位置为中心的滚轮缩放，范围仍为 100%–800%。裁切时滚轮不改变 Table 视口；Done/Enter 提交，Cancel/Esc 取消。
+- Caption 保留文字、字体、字号、颜色和对齐设置，通过页面拖动定位；右侧栏移除 Caption 的 XYWH 输入。
+- 右侧 Frame 设置加入 Export JPEG，将完整页面导出为一张高画质 JPEG，包含照片裁切、纸张材质、边框、圆角和 Caption。使用原始照片，按 300 dpi 渲染，长边最大 8192 像素；不包含 Table 工具、选框或空照片框提示。照片来源不可用时显示错误并允许重试。
+- 修复指针捕获阻断照片框双击进入裁切的问题。
+
 ## 已落地范围
 
 - Table 左侧新增 Frame 入口，使用 Layout 需求中的 Single、Diptych、Triptych、Quad Grid、Full Page 五种模板，以及 Frame 专用的 Square Nine Grid。九宫格创建 3×3 个正方形框并铺满正方形页面。选中的 Table 照片按空间顺序预填；超出容量时明确选择“仅使用前 M 张”。创建后视口定位到新页面。

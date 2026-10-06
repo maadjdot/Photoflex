@@ -180,6 +180,7 @@ test("keeps Table photos above existing Frames until Front is chosen", async ({ 
 });
 
 test("browses all template families and persists paper, captions and dark frame finishes", async ({ page }, testInfo) => {
+  test.setTimeout(90_000);
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto("/");
   await expect(page.getByRole("heading", { name: "Projects" })).toBeVisible();
@@ -222,6 +223,34 @@ test("browses all template families and persists paper, captions and dark frame 
   const settings = page.getByRole("complementary", { name: "Frame settings" });
   await expect(frame.locator(".table-frame-photo-clip img")).toBeVisible();
   await expect(frame.locator(".table-frame-page")).toHaveCSS("background-color", "rgb(255, 255, 255)");
+  const photoBox = frame.locator("[data-frame-slot-id]").first();
+  const photo = photoBox.locator("img");
+  const initialWidth = await photo.evaluate((node) => parseFloat(node.style.width));
+  const worldTransform = await page.locator(".worktable-world").getAttribute("style");
+  await photoBox.dblclick();
+  await expect(settings.getByRole("button", { name: "Cancel crop", exact: true })).toBeVisible();
+  const wheelAtPhoto = (deltaY: number) => photoBox.evaluate((node, delta) => {
+    const bounds = node.getBoundingClientRect();
+    const event = new WheelEvent("wheel", { deltaY: delta, clientX: bounds.left + bounds.width * .6,
+      clientY: bounds.top + bounds.height * .4, bubbles: true, cancelable: true });
+    node.dispatchEvent(event);
+    return event.defaultPrevented;
+  }, deltaY);
+  expect(await wheelAtPhoto(-120)).toBe(true);
+  await expect.poll(() => photo.evaluate((node) => parseFloat(node.style.width))).toBeGreaterThan(initialWidth);
+  await expect(page.locator(".worktable-world")).toHaveAttribute("style", worldTransform!);
+  await settings.getByRole("button", { name: "Cancel crop", exact: true }).click();
+  await expect.poll(() => photo.evaluate((node) => parseFloat(node.style.width))).toBe(initialWidth);
+  await photoBox.dblclick();
+  expect(await wheelAtPhoto(-120)).toBe(true);
+  await settings.getByRole("button", { name: "Done", exact: true }).click();
+  const savedWidth = await photo.evaluate((node) => parseFloat(node.style.width));
+  expect(savedWidth).toBeGreaterThan(initialWidth);
+  await photoBox.dblclick();
+  expect(await wheelAtPhoto(120)).toBe(true);
+  await expect.poll(() => photo.evaluate((node) => parseFloat(node.style.width))).toBeLessThan(savedWidth);
+  await page.keyboard.press("Escape");
+  await expect.poll(() => photo.evaluate((node) => parseFloat(node.style.width))).toBe(savedWidth);
   await expect(frame.locator(".table-frame-inner-edge")).toHaveCount(0);
   await expect(settings.getByRole("group", { name: "Template" }).getByRole("button")).toHaveCount(3);
   await settings.getByLabel("Frame caption").fill("Shanghai, 2026");
@@ -243,8 +272,7 @@ test("browses all template families and persists paper, captions and dark frame 
   await settings.getByLabel("Caption font", { exact: true }).selectOption("architects-daughter");
   await settings.getByRole("spinbutton", { name: "Caption size pt", exact: true }).fill("12");
   await settings.getByRole("spinbutton", { name: "Caption size pt", exact: true }).press("Tab");
-  await settings.getByRole("spinbutton", { name: "Caption X mm", exact: true }).fill("5");
-  await settings.getByRole("spinbutton", { name: "Caption X mm", exact: true }).press("Tab");
+  await expect(settings.getByRole("spinbutton", { name: /^Caption [XYWH] mm$/ })).toHaveCount(0);
   const caption = frame.locator(".table-frame-instant-caption");
   await expect(caption).toHaveCSS("font-size", "12px");
   const before = await caption.evaluate((node) => parseFloat((node as HTMLElement).style.left));
@@ -275,6 +303,31 @@ test("browses all template families and persists paper, captions and dark frame 
   await settings.getByRole("spinbutton", { name: "Inner edge width mm", exact: true }).press("Tab");
   await expect(frame.locator(".table-frame-inner-edge")).toHaveCount(1);
   await expect(frame.locator(".table-frame-gallery-edge")).toHaveClass(/edge-material-wood/);
+  const downloadEvent = page.waitForEvent("download");
+  await settings.getByRole("button", { name: "Export JPEG", exact: true }).click();
+  const download = await downloadEvent;
+  expect(download.suggestedFilename()).toMatch(/\.jpeg$/);
+  const stream = await download.createReadStream();
+  const chunks: Buffer[] = [];
+  for await (const chunk of stream!) chunks.push(Buffer.from(chunk));
+  const bytes = Buffer.concat(chunks);
+  expect([...bytes.subarray(0, 2)]).toEqual([0xff, 0xd8]);
+  const exported = await page.evaluate(async (base64) => {
+    const data = Uint8Array.from(atob(base64), (char) => char.charCodeAt(0));
+    const image = await createImageBitmap(new Blob([data], { type: "image/jpeg" }));
+    const canvas = document.createElement("canvas"); canvas.width = image.width; canvas.height = image.height;
+    const context = canvas.getContext("2d")!; context.drawImage(image, 0, 0);
+    const sample = (x: number, y: number) => [...context.getImageData(Math.round(x * image.width), Math.round(y * image.height), 1, 1).data].slice(0, 3);
+    const result = { width: image.width, height: image.height, border: sample(.01, .5), paper: sample(.15, .5), photo: sample(.5, .5) };
+    image.close(); return result;
+  }, bytes.toString("base64"));
+  expect(exported.width).toBe(6554);
+  expect(exported.height).toBe(8192);
+  expect(exported.border.reduce((sum, value) => sum + value, 0)).toBeGreaterThan(60);
+  expect(exported.paper[2]).toBeGreaterThan(exported.paper[0]);
+  expect(exported.photo).not.toEqual(exported.paper);
+  await download.saveAs(testInfo.outputPath("gallery-frame.jpeg"));
+  await expect(settings.getByRole("status")).toHaveText("JPEG download started.");
   await expect(frame.locator(".table-frame-edge-surface")).toHaveCount(4);
   await settings.getByRole("button", { name: "Contain", exact: true }).click();
   const footprint = await frame.locator("[data-frame-slot-id]").evaluate((slot) => {

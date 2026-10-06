@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 import { PaperControls } from "./LayoutPaperControls";
 import { FrameCaptionControls, FrameEdgeControls, FrameInnerEdgeControls } from "./FrameAppearanceControls";
 import { FrameTemplatePreview } from "./FrameTemplatePreview";
@@ -14,12 +14,13 @@ interface FrameSettingsPanelProps {
   readonly onSelectSlot: (slotId: FrameSlotId | undefined) => void;
   readonly onClose: () => void;
   readonly onExecute: (command: FrameEditCommand) => void;
+  readonly exportButton: ReactNode;
 }
 
 const mm = (pt: number) => Math.round(pt / FRAME_MM_TO_PT * 10) / 10;
 
 
-export function FrameSettingsPanel({ frame, slot, cropDraft, onCropDraft, onFinishCrop, onSelectSlot, onClose, onExecute }: FrameSettingsPanelProps) {
+export function FrameSettingsPanel({ frame, slot, cropDraft, onCropDraft, onFinishCrop, onSelectSlot, onClose, onExecute, exportButton }: FrameSettingsPanelProps) {
   const page = frame.page;
   const layout = page.templateSource;
   const squareGrid = layout.id === "square-nine-grid";
@@ -76,6 +77,7 @@ export function FrameSettingsPanel({ frame, slot, cropDraft, onCropDraft, onFini
     <FrameInnerEdgeControls frame={frame} onExecute={onExecute} />
     <section className="table-frame-section"><h3>IMAGE FIT <span>All photo boxes</span></h3><div className="table-frame-segments" role="group" aria-label="Page image fit">{(["fill", "fit"] as const).map((mode) => <button key={mode} type="button" aria-pressed={page.slots.length > 0 && page.slots.every((item) => item.crop.mode === mode)} onClick={() => { onCropDraft(undefined); onExecute({ type: "set-frame-photo-fit", frameId: frame.id, mode }); }}>{mode === "fill" ? "Cover" : "Contain"}</button>)}</div></section>
     {family.id !== "sheets" && <FrameCaptionControls frame={frame} onExecute={onExecute} />}
+    <section className="table-frame-section"><h3>EXPORT</h3>{exportButton}</section>
     <section className="table-frame-section table-frame-footer"><div className="table-frame-action-row"><button type="button" onClick={() => onExecute({ type: "bring-frame-to-front", frameId: frame.id })}>Front</button><button type="button" onClick={() => onExecute({ type: "duplicate-frame", frameId: frame.id, copyId: crypto.randomUUID() as FrameId, slotIds: page.slots.map(() => crypto.randomUUID() as FrameSlotId) })}>Duplicate</button><button type="button" className="is-danger" onClick={() => onExecute({ type: "remove-frame", frameId: frame.id })}>Delete</button></div></section>
     {slot && <section ref={photoSettings} className="table-frame-section table-frame-selected-box"><h3>PHOTO BOX {String(page.slots.indexOf(slot) + 1).padStart(2, "0")}<button type="button" aria-label="Deselect photo box" onClick={() => { onCropDraft(undefined); onSelectSlot(undefined); }}>×</button></h3><div className="table-frame-field-grid">
       {numberField("X", slot.rect.x, (value) => updateSlotRect("x", value))}
@@ -87,7 +89,7 @@ export function FrameSettingsPanel({ frame, slot, cropDraft, onCropDraft, onFini
     {slot && (slot.photoId ? <section className="table-frame-section"><h3>PHOTO FIT</h3><div className="table-frame-segments" role="group" aria-label="Photo fit">
       {(["fill", "fit"] as const).map((mode) => <button key={mode} type="button" aria-pressed={(cropDraft ?? slot.crop).mode === mode}
         onClick={() => cropDraft ? onCropDraft({ ...cropDraft, mode }) : onExecute({ type: "set-frame-photo-crop", frameId: frame.id, slotId: slot.id, crop: { ...slot.crop, mode } })}>{mode === "fill" ? "Fill" : "Fit"}</button>)}
-    </div><p className="table-frame-hint">{slot.crop.mode === "fill" ? "Right-drag the photo to adjust its crop." : "Show the entire photo inside the box."}</p>
+    </div><p className="table-frame-hint">Double-click to crop, then drag the photo and scroll to zoom. Right-drag to adjust directly.</p>
       <div className="table-frame-action-row"><button type="button" onClick={() => onCropDraft(cropDraft ? undefined : slot.crop)}>{cropDraft ? "Cancel crop" : "Adjust crop"}</button><button type="button" onClick={() => onExecute({ type: "clear-frame-photo", frameId: frame.id, slotId: slot.id })}>Clear photo</button></div>
       {cropDraft && <div className="table-frame-crop-tools"><label>Zoom <strong>{Math.round(cropDraft.zoom * 100)}%</strong><input type="range" min="1" max="8" step="0.01" value={cropDraft.zoom} onChange={(event) => onCropDraft({ ...cropDraft, zoom: Number(event.target.value) })} /></label><button type="button" onClick={onFinishCrop}>Done</button></div>}
     </section> : <section className="table-frame-section"><h3>PHOTO</h3><p className="table-frame-hint">Drop a photo onto this box to place it.</p></section>)}

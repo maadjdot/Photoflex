@@ -153,7 +153,7 @@
 .table-frame-family-menu > button > span:nth-child(2) { display: grid; flex: 1; gap: 5px; }
 .table-frame-family-menu strong { font-size: 12px; }
 .table-frame-family-menu small { font-size: 9px; }
-.table-frame-template-preview { position: relative; display: block; box-sizing: border-box; width: auto; height: 48px; max-width: 80px; flex: 0 0 auto; overflow: hidden; border: 1px solid #d4cfc4; background: #f4efe5; box-shadow: 0 1px 3px rgb(35 31 24 / 10%); }
+.table-frame-template-preview { position: relative; display: block; box-sizing: border-box; width: auto; height: 48px; max-width: 80px; flex: 0 0 auto; overflow: hidden; border: 1px solid #d4cfc4; background: #fff; box-shadow: 0 1px 3px rgb(35 31 24 / 10%); }
 .table-frame-template-preview > i { position: absolute; display: block; box-sizing: border-box; background: #a5a49b; }
 .table-frame-template-preview.preview-sheets { background: #170b07; border-color: #281710; }
 .table-frame-template-preview.preview-sheets > i { background: #7d7061; box-shadow: 0 2px 0 #945521; }
@@ -227,3 +227,4 @@
 .edge-material-beveled .edge-right { background-image: linear-gradient(270deg, #0009 0 12%, #0003 12% 30%, transparent 30% 88%, #fff4 88%); }
 .table-frame-template-preview.preview-instax, .table-frame-template-preview.preview-polaroid { background-color: #fff; }
 .table-frame-photo-elevation { position: absolute; pointer-events: none; }
+.table-frame-export > button { width: 100%; }

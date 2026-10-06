@@ -15,9 +15,9 @@ function frame(templateId: FrameTemplateId): WorktableFrame {
 }
 
 describe("Frame editing", () => {
-  it("offers four families and defaults every instant-film preset to pure white", () => {
+  it("offers four families and defaults every preset to pure white", () => {
     expect(FRAME_FAMILIES.map((family) => family.id)).toEqual(["plain", "instax", "polaroid", "frames"]);
-    for (const family of FRAME_FAMILIES.filter((item) => item.id === "instax" || item.id === "polaroid")) {
+    for (const family of FRAME_FAMILIES) {
       for (const id of family.templateIds) expect(framePaper(frame(id).page)).toEqual({ color: "#FFFFFF", material: "none" });
     }
     expect(validWorktableFrame(frame("sheet-film"))).toBe(true);
