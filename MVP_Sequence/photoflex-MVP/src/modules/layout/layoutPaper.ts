@@ -101,8 +101,8 @@ export function layoutPaperStyle(paper: LayoutPaper): LayoutPaperStyle {
     "--layout-paper-texture": material.textureUrl ? `url("${material.textureUrl}")` : "none",
     "--layout-paper-texture-size": material.size,
     "--layout-paper-texture-opacity": dark ? material.darkOpacity : material.lightOpacity,
-    "--layout-paper-texture-filter": material.filter,
-    "--layout-paper-texture-blend": dark ? "soft-light" : "multiply",
+    "--layout-paper-texture-filter": dark ? material.filter : "none",
+    "--layout-paper-texture-blend": "soft-light",
     "--layout-paper-texture-repeat": material.repeat,
     "--layout-paper-texture-position": material.position,
   };

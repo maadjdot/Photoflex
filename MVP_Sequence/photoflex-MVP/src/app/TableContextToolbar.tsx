@@ -16,8 +16,9 @@ import rowIcon from "../assets/icons/table-row.svg";
 import sequenceIcon from "../assets/icons/table-sequence.svg";
 import shuffleIcon from "../assets/icons/table-swap.svg";
 import undoIcon from "../assets/icons/table-undo.svg";
-import type { FrameTemplateId, PhotoId, SequenceId, WorktableAlignment, WorktableDraft, WorktableEditCommand, WorktableItemId, WorktableMemo } from "../contracts";
-import { FRAME_TEMPLATE_LABELS, FRAME_TEMPLATES } from "../modules/worktable/frameLayout";
+import type { FrameTemplateFamily, FrameTemplateId, PhotoId, SequenceId, WorktableAlignment, WorktableDraft, WorktableEditCommand, WorktableItemId, WorktableMemo } from "../contracts";
+import { FRAME_FAMILIES, FRAME_TEMPLATE_LABELS, frameCapacity, frameTemplateNote } from "../modules/worktable/frameLayout";
+import { FrameTemplatePreview } from "./FrameTemplatePreview";
 import type { TableActionState } from "./tableActionPolicy";
 import { useLocale } from "./locale";
 
@@ -45,6 +46,7 @@ export function TableFloatingToolbar({ connectorToolActive, onToggleConnectorToo
   const [visible, setVisible] = useState(() => readToolbarVisible(storageKey));
   const [frameOpen, setFrameOpen] = useState(false);
   const [frameAbove, setFrameAbove] = useState(false);
+  const [frameCategory, setFrameCategory] = useState<FrameTemplateFamily>();
   const frameButtonRef = useRef<HTMLButtonElement>(null);
   const clampTop = (value: number) => {
     const toolbar = toolbarRef.current;
@@ -65,7 +67,7 @@ export function TableFloatingToolbar({ connectorToolActive, onToggleConnectorToo
     return () => { document.removeEventListener("pointerdown", closeOutside); document.removeEventListener("keydown", closeEscape, true); };
   }, [frameOpen]);
   const toggleFrame = () => {
-    if (!frameOpen) setFrameAbove((frameButtonRef.current?.getBoundingClientRect().bottom ?? 0) + 320 > window.innerHeight);
+    if (!frameOpen) { setFrameCategory(undefined); setFrameAbove((frameButtonRef.current?.getBoundingClientRect().bottom ?? 0) + 410 > window.innerHeight); }
     setFrameOpen((open) => !open);
   };
   useEffect(() => {
@@ -114,7 +116,12 @@ export function TableFloatingToolbar({ connectorToolActive, onToggleConnectorToo
     <button type="button" className="table-toolbar-hide" aria-label={t("table.hideTools")} title={t("table.hideTools")} onClick={() => { setFrameOpen(false); setVisible(false); }}>‹</button>
     {onAddMemo && <TableToolButton icon={memoIcon} label={t("table.addMemo")} text={t("table.memo")} shortcut="M" title={t("table.memoHint")} onClick={onAddMemo} />}
     {onToggleConnectorTool && <TableToolButton icon={linkIcon} label={t("table.drawLine")} text={t("table.link")} shortcut="L" aria-pressed={connectorToolActive} className={connectorToolActive ? "is-active" : ""} onClick={onToggleConnectorTool} />}
-    {onCreateFrame && <><button ref={frameButtonRef} type="button" className={`table-tool-button table-frame-tool${frameOpen ? " is-active" : ""}`} aria-label="Frame templates" title={t("table.frameHint")} aria-expanded={frameOpen} onClick={toggleFrame}><span aria-hidden="true" className="table-frame-tool-glyph">▣</span><span>{t("table.frame")}</span></button>{frameOpen && <div className={`table-frame-popover${frameAbove ? " is-above" : ""}`} role="dialog" aria-label="Frame templates"><header>Frame templates <small>{FRAME_TEMPLATES.length} layouts</small></header><div>{FRAME_TEMPLATES.map((id) => { const capacity = id === "square-nine-grid" ? 9 : id === "quad-grid" ? 4 : id === "triptych" ? 3 : id === "diptych" ? 2 : 1; const overflow = selectedPhotoCount > capacity; return <div className="table-frame-template-choice" key={id}><button type="button" onClick={() => { if (onCreateFrame(id)) setFrameOpen(false); }}><span className={`table-frame-mini mini-${id}`} aria-hidden="true" /><strong>{FRAME_TEMPLATE_LABELS[id]}</strong><small>{capacity} slots</small></button>{overflow && <button type="button" className="table-frame-use-first" onClick={() => { if (onCreateFrame(id, true)) setFrameOpen(false); }}>Use first {capacity} of {selectedPhotoCount}</button>}</div>; })}</div></div>}</>}
+    {onCreateFrame && <><button ref={frameButtonRef} type="button" className={`table-tool-button table-frame-tool${frameOpen ? " is-active" : ""}`} aria-label="Frame templates" title={t("table.frameHint")} aria-expanded={frameOpen} onClick={toggleFrame}><span aria-hidden="true" className="table-frame-tool-glyph">▣</span><span>{t("table.frame")}</span></button>{frameOpen && <div className={`table-frame-popover${frameAbove ? " is-above" : ""}`} role="dialog" aria-label="Frame templates">
+      <header>{frameCategory ? <button type="button" className="table-frame-back" aria-label="Back to template families" onClick={() => setFrameCategory(undefined)}>‹ Templates</button> : <span>Frame templates</span>}<small>{frameCategory ? FRAME_FAMILIES.find((family) => family.id === frameCategory)?.label : `${FRAME_FAMILIES.length} families`}</small></header>
+      {!frameCategory ? <nav className="table-frame-family-menu" aria-label="Template families">{FRAME_FAMILIES.map((family) => <button key={family.id} type="button" onClick={() => setFrameCategory(family.id)}><FrameTemplatePreview id={family.templateIds[0]} /><span><strong>{family.label}</strong><small>{family.description}</small></span><span aria-hidden="true">›</span></button>)}</nav>
+        : <div className="table-frame-template-choices">{FRAME_FAMILIES.find((family) => family.id === frameCategory)!.templateIds.map((id) => { const capacity = frameCapacity(id); const overflow = selectedPhotoCount > capacity; return <div className="table-frame-template-choice" key={id}><button type="button" onClick={() => { if (onCreateFrame(id)) setFrameOpen(false); }}><FrameTemplatePreview id={id} /><strong>{FRAME_TEMPLATE_LABELS[id]}</strong><small>{frameTemplateNote(id)}</small></button>{overflow && <button type="button" className="table-frame-use-first" onClick={() => { if (onCreateFrame(id, true)) setFrameOpen(false); }}>Use first {capacity} of {selectedPhotoCount}</button>}</div>; })}</div>}
+    </div>}</>}
+
     {selectedMemo && <div className="memo-toolbar-controls"><label>Size<input type="number" aria-label="Memo font size" min={10} max={72} value={selectedMemo.fontSize} onChange={(event) => { const size = Number(event.target.value); if (size >= 10 && size <= 72) onExecute({ type: "update-memo", memoId: selectedMemo.id, changes: { fontSize: size } }); }} /></label><TableToolButton icon={linkIcon} label="Link memo to selected photos" text="Link" disabled={!actions.mutablePhotoIds.length} onClick={() => onExecute({ type: "update-memo", memoId: selectedMemo.id, changes: { photoIds: [...new Set([...selectedMemo.photoIds, ...actions.mutablePhotoIds])] } })} />{selectedMemo.photoIds.length > 0 && <button type="button" className="memo-unlink" onClick={() => onExecute({ type: "update-memo", memoId: selectedMemo.id, changes: { photoIds: [] } })}>Unlink</button>}</div>}
     <TableArrangementTools actions={actions} onExecute={onExecute} />
   </div>}

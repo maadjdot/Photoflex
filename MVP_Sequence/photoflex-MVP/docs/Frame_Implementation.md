@@ -35,3 +35,21 @@
 
 - 用真实照片目录做一次离线、重新连接及备份恢复的浏览器实测；现有自动化已验证数据结构与 MemoryPhotoSource 路径。
 - 在目标设备上测量 50 个四图 Frame 的滚动与拖动性能。实现按可见范围挂载 Frame，预览 lease 在卸载时释放，但尚未记录设备耗时。
+
+## 模板扩展（2026-10-06）
+
+Frame 入口改为“类别 → 模板”的两级选择，共 17 个模板：Plain Page 保留原有 6 款；Instax 包含 mini、square、wide；Polaroid 包含 Classic 600、Square type、Land camera；Sheets 包含 4×3 方形印相、36 张 35mm 胶卷、30 张黑白印相、Portra 400 三联；Frames 包含 Gallery single。
+
+右侧 Template 随当前类别显示相应二级选项。移除边距、间距和出血编辑项；复用 Layout 的 17 种纸张颜色及 6 种材质，增加整页 Cover/Contain、即时照片 Caption 和印相标签。Gallery 支持 10 种边框颜色，以深色为主，并支持自定义颜色。胶片模板包含边码、紧凑数据带、扫描颗粒及黑白照片效果。
+
+新样式随 Frame 保存、复制和撤销；旧 Frame 的黑白背景继续兼容。跨类别切换使用目标模板的物理尺寸，并保留现有照片引用、自定义图像框、纸张和文字。24×30 英寸的 Gallery 页面使用 Frame 专用尺寸范围，Layout 的尺寸规则保持原样。纸张控件和样式抽取为共享组件。
+
+## 外观设置更新（2026-10-06）
+
+- 模板工具移除 Sheets／Contact Sheet 分类，当前提供 Plain Page、Instax、Polaroid、Frames 共 13 个模板。已有印相页面继续读取，创建入口不再提供印相模板。
+- Instax 和 Polaroid 的所有预设默认使用 Pure White。Paper color 增加 Custom，支持拾色器及十六进制颜色；与 Layout 共享设置。
+- 浅色纸张使用原始纹理亮度和 soft-light 混合，去掉用于增强纹理的亮度压低及 multiply 混合。Layout PDF 同步采用相同规则。
+- Inner Edge 替代固定照片白色光晕：默认 None，也可使用颜色边缘或卡纸斜切，设置颜色与宽度。
+- Gallery Frame Edge 支持外框宽度、平面／木纹／拉丝金属／立体斜切材质、阴影强度及照片浮起高度。
+- Caption 支持所有普通、即时相纸和 Gallery 页面；复用 Layout 字体，设置位置与文本框尺寸、字号、颜色、粗体／斜体和对齐。画布拖动提交一次编辑；修改纸张尺寸或模板时按页面比例调整已设置的文字框位置。
+- 内外边缘与 Caption 样式均随项目保存、复制及撤销恢复。字体样式移到共享样式文件，Table 无需先打开 Layout 即可使用同一字体。

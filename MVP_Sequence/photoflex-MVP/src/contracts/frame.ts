@@ -1,9 +1,25 @@
 import type { PhotoId } from "./ids";
+import type { LayoutPaper, LayoutTextBox } from "./layout";
 
 export type FrameId = string & { readonly __brand: "FrameId" };
 export type FrameSlotId = string & { readonly __brand: "FrameSlotId" };
-export type FrameTemplateId = "single" | "diptych" | "triptych" | "quad-grid" | "full-page" | "square-nine-grid";
+export type PlainFrameTemplateId = "single" | "diptych" | "triptych" | "quad-grid" | "full-page" | "square-nine-grid";
+export type FrameTemplateId = PlainFrameTemplateId | "instax-mini" | "instax-square" | "instax-wide"
+  | "polaroid-classic" | "polaroid-square" | "polaroid-land" | "sheet-proof" | "sheet-film" | "sheet-bw" | "sheet-portra" | "gallery-single";
+export type FrameTemplateFamily = "plain" | "instax" | "polaroid" | "sheets" | "frames";
 export type FrameDirection = "horizontal" | "vertical";
+export interface FrameInnerEdge {
+  readonly mode: "none" | "color" | "bevel";
+  readonly color: string;
+  readonly widthPt: number;
+}
+export interface FrameEdgeStyle {
+  readonly widthPt: number;
+  readonly material: "flat" | "wood" | "metal" | "beveled";
+  readonly shadowStrength: number;
+  readonly photoElevationPt: number;
+}
+export type FrameCaptionStyle = LayoutTextBox["style"] & { readonly rect: FrameRect };
 
 export interface FrameRect {
   readonly x: number;
@@ -48,6 +64,12 @@ export interface WorktableFrame {
     readonly widthPt: number;
     readonly heightPt: number;
     readonly background?: "white" | "black";
+    readonly paper?: LayoutPaper;
+    readonly edgeColor?: string;
+    readonly edgeStyle?: FrameEdgeStyle;
+    readonly innerEdge?: FrameInnerEdge;
+    readonly caption?: string;
+    readonly captionStyle?: FrameCaptionStyle;
     readonly cornerRadiusPt?: number;
     readonly bleedPt?: number;
     readonly templateSource: FrameTemplateSource;
@@ -67,6 +89,13 @@ export type FrameEditCommand =
   | { readonly type: "bring-frame-slot-to-front"; readonly frameId: FrameId; readonly slotId: FrameSlotId }
   | { readonly type: "set-frame-slot-corner-radius"; readonly frameId: FrameId; readonly slotId: FrameSlotId; readonly cornerRadiusPt: number }
   | { readonly type: "set-frame-background"; readonly frameId: FrameId; readonly background: "white" | "black" }
+  | { readonly type: "set-frame-paper"; readonly frameId: FrameId; readonly paper: LayoutPaper }
+  | { readonly type: "set-frame-edge-color"; readonly frameId: FrameId; readonly color: string }
+  | { readonly type: "set-frame-edge-style"; readonly frameId: FrameId; readonly style: FrameEdgeStyle }
+  | { readonly type: "set-frame-inner-edge"; readonly frameId: FrameId; readonly edge: FrameInnerEdge }
+  | { readonly type: "set-frame-caption"; readonly frameId: FrameId; readonly caption: string }
+  | { readonly type: "set-frame-caption-style"; readonly frameId: FrameId; readonly style: FrameCaptionStyle }
+  | { readonly type: "set-frame-photo-fit"; readonly frameId: FrameId; readonly mode: "fit" | "fill" }
   | { readonly type: "set-frame-bleed"; readonly frameId: FrameId; readonly bleedPt: number }
   | { readonly type: "fill-frame-slots"; readonly frameId: FrameId; readonly photoIds: readonly PhotoId[] }
   | { readonly type: "replace-frame-photo"; readonly frameId: FrameId; readonly slotId: FrameSlotId; readonly photoId: PhotoId }

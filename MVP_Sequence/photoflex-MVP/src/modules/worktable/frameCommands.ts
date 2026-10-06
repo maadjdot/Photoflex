@@ -1,6 +1,8 @@
 import { err, ok, type Result, type WorktableDraft } from "../../contracts";
 import type { FrameCommandError, FrameEditCommand, FrameId, FrameSlot, WorktableFrame } from "../../contracts/frame";
-import { defaultFrameCrop, frameTemplateRects, frameWorldSize, validFrameCrop, FRAME_MM_TO_PT } from "./frameLayout";
+import { defaultFrameCrop, frameFamily, framePageSize, FRAME_TEMPLATES, frameTemplateRects, frameWorldSize, validFrameCrop, FRAME_MM_TO_PT } from "./frameLayout";
+import { isLayoutPaper } from "../layout/layoutPaper";
+import { reflowFrameCaption, validFrameCaptionStyle, validFrameEdgeStyle, validFrameInnerEdge } from "./frameAppearance";
 
 const failure = (kind: FrameCommandError["kind"]) => err({ kind } as FrameCommandError);
 const framesOf = (draft: WorktableDraft) => draft.frames ?? {};
@@ -14,11 +16,17 @@ export function validWorktableFrame(frame: unknown): frame is WorktableFrame {
     || (item.frontOfPhotos !== undefined && typeof item.frontOfPhotos !== "boolean")) return false;
   const page = item.page;
   if (!page || !Array.isArray(page.slots) || (page.background !== undefined && page.background !== "white" && page.background !== "black")) return false;
+  if (page.paper !== undefined && !isLayoutPaper(page.paper)) return false;
+  if (page.edgeColor !== undefined && (typeof page.edgeColor !== "string" || !/^#[0-9a-f]{6}$/i.test(page.edgeColor))) return false;
+  if (page.caption !== undefined && (typeof page.caption !== "string" || page.caption.length > 160)) return false;
+  if (page.innerEdge !== undefined && !validFrameInnerEdge(page.innerEdge)) return false;
+  if (page.edgeStyle !== undefined && !validFrameEdgeStyle(page.edgeStyle)) return false;
+  if (page.captionStyle !== undefined && !validFrameCaptionStyle(page.captionStyle, page)) return false;
   if (page.cornerRadiusPt !== undefined && (!Number.isFinite(page.cornerRadiusPt) || page.cornerRadiusPt < 0 || page.cornerRadiusPt > 32)) return false;
   if (page.bleedPt !== undefined && (!Number.isFinite(page.bleedPt) || page.bleedPt < 0 || page.bleedPt > 20 * FRAME_MM_TO_PT)) return false;
-  if (![page.widthPt, page.heightPt].every((n) => Number.isFinite(n) && n >= 50 * FRAME_MM_TO_PT && n <= 600 * FRAME_MM_TO_PT)) return false;
+  if (![page.widthPt, page.heightPt].every((n) => Number.isFinite(n) && n >= 50 * FRAME_MM_TO_PT && n <= 1000 * FRAME_MM_TO_PT)) return false;
   const template = page.templateSource;
-  if (!template || !["single", "diptych", "triptych", "quad-grid", "full-page", "square-nine-grid"].includes(template.id) || !["horizontal", "vertical"].includes(template.direction)
+  if (!template || !FRAME_TEMPLATES.includes(template.id) || !["horizontal", "vertical"].includes(template.direction)
     || !Number.isInteger(template.version) || template.version < 1 || typeof template.modified !== "boolean") return false;
   try { frameTemplateRects(page.widthPt, page.heightPt, template); } catch { return false; }
   if (new Set(page.slots.map((slot) => slot?.id)).size !== page.slots.length) return false;
@@ -41,6 +49,10 @@ export function validFrameCollection(draft: WorktableDraft): boolean {
 
 export function copyFrame(frame: WorktableFrame): WorktableFrame {
   return { ...frame, page: { ...frame.page,
+    ...(frame.page.paper ? { paper: { ...frame.page.paper } } : {}),
+    ...(frame.page.edgeStyle ? { edgeStyle: { ...frame.page.edgeStyle } } : {}),
+    ...(frame.page.innerEdge ? { innerEdge: { ...frame.page.innerEdge } } : {}),
+    ...(frame.page.captionStyle ? { captionStyle: { ...frame.page.captionStyle, rect: { ...frame.page.captionStyle.rect } } } : {}),
     templateSource: { ...frame.page.templateSource, marginsPt: { ...frame.page.templateSource.marginsPt } },
     slots: frame.page.slots.map((slot) => ({ ...slot, rect: { ...slot.rect }, crop: { ...slot.crop, focal: { ...slot.crop.focal } } })),
   } };
@@ -67,7 +79,16 @@ export function applyFrameCommand(draft: WorktableDraft, command: FrameEditComma
   };
   if (command.type === "move-frame") return update({ ...frame, x: frame.x + command.by.x, y: frame.y + command.by.y });
   if (command.type === "scale-frame") return update({ ...frame, displayScale: command.displayScale });
-  if (command.type === "set-frame-background") return update({ ...frame, page: { ...frame.page, background: command.background } });
+  if (command.type === "set-frame-background") return update({ ...frame, page: { ...frame.page, background: command.background,
+    ...(frame.page.paper ? { paper: { ...frame.page.paper, color: command.background === "black" ? "#161616" : "#FFFFFF" } } : {}) } });
+  if (command.type === "set-frame-paper") return update({ ...frame, page: { ...frame.page, paper: { ...command.paper } } });
+  if (command.type === "set-frame-edge-color") return update({ ...frame, page: { ...frame.page, edgeColor: command.color } });
+  if (command.type === "set-frame-edge-style") return update({ ...frame, page: { ...frame.page, edgeStyle: { ...command.style } } });
+  if (command.type === "set-frame-inner-edge") return update({ ...frame, page: { ...frame.page, innerEdge: { ...command.edge } } });
+  if (command.type === "set-frame-caption") return update({ ...frame, page: { ...frame.page, caption: command.caption } });
+  if (command.type === "set-frame-caption-style") return update({ ...frame, page: { ...frame.page, captionStyle: { ...command.style, rect: { ...command.style.rect } } } });
+  if (command.type === "set-frame-photo-fit") return update({ ...frame, page: { ...frame.page,
+    slots: frame.page.slots.map((slot) => ({ ...slot, crop: { ...slot.crop, mode: command.mode } })) } });
   if (command.type === "set-frame-bleed") return update({ ...frame, page: { ...frame.page, bleedPt: command.bleedPt } });
   if (command.type === "rename-frame") return update({ ...frame, name: command.name.trim() });
   if (command.type === "resize-frame-page") {
@@ -76,10 +97,12 @@ export function applyFrameCommand(draft: WorktableDraft, command: FrameEditComma
       try { rects = frameTemplateRects(command.widthPt, command.heightPt, frame.page.templateSource); } catch { return failure("invalid-frame"); }
       let templateIndex = 0;
       return update({ ...frame, page: { ...frame.page, widthPt: command.widthPt, heightPt: command.heightPt,
+        ...reflowFrameCaption(frame.page, command.widthPt, command.heightPt),
         templateSource: { ...frame.page.templateSource, modified: false },
         slots: frame.page.slots.map((slot) => slot.origin === "manual" ? slot : { ...slot, rect: rects[templateIndex++] ?? slot.rect }) } });
     }
     return update({ ...frame, page: { ...frame.page, widthPt: command.widthPt, heightPt: command.heightPt,
+      ...reflowFrameCaption(frame.page, command.widthPt, command.heightPt),
       templateSource: { ...frame.page.templateSource, modified: true } } });
   }
   if (command.type === "bring-frame-to-front") {
@@ -105,11 +128,13 @@ export function applyFrameCommand(draft: WorktableDraft, command: FrameEditComma
   if (command.type === "apply-frame-template") {
     if (command.expectedSlotIds.length !== frame.page.slots.length || command.expectedSlotIds.some((id, i) => frame.page.slots[i].id !== id)) return failure("frame-template-changed");
     const squareSide = Math.min(frame.page.widthPt, frame.page.heightPt);
-    const widthPt = command.template.id === "square-nine-grid" ? squareSide : frame.page.widthPt;
-    const heightPt = command.template.id === "square-nine-grid" ? squareSide : frame.page.heightPt;
+    const resetSize = command.template.id !== frame.page.templateSource.id && (frameFamily(command.template.id)?.id !== "plain" || frameFamily(frame.page.templateSource.id).id !== "plain");
+    const preset = resetSize ? framePageSize(command.template.id) : undefined;
+    const widthPt = preset?.widthPt ?? (command.template.id === "square-nine-grid" ? squareSide : frame.page.widthPt);
+    const heightPt = preset?.heightPt ?? (command.template.id === "square-nine-grid" ? squareSide : frame.page.heightPt);
     let rects;
     try { rects = frameTemplateRects(widthPt, heightPt, command.template); } catch { return failure("invalid-frame"); }
-    const keepOnPage = (slot: FrameSlot): FrameSlot => command.template.id !== "square-nine-grid" ? slot : { ...slot, rect: { ...slot.rect,
+    const keepOnPage = (slot: FrameSlot): FrameSlot => !resetSize && command.template.id !== "square-nine-grid" ? slot : { ...slot, rect: { ...slot.rect,
       x: Math.max(FRAME_MM_TO_PT - slot.rect.width, Math.min(widthPt - FRAME_MM_TO_PT, slot.rect.x)),
       y: Math.max(FRAME_MM_TO_PT - slot.rect.height, Math.min(heightPt - FRAME_MM_TO_PT, slot.rect.y)) } };
     const managed = frame.page.slots.filter((slot) => slot.origin !== "manual");
@@ -119,7 +144,8 @@ export function applyFrameCommand(draft: WorktableDraft, command: FrameEditComma
       ? { ...managed[index], rect, origin: "template" }
       : { id: crypto.randomUUID() as FrameSlot["id"], rect, photoId: null, crop: defaultFrameCrop(command.template.id), origin: "template" });
     const retainedPhotos = managed.slice(targetCount).filter((slot) => slot.photoId).map((slot): FrameSlot => keepOnPage({ ...slot, origin: "manual" }));
-    return update({ ...frame, page: { ...frame.page, widthPt, heightPt, templateSource: { ...command.template, modified: false }, slots: [...laidOut, ...manual, ...retainedPhotos] } });
+    return update({ ...frame, displayScale: resetSize ? Math.max(.1, Math.min(4, frame.page.heightPt * frame.displayScale / heightPt)) : frame.displayScale,
+      page: { ...frame.page, widthPt, heightPt, ...reflowFrameCaption(frame.page, widthPt, heightPt), templateSource: { ...command.template, modified: false }, slots: [...laidOut, ...manual, ...retainedPhotos] } });
   }
   if (command.type === "add-frame-slot") {
     if (frame.page.slots.some((slot) => slot.id === command.slotId)) return failure("invalid-frame");

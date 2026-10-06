@@ -10,15 +10,27 @@ export function LayoutPaperControls({ document, page, command, zh }: {
   readonly zh: boolean;
 }) {
   const paper = resolveLayoutPaper(page);
-  const [openMenu, setOpenMenu] = useState<"color" | "material" | null>(null);
-  const controlsRef = useRef<HTMLElement>(null);
-  const label = (english: string, chinese: string) => zh ? chinese : english;
-  const selectedColor = LAYOUT_PAPER_COLORS.find((entry) => entry.color === paper.color.toUpperCase()) ?? LAYOUT_PAPER_COLORS[0];
-  const selectedMaterial = LAYOUT_PAPER_MATERIALS.find((entry) => entry.id === paper.material) ?? LAYOUT_PAPER_MATERIALS[0];
   const setPaper = (next: LayoutPaper, allPages = false) => command({ type: "set-paper",
     pageIds: allPages ? document.pages.map((entry) => entry.id) : [page.id], paper: next });
+  const allSame = document.pages.every((entry) => { const current = resolveLayoutPaper(entry); return current.color.toUpperCase() === paper.color.toUpperCase() && current.material === paper.material; });
+  return <PaperControls paper={paper} onChange={setPaper} zh={zh} onApplyAll={() => setPaper(paper, true)} allSame={allSame} />;
+}
+
+export function PaperControls({ paper, onChange, zh = false, onApplyAll, allSame }: {
+  readonly paper: LayoutPaper;
+  readonly onChange: (paper: LayoutPaper) => boolean;
+  readonly zh?: boolean;
+  readonly onApplyAll?: () => void;
+  readonly allSame?: boolean;
+}) {
+  const [openMenu, setOpenMenu] = useState<"color" | "material" | "custom" | null>(null);
+  const controlsRef = useRef<HTMLElement>(null);
+  const label = (english: string, chinese: string) => zh ? chinese : english;
+  const presetColor = LAYOUT_PAPER_COLORS.find((entry) => entry.color === paper.color.toUpperCase());
+  const selectedColor = presetColor ?? { name: "Custom", nameZh: "自定义", color: paper.color };
+  const selectedMaterial = LAYOUT_PAPER_MATERIALS.find((entry) => entry.id === paper.material) ?? LAYOUT_PAPER_MATERIALS[0];
   const choosePaper = (next: LayoutPaper) => {
-    if (setPaper(next)) setOpenMenu(null);
+    if (onChange(next)) setOpenMenu(null);
   };
   useEffect(() => {
     if (!openMenu) return;
@@ -46,6 +58,12 @@ export function LayoutPaperControls({ document, page, command, zh }: {
         {LAYOUT_PAPER_COLORS.map((entry) => <button key={entry.color} type="button" role="option" aria-selected={paper.color.toUpperCase() === entry.color} aria-label={zh ? entry.nameZh : entry.name} className="layout-paper-dropdown-option" title={`${zh ? entry.nameZh : entry.name} · ${entry.color}`} onClick={() => choosePaper({ ...paper, color: entry.color })}>
           <span className="layout-paper-color-swatch" style={{ backgroundColor: entry.color }} /><span>{zh ? entry.nameZh : entry.name}</span><span className="layout-paper-color-code">{entry.color}</span>
         </button>)}
+        <button type="button" role="option" aria-selected={!presetColor} aria-label={label("Custom", "自定义")} className="layout-paper-dropdown-option" onClick={() => setOpenMenu("custom")}><span className="layout-paper-color-swatch" style={{ background: "conic-gradient(#c06767, #d7c881, #719c78, #7294b1, #c06767)" }} /><span>{label("Custom", "自定义")}</span></button>
+      </div>}
+      {openMenu === "custom" && <div className="layout-paper-custom-color">
+        <input type="color" aria-label={label("Custom paper color", "自定义纸张颜色")} value={paper.color} onChange={(event) => onChange({ ...paper, color: event.currentTarget.value })} />
+        <input key={paper.color} aria-label={label("Paper color hex", "纸张颜色代码")} defaultValue={paper.color.toUpperCase()} maxLength={7} onBlur={(event) => { const entered = event.currentTarget.value.trim(); if (/^#[0-9a-f]{6}$/i.test(entered)) onChange({ ...paper, color: entered.toUpperCase() }); else event.currentTarget.value = paper.color.toUpperCase(); }} />
+        <button type="button" onClick={() => setOpenMenu(null)}>{label("Done", "完成")}</button>
       </div>}
     </div>
     <div className="layout-paper-field">
@@ -60,6 +78,6 @@ export function LayoutPaperControls({ document, page, command, zh }: {
         </button>)}
       </div>}
     </div>
-    <button type="button" className="layout-paper-apply-all" disabled={document.pages.every((entry) => { const current = resolveLayoutPaper(entry); return current.color.toUpperCase() === paper.color.toUpperCase() && current.material === paper.material; })} onClick={() => setPaper(paper, true)}>{label("Apply to all pages", "应用到全部页面")}</button>
+    {onApplyAll && <button type="button" className="layout-paper-apply-all" disabled={allSame} onClick={onApplyAll}>{label("Apply to all pages", "应用到全部页面")}</button>}
   </section>;
 }

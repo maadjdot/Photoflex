@@ -1,8 +1,13 @@
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { createPortal } from "react-dom";
 import type { FrameCrop, FrameEditCommand, FrameId, FrameRect, FrameSlot, FrameSlotId, PhotoId, PhotoSource, SourceError, WorktableFrame } from "../contracts";
-import { FRAME_MM_TO_PT, frameWorldSize, resolveFramePhoto } from "../modules/worktable/frameLayout";
+import { FRAME_MM_TO_PT, frameFamily, framePaper, frameWorldSize, resolveFramePhoto } from "../modules/worktable/frameLayout";
+import { isDarkLayoutPaper } from "../modules/layout/layoutPaper";
+import { LayoutPaperBackdrop } from "./LayoutPaperBackdrop";
 import { alignFrameRect, type FrameAlignmentGuide } from "../modules/worktable/frameAlignment";
+import { frameCaptionStyle, frameEdgeStyle, frameInnerEdge } from "../modules/worktable/frameAppearance";
+import { layoutFontCssStack } from "../modules/layout/layoutFonts";
+import { FrameEdge, FramePhotoEdge } from "./FrameEdges";
 import { FrameSettingsPanel } from "./FrameSettingsPanel";
 
 interface FrameCardProps {
@@ -24,7 +29,7 @@ interface FrameCardProps {
   readonly onGeometryPreview?: (id: FrameId, rect?: FrameRect) => void;
 }
 
-type DragState = { kind: "frame" | "scale" | "slot" | "resize-slot" | "crop" | "quick-crop"; pointerId: number; startX: number; startY: number; slotId?: FrameSlotId; handle?: string; baseRect?: FrameRect; baseCrop?: FrameCrop };
+type DragState = { kind: "frame" | "scale" | "slot" | "resize-slot" | "crop" | "quick-crop" | "caption"; pointerId: number; startX: number; startY: number; slotId?: FrameSlotId; handle?: string; baseRect?: FrameRect; baseCrop?: FrameCrop };
 const handles = ["nw", "n", "ne", "e", "se", "s", "sw", "w"];
 const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
 
@@ -100,6 +105,13 @@ export function TableFrameCard({ frame, layerZ, selected, settingsHost, selected
   previewRef.current = preview;
   cropDraftRef.current = cropDraft;
   const size = frameWorldSize(frame);
+  const family = frameFamily(frame.page.templateSource.id).id;
+  const paper = framePaper(frame.page);
+  const darkPaper = isDarkLayoutPaper(paper);
+  const film = family === "sheets";
+  const caption = frameCaptionStyle(frame.page);
+  const innerEdge = frameInnerEdge(frame.page);
+  const edge = frameEdgeStyle(frame.page);
   useEffect(() => () => onGeometryPreview?.(frame.id), [frame.id, onGeometryPreview]);
   const slot = frame.page.slots.find((item) => item.id === selectedSlotId);
   const selectSlot = (nextSlotId: FrameSlotId | undefined) => {
@@ -129,7 +141,7 @@ export function TableFrameCard({ frame, layerZ, selected, settingsHost, selected
     if (kind === "frame") selectSlot(undefined);
     else if (kind !== "scale") selectSlot(targetSlot?.id);
     if (kind === "quick-crop") { cropDraftRef.current = targetSlot?.crop; setCropDraft(targetSlot?.crop); }
-    drag.current = { kind, pointerId: event.pointerId, startX: event.clientX, startY: event.clientY, slotId: targetSlot?.id, handle, baseRect: targetSlot?.rect, baseCrop: kind === "quick-crop" ? targetSlot?.crop : kind === "crop" ? cropDraft : undefined };
+    drag.current = { kind, pointerId: event.pointerId, startX: event.clientX, startY: event.clientY, slotId: targetSlot?.id, handle, baseRect: kind === "caption" ? caption.rect : targetSlot?.rect, baseCrop: kind === "quick-crop" ? targetSlot?.crop : kind === "crop" ? cropDraft : undefined };
     articleRef.current?.setPointerCapture(event.pointerId);
   };
   const move = (event: ReactPointerEvent) => {
@@ -145,6 +157,9 @@ export function TableFrameCard({ frame, layerZ, selected, settingsHost, selected
       const scale = clamp((size.width + worldDx) / frame.page.widthPt, .1, 4);
       setPreview({ dx: 0, dy: 0, scale });
       onGeometryPreview?.(frame.id, { x: frame.x, y: frame.y, width: frame.page.widthPt * scale, height: frame.page.heightPt * scale });
+    }
+    else if (current.kind === "caption" && current.baseRect) {
+      setPreview({ dx: 0, dy: 0, rect: { ...current.baseRect, x: clamp(current.baseRect.x + pageDx, 0, frame.page.widthPt - Math.min(current.baseRect.width, frame.page.widthPt)), y: clamp(current.baseRect.y + pageDy, 0, frame.page.heightPt - Math.min(current.baseRect.height, frame.page.heightPt)) } });
     }
     else if (current.kind === "slot" && current.baseRect) {
       const candidate = { ...current.baseRect, x: current.baseRect.x + pageDx, y: current.baseRect.y + pageDy };
@@ -175,6 +190,7 @@ export function TableFrameCard({ frame, layerZ, selected, settingsHost, selected
     if (!cancelled && (current.kind === "slot" || current.kind === "resize-slot") && value.rect && current.slotId && JSON.stringify(value.rect) !== JSON.stringify(current.baseRect)) {
       onExecute({ type: "transform-frame-slot", frameId: frame.id, slotId: current.slotId, rect: value.rect });
     }
+    if (!cancelled && current.kind === "caption" && value.rect && JSON.stringify(value.rect) !== JSON.stringify(current.baseRect)) onExecute({ type: "set-frame-caption-style", frameId: frame.id, style: { ...caption, rect: value.rect } });
     if (current.kind === "quick-crop") {
       const crop = cropDraftRef.current;
       if (!cancelled && crop && current.slotId && JSON.stringify(crop) !== JSON.stringify(current.baseCrop)) onExecute({ type: "set-frame-photo-crop", frameId: frame.id, slotId: current.slotId, crop });
@@ -198,21 +214,35 @@ export function TableFrameCard({ frame, layerZ, selected, settingsHost, selected
       width: (frame.page.widthPt + 2 * (frame.page.bleedPt ?? 0)) * (preview.scale ?? frame.displayScale),
       height: (frame.page.heightPt + 2 * (frame.page.bleedPt ?? 0)) * (preview.scale ?? frame.displayScale),
     }} />}
-    <div className={`table-frame-page${frame.page.background === "black" ? " is-black" : ""}`} style={{ width: frame.page.widthPt, height: frame.page.heightPt, backgroundColor: frame.page.background === "black" ? "#161616" : "#fff", transform: `scale(${preview.scale ?? frame.displayScale})` }}
+    <div className={`table-frame-page frame-family-${family} frame-style-${frame.page.templateSource.id}${darkPaper ? " is-black" : ""}`} style={{ width: frame.page.widthPt, height: frame.page.heightPt, backgroundColor: paper.color, boxShadow: family === "frames" ? edge.shadowStrength ? `0 ${frame.page.widthPt * .02}px ${frame.page.widthPt * .065}px rgb(0 0 0 / ${edge.shadowStrength * .65})` : "none" : undefined, transform: `scale(${preview.scale ?? frame.displayScale})` }}
       onPointerDown={(event) => begin(event, "frame")}>
+      <LayoutPaperBackdrop paper={paper} />
+      {film && <><div className="table-frame-film-surface" aria-hidden="true" /><div className="table-frame-film-heading" style={{ fontSize: frame.page.widthPt * .007 }}>{frame.page.caption || (frame.page.templateSource.id === "sheet-bw" ? "FULL FRAME / CONTACT" : "CONTACT / 01")}<span>{frame.page.templateSource.id === "sheet-bw" ? "B&W · PROOF" : "35 MM · KODAK PORTRA 400"}</span></div></>}
+      {family === "frames" && <FrameEdge page={frame.page} />}
       {frame.page.slots.map((item, index) => {
         const chosen = selected && selectedSlotId === item.id;
-        const drawn = preview.rect && chosen ? preview.rect : item.rect;
+        const drawn = preview.rect && chosen && drag.current?.kind !== "caption" ? preview.rect : item.rect;
         const displayed = cropDraft && chosen ? { ...item, crop: cropDraft } : item;
+        const photoSize = item.photoId ? previews[item.photoId]?.size : undefined;
+        const image = photoSize ? resolveFramePhoto(photoSize, drawn, displayed.crop) : undefined;
+        const imageX = Math.max(0, image?.x ?? 0), imageY = Math.max(0, image?.y ?? 0);
+        const photoRect = { x: imageX, y: imageY, width: Math.min(drawn.width, image ? image.x + image.width : drawn.width) - imageX,
+          height: Math.min(drawn.height, image ? image.y + image.height : drawn.height) - imageY };
         return <div key={item.id} data-frame-slot-id={item.id} className={`table-frame-slot${chosen ? " is-selected" : ""}${item.photoId ? " has-photo" : ""}`}
-          style={{ left: drawn.x, top: drawn.y, width: drawn.width, height: drawn.height, borderRadius: item.cornerRadiusPt ?? frame.page.cornerRadiusPt ?? 0 }}
+          style={{ left: drawn.x, top: drawn.y, width: drawn.width, height: drawn.height, borderRadius: item.cornerRadiusPt ?? frame.page.cornerRadiusPt ?? 0, boxShadow: family !== "sheets" ? "none" : undefined }}
           onPointerDown={(event) => { event.stopPropagation(); if (event.button === 2 && item.photoId && item.crop.mode === "fill") { begin(event, "quick-crop", item); return; } if (!selected) { onSelect(frame.id); return; } begin(event, cropDraft && chosen ? "crop" : "slot", item); }}
           onContextMenu={(event) => { if (item.photoId && item.crop.mode === "fill") event.preventDefault(); }}
           onDoubleClick={(event) => { event.stopPropagation(); onSelect(frame.id); selectSlot(item.id); if (item.photoId) setCropDraft(item.crop); }}>
-          <div className="table-frame-photo-clip" style={{ borderRadius: item.cornerRadiusPt ?? frame.page.cornerRadiusPt ?? 0 }}>{item.photoId ? <FrameImage photoId={item.photoId} slot={displayed} preview={previews[item.photoId]} onSize={(id, next) => setPreviews((current) => !current[id] || (current[id].size?.width === next.width && current[id].size?.height === next.height) ? current : { ...current, [id]: { ...current[id], size: next } })} missing={missingPhotoIds.has(item.photoId)} /> : <span className="table-frame-empty-slot">{String(index + 1).padStart(2, "0")}<small>DROP PHOTO</small></span>}</div>
+          {item.photoId && edge.photoElevationPt > 0 && <span className="table-frame-photo-elevation" aria-hidden="true" style={{ left: photoRect.x, top: photoRect.y, width: photoRect.width, height: photoRect.height,
+            borderRadius: item.cornerRadiusPt ?? frame.page.cornerRadiusPt ?? 0, boxShadow: `0 ${edge.photoElevationPt}px ${edge.photoElevationPt * 2.5}px rgb(0 0 0 / .3)` }} />}
+          <div className="table-frame-photo-clip" style={{ borderRadius: item.cornerRadiusPt ?? frame.page.cornerRadiusPt ?? 0 }}>{item.photoId ? <FrameImage photoId={item.photoId} slot={{ ...displayed, rect: drawn }} preview={previews[item.photoId]} onSize={(id, next) => setPreviews((current) => !current[id] || (current[id].size?.width === next.width && current[id].size?.height === next.height) ? current : { ...current, [id]: { ...current[id], size: next } })} missing={missingPhotoIds.has(item.photoId)} /> : <span className="table-frame-empty-slot">{String(index + 1).padStart(2, "0")}<small>DROP PHOTO</small></span>}</div>
+          {film && <div className="table-frame-film-code" aria-hidden="true" style={{ height: frame.page.widthPt * (frame.page.templateSource.id === "sheet-proof" ? .025 : .012), fontSize: frame.page.widthPt * (frame.page.templateSource.id === "sheet-proof" ? .006 : .0045) }}><b>{String(index + 1).padStart(2, "0")}</b><span>{frame.page.templateSource.id === "sheet-bw" ? `F${index % 2 ? "11" : "8"} ◃` : "KODAK PORTRA 400"}</span><i>{index + 1}A</i></div>}
+          <FramePhotoEdge edge={innerEdge} rect={photoRect} cornerRadiusPt={item.cornerRadiusPt ?? frame.page.cornerRadiusPt ?? 0} />
           {chosen && !cropDraft && handles.map((handle) => <button key={handle} type="button" className={`table-frame-slot-handle handle-${handle}`} aria-label={`Resize photo frame ${handle}`} onPointerDown={(event) => begin(event, "resize-slot", item, handle)} />)}
         </div>;
       })}
+      {!film && frame.page.caption && <div className={`table-frame-instant-caption${selected && drag.current?.kind === "caption" ? " is-dragging" : ""}`} style={{ ...(drag.current?.kind === "caption" && preview.rect ? { left: preview.rect.x, top: preview.rect.y, width: preview.rect.width, height: preview.rect.height } : { left: caption.rect.x, top: caption.rect.y, width: caption.rect.width, height: caption.rect.height }), fontSize: caption.fontSizePt, fontFamily: layoutFontCssStack(caption.fontFamily), fontWeight: caption.fontWeight === "bold" ? 700 : 400, fontStyle: caption.fontStyle ?? "normal", lineHeight: caption.lineHeight, textAlign: caption.align, color: caption.color }} onPointerDown={(event) => begin(event, "caption")}>{frame.page.caption}</div>}
+      {film && <div className="table-frame-film-grain" aria-hidden="true" />}
       {preview.guides?.length ? <svg className="table-frame-alignment-guides" width={frame.page.widthPt} height={frame.page.heightPt} aria-hidden="true">{preview.guides.map((guide) => guide.axis === "x" ? <line key="x" x1={guide.value} y1={0} x2={guide.value} y2={frame.page.heightPt} /> : <line key="y" x1={0} y1={guide.value} x2={frame.page.widthPt} y2={guide.value} />)}</svg> : null}
     </div>
     <div className="table-frame-title" onPointerDown={(event) => begin(event, "frame")}><strong>{frame.name}</strong><span>{Math.round(frame.page.widthPt / FRAME_MM_TO_PT)} × {Math.round(frame.page.heightPt / FRAME_MM_TO_PT)} mm</span></div>

@@ -71,6 +71,7 @@ describe("TablePage", () => {
     fireEvent.keyDown(stage, { key: "a", ctrlKey: true });
     expect(screen.queryByRole("combobox", { name: "Place selected photos in Frame" })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Frame templates" }));
+    fireEvent.click(screen.getByRole("button", { name: /^Plain Page/ }));
     fireEvent.click(screen.getByRole("button", { name: /Diptych 2 slots/ }));
     await waitFor(() => expect(stage.querySelectorAll("[data-frame-id]")).toHaveLength(1));
     await waitFor(async () => {
@@ -93,6 +94,7 @@ describe("TablePage", () => {
     const stage = await screen.findByLabelText("Photo worktable");
     fireEvent.keyDown(stage, { key: "a", ctrlKey: true });
     fireEvent.click(screen.getByRole("button", { name: "Frame templates" }));
+    fireEvent.click(screen.getByRole("button", { name: /^Plain Page/ }));
     fireEvent.click(screen.getByRole("button", { name: /Diptych 2 slots/ }));
     const frame = stage.querySelector<HTMLElement>("[data-frame-id]")!;
     const first = frame.querySelector<HTMLElement>("[data-frame-slot-id]")!;
@@ -120,6 +122,7 @@ describe("TablePage", () => {
     const stage = await screen.findByLabelText("Photo worktable");
     fireEvent.keyDown(stage, { key: "a", ctrlKey: true });
     fireEvent.click(screen.getByRole("button", { name: "Frame templates" }));
+    fireEvent.click(screen.getByRole("button", { name: /^Plain Page/ }));
     fireEvent.click(screen.getByRole("button", { name: /Diptych 2 slots/ }));
     const frame = stage.querySelector<HTMLElement>("[data-frame-id]")!;
     const photos = [...stage.querySelectorAll<HTMLElement>("[data-worktable-photo-id]")];
@@ -138,6 +141,7 @@ describe("TablePage", () => {
     render(<App dependencies={dependencies} />);
     const stage = await screen.findByLabelText("Photo worktable");
     fireEvent.click(screen.getByRole("button", { name: "Frame templates" }));
+    fireEvent.click(screen.getByRole("button", { name: /^Plain Page/ }));
     fireEvent.click(screen.getByRole("button", { name: /Single 1 slots/ }));
     const frame = stage.querySelector<HTMLElement>("[data-frame-id]")!;
     const page = frame.querySelector<HTMLElement>(".table-frame-page")!;
@@ -170,6 +174,7 @@ describe("TablePage", () => {
     const stage = await screen.findByLabelText("Photo worktable");
     fireEvent.keyDown(stage, { key: "a", ctrlKey: true });
     fireEvent.click(screen.getByRole("button", { name: "Frame templates" }));
+    fireEvent.click(screen.getByRole("button", { name: /^Plain Page/ }));
     fireEvent.click(screen.getByRole("button", { name: /Diptych 2 slots/ }));
     const frame = await waitFor(() => {
       const value = stage.querySelector<HTMLElement>("[data-frame-id]");
@@ -195,6 +200,7 @@ describe("TablePage", () => {
     const stage = await screen.findByLabelText("Photo worktable");
     fireEvent.keyDown(stage, { key: "a", ctrlKey: true });
     fireEvent.click(screen.getByRole("button", { name: "Frame templates" }));
+    fireEvent.click(screen.getByRole("button", { name: /^Plain Page/ }));
     fireEvent.click(screen.getByRole("button", { name: /Diptych 2 slots/ }));
     const frame = await waitFor(() => {
       const value = stage.querySelector<HTMLElement>("[data-frame-id]");
@@ -221,6 +227,7 @@ describe("TablePage", () => {
     const stage = await screen.findByLabelText("Photo worktable");
     fireEvent.keyDown(stage, { key: "a", ctrlKey: true });
     fireEvent.click(screen.getByRole("button", { name: "Frame templates" }));
+    fireEvent.click(screen.getByRole("button", { name: /^Plain Page/ }));
     fireEvent.click(screen.getByRole("button", { name: /Single 1 slots/ }));
     expect(stage.querySelectorAll("[data-frame-id]")).toHaveLength(0);
     fireEvent.click(within(screen.getByRole("button", { name: /Single 1 slots/ }).closest(".table-frame-template-choice") as HTMLElement).getByRole("button", { name: "Use first 1 of 2" }));

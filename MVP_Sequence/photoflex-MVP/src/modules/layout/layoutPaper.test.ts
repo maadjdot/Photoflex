@@ -15,7 +15,8 @@ describe("Layout paper definitions", () => {
     const light = layoutPaperStyle({ color: "#F8F7F3", material: "coarse-linen" });
     const dark = layoutPaperStyle({ color: "#28282A", material: "coarse-linen" });
     const bookcloth = layoutPaperStyle({ color: "#F4EFE5", material: "bookcloth" });
-    expect(light["--layout-paper-texture-blend"]).toBe("multiply");
+    expect(light["--layout-paper-texture-blend"]).toBe("soft-light");
+    expect(light["--layout-paper-texture-filter"]).toBe("none");
     expect(Number(light["--layout-paper-texture-opacity"])).toBeGreaterThan(0);
     expect(dark["--layout-paper-texture-blend"]).toBe("soft-light");
     expect(Number(dark["--layout-paper-texture-opacity"])).toBeGreaterThan(Number(light["--layout-paper-texture-opacity"]));

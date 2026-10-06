@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import type { FrameId, FrameSlotId, FrameTemplateId, PhotoId, ProjectId, WorktableFrame } from "../../contracts";
 import { createEmptyWorktable, createWorktableEditor } from "./worktableEditor";
-import { defaultFrameCrop, frameTemplateRects, frameTemplateSource, resolveFramePhoto, FRAME_MM_TO_PT } from "./frameLayout";
+import { defaultFrameCrop, framePageSize, framePaper, FRAME_FAMILIES, frameTemplateRects, frameTemplateSource, resolveFramePhoto, FRAME_MM_TO_PT } from "./frameLayout";
+import { frameCaptionStyle, frameEdgeStyle } from "./frameAppearance";
+import { validWorktableFrame } from "./frameCommands";
 
 const pageWidth = 210 * FRAME_MM_TO_PT, pageHeight = 297 * FRAME_MM_TO_PT;
 function frame(templateId: FrameTemplateId): WorktableFrame {
@@ -13,6 +15,72 @@ function frame(templateId: FrameTemplateId): WorktableFrame {
 }
 
 describe("Frame editing", () => {
+  it("offers four families and defaults every instant-film preset to pure white", () => {
+    expect(FRAME_FAMILIES.map((family) => family.id)).toEqual(["plain", "instax", "polaroid", "frames"]);
+    for (const family of FRAME_FAMILIES.filter((item) => item.id === "instax" || item.id === "polaroid")) {
+      for (const id of family.templateIds) expect(framePaper(frame(id).page)).toEqual({ color: "#FFFFFF", material: "none" });
+    }
+    expect(validWorktableFrame(frame("sheet-film"))).toBe(true);
+  });
+
+  it("saves inner edges, frame materials and caption geometry as independent undoable settings", () => {
+    const editor = createWorktableEditor(createEmptyWorktable("project" as ProjectId));
+    const initial = frame("gallery-single");
+    editor.execute({ type: "create-frame", frame: initial });
+    expect(editor.execute({ type: "set-frame-inner-edge", frameId: initial.id, edge: { mode: "bevel", color: "#EDE9DF", widthPt: 2 * FRAME_MM_TO_PT } }).ok).toBe(true);
+    const edge = { ...frameEdgeStyle(initial.page), material: "wood" as const, widthPt: 10 * FRAME_MM_TO_PT, shadowStrength: .8, photoElevationPt: 3 * FRAME_MM_TO_PT };
+    expect(editor.execute({ type: "set-frame-edge-style", frameId: initial.id, style: edge }).ok).toBe(true);
+    const caption = { ...frameCaptionStyle(initial.page), fontFamily: "noto-serif-sc" as const, fontSizePt: 24, rect: { x: 12, y: 24, width: 180, height: 60 } };
+    expect(editor.execute({ type: "set-frame-caption-style", frameId: initial.id, style: caption }).ok).toBe(true);
+    const beforeResize = editor.snapshot();
+    expect(beforeResize.frames![initial.id].page).toMatchObject({ edgeStyle: edge, captionStyle: caption, innerEdge: { mode: "bevel", widthPt: 2 * FRAME_MM_TO_PT } });
+    expect(editor.execute({ type: "resize-frame-page", frameId: initial.id, widthPt: initial.page.widthPt * 2, heightPt: initial.page.heightPt, reflow: true }).ok).toBe(true);
+    expect(editor.snapshot().frames![initial.id].page.captionStyle?.rect).toMatchObject({ x: 24, y: 24, width: 360 });
+    expect(editor.undo()).toEqual(beforeResize);
+    expect(editor.execute({ type: "set-frame-inner-edge", frameId: initial.id, edge: { mode: "none", color: "#FFFFFF", widthPt: FRAME_MM_TO_PT } }).ok).toBe(true);
+    expect(editor.undo()).toEqual(beforeResize);
+    expect(editor.execute({ type: "set-frame-edge-style", frameId: initial.id, style: { ...edge, shadowStrength: 2 } }).ok).toBe(false);
+  });
+  it("builds all new film and gallery formats at their physical sizes", () => {
+    const capacities: Record<string, number> = { "instax-mini": 1, "instax-square": 1, "instax-wide": 1,
+      "polaroid-classic": 1, "polaroid-square": 1, "polaroid-land": 1,
+      "sheet-proof": 12, "sheet-film": 36, "sheet-bw": 30, "sheet-portra": 3, "gallery-single": 1 };
+    for (const family of FRAME_FAMILIES.filter((entry) => entry.id !== "plain")) for (const id of family.templateIds) {
+      const size = framePageSize(id), source = frameTemplateSource(id);
+      const rects = frameTemplateRects(size.widthPt, size.heightPt, source);
+      expect(rects).toHaveLength(capacities[id]);
+      expect(rects.every((rect) => rect.x >= 0 && rect.y >= 0 && rect.x + rect.width <= size.widthPt && rect.y + rect.height <= size.heightPt)).toBe(true);
+      if (id === "sheet-proof") expect(rects.every((rect) => rect.width === rect.height)).toBe(true);
+      expect(validWorktableFrame({ ...frame("single"), page: { ...size, templateSource: source,
+        slots: rects.map((rect, i) => ({ id: `new-${i}`, rect, photoId: null, crop: defaultFrameCrop(id) })) } })).toBe(true);
+    }
+  });
+
+  it("preserves photos and paper when changing families and restores styling with undo", () => {
+    const editor = createWorktableEditor(createEmptyWorktable("project" as ProjectId));
+    const initial = frame("diptych");
+    editor.execute({ type: "create-frame", frame: initial });
+    editor.execute({ type: "fill-frame-slots", frameId: initial.id, photoIds: ["photo-a", "photo-b"] as PhotoId[] });
+    editor.execute({ type: "set-frame-paper", frameId: initial.id, paper: { color: "#1E2B45", material: "fine-linen" } });
+    const before = editor.snapshot();
+    expect(editor.execute({ type: "apply-frame-template", frameId: initial.id, template: frameTemplateSource("gallery-single"), expectedSlotIds: initial.page.slots.map((slot) => slot.id) }).ok).toBe(true);
+    let current = editor.snapshot().frames![initial.id];
+    expect(current.page).toMatchObject({ ...framePageSize("gallery-single"), paper: { color: "#1E2B45", material: "fine-linen" } });
+    expect(current.page.slots.map((slot) => slot.photoId)).toEqual(["photo-a", "photo-b"]);
+    expect(editor.undo()).toEqual(before);
+    editor.redo();
+    expect(editor.execute({ type: "set-frame-edge-color", frameId: initial.id, color: "#493025" }).ok).toBe(true);
+    expect(editor.execute({ type: "set-frame-caption", frameId: initial.id, caption: "Shanghai, 2026" }).ok).toBe(true);
+    const beforeFit = editor.snapshot();
+    expect(editor.execute({ type: "set-frame-photo-fit", frameId: initial.id, mode: "fit" }).ok).toBe(true);
+    current = editor.snapshot().frames![initial.id];
+    expect(current.page.slots.every((slot) => slot.crop.mode === "fit")).toBe(true);
+    expect(current.page).toMatchObject({ edgeColor: "#493025", caption: "Shanghai, 2026" });
+    expect(editor.undo()).toEqual(beforeFit);
+    expect(editor.execute({ type: "set-frame-paper", frameId: initial.id, paper: { color: "bad", material: "none" } }).ok).toBe(false);
+    expect(validWorktableFrame({ ...current, page: { ...current.page, edgeColor: ["#493025"] } })).toBe(false);
+  });
+
   it("builds six page layouts at physical page size", () => {
     for (const [id, count] of [["single", 1], ["diptych", 2], ["triptych", 3], ["quad-grid", 4], ["full-page", 1], ["square-nine-grid", 9]] as const) {
       const result = frame(id);

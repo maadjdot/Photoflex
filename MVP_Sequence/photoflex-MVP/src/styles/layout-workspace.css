@@ -1,3 +1,4 @@
+@import "./layout-fonts.css";
 .layout-workspace { position: fixed; inset: 0; z-index: 90; display: flex; flex-direction: column; min-width: 0; background: #f5f4f1; color: #211f1c; font: 12px/1.4 "Inter", "Microsoft YaHei", sans-serif; }
 .layout-workspace button { cursor: pointer; font: inherit; }
 .layout-workspace button:disabled { opacity: .38; cursor: default; }
@@ -35,8 +36,6 @@
 .layout-paper { border: 1px solid #d6d2ca; background: transparent; }
 .layout-paper.is-current { outline: 2px solid #746d61; outline-offset: 2px; }
 .layout-paper-placeholder { background: transparent; }
-.layout-paper-backdrop { position: absolute; inset: 0; z-index: 0; display: block; overflow: hidden; pointer-events: none; }
-.layout-paper-backdrop::before { position: absolute; inset: 0; background-image: var(--layout-paper-texture); background-position: var(--layout-paper-texture-position); background-repeat: var(--layout-paper-texture-repeat); background-size: var(--layout-paper-texture-size); content: ""; filter: var(--layout-paper-texture-filter); mix-blend-mode: var(--layout-paper-texture-blend); opacity: var(--layout-paper-texture-opacity); }
 .layout-paper-number { position: absolute; right: 8px; bottom: 6px; z-index: 3; color: #79756e; font-size: 9px; text-shadow: 0 1px 1px rgb(255 255 255 / 72%); }
 .layout-paper.is-dark-paper .layout-paper-number { color: rgb(255 255 255 / 82%); text-shadow: 0 1px 2px rgb(0 0 0 / 65%); }
 .layout-object { position: absolute; z-index: 1; overflow: hidden; }
@@ -130,19 +129,6 @@
 .layout-properties-panel .table-frame-inspector dl { display: grid; gap: 4px; padding: 0; }
 .layout-properties-panel .table-frame-inspector dt { margin-top: 7px; }
 .layout-properties-panel .table-frame-inspector p { margin: 8px 0 0; }
-.layout-paper-section { position: relative; display: grid; gap: 8px; }
-.layout-paper-field { position: relative; display: grid; gap: 4px; }
-.layout-paper-field-label { color: #77736d; font-size: 9px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; }
-.layout-properties-panel .table-frame-inspector .layout-paper-dropdown-trigger { display: flex; width: 100%; min-width: 0; min-height: 32px; align-items: center; gap: 8px; padding: 4px 8px; border: 1px solid #d4d2cc; border-radius: 5px; background: #fafaf9; color: #3f3c37; font-size: 10px; text-align: left; }
-.layout-properties-panel .table-frame-inspector .layout-paper-dropdown-trigger:hover, .layout-properties-panel .table-frame-inspector .layout-paper-dropdown-trigger[aria-expanded="true"] { border-color: #99948b; background: #fff; }
-.layout-paper-dropdown-caret { margin-left: auto; color: #817d75; font-size: 13px; line-height: 1; transform: translateY(-1px); }
-.layout-paper-dropdown-menu { position: absolute; top: calc(100% + 4px); right: 0; left: 0; z-index: 20; display: grid; max-height: 220px; gap: 2px; overflow: auto; padding: 4px; border: 1px solid #c9c5bd; border-radius: 6px; background: #fff; box-shadow: 0 8px 22px rgb(43 40 35 / 18%); }
-.layout-properties-panel .table-frame-inspector .layout-paper-dropdown-option { display: flex; width: 100%; min-width: 0; min-height: 30px; align-items: center; gap: 8px; padding: 4px 6px; border: 0; border-radius: 4px; background: transparent; color: #403d38; font-size: 10px; text-align: left; }
-.layout-properties-panel .table-frame-inspector .layout-paper-dropdown-option:hover, .layout-properties-panel .table-frame-inspector .layout-paper-dropdown-option[aria-selected="true"] { background: #efede9; }
-.layout-paper-color-swatch { flex: 0 0 18px; width: 18px; height: 18px; box-sizing: border-box; border: 1px solid #aaa69e; border-radius: 4px; box-shadow: none; }
-.layout-paper-color-code { margin-left: auto; color: #aaa69f; font-size: 8px; font-variant-numeric: tabular-nums; }
-.layout-paper-material-sample { position: relative; overflow: hidden; flex: 0 0 22px; width: 22px; height: 22px; border: 1px solid rgb(38 36 32 / 16%); border-radius: 4px; }
-.layout-paper-apply-all { width: 100%; min-height: 30px; border: 1px solid #bdb9b1; border-radius: 5px; background: #fff; color: #35332e; font-size: 10px; }
 .layout-properties-panel .table-frame-template-strip { grid-template-columns: repeat(5, minmax(0, 1fr)); }
 .layout-properties-panel .table-frame-field-grid { margin-top: 0; }
 .layout-properties-panel .layout-number-field { display: grid; gap: 4px; color: #77736d; font-size: 10px; }
@@ -152,41 +138,6 @@
 .layout-properties-panel .table-frame-inspector .layout-apply-template:hover { background: #47443e; }
 @media (max-width: 1100px) { .layout-workspace-body { grid-template-columns: 142px minmax(0, 1fr) 270px; } .layout-workspace-header { gap: 8px; padding: 0 10px; } .layout-header-actions { gap: 2px; } }
 @media (max-width: 760px) { .layout-workspace-body { grid-template-columns: 124px minmax(0, 1fr); } .layout-workspace-body .layout-properties-panel.table-frame-panel { display: none; } .layout-save-status { display: none; } .layout-workspace-header strong { max-width: 140px; } }
-@font-face { font-family: "PhotoFlex Ancizar Serif"; src: url("../assets/fonts/AncizarSerif/AncizarSerif.ttf") format("truetype"); font-style: normal; font-weight: 100 900; font-display: block; }
-@font-face { font-family: "PhotoFlex Architects Daughter"; src: url("../assets/fonts/Architects_Daughter/ArchitectsDaughter-Regular.ttf") format("truetype"); font-style: normal; font-weight: 400; font-display: block; }
-@font-face { font-family: "PhotoFlex Courier Prime"; src: url("../assets/fonts/Courier_Prime/CourierPrime-Regular.ttf") format("truetype"); font-style: normal; font-weight: 400; font-display: block; }
-@font-face { font-family: "PhotoFlex Courier Prime"; src: url("../assets/fonts/Courier_Prime/CourierPrime-Bold.ttf") format("truetype"); font-style: normal; font-weight: 700; font-display: block; }
-@font-face { font-family: "PhotoFlex Courier Prime"; src: url("../assets/fonts/Courier_Prime/CourierPrime-Italic.ttf") format("truetype"); font-style: italic; font-weight: 400; font-display: block; }
-@font-face { font-family: "PhotoFlex Courier Prime"; src: url("../assets/fonts/Courier_Prime/CourierPrime-BoldItalic.ttf") format("truetype"); font-style: italic; font-weight: 700; font-display: block; }
-@font-face { font-family: "PhotoFlex EB Garamond"; src: url("../assets/fonts/EB_Garamond/static/EBGaramond-Regular.ttf") format("truetype"); font-style: normal; font-weight: 400; font-display: block; }
-@font-face { font-family: "PhotoFlex EB Garamond"; src: url("../assets/fonts/EB_Garamond/static/EBGaramond-Bold.ttf") format("truetype"); font-style: normal; font-weight: 700; font-display: block; }
-@font-face { font-family: "PhotoFlex EB Garamond"; src: url("../assets/fonts/EB_Garamond/static/EBGaramond-Italic.ttf") format("truetype"); font-style: italic; font-weight: 400; font-display: block; }
-@font-face { font-family: "PhotoFlex EB Garamond"; src: url("../assets/fonts/EB_Garamond/static/EBGaramond-BoldItalic.ttf") format("truetype"); font-style: italic; font-weight: 700; font-display: block; }
-@font-face { font-family: "PhotoFlex Google Sans"; src: url("../assets/fonts/Google_Sans/static/GoogleSans-Regular.ttf") format("truetype"); font-style: normal; font-weight: 400; font-display: block; }
-@font-face { font-family: "PhotoFlex Google Sans"; src: url("../assets/fonts/Google_Sans/static/GoogleSans-Bold.ttf") format("truetype"); font-style: normal; font-weight: 700; font-display: block; }
-@font-face { font-family: "PhotoFlex Google Sans"; src: url("../assets/fonts/Google_Sans/static/GoogleSans-Italic.ttf") format("truetype"); font-style: italic; font-weight: 400; font-display: block; }
-@font-face { font-family: "PhotoFlex Google Sans"; src: url("../assets/fonts/Google_Sans/static/GoogleSans-BoldItalic.ttf") format("truetype"); font-style: italic; font-weight: 700; font-display: block; }
-@font-face { font-family: "PhotoFlex Gudea"; src: url("../assets/fonts/Gudea/Gudea-Regular.ttf") format("truetype"); font-style: normal; font-weight: 400; font-display: block; }
-@font-face { font-family: "PhotoFlex Gudea"; src: url("../assets/fonts/Gudea/Gudea-Bold.ttf") format("truetype"); font-style: normal; font-weight: 700; font-display: block; }
-@font-face { font-family: "PhotoFlex Gudea"; src: url("../assets/fonts/Gudea/Gudea-Italic.ttf") format("truetype"); font-style: italic; font-weight: 400; font-display: block; }
-@font-face { font-family: "PhotoFlex LXGW WenKai TC"; src: url("../assets/fonts/LXGWWenKaiTC/LXGWWenKaiTC-Regular.ttf") format("truetype"); font-style: normal; font-weight: 400; font-display: block; }
-@font-face { font-family: "PhotoFlex LXGW WenKai TC"; src: url("../assets/fonts/LXGWWenKaiTC/LXGWWenKaiTC-Bold.ttf") format("truetype"); font-style: normal; font-weight: 700; font-display: block; }
-@font-face { font-family: "PhotoFlex Noto Sans SC"; src: url("../assets/fonts/Noto_Sans_SC/static/NotoSansSC-Regular.ttf") format("truetype"); font-style: normal; font-weight: 400; font-display: block; }
-@font-face { font-family: "PhotoFlex Noto Sans SC"; src: url("../assets/fonts/Noto_Sans_SC/static/NotoSansSC-Bold.ttf") format("truetype"); font-style: normal; font-weight: 700; font-display: block; }
-@font-face { font-family: "PhotoFlex Noto Serif"; src: url("../assets/fonts/Noto_Serif/static/NotoSerif-Regular.ttf") format("truetype"); font-style: normal; font-weight: 400; font-display: block; }
-@font-face { font-family: "PhotoFlex Noto Serif"; src: url("../assets/fonts/Noto_Serif/static/NotoSerif-Bold.ttf") format("truetype"); font-style: normal; font-weight: 700; font-display: block; }
-@font-face { font-family: "PhotoFlex Noto Serif"; src: url("../assets/fonts/Noto_Serif/static/NotoSerif-Italic.ttf") format("truetype"); font-style: italic; font-weight: 400; font-display: block; }
-@font-face { font-family: "PhotoFlex Noto Serif"; src: url("../assets/fonts/Noto_Serif/static/NotoSerif-BoldItalic.ttf") format("truetype"); font-style: italic; font-weight: 700; font-display: block; }
-@font-face { font-family: "PhotoFlex Noto Serif SC"; src: url("../assets/fonts/Noto_Serif_SC/static/NotoSerifSC-Regular.ttf") format("truetype"); font-style: normal; font-weight: 400; font-display: block; }
-@font-face { font-family: "PhotoFlex Noto Serif SC"; src: url("../assets/fonts/Noto_Serif_SC/static/NotoSerifSC-Bold.ttf") format("truetype"); font-style: normal; font-weight: 700; font-display: block; }
-@font-face { font-family: "PhotoFlex Patrick Hand"; src: url("../assets/fonts/Patrick_Hand/PatrickHand-Regular.ttf") format("truetype"); font-style: normal; font-weight: 400; font-display: block; }
-@font-face { font-family: "PhotoFlex Roboto"; src: url("../assets/fonts/Roboto/static/Roboto-Regular.ttf") format("truetype"); font-style: normal; font-weight: 400; font-display: block; }
-@font-face { font-family: "PhotoFlex Roboto"; src: url("../assets/fonts/Roboto/static/Roboto-Bold.ttf") format("truetype"); font-style: normal; font-weight: 700; font-display: block; }
-@font-face { font-family: "PhotoFlex Roboto"; src: url("../assets/fonts/Roboto/static/Roboto-Italic.ttf") format("truetype"); font-style: italic; font-weight: 400; font-display: block; }
-@font-face { font-family: "PhotoFlex Roboto"; src: url("../assets/fonts/Roboto/static/Roboto-BoldItalic.ttf") format("truetype"); font-style: italic; font-weight: 700; font-display: block; }
-@font-face { font-family: "PhotoFlex Special Elite"; src: url("../assets/fonts/Special_Elite/SpecialElite-Regular.ttf") format("truetype"); font-style: normal; font-weight: 400; font-display: block; }
-@font-face { font-family: "PhotoFlex ZCOOL QingKe HuangYou"; src: url("../assets/fonts/ZCOOL_QingKe_HuangYou/ZCOOLQingKeHuangYou-PhotoFlex.ttf") format("truetype"); font-style: normal; font-weight: 400; font-display: block; }
-@font-face { font-family: "PhotoFlex ZCOOL XiaoWei"; src: url("../assets/fonts/ZCOOL_XiaoWei/ZCOOLXiaoWei-PhotoFlex.ttf") format("truetype"); font-style: normal; font-weight: 400; font-display: block; }
 .layout-object-text-box { white-space: normal; overflow-wrap: normal; color: #171513; cursor: grab; touch-action: none; }
 .layout-object-text-box.is-selected { outline: 1px dashed #272622; }
 .layout-text-content { width: 100%; }

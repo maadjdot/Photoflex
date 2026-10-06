@@ -4,7 +4,7 @@ import type { FrameId, FrameSlotId, FrameTemplateId, PhotoId, PhotoRef, ProjectI
 import type { AppDependencies } from "./dependencies";
 import { createInitialSequenceBundle, createSequenceEditor } from "../modules/sequence";
 import { orderPhotoIdsByTablePosition } from "../modules/worktable";
-import { defaultFrameCrop, frameTemplateRects, frameTemplateSource, FRAME_MM_TO_PT } from "../modules/worktable/frameLayout";
+import { defaultFrameCrop, framePageSize, frameTemplateRects, frameTemplateSource } from "../modules/worktable/frameLayout";
 import { sourceErrorMessage, useDialogKeyboard, worktableDisplaySize } from "./AppPrimitives";
 import { PhotoThumb } from "./PhotoThumb";
 import type { AppRoute } from "./router";
@@ -104,7 +104,7 @@ export function TablePage({ dependencies, projectId, navigate, sequenceOverlay }
   const createFrame = (templateId: FrameTemplateId, useFirst = false) => {
     const selectedPhotos = orderPhotoIdsByTablePosition(draft, actions.mutablePhotoIds);
     const template = frameTemplateSource(templateId);
-    const widthPt = 210 * FRAME_MM_TO_PT, heightPt = (templateId === "square-nine-grid" ? 210 : 297) * FRAME_MM_TO_PT;
+    const { widthPt, heightPt } = framePageSize(templateId);
     const rects = frameTemplateRects(widthPt, heightPt, template);
     if (selectedPhotos.length > rects.length && !useFirst) { setNotice(`Selected ${selectedPhotos.length} photos; ${templateId} has ${rects.length} slots. Select fewer photos or choose Use first ${rects.length}.`); return false; }
     const center = canvasRef.current?.getViewportCenter() ?? { x: 200, y: 160 };

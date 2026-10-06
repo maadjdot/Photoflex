@@ -117,7 +117,7 @@ async function renderLayoutPaperJpeg(paper: LayoutPaper, pageSpec: LayoutDocumen
     context.fillRect(0, 0, canvas.width, canvas.height);
     context.save();
     context.globalAlpha = isDarkLayoutPaper(paper) ? material.darkOpacity : material.lightOpacity;
-    context.globalCompositeOperation = isDarkLayoutPaper(paper) ? "soft-light" : "multiply";
+    context.globalCompositeOperation = "soft-light";
     context.imageSmoothingEnabled = true;
     context.imageSmoothingQuality = "high";
     if (material.repeat === "repeat") {
@@ -126,7 +126,7 @@ async function renderLayoutPaperJpeg(paper: LayoutPaper, pageSpec: LayoutDocumen
       tile.height = Math.max(1, Math.round(tile.width * bitmap.height / bitmap.width));
       const tileContext = tile.getContext("2d");
       if (!tileContext) throw new Error("This browser could not prepare the Layout paper texture.");
-      tileContext.filter = material.filter;
+      tileContext.filter = isDarkLayoutPaper(paper) ? material.filter : "none";
       tileContext.drawImage(bitmap, 0, 0, tile.width, tile.height);
       const pattern = context.createPattern(tile, "repeat");
       if (!pattern) throw new Error("This browser could not prepare the Layout paper pattern.");
@@ -136,7 +136,7 @@ async function renderLayoutPaperJpeg(paper: LayoutPaper, pageSpec: LayoutDocumen
     } else {
       const scale = Math.max(canvas.width / bitmap.width, canvas.height / bitmap.height);
       const width = bitmap.width * scale, height = bitmap.height * scale;
-      context.filter = material.filter;
+      context.filter = isDarkLayoutPaper(paper) ? material.filter : "none";
       context.drawImage(bitmap, (canvas.width - width) / 2, (canvas.height - height) / 2, width, height);
     }
     context.restore();
