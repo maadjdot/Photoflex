@@ -19,6 +19,7 @@ import {
 } from "../../contracts";
 import { orderWorktableIdsByTablePosition } from "./spatialOrder";
 import { applyFrameCommand, copyFrame } from "./frameCommands";
+import { copyConnector, pruneConnectors, validConnectorEndpoint } from "./connectors";
 
 // A deliberately generous working size keeps every card legible before the
 // photographer starts arranging it. New placements retain source proportions.
@@ -93,7 +94,7 @@ class Editor implements WorktableEditor {
     if (!result.ok) return result;
     if (result.value === this.current) return ok(this.snapshot());
     this.undoStack.push(this.current);
-    this.current = result.value;
+    this.current = pruneConnectors(result.value);
     this.redoStack.length = 0;
     return ok(this.snapshot());
   }
@@ -127,6 +128,16 @@ function applyCommand(
   draft: WorktableDraft,
   command: WorktableEditCommand,
 ): Result<WorktableDraft, WorktableCommandError> {
+  if (command.type === "create-connector") {
+    const connector = command.connector;
+    if (!connector.id || draft.connectors?.some((line) => line.id === connector.id)
+      || !validConnectorEndpoint(draft, connector.start) || !validConnectorEndpoint(draft, connector.end)) return err({ kind: "invalid-relation" });
+    return ok({ ...draft, connectors: [...(draft.connectors ?? []), copyConnector(connector)] });
+  }
+  if (command.type === "remove-connector") {
+    if (!draft.connectors?.some((line) => line.id === command.connectorId)) return err({ kind: "invalid-relation" });
+    return ok({ ...draft, connectors: draft.connectors.filter((line) => line.id !== command.connectorId) });
+  }
   if (command.type === "create-frame" || "frameId" in command) return applyFrameCommand(draft, command);
   if (command.type === "create-memo" || command.type === "update-memo" || command.type === "remove-memo") return editMemo(draft, command);
   if (command.type === "place") return place(draft, command);
@@ -838,6 +849,7 @@ function copyDraft(draft: WorktableDraft): WorktableDraft {
     placements,
     groups: draft.groups.map((group) => ({ ...group, photoIds: [...group.photoIds] })),
     links: draft.links.map((link) => ({ ...link, photoIds: [...link.photoIds] })),
+    ...(draft.connectors ? { connectors: draft.connectors.map(copyConnector) } : {}),
     pileOrder: [...draft.pileOrder],
     pilePlacements,
   };

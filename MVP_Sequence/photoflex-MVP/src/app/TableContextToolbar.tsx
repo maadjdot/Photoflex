@@ -22,6 +22,8 @@ import type { TableActionState } from "./tableActionPolicy";
 import { useLocale } from "./locale";
 
 interface TableFloatingToolbarProps {
+  readonly connectorToolActive?: boolean;
+  readonly onToggleConnectorTool?: () => void;
   readonly storageKey?: string;
   readonly onAddMemo?: () => void;
   readonly onCreateFrame?: (template: FrameTemplateId, useFirst?: boolean) => boolean;
@@ -35,7 +37,7 @@ interface TableFloatingToolbarProps {
   readonly onExecute: (command: WorktableEditCommand) => void;
 }
 
-export function TableFloatingToolbar({ storageKey = "photoflex:table-toolbar", actions, canUndo, canRedo, onUndo, onRedo, onExecute, onAddMemo, onCreateFrame, selectedPhotoCount = 0, selectedMemo }: TableFloatingToolbarProps) {
+export function TableFloatingToolbar({ connectorToolActive, onToggleConnectorTool, storageKey = "photoflex:table-toolbar", actions, canUndo, canRedo, onUndo, onRedo, onExecute, onAddMemo, onCreateFrame, selectedPhotoCount = 0, selectedMemo }: TableFloatingToolbarProps) {
   const { t } = useLocale();
   const toolbarRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<{ pointerId: number; offsetY: number } | undefined>(undefined);
@@ -111,6 +113,7 @@ export function TableFloatingToolbar({ storageKey = "photoflex:table-toolbar", a
     <button type="button" className="table-floating-drag-handle" aria-label="Move toolbar vertically" title="Drag to move toolbar" onPointerDown={onDragStart} onPointerMove={onDragMove} onPointerUp={onDragEnd} onPointerCancel={onDragEnd} onKeyDown={onDragKeyDown}><span aria-hidden="true" /></button>
     <button type="button" className="table-toolbar-hide" aria-label={t("table.hideTools")} title={t("table.hideTools")} onClick={() => { setFrameOpen(false); setVisible(false); }}>‹</button>
     {onAddMemo && <TableToolButton icon={memoIcon} label={t("table.addMemo")} text={t("table.memo")} shortcut="M" title={t("table.memoHint")} onClick={onAddMemo} />}
+    {onToggleConnectorTool && <TableToolButton icon={linkIcon} label={t("table.drawLine")} text={t("table.link")} shortcut="L" aria-pressed={connectorToolActive} className={connectorToolActive ? "is-active" : ""} onClick={onToggleConnectorTool} />}
     {onCreateFrame && <><button ref={frameButtonRef} type="button" className={`table-tool-button table-frame-tool${frameOpen ? " is-active" : ""}`} aria-label="Frame templates" title={t("table.frameHint")} aria-expanded={frameOpen} onClick={toggleFrame}><span aria-hidden="true" className="table-frame-tool-glyph">▣</span><span>{t("table.frame")}</span></button>{frameOpen && <div className={`table-frame-popover${frameAbove ? " is-above" : ""}`} role="dialog" aria-label="Frame templates"><header>Frame templates <small>{FRAME_TEMPLATES.length} layouts</small></header><div>{FRAME_TEMPLATES.map((id) => { const capacity = id === "square-nine-grid" ? 9 : id === "quad-grid" ? 4 : id === "triptych" ? 3 : id === "diptych" ? 2 : 1; const overflow = selectedPhotoCount > capacity; return <div className="table-frame-template-choice" key={id}><button type="button" onClick={() => { if (onCreateFrame(id)) setFrameOpen(false); }}><span className={`table-frame-mini mini-${id}`} aria-hidden="true" /><strong>{FRAME_TEMPLATE_LABELS[id]}</strong><small>{capacity} slots</small></button>{overflow && <button type="button" className="table-frame-use-first" onClick={() => { if (onCreateFrame(id, true)) setFrameOpen(false); }}>Use first {capacity} of {selectedPhotoCount}</button>}</div>; })}</div></div>}</>}
     {selectedMemo && <div className="memo-toolbar-controls"><label>Size<input type="number" aria-label="Memo font size" min={10} max={72} value={selectedMemo.fontSize} onChange={(event) => { const size = Number(event.target.value); if (size >= 10 && size <= 72) onExecute({ type: "update-memo", memoId: selectedMemo.id, changes: { fontSize: size } }); }} /></label><TableToolButton icon={linkIcon} label="Link memo to selected photos" text="Link" disabled={!actions.mutablePhotoIds.length} onClick={() => onExecute({ type: "update-memo", memoId: selectedMemo.id, changes: { photoIds: [...new Set([...selectedMemo.photoIds, ...actions.mutablePhotoIds])] } })} />{selectedMemo.photoIds.length > 0 && <button type="button" className="memo-unlink" onClick={() => onExecute({ type: "update-memo", memoId: selectedMemo.id, changes: { photoIds: [] } })}>Unlink</button>}</div>}
     <TableArrangementTools actions={actions} onExecute={onExecute} />
@@ -171,6 +174,7 @@ function readToolbarVisible(storageKey: string): boolean {
 }
 
 export interface TableContextToolbarProps {
+  readonly selectedConnectorId?: string;
   readonly draft: WorktableDraft;
   readonly actions: TableActionState;
   readonly onExecute: (command: WorktableEditCommand) => void;
@@ -182,7 +186,7 @@ export interface TableContextToolbarProps {
 }
 
 /** Both command surfaces emit the same intents as before; the canvas owns selection. */
-export function TableContextToolbar({ draft, actions, onExecute, onRequestSequence, onPreview, onComparePhotos, onCompareSequences, onRemovePiles }: TableContextToolbarProps) {
+export function TableContextToolbar({ selectedConnectorId, draft, actions, onExecute, onRequestSequence, onPreview, onComparePhotos, onCompareSequences, onRemovePiles }: TableContextToolbarProps) {
   const { t } = useLocale();
   const { photoIds, mutablePhotoIds, pileIds, memberGroup, selectedLink } = actions;
   const sourcePhotoIds = mutablePhotoIds.map((id) => draft.placements[id].photoId);
@@ -190,6 +194,9 @@ export function TableContextToolbar({ draft, actions, onExecute, onRequestSequen
     if (actions.compareKind === "sequences") onCompareSequences([pileIds[0], pileIds[1]]);
     if (actions.compareKind === "photos") onComparePhotos([sourcePhotoIds[0], sourcePhotoIds[1]]);
   };
+  if (selectedConnectorId) return <div className="table-context-toolbar-position"><div className="table-context-toolbar" role="group" aria-label={t("table.selectionActions")}>
+    <TableToolButton icon={removeIcon} label={t("table.unlink")} shortcut="Delete" onClick={() => onExecute({ type: "remove-connector", connectorId: selectedConnectorId })} />
+  </div></div>;
   if (!photoIds.length && !pileIds.length) return null;
   if (actions.hasLockedPhoto && !mutablePhotoIds.length) return <div className="table-context-toolbar-position"><div className="table-context-toolbar" role="group" aria-label={t("table.selectionActions")}>
     <TableToolButton icon={lockIcon} label={t("table.unlock")} shortcut="K" onClick={() => onExecute({ type: "set-locked", photoIds: actions.lockedPhotoIds, locked: false })} />
@@ -199,7 +206,7 @@ export function TableContextToolbar({ draft, actions, onExecute, onRequestSequen
     <span className="table-selection-summary">{pileIds.length ? t("common.sequenceCount", { count: pileIds.length }) : t("common.photoCount", { count: photoIds.length })}</span>
     {mutablePhotoIds.length > 0 && <>
       {actions.canPreview && <TableToolButton icon={previewIcon} label={t("table.preview")} shortcut="P / Space" onClick={() => onPreview(sourcePhotoIds[0])} />}
-      <TableToolButton icon={linkIcon} label={selectedLink ? t("table.unlink") : t("table.link")} shortcut="L" disabled={!selectedLink && !actions.canCreateLink} onClick={() => selectedLink ? onExecute({ type: "remove-link", linkId: selectedLink.id }) : onExecute({ type: "create-link", photoIds: mutablePhotoIds })} />
+      {selectedLink && <TableToolButton icon={linkIcon} label={t("table.unlink")} shortcut="Shift+L" onClick={() => onExecute({ type: "remove-link", linkId: selectedLink.id })} />}
       <TableToolButton icon={lockIcon} label={t("table.lock")} shortcut="K" onClick={() => onExecute({ type: "set-locked", photoIds: mutablePhotoIds, locked: true })} />
     </>}
     {actions.lockedPhotoIds.length > 0 && <TableToolButton icon={lockIcon} label={t("table.unlock")} shortcut="Shift+K" onClick={() => onExecute({ type: "set-locked", photoIds: actions.lockedPhotoIds, locked: false })} />}

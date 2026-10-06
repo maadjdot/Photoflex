@@ -1,27 +1,32 @@
-import { useRef, useState, type PointerEvent } from "react";
+import { useEffect, useRef, useState, type PointerEvent } from "react";
 import type { WorktableDraft, WorktableEditCommand, WorktableMemo } from "../contracts";
 import { useLocale } from "./locale";
 
-export function TableMemos({ draft, zoom, selectedId, onSelect, onExecute, disabled }: {
+type MemoGeometry = Pick<WorktableMemo, "x" | "y" | "width" | "height">;
+
+export function TableMemos({ draft, zoom, selectedId, onSelect, onExecute, disabled, onGeometryPreview }: {
   readonly draft: WorktableDraft;
   readonly zoom: number;
   readonly selectedId?: string;
   readonly onSelect: (id: string) => void;
   readonly onExecute: (command: WorktableEditCommand) => void;
   readonly disabled: boolean;
+  readonly onGeometryPreview?: (id: string, rect?: MemoGeometry) => void;
 }) {
   const graphicZ = Math.max(-1, ...Object.values(draft.placements).map((item) => item.z), ...Object.values(draft.pilePlacements).map((item) => item.z));
-  return <>{(draft.memos ?? []).map((memo, index) => <MemoCard key={memo.id} memo={memo} z={memo.z ?? graphicZ + index + 1} draft={draft} zoom={zoom} selected={memo.id === selectedId} onSelect={() => onSelect(memo.id)} onExecute={onExecute} disabled={disabled} />)}</>;
+  return <>{(draft.memos ?? []).map((memo, index) => <MemoCard key={memo.id} memo={memo} z={memo.z ?? graphicZ + index + 1} draft={draft} zoom={zoom} selected={memo.id === selectedId} onSelect={() => onSelect(memo.id)} onExecute={onExecute} disabled={disabled} onGeometryPreview={onGeometryPreview} />)}</>;
 }
 
-function MemoCard({ memo, z, draft, zoom, selected, onSelect, onExecute, disabled }: {
+function MemoCard({ memo, z, draft, zoom, selected, onSelect, onExecute, disabled, onGeometryPreview }: {
   memo: WorktableMemo; z: number; draft: WorktableDraft; zoom: number; selected: boolean; onSelect: () => void;
   onExecute: (command: WorktableEditCommand) => void; disabled: boolean;
+  onGeometryPreview?: (id: string, rect?: MemoGeometry) => void;
 }) {
   const { t } = useLocale();
   const [preview, setPreview] = useState<WorktableMemo>();
   const gesture = useRef<{ pointerId: number; x: number; y: number; start: WorktableMemo; kind: "move" | "resize" } | undefined>(undefined);
   const shown = preview ?? memo;
+  useEffect(() => () => onGeometryPreview?.(memo.id), [memo.id, onGeometryPreview]);
   const start = (event: PointerEvent<HTMLButtonElement>, kind: "move" | "resize") => {
     if (disabled || event.button !== 0) return;
     event.preventDefault();
@@ -33,13 +38,16 @@ function MemoCard({ memo, z, draft, zoom, selected, onSelect, onExecute, disable
     const g = gesture.current;
     if (!g || g.pointerId !== event.pointerId) return;
     const dx = (event.clientX - g.x) / zoom, dy = (event.clientY - g.y) / zoom;
-    setPreview(g.kind === "move" ? { ...g.start, x: g.start.x + dx, y: g.start.y + dy } : { ...g.start, width: Math.max(120, g.start.width + dx), height: Math.max(80, g.start.height + dy) });
+    const next = g.kind === "move" ? { ...g.start, x: g.start.x + dx, y: g.start.y + dy } : { ...g.start, width: Math.max(120, g.start.width + dx), height: Math.max(80, g.start.height + dy) };
+    setPreview(next);
+    onGeometryPreview?.(memo.id, next);
   };
   const finish = (event: PointerEvent<HTMLButtonElement>, cancel = false) => {
     if (!gesture.current || gesture.current.pointerId !== event.pointerId) return;
     if (!cancel && preview) onExecute({ type: "update-memo", memoId: memo.id, changes: { x: preview.x, y: preview.y, width: preview.width, height: preview.height } });
     gesture.current = undefined;
     setPreview(undefined);
+    onGeometryPreview?.(memo.id);
   };
   const handleKeys = (event: React.KeyboardEvent<HTMLButtonElement>, kind: "move" | "resize") => {
     const direction = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }[event.key];

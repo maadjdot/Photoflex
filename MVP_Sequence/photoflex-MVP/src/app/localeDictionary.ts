@@ -2,6 +2,7 @@ export type Locale = "en" | "zh-CN";
 export type TranslationVariables = Readonly<Record<string, string | number>>;
 
 const en: Record<string, string> = {
+  "table.drawLine": "Draw line", "table.lineHint": "Drag to draw · Snap to photos, memos or frames · Esc to exit",
   "table.hideTools": "Hide left toolbar", "table.showTools": "Show left toolbar", "table.gridSettings": "Grid layout", "table.gridColumns": "{count} per row", "table.photosPerRow": "Photos per row", "table.applyGrid": "Apply",
   "language.label": "Language", "language.english": "English", "language.chinese": "中文",
   "app.backHome": "Back to Home", "nav.main": "Main navigation", "nav.home": "Home", "nav.project": "Project", "nav.projectSettings": "Project settings", "nav.contactSheet": "Contact Sheet", "nav.table": "Table", "nav.sequence": "Sequence", "nav.login": "Login", "nav.backToTable": "Back to Table", "nav.openLastSequence": "Open the last Sequence",
@@ -24,6 +25,7 @@ const en: Record<string, string> = {
 };
 
 const zhCN: Record<string, string> = {
+  "table.drawLine": "绘制连线", "table.lineHint": "按住拖动绘制 · 靠近照片、便笺或 Frame 自动连接 · Esc 退出",
   "table.hideTools": "隐藏左侧工具栏", "table.showTools": "显示左侧工具栏", "table.gridSettings": "网格排列", "table.gridColumns": "每行 {count} 张", "table.photosPerRow": "每行照片数", "table.applyGrid": "应用",
   "language.label": "语言", "language.english": "English", "language.chinese": "中文",
   "app.backHome": "返回首页", "nav.main": "主导航", "nav.home": "首页", "nav.project": "项目", "nav.projectSettings": "项目设置", "nav.contactSheet": "照片库", "nav.table": "桌面", "nav.sequence": "序列", "nav.login": "登录", "nav.backToTable": "返回桌面", "nav.openLastSequence": "打开最近使用的序列",

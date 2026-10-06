@@ -24,6 +24,7 @@ import type {
   SourceError,
   WorktableDraft,
   WorktableEditCommand,
+  WorktableConnectorEndpoint,
   WorktableItemId,
   WorktablePoint,
   WorktableViewport,
@@ -42,6 +43,8 @@ import type { AppDependencies } from "./dependencies";
 import { PhotoThumb } from "./PhotoThumb";
 import { deriveTableActions } from "./tableActionPolicy";
 import { useTableGestures } from "./useTableGestures";
+import { useTableConnectors } from "./useTableConnectors";
+import { resolveConnectorEndpoint, type ConnectorTarget } from "../modules/worktable/connectors";
 import { useLocale } from "./locale";
 import { sequencePileCardWidth } from "./sequenceCardGeometry";
 import { calculateSequenceStripVirtualRange } from "../modules/sequence";
@@ -50,6 +53,7 @@ const TABLE_IMAGE_RETENTION_MS = 20_000;
 const TABLE_RETAINED_IMAGE_LIMIT = 72;
 
 export interface TableCanvasHandle {
+  focus(): void;
   getViewportCenter(): WorktablePoint;
   centerOnFrame(rect: { x: number; y: number; width: number; height: number }): void;
 }
@@ -100,6 +104,10 @@ interface TableCanvasProps {
   readonly missingPhotoIds: ReadonlySet<PhotoId>;
   readonly sourceRevision?: number;
   readonly interactionDisabled?: boolean;
+  readonly connectorToolActive?: boolean;
+  readonly onConnectorToolChange?: (active: boolean) => void;
+  readonly selectedConnectorId?: string;
+  readonly onSelectConnector?: (id: string | undefined) => void;
   readonly emptyAction?: { readonly label: string; readonly onClick: () => void };
 }
 
@@ -138,6 +146,13 @@ export const TableCanvas = forwardRef<TableCanvasHandle, TableCanvasProps>(funct
   const stageRef = useRef<HTMLDivElement>(null);
   const frameClipboard = useRef<FrameId | undefined>(undefined);
   const [selectedFrameSlot, setSelectedFrameSlot] = useState<{ frameId: FrameId; slotId: FrameSlotId }>();
+  const [connectorObjectPreview, setConnectorObjectPreview] = useState<Omit<ConnectorTarget, "z">>();
+  const memoGeometryPreview = useCallback((id: string, rect?: Pick<ConnectorTarget, "x" | "y" | "width" | "height">) => {
+    setConnectorObjectPreview((current) => rect ? { ...rect, kind: "memo", id } : current?.kind === "memo" && current.id === id ? undefined : current);
+  }, []);
+  const frameGeometryPreview = useCallback((id: FrameId, rect?: Pick<ConnectorTarget, "x" | "y" | "width" | "height">) => {
+    setConnectorObjectPreview((current) => rect ? { ...rect, kind: "frame", id } : current?.kind === "frame" && current.id === id ? undefined : current);
+  }, []);
   const viewportRef = useRef(viewport);
   const photoRetentionRef = useRef(new Map<WorktableItemId, number>());
   const photoRetentionTimerRef = useRef<number | undefined>(undefined);
@@ -188,6 +203,8 @@ export const TableCanvas = forwardRef<TableCanvasHandle, TableCanvasProps>(funct
     visiblePhotoIds,
     disabled: interactionDisabled,
   });
+  const connectors = useTableConnectors({ stageRef, draft, viewport, active: props.connectorToolActive ?? false,
+    disabled: interactionDisabled, execute, onSelect: (id) => props.onSelectConnector?.(id) });
   const trayRange = useMemo(() => calculateSequenceStripVirtualRange({
     itemCount: sequenceTray?.sequence.items.length ?? 0,
     viewportWidth: sequenceTray?.width ?? 0,
@@ -222,6 +239,7 @@ export const TableCanvas = forwardRef<TableCanvasHandle, TableCanvasProps>(funct
   }, [gestures.preview.targetSequenceId, onReadSequence]);
 
   useImperativeHandle(forwardedRef, () => ({
+    focus: () => stageRef.current?.focus(),
     getViewportCenter() {
       const stage = stageRef.current;
       if (!stage) return { x: 200, y: 160 };
@@ -336,6 +354,7 @@ export const TableCanvas = forwardRef<TableCanvasHandle, TableCanvasProps>(funct
   };
 
   const fit = () => fitItems([
+    ...(draft.connectors ?? []).flatMap((line) => [line.start, line.end].map((endpoint) => ({ ...resolveConnectorEndpoint(draft, endpoint), width: 1, height: 1 }))),
     ...draft.entryOrder.map((id) => draft.placements[id]),
     ...draft.pileOrder.map((id) => draft.pilePlacements[id]),
     ...(draft.memos ?? []),
@@ -377,6 +396,18 @@ export const TableCanvas = forwardRef<TableCanvasHandle, TableCanvasProps>(funct
     if (event.nativeEvent.isComposing || target.closest("input, textarea, select, [contenteditable='true']")) return;
     const key = event.key.toLowerCase();
     const plain = !event.ctrlKey && !event.metaKey && !event.altKey;
+    if (plain && key === "l" && !event.shiftKey && props.onConnectorToolChange) {
+      event.preventDefault(); connectors.cancel(); props.onConnectorToolChange(!props.connectorToolActive); return;
+    }
+    if (event.key === "Escape" && props.connectorToolActive) {
+      event.preventDefault(); connectors.cancel(); props.onConnectorToolChange?.(false); return;
+    }
+    if (props.selectedConnectorId && (event.key === "Delete" || event.key === "Backspace")) {
+      event.preventDefault(); session.execute({ type: "remove-connector", connectorId: props.selectedConnectorId }); props.onSelectConnector?.(undefined); return;
+    }
+    if (event.key === "Escape" && props.selectedConnectorId) {
+      event.preventDefault(); props.onSelectConnector?.(undefined); return;
+    }
     if (props.selectedFrameId) {
       const frame = draft.frames?.[props.selectedFrameId];
       const slot = selectedFrameSlot?.frameId === frame?.id ? frame?.page.slots.find((item) => item.id === selectedFrameSlot?.slotId) : undefined;
@@ -526,6 +557,7 @@ export const TableCanvas = forwardRef<TableCanvasHandle, TableCanvasProps>(funct
     }
     if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "a") {
       event.preventDefault();
+      props.onSelectConnector?.(undefined);
       session.selectAllPhotos();
     }
     if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "z") {
@@ -555,14 +587,45 @@ export const TableCanvas = forwardRef<TableCanvasHandle, TableCanvasProps>(funct
   };
 
   const preview = gestures.preview;
+  const shownEndpoint = (endpoint: WorktableConnectorEndpoint) => {
+    const point = resolveConnectorEndpoint(draft, endpoint), binding = endpoint.binding;
+    if (binding && connectorObjectPreview?.kind === binding.kind && connectorObjectPreview.id === binding.id) {
+      return { x: connectorObjectPreview.x + binding.anchor.x * connectorObjectPreview.width, y: connectorObjectPreview.y + binding.anchor.y * connectorObjectPreview.height };
+    }
+    if (binding?.kind === "photo") {
+      if (preview.kind === "photo" && selected.has(binding.id as WorktableItemId)) return { x: point.x + preview.dragDelta.x, y: point.y + preview.dragDelta.y };
+      const item = draft.placements[binding.id as WorktableItemId];
+      if (item && preview.kind === "resize" && preview.photoId === binding.id) return { x: item.x + binding.anchor.x * item.width * preview.resizeScale, y: item.y + binding.anchor.y * item.height * preview.resizeScale };
+    }
+    if (binding?.kind === "pile") {
+      if (preview.kind === "pile" && selectedPiles.has(binding.id as SequenceId)) return { x: point.x + preview.dragDelta.x, y: point.y + preview.dragDelta.y };
+      const item = draft.pilePlacements[binding.id as SequenceId];
+      if (item && preview.kind === "resize-pile" && preview.sequenceId === binding.id) return { x: item.x + binding.anchor.x * item.width * preview.pileResizeScale, y: item.y + binding.anchor.y * item.height * preview.pileResizeScale };
+    }
+    return point;
+  };
+  const connectorOverlayZ = Math.max(0, ...Object.values(draft.placements).map((item) => item.z),
+    ...Object.values(draft.pilePlacements).map((item) => item.z), ...(draft.memos ?? []).map((memo) => memo.z ?? 0),
+    ...Object.values(draft.frames ?? {}).map((frame) => frame.z)) + (draft.memos?.length ?? 0) + 2;
   const lowestPhotoZ = Math.min(...Object.values(draft.placements).map((item) => item.z));
   return (
     <div
       ref={stageRef}
-      className="worktable-stage"
+      className={`worktable-stage${props.connectorToolActive && !interactionDisabled ? " is-connecting" : ""}`}
       tabIndex={0}
-      aria-keyshortcuts="ArrowLeft ArrowRight ArrowUp ArrowDown J B K Shift+K"
+      aria-keyshortcuts="ArrowLeft ArrowRight ArrowUp ArrowDown J B K Shift+K L Escape"
       aria-label={t("table.worktable")}
+      onPointerDownCapture={(event) => {
+        if (!props.connectorToolActive && !(event.target as Element).closest("[data-worktable-connector-id], .worktable-canvas-controls")) props.onSelectConnector?.(undefined);
+        connectors.onPointerDownCapture(event);
+      }}
+      onPointerMoveCapture={connectors.onPointerMoveCapture}
+      onPointerUpCapture={connectors.onPointerUpCapture}
+      onPointerCancelCapture={connectors.onPointerCancelCapture}
+      onLostPointerCapture={connectors.onLostPointerCapture}
+      onPointerLeave={connectors.onPointerLeave}
+      onClickCapture={(event) => { if (props.connectorToolActive && !(event.target as Element).closest(".worktable-canvas-controls")) { event.preventDefault(); event.stopPropagation(); } }}
+      onDoubleClickCapture={(event) => { if (props.connectorToolActive) { event.preventDefault(); event.stopPropagation(); } }}
       onPointerDown={(event) => { if (event.target === event.currentTarget || (event.target as HTMLElement).classList.contains("worktable-world")) { props.onSelectMemo?.(undefined); props.onSelectFrame?.(undefined); setSelectedFrameSlot(undefined); } gestures.onStagePointerDown(event); }}
       onPointerMove={gestures.onStagePointerMove}
       onPointerUp={(event) => gestures.finishGesture(event)}
@@ -597,7 +660,7 @@ export const TableCanvas = forwardRef<TableCanvasHandle, TableCanvasProps>(funct
       onKeyDown={onKeyDown}
     >
       <div className="worktable-world" style={{ transform: `translate3d(${viewport.originX}px,${viewport.originY}px,0) scale(${viewport.zoom})` }}>
-        <TableMemos draft={draft} zoom={viewport.zoom} selectedId={props.selectedMemoId} onSelect={(id) => props.onSelectMemo?.(id)} onExecute={session.execute} disabled={interactionDisabled} />
+        <TableMemos draft={draft} zoom={viewport.zoom} selectedId={props.selectedMemoId} onSelect={(id) => props.onSelectMemo?.(id)} onExecute={session.execute} disabled={interactionDisabled} onGeometryPreview={memoGeometryPreview} />
         <TableAlignmentGuides guides={preview.alignmentGuides} />
         <svg className="worktable-links">
           {draft.links.flatMap((link) => link.photoIds.slice(1).map((id, index) => {
@@ -605,6 +668,17 @@ export const TableCanvas = forwardRef<TableCanvasHandle, TableCanvasProps>(funct
             const right = draft.placements[id];
             return <line key={`${link.id}-${id}`} x1={left.x + left.width / 2} y1={left.y + left.height / 2} x2={right.x + right.width / 2} y2={right.y + right.height / 2} />;
           }))}
+          {(draft.connectors ?? []).map((line) => {
+            const start = shownEndpoint(line.start), end = shownEndpoint(line.end);
+            const coordinates = { x1: start.x, y1: start.y, x2: end.x, y2: end.y };
+            return <g key={line.id} data-worktable-connector-id={line.id} className={props.selectedConnectorId === line.id ? "is-selected" : undefined}>
+              <path className="worktable-connector-hit" d={`M ${start.x} ${start.y} L ${end.x} ${end.y}`} onPointerDown={(event) => {
+                if (interactionDisabled || props.connectorToolActive || event.button !== 0) return;
+                event.preventDefault(); event.stopPropagation(); stageRef.current?.focus(); props.onSelectConnector?.(line.id);
+              }} />
+              <line {...coordinates} />
+            </g>;
+          })}
         </svg>
         {draft.groups.map((group) => {
           const box = groupBounds(draft, group.photoIds);
@@ -617,7 +691,7 @@ export const TableCanvas = forwardRef<TableCanvasHandle, TableCanvasProps>(funct
         }).map((id) => <TableFrameCard key={id} frame={draft.frames![id]} layerZ={draft.frames![id].frontOfPhotos ? draft.frames![id].z : Math.min(draft.frames![id].z, lowestPhotoZ - 1)} selected={props.selectedFrameId === id} settingsHost={props.frameSettingsHost} selectedSlotId={selectedFrameSlot?.frameId === id ? selectedFrameSlot.slotId : undefined}
           onSelectSlot={(slotId) => { setSelectedFrameSlot(slotId ? { frameId: id, slotId } : undefined); if (slotId) stageRef.current?.focus(); }} viewportZoom={viewport.zoom} photoSource={photoSource}
           sourceRevision={sourceRevision} missingPhotoIds={missingPhotoIds} onPhotoError={onPhotoError} onSelect={(frameId) => { if (frameId !== props.selectedFrameId) setSelectedFrameSlot(undefined); props.onSelectFrame?.(frameId); }} onClose={() => { setSelectedFrameSlot(undefined); props.onSelectFrame?.(undefined); }}
-          onExecute={(command) => { execute(command); if (command.type === "remove-frame") props.onSelectFrame?.(undefined); }} dropTarget={preview.targetFrameId === id} />)}
+          onExecute={(command) => { execute(command); if (command.type === "remove-frame") props.onSelectFrame?.(undefined); }} dropTarget={preview.targetFrameId === id} onGeometryPreview={frameGeometryPreview} />)}
         {draft.entryOrder.filter((id) => renderedPhotoIds.has(id)).map((id) => {
           const item = draft.placements[id];
           const chosen = selected.has(id);
@@ -678,6 +752,14 @@ export const TableCanvas = forwardRef<TableCanvasHandle, TableCanvasProps>(funct
           );
         })}
       </div>
+      {props.connectorToolActive && <svg className="worktable-connector-preview" aria-hidden="true" style={{ zIndex: connectorOverlayZ, transform: `translate3d(${viewport.originX}px,${viewport.originY}px,0) scale(${viewport.zoom})` }}>
+        {[connectors.startTarget, connectors.hoverTarget].map((target, index) => target && <rect key={index} className="worktable-connector-target" x={target.x} y={target.y} width={target.width} height={target.height} rx={4 / viewport.zoom} />)}
+        {connectors.preview && <>
+          <line x1={connectors.preview.start.x} y1={connectors.preview.start.y} x2={connectors.preview.end.x} y2={connectors.preview.end.y} />
+          {[connectors.preview.start, connectors.preview.end].map((point, index) => <circle key={index} cx={point.x} cy={point.y} r={3 / viewport.zoom} />)}
+        </>}
+      </svg>}
+      {props.connectorToolActive && <p className="worktable-connector-hint" role="status">{t("table.lineHint")}</p>}
       {preview.marquee && <div className="worktable-marquee" style={preview.marquee} />}
       {sequenceTray && preview.targetSequenceId === sequenceTray.sequence.id && <div
         className="sequence-insert-tray"
@@ -699,7 +781,7 @@ export const TableCanvas = forwardRef<TableCanvasHandle, TableCanvasProps>(funct
           {preview.insertIndex !== undefined && <span className="sequence-insert-marker" style={{ left: 8 + preview.insertIndex * trayRange.itemStride }} />}
         </div>
       </div>}
-      {!draft.entryOrder.length && !draft.pileOrder.length && !draft.memos?.length && !draft.frameOrder?.length && (
+      {!props.connectorToolActive && !draft.connectors?.length && !draft.entryOrder.length && !draft.pileOrder.length && !draft.memos?.length && !draft.frameOrder?.length && (
         <section className="worktable-empty">
           <span>{t("table.emptyLabel")}</span>
           <h1>{t("table.empty")}</h1>

@@ -1,3 +1,4 @@
+import { validConnectorEndpoint } from "../modules/worktable/connectors";
 import {
   BACKUP_FORMAT,
   BACKUP_SCHEMA_VERSION,
@@ -179,6 +180,10 @@ export function isWorkspace(value: unknown): value is ProjectWorkspace {
     }
     if (!Array.isArray(table.groups) || !table.groups.every((group) => isRelation(group, 2))) return false;
     if (!Array.isArray(table.links) || !table.links.every((link) => isRelation(link, 2, 6))) return false;
+    if (table.connectors !== undefined && (!Array.isArray(table.connectors)
+      || new Set(table.connectors.map((line) => line?.id)).size !== table.connectors.length
+      || !table.connectors.every((line) => line && typeof line.id === "string" && line.id.length > 0
+        && validConnectorEndpoint(table, line.start) && validConnectorEndpoint(table, line.end)))) return false;
     if (!Array.isArray(table.pileOrder) || new Set(table.pileOrder).size !== table.pileOrder.length) return false;
     if (!table.pilePlacements || typeof table.pilePlacements !== "object") return false;
     if (!table.pileOrder.every((sequenceId) => {

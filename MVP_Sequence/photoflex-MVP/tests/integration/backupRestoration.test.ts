@@ -27,7 +27,15 @@ for (const [name, factory] of [["memory", () => new MemoryProjectStore()], ["Ind
       page: { widthPt, heightPt, templateSource: template, slots: [{ id: "original-slot" as FrameSlotId, rect: frameTemplateRects(widthPt, heightPt, template)[0], photoId, crop: defaultFrameCrop("single") }] } } });
     expect(created.ok).toBe(true);
     if (!created.ok) return;
-    expect((await source.saveWorktable(imported.value, created.value, loaded.value.revision)).ok).toBe(true);
+    const draft = editor.snapshot();
+    const bindings = [
+      { kind: "photo" as const, id: draft.entryOrder[0] }, { kind: "memo" as const, id: draft.memos![0].id },
+      { kind: "frame" as const, id: "original-frame" }, { kind: "pile" as const, id: draft.pileOrder[0] },
+    ];
+    for (const [index, binding] of bindings.entries()) {
+      expect(editor.execute({ type: "create-connector", connector: { id: `connector-${index}`, start: { x: 0, y: 0, binding: { ...binding, anchor: { x: 1, y: .5 } } }, end: { x: -100, y: -100 } } }).ok).toBe(true);
+    }
+    expect((await source.saveWorktable(imported.value, editor.snapshot(), loaded.value.revision)).ok).toBe(true);
     const exported = await source.exportBackup(imported.value);
     expect(exported.ok).toBe(true);
     if (!exported.ok) return;
@@ -45,6 +53,11 @@ for (const [name, factory] of [["memory", () => new MemoryProjectStore()], ["Ind
     expect(slot?.id).not.toBe("original-slot");
     expect(slot?.photoId).not.toBe(photoId);
     expect(slot?.photoId).toBe(restored.value.worktableDraft.placements[restored.value.worktableDraft.entryOrder[0]].photoId as PhotoId);
+    const restoredDraft = restored.value.worktableDraft;
+    expect(restoredDraft.connectors?.map((line) => line.start.binding?.id)).toEqual([
+      restoredDraft.entryOrder[0], restoredDraft.memos![0].id, nextFrameId, restoredDraft.pileOrder[0],
+    ]);
+    expect(restoredDraft.connectors?.map((line) => line.end)).toEqual(Array.from({ length: 4 }, () => ({ x: -100, y: -100 })));
   });
 
   it("round-trips the project, versions and photo manifest into a fresh store without ID collisions", async () => {

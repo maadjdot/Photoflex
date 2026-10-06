@@ -548,14 +548,13 @@ describe("TablePage", () => {
     fireEvent.click(screen.getByRole("button", { name: "Undo" }));
     expect([cardA.style.transform, cardB.style.transform]).toEqual(beforeShuffle);
     expect(toolbar.queryByRole("button", { name: "Clear" })).toBeNull();
-    fireEvent.click(toolbar.getByRole("button", { name: "Link" }));
-    expect(toolbar.getByRole("button", { name: "Unlink" })).toBeTruthy();
-    expect(stage.querySelectorAll(".worktable-links line")).toHaveLength(1);
-    fireEvent.click(screen.getByRole("button", { name: "Undo" }));
-    expect(stage.querySelectorAll(".worktable-links line")).toHaveLength(0);
-    fireEvent.click(screen.getByRole("button", { name: "Redo" }));
-    expect(stage.querySelectorAll(".worktable-links line")).toHaveLength(1);
-    fireEvent.click(toolbar.getByRole("button", { name: "Unlink" }));
+    expect(toolbar.queryByRole("button", { name: "Link" })).toBeNull();
+    const lineTool = screen.getByRole("button", { name: "Draw line" });
+    fireEvent.click(lineTool);
+    expect(lineTool.getAttribute("aria-pressed")).toBe("true");
+    expect(stage.classList.contains("is-connecting")).toBe(true);
+    fireEvent.keyDown(stage, { key: "Escape" });
+    expect(stage.classList.contains("is-connecting")).toBe(false);
     expect(stage.querySelectorAll(".worktable-links line")).toHaveLength(0);
     const arrangement = within(screen.getByRole("group", { name: "Table arrangement tools" }));
     fireEvent.click(arrangement.getByRole("button", { name: "Group selection" }));
@@ -597,11 +596,17 @@ describe("TablePage", () => {
   });
 
   it("单选组内照片即可解除分组和链接，并可撤销", async () => {
-    render(<App dependencies={await createFixture()} />);
+    const dependencies = await createFixture();
+    const loaded = await dependencies.projectStore.loadWorkspace(projectId);
+    if (!loaded.ok) throw Error("Fixture missing");
+    const editor = createWorktableEditor(loaded.value.worktableDraft);
+    const linked = editor.execute({ type: "create-link", photoIds: [photoA, photoB] });
+    if (!linked.ok) throw Error("Legacy link fixture failed");
+    await dependencies.projectStore.saveWorktable(projectId, linked.value, loaded.value.revision);
+    render(<App dependencies={dependencies} />);
     const stage = await screen.findByLabelText("Photo worktable");
     fireEvent.keyDown(stage, { key: "a", ctrlKey: true });
     fireEvent.keyDown(stage, { key: "g" });
-    fireEvent.keyDown(stage, { key: "l" });
     fireEvent.keyDown(stage, { key: "Escape" });
     fireEvent.pointerDown(screen.getByLabelText("A.jpg"), { pointerId: 31, button: 0, clientX: 100, clientY: 100 });
     fireEvent.pointerUp(stage, { pointerId: 31, clientX: 100, clientY: 100 });

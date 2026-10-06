@@ -1,6 +1,6 @@
 import { BACKUP_FORMAT, BACKUP_SCHEMA_VERSION, err, ok, type BackupError, type LayoutDocument, type LayoutId, type LayoutObject, type LayoutObjectId, type LayoutPage, type LayoutPageId, type LayoutRevision, type PhotoId, type PhotoRef, type ProjectBackupV1, type ProjectId, type Result, type SequenceId, type SourceId, type VersionId, type WorkspaceRevision, type SequenceRevision, type WorktableItemId } from "../contracts";
 import { isWorkspace, migrateWorkspaceV7ToV8, migrateWorkspaceV8ToV9, migrateWorkspaceV9ToV10, validateLayoutForProject, validateSequenceForProject, validateVersionForProject } from "./projectStoreData";
-import type { FrameId, FrameSlotId } from "../contracts";
+import type { FrameId, FrameSlotId, WorktableConnectorEndpoint } from "../contracts";
 
 /** Validate before touching storage. File imports are copies; cloud hydration retains IDs. */
 export function prepareBackupImport(bytes: Uint8Array, preserveIds = false): Result<{ backup: ProjectBackupV1; photos: PhotoRef[] }, BackupError> {
@@ -50,6 +50,14 @@ export function prepareBackupImport(bytes: Uint8Array, preserveIds = false): Res
     const frameId = remap<FrameId>(), slotId = remap<FrameSlotId>();
     const projectId = crypto.randomUUID() as ProjectId;
     const draft = normalizedProject.worktableDraft;
+    const connectorEndpoint = (endpoint: WorktableConnectorEndpoint): WorktableConnectorEndpoint => {
+      const binding = endpoint.binding;
+      if (!binding) return { ...endpoint };
+      const id = binding.kind === "photo" ? itemId(binding.id as WorktableItemId)
+        : binding.kind === "frame" ? frameId(binding.id as FrameId)
+          : binding.kind === "pile" ? sequenceId(binding.id as SequenceId) : binding.id;
+      return { ...endpoint, binding: { ...binding, id, anchor: { ...binding.anchor } } };
+    };
     const manifest = input.photoManifest.map((p) => ({ ...p, photoId: photoId(p.photoId), sourceId: sourceId(p.sourceId) }));
     const content = <T extends ProjectBackupV1["sequences"][number] | ProjectBackupV1["versions"][number]>(document: T) => ({ ...document, projectId, items: document.items.map((item) => item.kind === "photo" ? { ...item, photoId: photoId(item.photoId) } : item) });
     const backup: ProjectBackupV1 = {
@@ -69,6 +77,7 @@ export function prepareBackupImport(bytes: Uint8Array, preserveIds = false): Res
           })),
           groups: draft.groups.map((g) => ({ ...g, photoIds: g.photoIds.map(itemId) })),
           links: draft.links.map((g) => ({ ...g, photoIds: g.photoIds.map(itemId) })),
+          connectors: draft.connectors?.map((line) => ({ ...line, start: connectorEndpoint(line.start), end: connectorEndpoint(line.end) })),
           memos: draft.memos?.map((m) => ({ ...m, photoIds: m.photoIds.map(itemId) })),
           pileOrder: draft.pileOrder.map(sequenceId),
           pilePlacements: Object.fromEntries(Object.entries(draft.pilePlacements).map(([id, p]) => [sequenceId(id as SequenceId), { ...p, sequenceId: sequenceId(p.sequenceId) }])),

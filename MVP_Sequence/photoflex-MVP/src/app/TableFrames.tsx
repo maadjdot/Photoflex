@@ -21,6 +21,7 @@ interface FrameCardProps {
   readonly onClose: () => void;
   readonly onExecute: (command: FrameEditCommand) => void;
   readonly dropTarget?: boolean;
+  readonly onGeometryPreview?: (id: FrameId, rect?: FrameRect) => void;
 }
 
 type DragState = { kind: "frame" | "scale" | "slot" | "resize-slot" | "crop" | "quick-crop"; pointerId: number; startX: number; startY: number; slotId?: FrameSlotId; handle?: string; baseRect?: FrameRect; baseCrop?: FrameCrop };
@@ -60,7 +61,7 @@ function FrameImage({ photoId, slot, preview, onSize, missing }: { photoId: Phot
   }} style={image ? { position: "absolute", left: image.x, top: image.y, width: image.width, height: image.height } : { visibility: "hidden" }} />}{!image && <span className="table-frame-loading">Loading photo…</span>}</>;
 }
 
-export function TableFrameCard({ frame, layerZ, selected, settingsHost, selectedSlotId, onSelectSlot, viewportZoom, photoSource, sourceRevision, missingPhotoIds, onPhotoError, onSelect, onClose, onExecute, dropTarget }: FrameCardProps) {
+export function TableFrameCard({ frame, layerZ, selected, settingsHost, selectedSlotId, onSelectSlot, viewportZoom, photoSource, sourceRevision, missingPhotoIds, onPhotoError, onSelect, onClose, onExecute, dropTarget, onGeometryPreview }: FrameCardProps) {
   const [cropDraft, setCropDraft] = useState<FrameCrop>();
   const [preview, setPreview] = useState<{ dx: number; dy: number; scale?: number; rect?: FrameRect; guides?: readonly FrameAlignmentGuide[] }>({ dx: 0, dy: 0 });
   const [previews, setPreviews] = useState<Partial<Record<PhotoId, FramePreview>>>({});
@@ -99,6 +100,7 @@ export function TableFrameCard({ frame, layerZ, selected, settingsHost, selected
   previewRef.current = preview;
   cropDraftRef.current = cropDraft;
   const size = frameWorldSize(frame);
+  useEffect(() => () => onGeometryPreview?.(frame.id), [frame.id, onGeometryPreview]);
   const slot = frame.page.slots.find((item) => item.id === selectedSlotId);
   const selectSlot = (nextSlotId: FrameSlotId | undefined) => {
     if (nextSlotId !== selectedSlotId) {
@@ -135,8 +137,15 @@ export function TableFrameCard({ frame, layerZ, selected, settingsHost, selected
     if (!current || current.pointerId !== event.pointerId) return;
     const worldDx = (event.clientX - current.startX) / viewportZoom, worldDy = (event.clientY - current.startY) / viewportZoom;
     const pageDx = worldDx / frame.displayScale, pageDy = worldDy / frame.displayScale;
-    if (current.kind === "frame") setPreview({ dx: worldDx, dy: worldDy });
-    else if (current.kind === "scale") setPreview({ dx: 0, dy: 0, scale: clamp((size.width + worldDx) / frame.page.widthPt, .1, 4) });
+    if (current.kind === "frame") {
+      setPreview({ dx: worldDx, dy: worldDy });
+      onGeometryPreview?.(frame.id, { x: frame.x + worldDx, y: frame.y + worldDy, ...size });
+    }
+    else if (current.kind === "scale") {
+      const scale = clamp((size.width + worldDx) / frame.page.widthPt, .1, 4);
+      setPreview({ dx: 0, dy: 0, scale });
+      onGeometryPreview?.(frame.id, { x: frame.x, y: frame.y, width: frame.page.widthPt * scale, height: frame.page.heightPt * scale });
+    }
     else if (current.kind === "slot" && current.baseRect) {
       const candidate = { ...current.baseRect, x: current.baseRect.x + pageDx, y: current.baseRect.y + pageDy };
       const aligned = alignFrameRect(candidate, frame.page, frame.page.slots.filter((item) => item.id !== current.slotId).map((item) => item.rect), 8 / (viewportZoom * frame.displayScale));
@@ -174,6 +183,7 @@ export function TableFrameCard({ frame, layerZ, selected, settingsHost, selected
     }
     if (cancelled && current.kind === "crop" && current.baseCrop) { cropDraftRef.current = current.baseCrop; setCropDraft(current.baseCrop); }
     setPreview({ dx: 0, dy: 0 });
+    onGeometryPreview?.(frame.id);
   };
   const finishCrop = () => { if (slot && cropDraft) onExecute({ type: "set-frame-photo-crop", frameId: frame.id, slotId: slot.id, crop: cropDraft }); setCropDraft(undefined); };
   return <article ref={articleRef} data-frame-id={frame.id} className={`table-frame${selected ? " is-selected" : ""}${dropTarget ? " is-drop-target" : ""}`}
@@ -181,7 +191,7 @@ export function TableFrameCard({ frame, layerZ, selected, settingsHost, selected
     onPointerMove={move} onPointerUp={end} onPointerCancel={(event) => end(event, true)} onKeyDown={(event) => {
       if (event.key !== "Escape") return;
       if (cropDraft) { event.stopPropagation(); setCropDraft(undefined); }
-      else if (drag.current) { event.stopPropagation(); drag.current = undefined; setPreview({ dx: 0, dy: 0 }); }
+      else if (drag.current) { event.stopPropagation(); drag.current = undefined; setPreview({ dx: 0, dy: 0 }); onGeometryPreview?.(frame.id); }
     }} onContextMenu={(event) => event.preventDefault()}>
     {(frame.page.bleedPt ?? 0) > 0 && <div className="table-frame-bleed-guide" aria-hidden="true" style={{
       left: -(frame.page.bleedPt ?? 0) * (preview.scale ?? frame.displayScale), top: -(frame.page.bleedPt ?? 0) * (preview.scale ?? frame.displayScale),

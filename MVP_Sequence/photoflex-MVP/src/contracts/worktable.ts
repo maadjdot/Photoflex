@@ -38,6 +38,23 @@ export interface WorktableLink {
   readonly photoIds: readonly WorktableItemId[];
 }
 
+export interface WorktableConnectorBinding {
+  readonly kind: "photo" | "memo" | "frame" | "pile";
+  readonly id: string;
+  /** Relative position on the object's border, preserved through resize. */
+  readonly anchor: WorktablePoint;
+}
+
+export interface WorktableConnectorEndpoint extends WorktablePoint {
+  readonly binding?: WorktableConnectorBinding;
+}
+
+export interface WorktableConnector {
+  readonly id: string;
+  readonly start: WorktableConnectorEndpoint;
+  readonly end: WorktableConnectorEndpoint;
+}
+
 export interface WorktableSequencePilePlacement extends WorktablePoint {
   readonly sequenceId: SequenceId;
   readonly z: number;
@@ -64,6 +81,8 @@ export interface WorktableDraft {
   readonly placements: Readonly<Record<WorktableItemId, WorktablePlacement>>;
   readonly groups: readonly WorktableGroup[];
   readonly links: readonly WorktableLink[];
+  /** Optional for projects saved before free connectors were introduced. */
+  readonly connectors?: readonly WorktableConnector[];
   readonly pileOrder: readonly SequenceId[];
   readonly pilePlacements: Readonly<Record<SequenceId, WorktableSequencePilePlacement>>;
   /** Optional only while reading pre-Frame fixtures and older documents. */
@@ -98,6 +117,8 @@ export type WorktableLayout =
 
 export type WorktableEditCommand =
   | FrameEditCommand
+  | { readonly type: "create-connector"; readonly connector: WorktableConnector }
+  | { readonly type: "remove-connector"; readonly connectorId: string }
   | { readonly type: "create-memo"; readonly memo: WorktableMemo }
   | { readonly type: "update-memo"; readonly memoId: string; readonly changes: Partial<Omit<WorktableMemo, "id">> }
   | { readonly type: "remove-memo"; readonly memoId: string }
