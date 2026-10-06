@@ -4,6 +4,7 @@ import type { AppDependencies } from "./dependencies";
 import type { AppRoute } from "./router";
 import { LanguageSwitcher, useLocale } from "./locale";
 import { CloudControls } from "./CloudControls";
+import { UserGuideButton } from "./UserGuide";
 
 export function AppHeader({ dependencies, route, projectId, contactSourceId, lastSequenceId, navigate, beforeSignOut, variant = "default", projectLabel, actions, projectSettingsProjectId, showProjectSettings = true, showCloudSaveStatus = true }: {
   readonly dependencies: AppDependencies;
@@ -58,7 +59,8 @@ export function AppHeader({ dependencies, route, projectId, contactSourceId, las
       {route.name === "home" && <LanguageSwitcher />}
       {actions}
       {settingsProjectId && <NavButton onClick={() => navigate({ name: "project", projectId: settingsProjectId })}>{t("nav.projectSettings")}</NavButton>}
-      <CloudControls dependencies={dependencies} projectId={projectId} showSaveStatus={showCloudSaveStatus} beforeSignOut={beforeSignOut} />
+      {route.name !== "layout" && <UserGuideButton />}
+      <CloudControls dependencies={dependencies} projectId={projectId} showSaveStatus={showCloudSaveStatus} beforeSignOut={beforeSignOut} compact={variant === "table"} />
     </div>
   </header>;
 }

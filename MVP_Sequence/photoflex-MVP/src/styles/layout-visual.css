@@ -15,6 +15,7 @@
 .layout-header-actions { gap: 8px; }
 .layout-header-actions button { height: 28px; padding: 0 10px; border: 0; border-radius: 6px; background: #fff; color: #6b7280; font-size: 12px; white-space: nowrap; }
 .layout-header-actions .layout-export-button { background: #111827; color: #fff; }
+.layout-header-actions .user-guide-trigger { width: 28px; height: 28px; padding: 0; border-radius: 50%; background: transparent; }
 .layout-export-status { display: flex; flex: 0 0 auto; align-items: center; flex-wrap: wrap; gap: 8px 16px; padding: 7px 16px; border-bottom: 1px solid #e5e7eb; background: #fff8e9; color: #594b32; font-size: 11px; }
 .layout-export-status button { padding: 3px 9px; border: 1px solid #c7baa0; border-radius: 4px; background: #fff; }
 .layout-export-backdrop { position: fixed; inset: 0; z-index: 140; display: grid; place-items: center; padding: 24px; background: rgb(17 24 39 / 38%); }

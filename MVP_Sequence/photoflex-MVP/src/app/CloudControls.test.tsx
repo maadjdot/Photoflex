@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ok, type AccountSession, type ProjectId } from "../contracts";
 import { MemoryPhotoSource } from "../platform/memory/MemoryPhotoSource";
@@ -42,6 +42,26 @@ describe("CloudControls", () => {
     const beforeSignOut = vi.fn(async () => false);
     render(<LocaleProvider><CloudControls dependencies={{ projectStore: new MemoryProjectStore(), photoSource: new MemoryPhotoSource(), accountSession }} beforeSignOut={beforeSignOut} /></LocaleProvider>);
     (await screen.findByRole("button", { name: "Sign out" })).click();
+    await waitFor(() => expect(beforeSignOut).toHaveBeenCalledOnce());
+    expect(accountSession.signOut).not.toHaveBeenCalled();
+  });
+
+  it("keeps sign out behind the Table account icon and preserves the save barrier", async () => {
+    const accountSession: AccountSession = {
+      getCurrentUser: vi.fn(async () => ok({ id: "user-1", email: "photo@example.com" })),
+      subscribe: vi.fn(() => () => undefined), signIn: vi.fn(), signUp: vi.fn(), signOut: vi.fn(async () => ok(undefined)),
+    };
+    const beforeSignOut = vi.fn(async () => false);
+    render(<LocaleProvider><CloudControls compact dependencies={{ projectStore: new MemoryProjectStore(), photoSource: new MemoryPhotoSource(), accountSession }} beforeSignOut={beforeSignOut} /></LocaleProvider>);
+    const accountButton = await screen.findByRole("button", { name: "PhotoFlex account" });
+    expect(screen.queryByRole("button", { name: "Sign out" })).toBeNull();
+    fireEvent.click(accountButton);
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Sign out" }));
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(screen.queryByRole("button", { name: "Sign out" })).toBeNull();
+    expect(document.activeElement).toBe(accountButton);
+    fireEvent.click(accountButton);
+    fireEvent.click(screen.getByRole("button", { name: "Sign out" }));
     await waitFor(() => expect(beforeSignOut).toHaveBeenCalledOnce());
     expect(accountSession.signOut).not.toHaveBeenCalled();
   });

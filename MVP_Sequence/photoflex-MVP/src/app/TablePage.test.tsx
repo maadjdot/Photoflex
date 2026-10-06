@@ -401,14 +401,14 @@ describe("TablePage", () => {
     const cardA = screen.getByLabelText("A.jpg");
     expect(cardA).toBeTruthy();
     expect(screen.getByLabelText("B.jpg")).toBeTruthy();
-    expect(screen.queryByText("A.jpg")).toBeNull();
+    expect(within(cardA).queryByText("A.jpg")).toBeNull();
     const toolbar = within(screen.getByLabelText("Table toolbar"));
     expect(toolbar.queryByRole("button", { name: "Contact Sheet" })).toBeNull();
     expect(within(screen.getByRole("button", { name: "Back to Home" }).closest("header")!).getByText("Table Project")).toBeTruthy();
     expect(toolbar.queryByRole("button", { name: "Preview" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Hand" })).toBeNull();
     expect(screen.queryByRole("group", { name: "Table selection actions" })).toBeNull();
-    expect(screen.getByRole("group", { name: "Table arrangement tools" })).toBeTruthy();
+    expect(screen.getByRole("group", { name: "Canvas tools" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Move toolbar vertically" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: /登录/ })).toBeNull();
     expect(screen.queryByText(/Juxtapose/)).toBeNull();
@@ -431,15 +431,15 @@ describe("TablePage", () => {
     await screen.findByLabelText("Photo worktable");
 
     fireEvent.click(screen.getByRole("button", { name: "Hide left toolbar" }));
-    expect(screen.queryByRole("group", { name: "Table arrangement tools" })).toBeNull();
+    expect(screen.queryByRole("group", { name: "Canvas tools" })).toBeNull();
     expect(screen.getByRole("button", { name: "Show left toolbar" })).toBeTruthy();
     view.unmount();
 
     render(<App dependencies={dependencies} />);
     await screen.findByLabelText("Photo worktable");
-    expect(screen.queryByRole("group", { name: "Table arrangement tools" })).toBeNull();
+    expect(screen.queryByRole("group", { name: "Canvas tools" })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Show left toolbar" }));
-    expect(screen.getByRole("group", { name: "Table arrangement tools" })).toBeTruthy();
+    expect(screen.getByRole("group", { name: "Canvas tools" })).toBeTruthy();
   });
 
   it("arranges selected photos using the chosen photos-per-row count", async () => {
@@ -534,7 +534,7 @@ describe("TablePage", () => {
     fireEvent.keyDown(stage, { key: "a", ctrlKey: true });
     const toolbar = within(screen.getByRole("group", { name: "Table selection actions" }));
     expect(toolbar.getByText("2 photos")).toBeTruthy();
-    expect(within(screen.getByRole("group", { name: "Table arrangement tools" })).getByRole("button", { name: "Create Sequence" }).textContent).toContain("Sequence");
+    expect(toolbar.getByRole("button", { name: "Create Sequence" }).textContent).toContain("Sequence");
     const cardA = screen.getByLabelText("A.jpg");
     const cardB = screen.getByLabelText("B.jpg");
     const beforeShuffle = [cardA.style.transform, cardB.style.transform];
@@ -664,12 +664,21 @@ describe("TablePage", () => {
     expect(card.classList.contains("is-missing")).toBe(false);
   });
 
-  it("keeps header controls together and does not render the retired Sequence Order panel", async () => {
+  it("keeps history separate from left tools and zoom beside photo sources in the header", async () => {
     render(<App dependencies={await createPileFixture()} />);
     await screen.findByLabelText("Photo worktable");
     const header = screen.getByRole("button", { name: "Back to Home" }).closest("header")!;
-    for (const name of ["Undo", "Redo", "Zoom in", "Zoom out", "Hide Photo Sources"]) {
-      expect(within(header).getByRole("button", { name })).toBeTruthy();
+    const navigation = within(header).getByLabelText("Canvas controls");
+    for (const name of ["Zoom in", "Zoom out"]) {
+      expect(within(navigation).getByRole("button", { name })).toBeTruthy();
+    }
+    const tools = screen.getByRole("group", { name: "Canvas tools" });
+    const history = screen.getByRole("group", { name: "Undo / Redo" });
+    expect(history.parentElement).toBe(tools.parentElement);
+    for (const name of ["Undo", "Redo"]) {
+      expect(within(history).getByRole("button", { name })).toBeTruthy();
+      expect(within(tools).queryByRole("button", { name })).toBeNull();
+      expect(within(navigation).queryByRole("button", { name })).toBeNull();
     }
     expect(screen.queryByRole("button", { name: "Shortcuts" })).toBeNull();
     fireEvent.click(within(header).getByRole("button", { name: "Hide Photo Sources" }));

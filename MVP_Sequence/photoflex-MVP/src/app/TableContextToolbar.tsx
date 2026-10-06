@@ -1,5 +1,4 @@
 import memoIcon from "../assets/icons/table-memo.svg";
-import { TableHeaderControl } from "./TableHeaderControl";
 import { useEffect, useLayoutEffect, useRef, useState, type ButtonHTMLAttributes, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent } from "react";
 import addToGroupIcon from "../assets/icons/table-add-to-group.svg";
 import alignIcon from "../assets/icons/table-align.svg";
@@ -34,10 +33,9 @@ interface TableFloatingToolbarProps {
   readonly onUndo: () => void;
   readonly onRedo: () => void;
   readonly onExecute: (command: WorktableEditCommand) => void;
-  readonly onRequestSequence?: (photoIds: readonly WorktableItemId[]) => void;
 }
 
-export function TableFloatingToolbar({ storageKey = "photoflex:table-toolbar", actions, canUndo, canRedo, onUndo, onRedo, onExecute, onAddMemo, onCreateFrame, selectedPhotoCount = 0, selectedMemo, onRequestSequence }: TableFloatingToolbarProps) {
+export function TableFloatingToolbar({ storageKey = "photoflex:table-toolbar", actions, canUndo, canRedo, onUndo, onRedo, onExecute, onAddMemo, onCreateFrame, selectedPhotoCount = 0, selectedMemo }: TableFloatingToolbarProps) {
   const { t } = useLocale();
   const toolbarRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<{ pointerId: number; offsetY: number } | undefined>(undefined);
@@ -45,13 +43,7 @@ export function TableFloatingToolbar({ storageKey = "photoflex:table-toolbar", a
   const [visible, setVisible] = useState(() => readToolbarVisible(storageKey));
   const [frameOpen, setFrameOpen] = useState(false);
   const [frameAbove, setFrameAbove] = useState(false);
-  const [gridOpen, setGridOpen] = useState(false);
-  const [gridAbove, setGridAbove] = useState(false);
-  const [gridOffset, setGridOffset] = useState(0);
-  const [gridColumns, setGridColumns] = useState(2);
   const frameButtonRef = useRef<HTMLButtonElement>(null);
-  const gridButtonRef = useRef<HTMLButtonElement>(null);
-  const arrange = (layout: WorktableEditCommand) => actions.canArrange && onExecute(layout);
   const clampTop = (value: number) => {
     const toolbar = toolbarRef.current;
     const parent = toolbar?.parentElement;
@@ -60,31 +52,19 @@ export function TableFloatingToolbar({ storageKey = "photoflex:table-toolbar", a
   };
   useEffect(() => { setTop(readToolbarTop(storageKey)); setVisible(readToolbarVisible(storageKey)); }, [storageKey]);
   useEffect(() => {
-    if (!frameOpen && !gridOpen) return;
-    const closeOutside = (event: PointerEvent) => { if (!toolbarRef.current?.contains(event.target as Node)) { setFrameOpen(false); setGridOpen(false); } };
-    const closeEscape = (event: globalThis.KeyboardEvent) => { if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); setFrameOpen(false); setGridOpen(false); (frameOpen ? frameButtonRef : gridButtonRef).current?.focus(); } };
+    if (!frameOpen) return;
+    const closeOutside = (event: PointerEvent) => {
+      const target = event.target as Node;
+      if (!frameButtonRef.current?.contains(target) && !toolbarRef.current?.querySelector(".table-frame-popover")?.contains(target)) setFrameOpen(false);
+    };
+    const closeEscape = (event: globalThis.KeyboardEvent) => { if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); setFrameOpen(false); frameButtonRef.current?.focus(); } };
     document.addEventListener("pointerdown", closeOutside);
     document.addEventListener("keydown", closeEscape, true);
     return () => { document.removeEventListener("pointerdown", closeOutside); document.removeEventListener("keydown", closeEscape, true); };
-  }, [frameOpen, gridOpen]);
+  }, [frameOpen]);
   const toggleFrame = () => {
     if (!frameOpen) setFrameAbove((frameButtonRef.current?.getBoundingClientRect().bottom ?? 0) + 320 > window.innerHeight);
-    setGridOpen(false);
     setFrameOpen((open) => !open);
-  };
-  const toggleGrid = () => {
-    if (!gridOpen) {
-      setGridAbove((gridButtonRef.current?.getBoundingClientRect().bottom ?? 0) + 230 > window.innerHeight);
-      setGridOffset(gridButtonRef.current?.offsetTop ?? 0);
-      setGridColumns(Math.min(selectedPhotoCount, Math.ceil(Math.sqrt(selectedPhotoCount))));
-    }
-    setFrameOpen(false);
-    setGridOpen((open) => !open);
-  };
-  const applyGrid = (columns: number) => {
-    if (!Number.isInteger(columns) || columns < 1 || columns > selectedPhotoCount || !actions.canArrange) return;
-    arrange({ type: "arrange", photoIds: actions.mutablePhotoIds, layout: { type: "grid", columns } });
-    setGridOpen(false);
   };
   useEffect(() => {
     try { window.sessionStorage.setItem(storageKey, String(Math.round(top))); } catch { /* Position is disposable UI state. */ }
@@ -93,7 +73,6 @@ export function TableFloatingToolbar({ storageKey = "photoflex:table-toolbar", a
     try { window.sessionStorage.setItem(`${storageKey}:visible`, String(visible)); } catch { /* Visibility is disposable UI state. */ }
   }, [storageKey, visible]);
   useLayoutEffect(() => {
-    if (!visible) return;
     const parent = toolbarRef.current?.parentElement;
     if (!parent) return;
     const keepInCanvas = () => setTop((value) => clampTop(value));
@@ -128,27 +107,63 @@ export function TableFloatingToolbar({ storageKey = "photoflex:table-toolbar", a
     if (event.key === "End") { event.preventDefault(); setTop(Number.MAX_SAFE_INTEGER); }
   };
   const style = { top: `${top}px` } as CSSProperties;
-  return <><TableHeaderControl><div className="table-history-controls" role="group" aria-label={`${t("table.undo")} / ${t("table.redo")}`}><TableToolButton icon={undoIcon} label={t("table.undo")} shortcut="Ctrl/Cmd+Z" disabled={!canUndo} onClick={onUndo} /><TableToolButton icon={redoIcon} label={t("table.redo")} shortcut="Ctrl/Cmd+Shift+Z" disabled={!canRedo} onClick={onRedo} /></div></TableHeaderControl>{!visible ? <button type="button" className="table-toolbar-show" style={style} aria-label={t("table.showTools")} title={t("table.showTools")} onClick={() => setVisible(true)}>›</button> : <div ref={toolbarRef} className="table-floating-toolbar" role="group" aria-label={t("table.arrangementTools")} style={style}>
+  return <div ref={toolbarRef} className="table-tools-rail" style={style}>{!visible ? <button type="button" className="table-toolbar-show" aria-label={t("table.showTools")} title={t("table.showTools")} onClick={() => setVisible(true)}>›</button> : <div className="table-floating-toolbar" role="group" aria-label={t("table.creationTools")}>
     <button type="button" className="table-floating-drag-handle" aria-label="Move toolbar vertically" title="Drag to move toolbar" onPointerDown={onDragStart} onPointerMove={onDragMove} onPointerUp={onDragEnd} onPointerCancel={onDragEnd} onKeyDown={onDragKeyDown}><span aria-hidden="true" /></button>
-    <button type="button" className="table-toolbar-hide" aria-label={t("table.hideTools")} title={t("table.hideTools")} onClick={() => { setFrameOpen(false); setGridOpen(false); setVisible(false); }}>‹</button>
-    {onAddMemo && <TableToolButton icon={memoIcon} label={t("table.addMemo")} text={t("table.memo")} shortcut="M" onClick={onAddMemo} />}
-    {onCreateFrame && <><button ref={frameButtonRef} type="button" className={`table-tool-button table-frame-tool${frameOpen ? " is-active" : ""}`} aria-label="Frame templates" aria-expanded={frameOpen} onClick={toggleFrame}><span aria-hidden="true" className="table-frame-tool-glyph">▣</span><span>Frame</span></button>{frameOpen && <div className={`table-frame-popover${frameAbove ? " is-above" : ""}`} role="dialog" aria-label="Frame templates"><header>Frame templates <small>{FRAME_TEMPLATES.length} layouts</small></header><div>{FRAME_TEMPLATES.map((id) => { const capacity = id === "square-nine-grid" ? 9 : id === "quad-grid" ? 4 : id === "triptych" ? 3 : id === "diptych" ? 2 : 1; const overflow = selectedPhotoCount > capacity; return <div className="table-frame-template-choice" key={id}><button type="button" onClick={() => { if (onCreateFrame(id)) setFrameOpen(false); }}><span className={`table-frame-mini mini-${id}`} aria-hidden="true" /><strong>{FRAME_TEMPLATE_LABELS[id]}</strong><small>{capacity} slots</small></button>{overflow && <button type="button" className="table-frame-use-first" onClick={() => { if (onCreateFrame(id, true)) setFrameOpen(false); }}>Use first {capacity} of {selectedPhotoCount}</button>}</div>; })}</div></div>}</>}
+    <button type="button" className="table-toolbar-hide" aria-label={t("table.hideTools")} title={t("table.hideTools")} onClick={() => { setFrameOpen(false); setVisible(false); }}>‹</button>
+    {onAddMemo && <TableToolButton icon={memoIcon} label={t("table.addMemo")} text={t("table.memo")} shortcut="M" title={t("table.memoHint")} onClick={onAddMemo} />}
+    {onCreateFrame && <><button ref={frameButtonRef} type="button" className={`table-tool-button table-frame-tool${frameOpen ? " is-active" : ""}`} aria-label="Frame templates" title={t("table.frameHint")} aria-expanded={frameOpen} onClick={toggleFrame}><span aria-hidden="true" className="table-frame-tool-glyph">▣</span><span>{t("table.frame")}</span></button>{frameOpen && <div className={`table-frame-popover${frameAbove ? " is-above" : ""}`} role="dialog" aria-label="Frame templates"><header>Frame templates <small>{FRAME_TEMPLATES.length} layouts</small></header><div>{FRAME_TEMPLATES.map((id) => { const capacity = id === "square-nine-grid" ? 9 : id === "quad-grid" ? 4 : id === "triptych" ? 3 : id === "diptych" ? 2 : 1; const overflow = selectedPhotoCount > capacity; return <div className="table-frame-template-choice" key={id}><button type="button" onClick={() => { if (onCreateFrame(id)) setFrameOpen(false); }}><span className={`table-frame-mini mini-${id}`} aria-hidden="true" /><strong>{FRAME_TEMPLATE_LABELS[id]}</strong><small>{capacity} slots</small></button>{overflow && <button type="button" className="table-frame-use-first" onClick={() => { if (onCreateFrame(id, true)) setFrameOpen(false); }}>Use first {capacity} of {selectedPhotoCount}</button>}</div>; })}</div></div>}</>}
     {selectedMemo && <div className="memo-toolbar-controls"><label>Size<input type="number" aria-label="Memo font size" min={10} max={72} value={selectedMemo.fontSize} onChange={(event) => { const size = Number(event.target.value); if (size >= 10 && size <= 72) onExecute({ type: "update-memo", memoId: selectedMemo.id, changes: { fontSize: size } }); }} /></label><TableToolButton icon={linkIcon} label="Link memo to selected photos" text="Link" disabled={!actions.mutablePhotoIds.length} onClick={() => onExecute({ type: "update-memo", memoId: selectedMemo.id, changes: { photoIds: [...new Set([...selectedMemo.photoIds, ...actions.mutablePhotoIds])] } })} />{selectedMemo.photoIds.length > 0 && <button type="button" className="memo-unlink" onClick={() => onExecute({ type: "update-memo", memoId: selectedMemo.id, changes: { photoIds: [] } })}>Unlink</button>}</div>}
+    <TableArrangementTools actions={actions} onExecute={onExecute} />
+  </div>}
+    <div className="table-history-controls" role="group" aria-label={`${t("table.undo")} / ${t("table.redo")}`}>
+      <TableToolButton icon={undoIcon} label={t("table.undo")} iconOnly shortcut="Ctrl/Cmd+Z" disabled={!canUndo} onClick={onUndo} />
+      <TableToolButton icon={redoIcon} label={t("table.redo")} iconOnly shortcut="Ctrl/Cmd+Shift+Z" disabled={!canRedo} onClick={onRedo} />
+    </div>
+  </div>;
+}
+
+function TableArrangementTools({ actions, onExecute }: { readonly actions: TableActionState; readonly onExecute: (command: WorktableEditCommand) => void }) {
+  const { t } = useLocale();
+  const [gridOpen, setGridOpen] = useState(false);
+  const [gridColumns, setGridColumns] = useState(2);
+  const gridButtonRef = useRef<HTMLButtonElement>(null);
+  const toolsRef = useRef<HTMLDivElement>(null);
+  const selectedPhotoCount = actions.mutablePhotoIds.length;
+  const arrange = (command: WorktableEditCommand) => actions.canArrange && onExecute(command);
+  useEffect(() => {
+    if (!gridOpen) return;
+    const closeOutside = (event: PointerEvent) => { if (!toolsRef.current?.contains(event.target as Node)) setGridOpen(false); };
+    const closeEscape = (event: globalThis.KeyboardEvent) => { if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); setGridOpen(false); gridButtonRef.current?.focus(); } };
+    document.addEventListener("pointerdown", closeOutside);
+    document.addEventListener("keydown", closeEscape, true);
+    return () => { document.removeEventListener("pointerdown", closeOutside); document.removeEventListener("keydown", closeEscape, true); };
+  }, [gridOpen]);
+  useEffect(() => { setGridOpen(false); }, [selectedPhotoCount]);
+  const toggleGrid = () => {
+    setGridColumns(Math.min(selectedPhotoCount, Math.ceil(Math.sqrt(selectedPhotoCount))));
+    setGridOpen((open) => !open);
+  };
+  const applyGrid = (columns: number) => {
+    if (!Number.isInteger(columns) || columns < 1 || columns > selectedPhotoCount || !actions.canArrange) return;
+    arrange({ type: "arrange", photoIds: actions.mutablePhotoIds, layout: { type: "grid", columns } });
+    setGridOpen(false);
+  };
+  if (!actions.canArrange && !actions.selectedGroup) return null;
+  return <div ref={toolsRef} className="table-arrangement-tools" role="group" aria-label={t("table.arrangementTools")}>
     <button ref={gridButtonRef} type="button" className={`table-tool-button table-grid-tool${gridOpen ? " is-active" : ""}`} aria-label={t("table.grid")} aria-expanded={gridOpen} aria-haspopup="dialog" title={t("table.grid")} disabled={!actions.canArrange} onClick={toggleGrid}><img src={gridIcon} alt="" /><span>{t("table.grid")}</span></button>
-    {gridOpen && <div className={`table-grid-popover${gridAbove ? " is-above" : ""}`} style={gridAbove ? { bottom: `calc(100% - ${gridOffset + 48}px)` } : { top: gridOffset }} role="dialog" aria-label={t("table.gridSettings")}><header>{t("table.gridSettings")}<small>{t("common.photoCount", { count: selectedPhotoCount })}</small></header><div className="table-grid-choices">{Array.from({ length: Math.min(4, selectedPhotoCount) }, (_, index) => index + 1).map((columns) => <button key={columns} type="button" onClick={() => applyGrid(columns)} aria-label={t("table.gridColumns", { count: columns })}><span className="table-grid-mini" style={{ gridTemplateColumns: `repeat(${columns}, 1fr)` }} aria-hidden="true">{Array.from({ length: columns }, (_, index) => <i key={index} />)}</span><strong>{columns}</strong></button>)}</div><form onSubmit={(event) => { event.preventDefault(); applyGrid(gridColumns); }}><label>{t("table.photosPerRow")}<input type="number" min={1} max={selectedPhotoCount} step={1} value={gridColumns} onChange={(event) => setGridColumns(Number(event.target.value))} /></label><button type="submit" disabled={!Number.isInteger(gridColumns) || gridColumns < 1 || gridColumns > selectedPhotoCount}>{t("table.applyGrid")}</button></form></div>}
+    {gridOpen && <div className="table-grid-popover" role="dialog" aria-label={t("table.gridSettings")}><header>{t("table.gridSettings")}<small>{t("common.photoCount", { count: selectedPhotoCount })}</small></header><div className="table-grid-choices">{Array.from({ length: Math.min(4, selectedPhotoCount) }, (_, index) => index + 1).map((columns) => <button key={columns} type="button" onClick={() => applyGrid(columns)} aria-label={t("table.gridColumns", { count: columns })}><span className="table-grid-mini" style={{ gridTemplateColumns: `repeat(${columns}, 1fr)` }} aria-hidden="true">{Array.from({ length: columns }, (_, index) => <i key={index} />)}</span><strong>{columns}</strong></button>)}</div><form onSubmit={(event) => { event.preventDefault(); applyGrid(gridColumns); }}><label>{t("table.photosPerRow")}<input type="number" min={1} max={selectedPhotoCount} step={1} value={gridColumns} onChange={(event) => setGridColumns(Number(event.target.value))} /></label><button type="submit" disabled={!Number.isInteger(gridColumns) || gridColumns < 1 || gridColumns > selectedPhotoCount}>{t("table.applyGrid")}</button></form></div>}
     <TableToolButton icon={rowIcon} label={t("table.row")} shortcut="R" disabled={!actions.canArrange} onClick={() => arrange({ type: "arrange", photoIds: actions.mutablePhotoIds, layout: { type: "row" } })} />
     <TableToolButton icon={shuffleIcon} label={t("table.shuffle")} shortcut="H" disabled={!actions.canArrange} onClick={() => arrange({ type: "shuffle", photoIds: actions.photoIds })} />
     <label className={`table-floating-align${actions.canArrange ? "" : " is-disabled"}`} title={`${t("table.align")} · A / Shift+A`}><img src={alignIcon} alt="" /><span>{t("table.align")}</span><select aria-label={t("table.align")} value="" disabled={!actions.canArrange} onChange={(event) => { const edge = event.target.value as WorktableAlignment; if (edge) arrange({ type: "arrange", photoIds: actions.mutablePhotoIds, layout: { type: "align", edge } }); }}><option value="">{t("table.align")}</option><option value="left">{t("table.alignLeft")}</option><option value="center-x">{t("table.alignCenter")}</option><option value="right">{t("table.alignRight")}</option><option value="top">{t("table.alignTop")}</option><option value="center-y">{t("table.alignMiddle")}</option><option value="bottom">{t("table.alignBottom")}</option></select></label>
     <TableToolButton icon={groupIcon} label={actions.selectedGroup ? t("table.ungroupSelection") : t("table.groupSelection")} text={actions.selectedGroup ? t("table.ungroup") : t("table.group")} shortcut="G" disabled={(!actions.selectedGroup && !actions.canGroup) || actions.selectedGroupLocked} onClick={() => actions.selectedGroup ? onExecute({ type: "remove-group", groupId: actions.selectedGroup.id }) : onExecute({ type: "create-group", photoIds: actions.mutablePhotoIds })} />
-    {onRequestSequence && <TableToolButton icon={sequenceIcon} label={t("table.createSequence")} text={t("table.createSequence")} shortcut="S" disabled={!actions.mutablePhotoIds.length} onClick={() => onRequestSequence(actions.mutablePhotoIds)} />}
-  </div>}</>;
+  </div>;
 }
 
 function readToolbarTop(storageKey: string): number {
   try {
     const stored = Number(window.sessionStorage.getItem(storageKey));
-    return Number.isFinite(stored) && stored >= 12 ? stored : 240;
-  } catch { return 240; }
+    return Number.isFinite(stored) && stored >= 12 ? stored : 156;
+  } catch { return 156; }
 }
 
 function readToolbarVisible(storageKey: string): boolean {
@@ -181,6 +196,7 @@ export function TableContextToolbar({ draft, actions, onExecute, onRequestSequen
     <span className="table-selection-summary">{t("common.photoCount", { count: photoIds.length })}</span>
   </div></div>;
   return <div className="table-context-toolbar-position"><div className="table-context-toolbar" role="group" aria-label={t("table.selectionActions")}>
+    <span className="table-selection-summary">{pileIds.length ? t("common.sequenceCount", { count: pileIds.length }) : t("common.photoCount", { count: photoIds.length })}</span>
     {mutablePhotoIds.length > 0 && <>
       {actions.canPreview && <TableToolButton icon={previewIcon} label={t("table.preview")} shortcut="P / Space" onClick={() => onPreview(sourcePhotoIds[0])} />}
       <TableToolButton icon={linkIcon} label={selectedLink ? t("table.unlink") : t("table.link")} shortcut="L" disabled={!selectedLink && !actions.canCreateLink} onClick={() => selectedLink ? onExecute({ type: "remove-link", linkId: selectedLink.id }) : onExecute({ type: "create-link", photoIds: mutablePhotoIds })} />
@@ -195,7 +211,7 @@ export function TableContextToolbar({ draft, actions, onExecute, onRequestSequen
       {!selectedLink && actions.matchingLinks.length > 1 && <label className="table-tool-select"><img src={linkIcon} alt="" /><select aria-label="Unlink relation" value="" onChange={(event) => { if (event.target.value) onExecute({ type: "remove-link", linkId: event.target.value }); }}><option value="">Unlink… ▾</option>{actions.matchingLinks.map((item) => <option key={item.id} value={item.id}>{item.name} · {item.photoIds.length} photos</option>)}</select></label>}
     </>}
     <TableToolButton icon={frontIcon} label={t("table.front")} shortcut="F" disabled={!actions.canBringToFront} onClick={() => onExecute(pileIds.length ? { type: "bring-sequence-piles-to-front", sequenceIds: pileIds } : { type: "bring-to-front", photoIds: mutablePhotoIds })} />
-    <span className="table-selection-summary">{pileIds.length ? t("common.sequenceCount", { count: pileIds.length }) : t("common.photoCount", { count: photoIds.length })}</span>
+    {mutablePhotoIds.length > 0 && <TableToolButton className="is-primary" icon={sequenceIcon} label={t("table.createSequence")} shortcut="S" title={t("table.sequenceHint")} onClick={() => onRequestSequence(mutablePhotoIds)} />}
   </div></div>;
 }
 

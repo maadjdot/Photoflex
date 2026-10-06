@@ -54,6 +54,19 @@ zhCN["table.unlock"] = "解锁";
 zhCN["table.locked"] = "已锁定";
 zhCN["sequence.folderUnsafeDestination"] = "请选择原始照片资料夹之外的目标资料夹。";
 
+en["table.creationTools"] = "Canvas tools";
+zhCN["table.creationTools"] = "画布工具";
+en["status.saved"] = "Saved";
+zhCN["status.saved"] = "已保存";
+en["table.frame"] = "Frame";
+en["table.frameHint"] = "Frame · Arrange photos on a page";
+en["table.memoHint"] = "Memo · Add a note to the canvas · M";
+en["table.sequenceHint"] = "Create a reading sequence from selected photos · S";
+zhCN["table.frame"] = "画框";
+zhCN["table.frameHint"] = "画框 · 将照片排入版面";
+zhCN["table.memoHint"] = "便笺 · 在画布上添加笔记 · M";
+zhCN["table.sequenceHint"] = "将所选照片编排为阅读序列 · S";
+
 export const translations: Record<Locale, Record<string, string>> = { en, "zh-CN": zhCN };
 
 export function translate(locale: Locale, key: string, variables?: TranslationVariables, fallback?: string) {

@@ -10,9 +10,9 @@ test("creates and edits a Frame on the Table and restores it after reload", asyn
     const db = await new Promise<IDBDatabase>((resolve, reject) => { request.onsuccess = () => resolve(request.result); request.onerror = () => reject(request.error); });
     const createdAt = new Date().toISOString();
     const transaction = db.transaction("projects", "readwrite");
-    transaction.objectStore("projects").put({ schemaVersion: 9, projectId: id, name: "Frame Test", memo: "", expectedPhotoCount: null, sources: [], photoStates: {},
+    transaction.objectStore("projects").put({ schemaVersion: 10, projectId: id, name: "Frame Test", memo: "", expectedPhotoCount: null, sources: [], photoStates: {},
       worktableDraft: { projectId: id, entryOrder: [], placements: {}, groups: [], links: [], pileOrder: [], pilePlacements: {}, frameOrder: [], frames: {} },
-      sequenceIds: [], versionIds: [], revision: 0, createdAt, updatedAt: createdAt, lastOpenedAt: createdAt });
+      sequenceIds: [], versionIds: [], layoutIds: [], revision: 0, createdAt, updatedAt: createdAt, lastOpenedAt: createdAt });
     await new Promise<void>((resolve, reject) => { transaction.oncomplete = () => resolve(); transaction.onerror = () => reject(transaction.error); });
     db.close();
   }, projectId);
@@ -72,9 +72,9 @@ test("creates a full-page square nine-grid and adds selected photo-box settings 
     const db = await new Promise<IDBDatabase>((resolve, reject) => { request.onsuccess = () => resolve(request.result); request.onerror = () => reject(request.error); });
     const createdAt = new Date().toISOString();
     const transaction = db.transaction("projects", "readwrite");
-    transaction.objectStore("projects").put({ schemaVersion: 9, projectId: id, name: "Nine Grid Test", memo: "", expectedPhotoCount: null, sources: [], photoStates: {},
+    transaction.objectStore("projects").put({ schemaVersion: 10, projectId: id, name: "Nine Grid Test", memo: "", expectedPhotoCount: null, sources: [], photoStates: {},
       worktableDraft: { projectId: id, entryOrder: [], placements: {}, groups: [], links: [], pileOrder: [], pilePlacements: {}, frameOrder: [], frames: {} },
-      sequenceIds: [], versionIds: [], revision: 0, createdAt, updatedAt: createdAt, lastOpenedAt: createdAt });
+      sequenceIds: [], versionIds: [], layoutIds: [], revision: 0, createdAt, updatedAt: createdAt, lastOpenedAt: createdAt });
     await new Promise<void>((resolve, reject) => { transaction.oncomplete = () => resolve(); transaction.onerror = () => reject(transaction.error); });
     db.close();
   }, projectId);
@@ -122,10 +122,10 @@ test("keeps Table photos above existing Frames until Front is chosen", async ({ 
     const db = await new Promise<IDBDatabase>((resolve, reject) => { request.onsuccess = () => resolve(request.result); request.onerror = () => reject(request.error); });
     const createdAt = new Date().toISOString();
     const transaction = db.transaction("projects", "readwrite");
-    transaction.objectStore("projects").put({ schemaVersion: 9, projectId: id, name: "Frame Layer Test", memo: "", expectedPhotoCount: null, sources: [], photoStates: {},
+    transaction.objectStore("projects").put({ schemaVersion: 10, projectId: id, name: "Frame Layer Test", memo: "", expectedPhotoCount: null, sources: [], photoStates: {},
       worktableDraft: { projectId: id, entryOrder: ["card-layer"], placements: { "card-layer": { id: "card-layer", photoId: "photo-layer", z: 1, x: 180, y: 150, width: 200, height: 160, filename: "Layer.jpg" } },
         groups: [], links: [], pileOrder: [], pilePlacements: {}, frameOrder: [], frames: {} },
-      sequenceIds: [], versionIds: [], revision: 0, createdAt, updatedAt: createdAt, lastOpenedAt: createdAt });
+      sequenceIds: [], versionIds: [], layoutIds: [], revision: 0, createdAt, updatedAt: createdAt, lastOpenedAt: createdAt });
     await new Promise<void>((resolve, reject) => { transaction.oncomplete = () => resolve(); transaction.onerror = () => reject(transaction.error); });
     db.close();
   }, projectId);

@@ -9,6 +9,7 @@ import { LayoutReader } from "./LayoutReader";
 import { LayoutPaperBackdrop } from "./LayoutPaperBackdrop";
 import { PhotoThumb } from "./PhotoThumb";
 import { CloudSaveStatus } from "./CloudControls";
+import { UserGuideButton } from "./UserGuide";
 import { exportLayoutPdf, preflightLayoutPdf, type LayoutPdfPreflight, type LayoutPdfQuality } from "../platform/browser/exportLayoutPdf";
 import type { ProjectWriteCoordinator } from "./projectWriteCoordinator";
 import type { AppRoute } from "./router";
@@ -240,7 +241,7 @@ export function LayoutWorkspace({ dependencies, persistence, projectId, sequence
       <nav className="layout-module-navigation" aria-label={zh ? "工作区" : "Workspace"}><button onClick={() => navigate({ name: "table", projectId })}>Table</button><button aria-label="← Sequence" onClick={back}>Sequence</button><button aria-current="page">Layout</button></nav>
       <span className="layout-save-status" role="status">{saveState === "failed" ? (zh ? "保存失败" : "Save failed") : saveState === "saving" || projectWrite.saving ? (zh ? "正在保存…" : "Saving…") : (zh ? "本地已保存" : "Saved locally")}{saveState === "failed" && <button onClick={() => void retry()}>{zh ? "重试" : "Retry"}</button>}</span>
       <CloudSaveStatus dependencies={dependencies} projectId={projectId} />
-      <div className="layout-header-actions"><button onClick={startReading}>{zh ? "阅读" : "Read"}</button><button ref={exportButton} className="layout-export-button" disabled={exportState === "checking" || exportState === "exporting"} onClick={() => setQualityOpen(true)}>{zh ? "导出 PDF" : "Export PDF"}</button></div>
+      <div className="layout-header-actions"><UserGuideButton scope="layout" /><button onClick={startReading}>{zh ? "阅读" : "Read"}</button><button ref={exportButton} className="layout-export-button" disabled={exportState === "checking" || exportState === "exporting"} onClick={() => setQualityOpen(true)}>{zh ? "导出 PDF" : "Export PDF"}</button></div>
     </header>
     {exportState !== "idle" && <div className="layout-export-status" role="status">
       <span>{exportState === "checking" ? (zh ? "正在检查照片…" : "Checking photos…")

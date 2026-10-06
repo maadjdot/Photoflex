@@ -703,7 +703,6 @@ export const TableCanvas = forwardRef<TableCanvasHandle, TableCanvasProps>(funct
         <section className="worktable-empty">
           <span>{t("table.emptyLabel")}</span>
           <h1>{t("table.empty")}</h1>
-          <p>{t("table.emptyDetail")}</p>
           {emptyAction && <button className="button button-primary" onClick={emptyAction.onClick}>{emptyAction.label}</button>}
         </section>
       )}

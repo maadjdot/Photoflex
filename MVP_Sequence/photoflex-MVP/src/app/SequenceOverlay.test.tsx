@@ -146,6 +146,8 @@ it("creates a Layout from a real Sequence, saves page order, and reopens the sam
   expect(within(creator).getByText(/From Sequence \(4 pages\)/)).toBeTruthy();
   fireEvent.click(within(creator).getByRole("button", { name: "Create Layout" }));
   const workspace = await screen.findByRole("main", { name: "Layout workspace" }, { timeout: 5000 });
+  expect(within(workspace).getByRole("button", { name: "Layout guide" })).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "User guide" })).toBeNull();
   await waitFor(() => expect(within(workspace).getByText("Saved locally")).toBeTruthy());
   const layouts = await projectStore.listLayouts(projectId);
   expect(layouts.ok && layouts.value).toHaveLength(1);
