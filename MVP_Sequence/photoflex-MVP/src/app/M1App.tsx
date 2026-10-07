@@ -6,6 +6,7 @@ import { AppHeader } from "./AppHeader";
 import { ContactSheetPage } from "./ContactSheetPage";
 import type { AppDependencies } from "./dependencies";
 import { HomePage } from "./HomePage";
+import { SiteFiling } from "./SiteFiling";
 import { ProjectPage } from "./ProjectPage";
 import { TablePage } from "./TablePage";
 import { TableHeader } from "./TableHeader";
@@ -104,6 +105,7 @@ function M1AppContent({ dependencies }: AppProps) {
     <div className={`app-shell${usesTableChrome ? " is-table" : ""}`}>
       {route.name !== "table" && route.name !== "sequence" && <AppHeader dependencies={dependencies} route={route} projectId={currentProjectId} projectSettingsProjectId={route.name === "home" ? homeProjectId : undefined} contactSourceId={contactSourceId} lastSequenceId={lastSequenceId} navigate={navigate} beforeSignOut={ensureSaved} variant={usesTableChrome ? "table" : "default"} />}
       {projectContent}
+      {route.name === "home" && <SiteFiling />}
       {dependencies.cloudSave && <CloudConflictRecovery dependencies={dependencies} projectId={currentProjectId} beforeRecovery={ensureSaved}
         onOpenCopy={(projectId) => navigate({ name: "project", projectId })} onReloadCloud={(projectId) => {
           const current = coordinatorRef.current;

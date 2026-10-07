@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import type { AccountError, AccountUser } from "../contracts";
 import type { AccountWorkspace, AppDependencies } from "./dependencies";
 import { useLocale } from "./locale";
+import { SiteFiling } from "./SiteFiling";
 
 const authErrorKey = (error: AccountError): string => {
   if (error.kind === "invalid-credentials") return "cloud.invalidCredentials";
@@ -136,5 +137,6 @@ export function AccountWorkspaceGate({ dependencies, children }: {
         </p>
       </div>
     </main>
+    <SiteFiling />
   </div>;
 }
