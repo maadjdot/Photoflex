@@ -163,11 +163,16 @@ test("M2.1 Contact Sheet 提供 Place on Table，并移除 Pool 栏", async ({ p
       await expect.poll(async () => Math.round((await responsiveSidebar.boundingBox())?.width ?? 0)).toBe(560);
       await responsiveSidebar.getByRole("button", { name: "Use compact Photo Sources" }).click();
       await expect(responsiveSidebar).toHaveClass(/is-compact/);
-      const compactMainBox = await page.locator(".table-workspace-main").boundingBox();
-      const compactSidebarBox = await responsiveSidebar.boundingBox();
-      expect(Math.round(compactMainBox?.width ?? 0)).toBe(viewport.width - 281);
-      expect(Math.round(compactSidebarBox?.width ?? 0)).toBe(280);
-      expect(Math.round(compactSidebarBox?.x ?? 0)).toBe(viewport.width - 280);
+      // The mode class changes before TableWorkspace restores that mode's stored width.
+      await expect.poll(async () => {
+        const compactMainBox = await page.locator(".table-workspace-main").boundingBox();
+        const compactSidebarBox = await responsiveSidebar.boundingBox();
+        return {
+          mainWidth: Math.round(compactMainBox?.width ?? 0),
+          sidebarWidth: Math.round(compactSidebarBox?.width ?? 0),
+          sidebarX: Math.round(compactSidebarBox?.x ?? 0),
+        };
+      }).toEqual({ mainWidth: viewport.width - 281, sidebarWidth: 280, sidebarX: viewport.width - 280 });
       await page.screenshot({ path: testInfo.outputPath("table-1024x800-compact.png"), fullPage: true });
       await responsiveSidebar.getByRole("button", { name: "Expand Photo Sources" }).click();
       await expect(responsiveSidebar).toHaveClass(/is-expanded/);
