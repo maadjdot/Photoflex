@@ -1,13 +1,15 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { ProjectId, SourceId } from "../../contracts";
+import { ok, type ProjectId, type SourceId } from "../../contracts";
 import { BrowserPhotoSource } from "./BrowserPhotoSource";
 import { IndexedDbProjectStore } from "./IndexedDbProjectStore";
 import { backupBytes, backupFixture } from "../../../tests/helpers/projectBackup";
 import { photoPng } from "../../../tests/helpers/photoImages";
+import { STORE_NAMES } from "./indexedDbSchema";
 
 const databases: BrowserPhotoSource[] = [];
 
 afterEach(async () => {
+  vi.restoreAllMocks();
   for (const source of databases.splice(0)) {
     await source.close();
   }
@@ -102,6 +104,71 @@ function selectedFile(relativePath: string): File {
 }
 
 describe("BrowserPhotoSource", () => {
+  it("does not recreate image URLs when a thumbnail finishes after account disposal", async () => {
+    const directory = createDirectory("late-thumbnail", "Late", ["same.jpg"]);
+    const source = new BrowserPhotoSource({ databaseName: `late-thumbnail-${crypto.randomUUID()}`, picker: async () => directory.handle }); databases.push(source);
+    const grant = await source.chooseFolder([]); if (!grant.ok) throw Error("fixture failed");
+    await scanToEnd(source, grant.value.sourceId);
+    const photos = await source.listPhotos(grant.value.sourceId); if (!photos.ok) throw Error("missing photo");
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const internal = source as unknown as { readPhotoFile(): Promise<ReturnType<typeof ok<Blob>>> };
+    const read = vi.spyOn(internal, "readPhotoFile").mockImplementation(async () => { await gate; return ok(directory.files.get("same.jpg")!); });
+    const urls = vi.spyOn(URL, "createObjectURL"), pending = source.thumbnail(photos.value.items[0].id);
+    await vi.waitFor(() => expect(read).toHaveBeenCalledOnce());
+    await source.close(); release();
+    expect((await pending).ok).toBe(false); expect(urls).not.toHaveBeenCalled();
+  });
+  it("reclaims released originals immediately and bounds idle preview bytes without revoking active leases", async () => {
+    const source = new BrowserPhotoSource({ databaseName: `memory-budget-${crypto.randomUUID()}` }); databases.push(source);
+    const cache = source as unknown as { createLease(key: string, blob: Blob): { url: string; release(): void }; urlCache: Map<string, { blob: Blob; references: number }>; derivedPreviewCache: Map<string, { blob: Blob; lastUsed: number }>; trimDerivedPreviewCache(): void };
+    const revoke = vi.spyOn(URL, "revokeObjectURL");
+    const blob = new Blob([new Uint8Array(6 * 1024 * 1024)]);
+    const original = cache.createLease("preview:original", blob), shared = cache.createLease("preview:original", blob);
+    original.release(); expect(revoke).not.toHaveBeenCalled(); shared.release();
+    expect(revoke).toHaveBeenCalledWith(original.url); expect(cache.urlCache.has("preview:original")).toBe(false);
+    const active = cache.createLease("thumbnail:active", blob);
+    for (let index = 0; index < 8; index++) cache.createLease(`thumbnail:${index}`, blob).release();
+    const idle = [...cache.urlCache.values()].filter((entry) => !entry.references);
+    expect(idle.reduce((sum, entry) => sum + entry.blob.size, 0)).toBeLessThanOrEqual(16 * 1024 * 1024);
+    expect(revoke.mock.calls.some(([url]) => url === active.url)).toBe(false);
+    for (let index = 0; index < 8; index++) cache.derivedPreviewCache.set(`derived:${index}`, { blob, lastUsed: index });
+    cache.trimDerivedPreviewCache();
+    expect([...cache.derivedPreviewCache.values()].reduce((sum, entry) => sum + entry.blob.size, 0)).toBeLessThanOrEqual(24 * 1024 * 1024);
+    active.release();
+  });
+  it("keeps both preview tiers usable under permanent cache quota errors and reuses the thumbnail in memory", async () => {
+    const directory = createDirectory("cache-quota", "Cache quota", ["same.jpg"]);
+    const databaseName = `cache-quota-${crypto.randomUUID()}`;
+    const source = new BrowserPhotoSource({ databaseName, picker: async () => directory.handle }); databases.push(source);
+    const projects = IndexedDbProjectStore.open({ databaseName });
+    try {
+      const created = await projects.createProject({ id: "quota-project" as ProjectId, name: "Retained", createdAt: "2026-10-07" });
+      const grant = await source.chooseFolder([]); if (!grant.ok || !created.ok) throw Error("fixture failed");
+      await scanToEnd(source, grant.value.sourceId);
+      const photos = await source.listPhotos(grant.value.sourceId); if (!photos.ok) throw Error("no photos");
+      const photoId = photos.value.items[0].id;
+      const originalPut = IDBObjectStore.prototype.put;
+      vi.spyOn(IDBObjectStore.prototype, "put").mockImplementation(function (this: IDBObjectStore, ...args) {
+        if ([STORE_NAMES.photoThumbnails, STORE_NAMES.photoDerivedPreviews].includes(this.name as typeof STORE_NAMES.photoThumbnails)) throw new DOMException("Cache is full", "QuotaExceededError");
+        return originalPut.apply(this, args);
+      });
+      const clear = vi.spyOn(IDBObjectStore.prototype, "clear");
+      const first = await source.thumbnail(photoId), second = await source.derivedPreview(photoId, 768);
+      expect(first.ok).toBe(true); expect(second.ok).toBe(true);
+      const reads = directory.getFileReadCount();
+      const cached = await source.thumbnail(photoId);
+      expect(cached.ok && first.ok && cached.value.url).toBe(first.ok && first.value.url);
+      expect(directory.getFileReadCount()).toBe(reads);
+      expect(clear.mock.contexts.map((store) => (store as IDBObjectStore).name)).toEqual([
+        STORE_NAMES.photoDerivedPreviews, STORE_NAMES.photoThumbnails, STORE_NAMES.photoDerivedPreviews, STORE_NAMES.photoThumbnails,
+      ]);
+      expect((await projects.saveWorkspace({ ...created.value, name: "Still editable" }, created.value.revision)).ok).toBe(true);
+      expect(await projects.loadWorkspace(created.value.projectId)).toMatchObject({ ok: true, value: { name: "Still editable" } });
+      expect((await source.readOriginalFile(photoId)).ok).toBe(true);
+      for (const result of [first, second, cached]) if (result.ok) { expect(await (await fetch(result.value.url)).text()).toBe("same.jpg"); result.value.release(); }
+    } finally { await projects.close(); }
+  });
   it("scans mixed extensions with empty MIME, counts corrupt files, and reuses IDs after rescan and reconnect", async () => {
     const names = ["one.JPG", "two.JPEG", "alpha.PNG", "motion.ApNg", "photo.WeBp", "broken.png", "ignored.gif", "notes.txt"];
     const directory = createDirectory("mixed", "Mixed", names);

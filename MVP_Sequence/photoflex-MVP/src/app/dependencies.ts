@@ -1,4 +1,4 @@
-import type { AccountSession, PhotoSource, ProjectCloud, ProjectId, ProjectStore } from "../contracts";
+import type { AccountSession, BackupError, LoadError, PhotoSource, ProjectCloud, ProjectId, ProjectStore, Result } from "../contracts";
 import { BrowserPhotoSource } from "../platform/browser/BrowserPhotoSource";
 import { IndexedDbProjectStore } from "../platform/browser/IndexedDbProjectStore";
 import { createCloudBaseClient, readCloudBaseConfiguration } from "../platform/cloudbase/client";
@@ -21,7 +21,17 @@ export interface AppDependencies {
   readonly photoSource: PhotoSource;
   readonly accountSession?: AccountSession;
   readonly projectCloud?: ProjectCloud;
-  readonly cloudSave?: { subscribe(listener: () => void): () => void; getStatus(projectId: ProjectId): CloudSaveStatus; hasPending?(): boolean };
+  readonly cloudSave?: {
+    subscribe(listener: () => void): () => void;
+    getStatus(projectId: ProjectId): CloudSaveStatus;
+    getProjectListVersion?(): number;
+    getProjectIssue?(projectId: ProjectId): LoadError | undefined;
+    retryProject?(projectId: ProjectId): Promise<Result<void, LoadError>>;
+    hasPending?(): boolean;
+    getConflictProjectIds?(): readonly ProjectId[];
+    saveConflictCopy?(projectId: ProjectId): Promise<Result<ProjectId, LoadError | BackupError>>;
+    resolveConflict?(projectId: ProjectId): Promise<Result<ProjectId, LoadError | BackupError>>;
+  };
   readonly accountWorkspaces?: AccountWorkspaceFactory;
   readonly diagnostics?: { report(event: AppDiagnosticEvent): void };
 }

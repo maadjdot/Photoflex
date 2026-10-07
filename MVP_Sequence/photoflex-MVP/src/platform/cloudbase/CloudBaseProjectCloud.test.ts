@@ -11,6 +11,7 @@ function fixture() {
   let pullUnavailable = false;
   let loseUpdateResponse = false;
   let updateUnavailable = false;
+  let updateError: { code: string; status?: number; message?: string } = { code: "unavailable" };
   const account = {
     getCurrentUser: async () => ok({ id: "owner-a" }),
   } as AccountSession;
@@ -39,7 +40,7 @@ function fixture() {
           update(values: Record<string, unknown>) { updateValues = values; return this; },
           delete() { deleting = true; return this; },
           then(resolve: (value: unknown) => void) {
-            if (updateUnavailable && !deleting) { resolve({ count: null, error: { code: "unavailable" } }); return; }
+            if (updateUnavailable && !deleting) { resolve({ count: null, error: updateError }); return; }
             const row = rows.get(String(filters.id));
             if (row && row.owner_id === filters.owner_id && row.cloud_revision === filters.cloud_revision) {
               if (deleting) rows.delete(String(filters.id));
@@ -57,10 +58,18 @@ function fixture() {
     setPullUnavailable(value: boolean) { pullUnavailable = value; },
     setLoseUpdateResponse(value: boolean) { loseUpdateResponse = value; },
     setUpdateUnavailable(value: boolean) { updateUnavailable = value; },
+    setUpdateError(error: typeof updateError) { updateError = error; updateUnavailable = true; },
   };
 }
 
 describe("CloudBaseProjectCloud", () => {
+  it("retains service error codes and HTTP status without returning request content", async () => {
+    const f = fixture(); await f.cloud.push({ projectId, name: "Film", schemaVersion: 3, document: backup, expectedCloudRevision: null });
+    f.setUpdateError({ code: "EXCEED_RATELIMIT", status: 429, message: "Private request contents" });
+    expect(await f.cloud.push({ projectId, name: "Film 2", schemaVersion: 3, document: backup, expectedCloudRevision: 0 })).toEqual({
+      ok: false, error: { kind: "unavailable", retryable: true, requestCode: "EXCEED_RATELIMIT", httpStatus: 429 },
+    });
+  });
   it("creates an owner-scoped snapshot and lists it", async () => {
     const { rows, cloud } = fixture();
     const pushed = await cloud.push({ projectId, name: "Film", schemaVersion: 3, document: backup, expectedCloudRevision: null });
@@ -104,7 +113,7 @@ describe("CloudBaseProjectCloud", () => {
     await testEnv.cloud.push({ projectId, name: "Film", schemaVersion: 3, document: backup, expectedCloudRevision: null });
     testEnv.setUpdateUnavailable(true);
     const result = await testEnv.cloud.push({ projectId, name: "Film 2", schemaVersion: 3, document: backup, expectedCloudRevision: 0 });
-    expect(result).toEqual({ ok: false, error: { kind: "unavailable", retryable: true } });
+    expect(result).toEqual({ ok: false, error: { kind: "unavailable", retryable: true, requestCode: "unavailable" } });
     expect(testEnv.rows.get(projectId)?.name).toBe("Film");
   });
 

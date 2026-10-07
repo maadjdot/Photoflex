@@ -13,6 +13,14 @@ function sourceGrant(sourceId: SourceId, displayName: string): SourceGrant {
 }
 
 describe("deleteProjectWorkspace", () => {
+  it("does not load ordinary project documents when recovering pending deletions", async () => {
+    const projectStore = new MemoryProjectStore();
+    await projectStore.createProject({ id: projectId, name: "Ordinary", createdAt: "2026-10-07" });
+    const projects = await projectStore.listProjects(); if (!projects.ok) throw Error("missing summary");
+    const load = vi.spyOn(projectStore, "loadWorkspace");
+    expect(await resumePendingProjectDeletions({ projectStore, photoSource: new MemoryPhotoSource() }, projects.value)).toEqual({ projects: projects.value, failures: [] });
+    expect(load).not.toHaveBeenCalled();
+  });
   it("keeps the project retryable when source cleanup fails, then converges on retry", async () => {
     const projectStore = new MemoryProjectStore();
     const created = await projectStore.createProject({ id: projectId, name: "Delete me", createdAt: "2026-09-07T00:00:00.000Z" });

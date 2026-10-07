@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { PhotoId, ProjectId, SequenceId, WorktableDraft, WorktableItemId, WorktablePlacement, WorktablePlacementSeed } from "../../contracts";
 import { createEmptyWorktable, createWorktableEditor } from "./worktableEditor";
+import { UNDO_HISTORY_LIMIT } from "../editorHistory";
 
 const projectId = "project-1" as ProjectId;
 const photoId = (id: string) => id as PhotoId;
@@ -12,6 +13,18 @@ const seed = (id: string, width = 196, height = 146): WorktablePlacementSeed => 
 });
 
 describe("WorktableEditor", () => {
+  it("retains only the last 100 edits while keeping snapshots independent", () => {
+    const editor = createWorktableEditor(createEmptyWorktable(projectId));
+    editor.execute({ type: "place", items: [seed("a")] });
+    for (let index = 1; index <= UNDO_HISTORY_LIMIT + 20; index++) editor.execute({ type: "move", photoIds: [photoId("a")], by: { x: 1, y: 0 } });
+    const final = editor.snapshot();
+    let count = 0; while (editor.canUndo()) { editor.undo(); count++; }
+    expect(count).toBe(UNDO_HISTORY_LIMIT);
+    for (let index = 0; index < count; index++) editor.redo();
+    expect(editor.snapshot()).toEqual(final); expect(editor.canRedo()).toBe(false);
+    (final.placements[photoId("a")] as { x: number }).x = -1;
+    expect(editor.snapshot().placements[photoId("a")].x).not.toBe(-1);
+  });
   it("creates independent Table instances that reference the same source photo", () => {
     const editor = createWorktableEditor(createEmptyWorktable(projectId));
     const result = editor.execute({

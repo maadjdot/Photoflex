@@ -277,3 +277,32 @@ describe("IndexedDB schema 11 → 12", () => {
     opened.value.close(); await deleteDatabase(databaseName);
   });
 });
+
+describe("IndexedDB schema 12 → 13", () => {
+  it("adds the durable cloud journal without changing existing project data", async () => {
+    const databaseName = `photoflex-cloud-journal-${crypto.randomUUID()}`;
+    const old = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open(databaseName, 12);
+      request.onupgradeneeded = () => request.result.createObjectStore(STORE_NAMES.projects, { keyPath: "projectId" });
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    const workspace = createWorkspace({ id: "journal-migration" as ProjectId, name: "Retained local edit", createdAt: "now" });
+    const transaction = old.transaction(STORE_NAMES.projects, "readwrite");
+    transaction.objectStore(STORE_NAMES.projects).put(workspace);
+    await transactionResult(transaction); old.close();
+    const opened = await openPhotoFlexDatabase({ databaseName });
+    expect(opened.ok).toBe(true); if (!opened.ok) return;
+    try {
+      expect(opened.value.version).toBe(13);
+      const tx = opened.value.transaction([STORE_NAMES.projects, STORE_NAMES.cloudSync], "readonly");
+      expect(tx.objectStore(STORE_NAMES.cloudSync).keyPath).toBe("projectId");
+      const [retained, journal] = await Promise.all([
+        requestValue(tx.objectStore(STORE_NAMES.projects).get(workspace.projectId)),
+        requestValue(tx.objectStore(STORE_NAMES.cloudSync).getAll()),
+      ]);
+      expect(retained).toEqual(workspace);
+      expect(journal).toEqual([]);
+    } finally { opened.value.close(); await deleteDatabase(databaseName); }
+  });
+});

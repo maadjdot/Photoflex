@@ -27,7 +27,7 @@ describe("CloudControls", () => {
     render(<LocaleProvider><CloudControls projectId={"project-1" as ProjectId} dependencies={{ projectStore: new MemoryProjectStore(), photoSource: new MemoryPhotoSource(), accountSession, cloudSave }} /></LocaleProvider>);
     expect(await screen.findByText("Saved to cloud")).toBeTruthy();
     act(() => { status = "conflict"; notify?.(); });
-    expect(screen.queryByRole("status")).toBeNull();
+    expect(screen.getByRole("status").textContent).toContain("Saved locally · cloud conflict");
     act(() => { status = "saving"; notify?.(); });
     expect(screen.getByText("Saving to cloud…")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Sync" })).toBeNull();

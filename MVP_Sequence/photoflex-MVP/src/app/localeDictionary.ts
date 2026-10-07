@@ -21,6 +21,11 @@ const en: Record<string, string> = {
   "cloud.account": "PhotoFlex account", "cloud.email": "Email", "cloud.password": "Password", "cloud.fullName": "Full name", "cloud.fullNamePlaceholder": "Jane Smith", "cloud.signIn": "Sign in", "cloud.signInTitle": "Sign in to Photoflex", "cloud.signInDetail": "Welcome back. Enter your details below.", "cloud.signUp": "Create account", "cloud.signUpShort": "Sign up", "cloud.createAccountTitle": "Create an account", "cloud.createAccountDetail": "Start organizing your photos today.", "cloud.noAccount": "Don't have an account?", "cloud.haveAccount": "Already have an account?", "cloud.forgotPassword": "Forgot password?", "cloud.passwordResetUnavailable": "Password reset is not available yet.", "cloud.or": "or", "cloud.continueWithGoogle": "Continue with Google", "cloud.googleUnavailable": "Google sign-in is not configured.", "cloud.signOut": "Sign out", "cloud.checkEmail": "Enter the verification code sent to your email.", "cloud.verificationCode": "Verification code", "cloud.verifyEmail": "Verify email", "cloud.invalidCredentials": "Email or password is incorrect.", "cloud.emailNotConfirmed": "Confirm your email before signing in.", "cloud.alreadyRegistered": "This email is already registered.", "cloud.weakPassword": "Use a stronger password.", "cloud.authFailed": "Account request failed. Try again.", "cloud.notConfigured": "CloudBase is not configured for this checkout.", "cloud.openingWorkspace": "Opening your local workspace…", "cloud.signInRequired": "Sign in to open your workspace", "cloud.signInRequiredDetail": "Projects and local photo access are isolated for each PhotoFlex account on this device.", "cloud.sync.idle": "Sync", "cloud.sync.syncing": "Syncing…", "cloud.sync.synced": "Synced", "cloud.sync.failed": "Retry sync", "cloud.sync.conflict": "The cloud copy changed elsewhere. Restore a separate copy from the home page before resolving this conflict.",
   "cloud.savedProjects": "Cloud projects", "cloud.restoreCopy": "Restore copy", "cloud.restoreCopyDetail": "Restore a separate local copy. Reconnect original photo folders afterward.", "cloud.listFailed": "Could not load cloud projects.", "cloud.restoreFailed": "Could not restore the cloud project.",
   "cloud.save.saved": "Saved to cloud", "cloud.save.saving": "Saving to cloud…", "cloud.save.retrying": "Cloud unavailable · retrying automatically",
+  "cloud.save.conflict": "Saved locally · cloud conflict",
+  "cloud.conflict.title": "Cloud save conflict", "cloud.conflict.detail": "Your edits are saved locally. Cloud saving is paused because another version exists. Keep a backup or a separate copy before loading the cloud version.",
+  "cloud.conflict.saveCopy": "Save and open a separate copy", "cloud.conflict.reload": "Keep a copy and load cloud version",
+  "cloud.conflict.failed": "Recovery did not complete. Your local content is retained. Retry or download a recovery backup.",
+  "cloud.conflict.copySaved": "Your previous edits were saved as a separate project. Reconnect its photo folders when opening it.", "cloud.conflict.openCopy": "Open recovery copy",
   "cloud.legacyTitle": "Import from old Supabase account", "cloud.legacyDetail": "Sign in to your old Supabase account to copy its cloud projects into this CloudBase account. Existing projects will not be overwritten. Your old password is not saved here.", "cloud.legacyEmail": "Old account email", "cloud.legacyPassword": "Old account password", "cloud.legacyStart": "Copy cloud projects", "cloud.legacyWorking": "Copying…", "cloud.legacySignInFailed": "Could not sign in to the old account. Check its email and password.", "cloud.legacyUnavailable": "Could not read old cloud projects. Try again later.", "cloud.legacyResult": "Copied {imported}; already present {present}; conflicts {conflicts}; failed {failed}. Old data was not deleted.",
 };
 
@@ -44,6 +49,11 @@ const zhCN: Record<string, string> = {
   "cloud.account": "PhotoFlex 账户", "cloud.email": "邮箱", "cloud.password": "密码", "cloud.fullName": "姓名", "cloud.fullNamePlaceholder": "你的姓名", "cloud.signIn": "登录", "cloud.signInTitle": "登录 Photoflex", "cloud.signInDetail": "欢迎回来，请在下方输入账号信息。", "cloud.signUp": "创建账号", "cloud.signUpShort": "注册", "cloud.createAccountTitle": "创建账号", "cloud.createAccountDetail": "从今天开始整理你的照片。", "cloud.noAccount": "还没有账号？", "cloud.haveAccount": "已经有账号？", "cloud.forgotPassword": "忘记密码？", "cloud.passwordResetUnavailable": "暂未开放密码重置。", "cloud.or": "或", "cloud.continueWithGoogle": "使用 Google 继续", "cloud.googleUnavailable": "尚未配置 Google 登录。", "cloud.signOut": "退出登录", "cloud.checkEmail": "请输入发送到邮箱的验证码。", "cloud.verificationCode": "邮箱验证码", "cloud.verifyEmail": "验证邮箱", "cloud.invalidCredentials": "邮箱或密码不正确。", "cloud.emailNotConfirmed": "请先确认邮箱再登录。", "cloud.alreadyRegistered": "该邮箱已经注册。", "cloud.weakPassword": "请使用更强的密码。", "cloud.authFailed": "账户请求失败，请重试。", "cloud.notConfigured": "当前检出目录尚未配置 CloudBase。", "cloud.openingWorkspace": "正在打开你的本地工作区…", "cloud.signInRequired": "登录后打开工作区", "cloud.signInRequiredDetail": "这台设备上的项目和本地照片访问会按 PhotoFlex 账号隔离。", "cloud.sync.idle": "同步", "cloud.sync.syncing": "同步中…", "cloud.sync.synced": "已同步", "cloud.sync.failed": "重试同步", "cloud.sync.conflict": "云端版本已变化。请先在首页恢复为独立副本，再处理冲突；现有项目不会被覆盖。",
   "cloud.savedProjects": "云端项目", "cloud.restoreCopy": "恢复副本", "cloud.restoreCopyDetail": "恢复为独立的本地副本，之后需重新连接原始照片文件夹。", "cloud.listFailed": "无法读取云端项目。", "cloud.restoreFailed": "无法恢复云端项目。",
   "cloud.save.saved": "已保存到云端", "cloud.save.saving": "正在保存到云端…", "cloud.save.retrying": "云端暂不可用 · 自动重试中",
+  "cloud.save.conflict": "已保存到本地 · 云端存在冲突",
+  "cloud.conflict.title": "云端保存冲突", "cloud.conflict.detail": "编辑已保存在本地。云端已有其他版本，自动同步已暂停。读取云端版本前，请保留恢复备份或独立副本。",
+  "cloud.conflict.saveCopy": "另存副本并打开", "cloud.conflict.reload": "保留副本并读取云端版本",
+  "cloud.conflict.failed": "恢复操作未完成，本地内容仍保留。请重试或下载恢复备份。",
+  "cloud.conflict.copySaved": "此前的编辑已另存为独立项目。打开副本后，请重新连接原照片文件夹。", "cloud.conflict.openCopy": "打开恢复副本",
   "cloud.legacyTitle": "从旧 Supabase 账号迁移", "cloud.legacyDetail": "登录旧 Supabase 账号，把该账号的云端项目复制到当前 CloudBase 账号。不会覆盖已有项目，也不会在这里保存旧密码。", "cloud.legacyEmail": "旧账号邮箱", "cloud.legacyPassword": "旧账号密码", "cloud.legacyStart": "复制云端项目", "cloud.legacyWorking": "正在复制…", "cloud.legacySignInFailed": "旧账号登录失败，请检查邮箱和密码。", "cloud.legacyUnavailable": "无法读取旧云端项目，请稍后重试。", "cloud.legacyResult": "已复制 {imported} 个；已存在 {present} 个；冲突 {conflicts} 个；失败 {failed} 个。旧数据未删除。",
 };
 
@@ -58,6 +68,22 @@ zhCN["sequence.folderUnsafeDestination"] = "请选择原始照片资料夹之外
 
 en["table.creationTools"] = "Canvas tools";
 zhCN["table.creationTools"] = "画布工具";
+en["layout.fontLoading"] = "Loading font…";
+zhCN["layout.fontLoading"] = "正在加载字体…";
+en["layout.fontFailed"] = "Font could not be loaded. Text is retained.";
+zhCN["layout.fontFailed"] = "字体加载失败，文字内容仍保留。";
+en["cloud.save.cached"] = "Using local cache · cloud not verified";
+zhCN["cloud.save.cached"] = "正在使用本地缓存 · 云端尚未核对";
+en["cloud.save.retrying"] = "Saved locally · cloud unavailable, retrying";
+zhCN["cloud.save.retrying"] = "已保存到本地 · 云端暂不可用，自动重试中";
+en["home.projectDamaged"] = "Data error";
+zhCN["home.projectDamaged"] = "数据异常";
+en["home.downloadRecoveryData"] = "Download raw data for recovery";
+zhCN["home.downloadRecoveryData"] = "下载原始数据用于恢复";
+en["home.projectCorrupt"] = "Project “{name}” ({id}) contains invalid data. It has been retained. Retry after restoring its data; other projects remain available.";
+zhCN["home.projectCorrupt"] = "项目“{name}”（{id}）的数据异常，原数据已保留。恢复数据后可重试，其他项目仍可使用。";
+en["home.projectUnavailable"] = "Project “{name}” ({id}) is temporarily unavailable. Retry when the connection recovers.";
+zhCN["home.projectUnavailable"] = "项目“{name}”（{id}）暂时无法读取，网络恢复后可重试。";
 en["status.saved"] = "Saved";
 zhCN["status.saved"] = "已保存";
 en["table.frame"] = "Frame";

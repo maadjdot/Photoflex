@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useSyncExternalStore, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react";
+import { lazy, Suspense, useEffect, useRef, useState, useSyncExternalStore, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react";
 import type { LayoutDocument, LayoutEditCommand, LayoutId, LayoutObjectId, LayoutPage, LayoutPageId, ProjectId, SequenceDocument, SequenceId } from "../contracts";
 import { applyLayoutCommand } from "../modules/layout/layoutDocument";
 import { layoutPageLabel, layoutPageNumber } from "../modules/layout/layoutPageNumbers";
@@ -6,18 +6,19 @@ import { duplicateLayoutPage, facingTurnIndex } from "../modules/layout/layoutPa
 import type { AppDependencies } from "./dependencies";
 import { useLocale } from "./locale";
 import { LayoutEditor } from "./LayoutEditor";
-import { LayoutReader } from "./LayoutReader";
 import { LayoutPaperBackdrop } from "./LayoutPaperBackdrop";
 import { PhotoThumb } from "./PhotoThumb";
 import { CloudSaveStatus } from "./CloudControls";
 import { UserGuideButton } from "./UserGuide";
-import { exportLayoutPdf, preflightLayoutPdf, type LayoutPdfPreflight, type LayoutPdfQuality } from "../platform/browser/exportLayoutPdf";
+import type { LayoutPdfPreflight, LayoutPdfQuality } from "../platform/browser/exportLayoutPdf";
+import { UNDO_HISTORY_LIMIT } from "../modules/editorHistory";
 import type { ProjectWriteCoordinator } from "./projectWriteCoordinator";
 import type { AppRoute } from "./router";
 import "../styles/layout-workspace.css";
 import "../styles/layout-visual.css";
 
 const newPageId = () => crypto.randomUUID() as LayoutPageId;
+const LayoutReader = lazy(() => import("./LayoutReader").then((module) => ({ default: module.LayoutReader })));
 const copyPage = (page: LayoutPage): LayoutPage => duplicateLayoutPage(page, newPageId(), () => crypto.randomUUID() as LayoutObjectId);
 
 export function LayoutWorkspace({ dependencies, persistence, projectId, sequenceId, layoutId, navigate }: {
@@ -54,6 +55,7 @@ export function LayoutWorkspace({ dependencies, persistence, projectId, sequence
   const [exportCheck, setExportCheck] = useState<LayoutPdfPreflight>();
   const [exportProgress, setExportProgress] = useState({ completed: 0, total: 0 });
   const [exportError, setExportError] = useState<string>();
+  useEffect(() => () => { exportController.current?.abort(); }, [layoutId]);
 
   useEffect(() => {
     let live = true;
@@ -100,7 +102,7 @@ export function LayoutWorkspace({ dependencies, persistence, projectId, sequence
     if (mergeKey && lastMergeKey.current === mergeKey && historyIndex.current > 0) {
       history.current[historyIndex.current] = next;
     } else {
-      history.current = [...history.current.slice(0, historyIndex.current + 1), next];
+      history.current = [...history.current.slice(0, historyIndex.current + 1), next].slice(-(UNDO_HISTORY_LIMIT + 1));
       historyIndex.current = history.current.length - 1;
     }
     lastMergeKey.current = mergeKey;
@@ -154,6 +156,8 @@ export function LayoutWorkspace({ dependencies, persistence, projectId, sequence
   const performExport = async (snapshot: LayoutDocument, controller: AbortController, selectedQuality: LayoutPdfQuality) => {
     try {
       setExportState("exporting");
+      const { exportLayoutPdf } = await import("../platform/browser/exportLayoutPdf");
+      controller.signal.throwIfAborted();
       await exportLayoutPdf(snapshot, dependencies.photoSource, controller.signal, setExportProgress, selectedQuality);
       if (!controller.signal.aborted) setExportState("idle");
     } catch (error) {
@@ -173,6 +177,8 @@ export function LayoutWorkspace({ dependencies, persistence, projectId, sequence
     exportController.current = controller;
     setExportError(undefined); setExportCheck(undefined); setExportProgress({ completed: 0, total: snapshot.pages.length }); setExportState("checking");
     try {
+      const { preflightLayoutPdf } = await import("../platform/browser/exportLayoutPdf");
+      controller.signal.throwIfAborted();
       const check = await preflightLayoutPdf(snapshot, dependencies.photoSource, controller.signal);
       if (controller.signal.aborted) return;
       setExportCheck(check);
@@ -295,5 +301,5 @@ export function LayoutWorkspace({ dependencies, persistence, projectId, sequence
       <LayoutEditor document={document} sequence={sequence} dependencies={dependencies} selectedIndex={selectedIndex} setSelectedIndex={setSelectedIndex} command={command} onRefreshPhotos={refreshPhotos} onPreviousPage={previousPage} onNextPage={nextPage} interactionEnabled={!reading && !qualityOpen} canUndo={historyPosition > 0} canRedo={historyPosition < history.current.length - 1} onUndo={() => travel(-1)} onRedo={() => travel(1)} prepareExport={prepareExport} />
       {(["pages", "properties"] as const).map((side) => <div key={side} className={`layout-panel-resizer is-${side}`} role="separator" aria-label={side === "pages" ? (zh ? "调整页面栏宽度" : "Resize Pages panel") : (zh ? "调整属性栏宽度" : "Resize Properties panel")} aria-orientation="vertical" aria-valuemin={120} aria-valuemax={400} aria-valuenow={panelWidths[side]} tabIndex={0} onPointerDown={panelPointerDown} onPointerMove={(event) => { if (event.currentTarget.hasPointerCapture(event.pointerId)) resizePanel(side, event.clientX, event.currentTarget); }} onPointerUp={(event) => { if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId); }} onKeyDown={(event) => { if (event.key === "ArrowLeft" || event.key === "ArrowRight") { event.preventDefault(); const delta = event.key === "ArrowRight" ? 16 : -16; const bounds = event.currentTarget.getBoundingClientRect(); resizePanel(side, bounds.left + delta, event.currentTarget); } }} />)}
     </div>
-  </main>{reading && <LayoutReader document={document} initialPage={readingOrigin.current} photoSource={dependencies.photoSource} onClose={stopReading} />}</>;
+  </main>{reading && <Suspense fallback={<div role="status">{zh ? "正在打开阅读…" : "Opening reader…"}</div>}><LayoutReader document={document} initialPage={readingOrigin.current} photoSource={dependencies.photoSource} onClose={stopReading} /></Suspense>}</>;
 }

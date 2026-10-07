@@ -4,7 +4,7 @@ import type { FullConfig } from "@playwright/test";
 export default async function globalSetup(_config: FullConfig) {
   const server: ViteDevServer = await createServer({
     mode: "e2e",
-    server: { host: "127.0.0.1", port: 4173 },
+    server: { host: "127.0.0.1", port: 4173, strictPort: true, hmr: false },
   });
   await server.listen();
 

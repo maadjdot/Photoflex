@@ -3,6 +3,7 @@ import type { LayoutDocument, LayoutEditCommand, LayoutId, LayoutObjectId, Layou
 import { applyLayoutCommand, createEmptyLayout, isLayoutDocument } from "./layoutDocument";
 import { DEFAULT_LAYOUT_PAPER, resolveLayoutPaper } from "./layoutPaper";
 import { MM_TO_PT } from "../page-layout/pageGeometry";
+import { isLayoutFontFamily, LAYOUT_FONT_BY_FAMILY } from "./layoutFonts";
 
 const initial = () => createEmptyLayout({
   id: "layout" as LayoutId, projectId: "project" as ProjectId, sequenceId: "sequence" as SequenceId,
@@ -91,6 +92,14 @@ describe("Layout document commands", () => {
     expect(isLayoutDocument({ ...original, pages: [{ ...original.pages[0], objects: [
       { ...text, style: { ...text.style, fontWeight: "heavy" } },
     ] }] })).toBe(false);
+    for (const family of ["constructor", "__proto__", "toString", "hasOwnProperty", "valueOf"]) {
+      expect(isLayoutFontFamily(family)).toBe(false);
+      expect(isLayoutDocument({ ...original, pages: [{ ...original.pages[0], objects: [{ ...text, style: { ...text.style, fontFamily: family } }] }] })).toBe(false);
+    }
+    for (const family of Object.keys(LAYOUT_FONT_BY_FAMILY)) {
+      expect(isLayoutFontFamily(family)).toBe(true);
+      expect(isLayoutDocument({ ...original, pages: [{ ...original.pages[0], objects: [{ ...text, style: { ...text.style, fontFamily: family } }] }] })).toBe(true);
+    }
   });
 
   it("resizes existing frames with the page while keeping photo crop coordinates", () => {

@@ -1,0 +1,182 @@
+{
+  "scope": "Local minified previews and isolated browser fixtures; not deployed CloudBase acceptance",
+  "bundles": {
+    "before": {
+      "main": {
+        "file": "index-Brq7YwXT.js",
+        "bytes": 1459973,
+        "gzipBytes": 399772
+      },
+      "layout": {
+        "file": "LayoutWorkspace-fQtqKe2g.js",
+        "bytes": 1310555,
+        "gzipBytes": 563290
+      }
+    },
+    "after": {
+      "main": {
+        "bytes": 1166660,
+        "gzipBytes": 341453
+      },
+      "layout": {
+        "bytes": 57286,
+        "gzipBytes": 18706
+      },
+      "reader": {
+        "bytes": 93228,
+        "gzipBytes": 27282
+      },
+      "pdf": {
+        "bytes": 1162451,
+        "gzipBytes": 517966
+      }
+    }
+  },
+  "browsers": {
+    "chrome": {
+      "indexeddb-sync-performance": {
+        "samples": [
+          {
+            "accountPhotos": 30,
+            "captureMs": [
+              1.400000000023283,
+              0.5,
+              0.5,
+              0.6000000000931323,
+              0.5,
+              0.5,
+              0.39999999990686774
+            ],
+            "bytes": 3988,
+            "manifestPhotos": 30
+          },
+          {
+            "accountPhotos": 25030,
+            "captureMs": [
+              0.5999999999767169,
+              0.7000000000698492,
+              0.5999999999767169,
+              0.30000000004656613,
+              0.5,
+              0.5,
+              0.40000000002328306
+            ],
+            "bytes": 3988,
+            "manifestPhotos": 30
+          }
+        ],
+        "edits": 100,
+        "uploads": 1,
+        "burstMs": 3,
+        "flushed": true,
+        "finalText": "99",
+        "metric": {
+          "snapshotBytes": 4110,
+          "captureMs": 0.40000000002328306,
+          "uploadMs": 0.09999999997671694,
+          "localRevision": 2,
+          "outcome": "uploaded"
+        }
+      },
+      "cold-route-performance": {
+        "network": "5 Mbps, 40 ms latency, HTTP cache disabled",
+        "measurements": {
+          "loginMs": 976,
+          "tableMs": 103,
+          "layoutMs": 930,
+          "exportMs": 1249
+        }
+      },
+      "jpeg-history-performance": {
+        "jpegBytes": 4145728,
+        "visits": 30,
+        "maximumRetainedBytes": 4145728,
+        "sampledJsHeapMaximum": 30754855,
+        "originalUrlsAfterRelease": 0,
+        "urlsAfterClose": 0,
+        "undoSteps": 100,
+        "edits": 500,
+        "durationMs": 1906.2000000000698,
+        "heapBeforeBytes": 6992760,
+        "heapAfterGcBytes": 6356080
+      }
+    },
+    "edge": {
+      "indexeddb-sync-performance": {
+        "samples": [
+          {
+            "accountPhotos": 30,
+            "captureMs": [
+              1.099999999976717,
+              0.5,
+              0.5,
+              0.40000000002328306,
+              0.5999999999767169,
+              0.5,
+              0.40000000002328306
+            ],
+            "bytes": 3988,
+            "manifestPhotos": 30
+          },
+          {
+            "accountPhotos": 25030,
+            "captureMs": [
+              0.7999999999301508,
+              0.7000000000698492,
+              0.5999999999767169,
+              0.5,
+              0.5,
+              0.40000000002328306,
+              0.5
+            ],
+            "bytes": 3988,
+            "manifestPhotos": 30
+          }
+        ],
+        "edits": 100,
+        "uploads": 1,
+        "burstMs": 3,
+        "flushed": true,
+        "finalText": "99",
+        "metric": {
+          "snapshotBytes": 4110,
+          "captureMs": 0.40000000002328306,
+          "uploadMs": 0.09999999997671694,
+          "localRevision": 2,
+          "outcome": "uploaded"
+        }
+      },
+      "cold-route-performance": {
+        "network": "5 Mbps, 40 ms latency, HTTP cache disabled",
+        "measurements": {
+          "loginMs": 973,
+          "tableMs": 84,
+          "layoutMs": 913,
+          "exportMs": 1205
+        }
+      },
+      "jpeg-history-performance": {
+        "jpegBytes": 4145728,
+        "visits": 30,
+        "maximumRetainedBytes": 4145728,
+        "sampledJsHeapMaximum": 30560704,
+        "originalUrlsAfterRelease": 0,
+        "urlsAfterClose": 0,
+        "undoSteps": 100,
+        "edits": 500,
+        "durationMs": 1967.6999999999534,
+        "heapBeforeBytes": 7014764,
+        "heapAfterGcBytes": 6356296
+      }
+    }
+  },
+  "methodology": {
+    "image": "2560x1600 synthetic-noise JPEG decoded and displayed by the native browser",
+    "routeOrder": "Independent login screen, then Home to Table to Layout to PDF; loaded ES modules remain in memory",
+    "sync": "Native IndexedDB with production sync adapter and isolated fake CAS cloud",
+    "bundleCompression": "Same Python gzip.compress method for before and after",
+    "routeBuilds": "Fresh isolated local-mode and CloudBase-login production builds; explicit fixture envId",
+    "baselineCommit": "078e58c790bf3349a788a050058ed982a093b9f2",
+    "memory": "Sampled JavaScript heap and explicit-GC retention; excludes native decoder, GPU and process memory"
+  }
+}

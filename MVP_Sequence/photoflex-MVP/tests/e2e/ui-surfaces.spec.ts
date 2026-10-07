@@ -6,14 +6,16 @@ test("Frame settings stay flush after visiting Layout and translate in Chinese",
   await expect(page.getByRole("heading", { name: "Your Projects", exact: true })).toBeVisible();
   const projectId = `frame-surfaces-${crypto.randomUUID()}`;
   await page.evaluate(async (id) => {
+    const fixtureModule = "/tests/helpers/browserProjectFixture.ts";
+    const { createBrowserWorkspace } = await import(/* @vite-ignore */ fixtureModule);
     const request = indexedDB.open("photoflex-mvp");
     const db = await new Promise<IDBDatabase>((resolve, reject) => { request.onsuccess = () => resolve(request.result); request.onerror = () => reject(request.error); });
     const timestamp = new Date().toISOString();
     const transaction = db.transaction(["projects", "sequences", "versions", "layouts"], "readwrite");
     const items = [{ id: "blank-item", kind: "blank" }], readingUnits = [{ id: "blank-unit", kind: "blank", itemId: "blank-item" }];
-    transaction.objectStore("projects").put({ schemaVersion: 10, projectId: id, name: "Frame UI", memo: "", expectedPhotoCount: null, sources: [], photoStates: {},
+    transaction.objectStore("projects").put(createBrowserWorkspace({ projectId: id, name: "Frame UI", memo: "", expectedPhotoCount: null, sources: [], photoStates: {},
       worktableDraft: { projectId: id, entryOrder: [], placements: {}, groups: [], links: [], pileOrder: [], pilePlacements: {}, frameOrder: [], frames: {} },
-      sequenceIds: ["surface-sequence"], versionIds: ["surface-version"], layoutIds: ["surface-layout"], revision: 0, createdAt: timestamp, updatedAt: timestamp, lastOpenedAt: timestamp });
+      sequenceIds: ["surface-sequence"], versionIds: ["surface-version"], layoutIds: ["surface-layout"], revision: 0, createdAt: timestamp, updatedAt: timestamp, lastOpenedAt: timestamp }));
     transaction.objectStore("sequences").put({ id: "surface-sequence", projectId: id, name: "UI Sequence", items, segments: [], readingUnits, currentVersionId: "surface-version", revision: 0, createdAt: timestamp, updatedAt: timestamp });
     transaction.objectStore("versions").put({ id: "surface-version", projectId: id, sequenceId: "surface-sequence", name: "Initial", itemCount: 1, items, segments: [], readingUnits, createdAt: timestamp });
     transaction.objectStore("layouts").put({ schemaVersion: 1, id: "surface-layout", projectId: id, sequenceId: "surface-sequence", name: "UI Layout", pageSpec: { widthPt: 600, heightPt: 840 },
@@ -88,6 +90,8 @@ test("Home account menu stays above gallery photos", async ({ page }, testInfo) 
   await page.goto("/");
   await expect(page.getByRole("heading", { name: "Your Projects", exact: true })).toBeVisible();
   await page.evaluate(async () => {
+    const fixtureModule = "/tests/helpers/browserProjectFixture.ts";
+    const { createBrowserWorkspace } = await import(/* @vite-ignore */ fixtureModule);
     const request = indexedDB.open("photoflex-mvp");
     const db = await new Promise<IDBDatabase>((resolve, reject) => { request.onsuccess = () => resolve(request.result); request.onerror = () => reject(request.error); });
     const projectId = "home-menu-project", timestamp = new Date().toISOString();
@@ -100,9 +104,9 @@ test("Home account menu stays above gallery photos", async ({ page }, testInfo) 
       const blob = new Blob(['<svg xmlns="http://www.w3.org/2000/svg" width="800" height="1200"><rect width="800" height="1200" fill="#777"/></svg>'], { type: "image/svg+xml" });
       transaction.objectStore("photo-thumbnails").put({ photoId, maxEdge: 512, sourceVersion: `${relativePath}|800|1200|unknown-size|unknown-mtime|unknown-fingerprint`, blob });
     }
-    transaction.objectStore("projects").put({ schemaVersion: 10, projectId, name: "Home Menu", memo: "", expectedPhotoCount: null, sources: [], photoStates: {},
+    transaction.objectStore("projects").put(createBrowserWorkspace({ projectId, name: "Home Menu", memo: "", expectedPhotoCount: null, sources: [], photoStates: {},
       worktableDraft: { projectId, placements, entryOrder, groups: [], links: [], pileOrder: [], pilePlacements: {}, frameOrder: [], frames: {} },
-      sequenceIds: [], versionIds: [], layoutIds: [], revision: 0, createdAt: timestamp, updatedAt: timestamp, lastOpenedAt: timestamp });
+      sequenceIds: [], versionIds: [], layoutIds: [], revision: 0, createdAt: timestamp, updatedAt: timestamp, lastOpenedAt: timestamp }));
     await new Promise<void>((resolve, reject) => { transaction.oncomplete = () => resolve(); transaction.onerror = () => reject(transaction.error); });
     db.close();
   });

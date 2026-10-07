@@ -20,6 +20,7 @@ import {
 import { orderWorktableIdsByTablePosition } from "./spatialOrder";
 import { applyFrameCommand, copyFrame } from "./frameCommands";
 import { copyConnector, pruneConnectors, validConnectorEndpoint } from "./connectors";
+import { rememberEditorState } from "../editorHistory";
 
 // A deliberately generous working size keeps every card legible before the
 // photographer starts arranging it. New placements retain source proportions.
@@ -93,7 +94,7 @@ class Editor implements WorktableEditor {
     const result = applyCommand(this.current, command);
     if (!result.ok) return result;
     if (result.value === this.current) return ok(this.snapshot());
-    this.undoStack.push(this.current);
+    rememberEditorState(this.undoStack, this.current);
     this.current = pruneConnectors(result.value);
     this.redoStack.length = 0;
     return ok(this.snapshot());
@@ -102,7 +103,7 @@ class Editor implements WorktableEditor {
   undo(): WorktableDraft {
     const previous = this.undoStack.pop();
     if (!previous) return this.snapshot();
-    this.redoStack.push(this.current);
+    rememberEditorState(this.redoStack, this.current);
     this.current = previous;
     return this.snapshot();
   }
@@ -110,7 +111,7 @@ class Editor implements WorktableEditor {
   redo(): WorktableDraft {
     const next = this.redoStack.pop();
     if (!next) return this.snapshot();
-    this.undoStack.push(this.current);
+    rememberEditorState(this.undoStack, this.current);
     this.current = next;
     return this.snapshot();
   }

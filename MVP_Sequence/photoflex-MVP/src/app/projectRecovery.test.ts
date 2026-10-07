@@ -42,7 +42,9 @@ it("advances its own acknowledged revision for rapid queued edits", async () => 
   const results = await Promise.all(["One", "Two", "Three"].map((name) => a.saveSequenceDraft({ ...sequence, name })));
   expect(results.every((r) => r.ok)).toBe(true);
   expect(await a.flushAll()).toMatchObject({ ok: true });
-  expect(await store.loadSequence(sequence.id)).toMatchObject({ ok: true, value: { name: "Three", revision: 3 } });
+  expect(await store.loadSequence(sequence.id)).toMatchObject({ ok: true, value: { name: "Three", revision: 1 } });
+  expect(await a.saveSequenceDraft({ ...sequence, name: "Four" })).toMatchObject({ ok: true, value: { sequence: { revision: 2 } } });
+  expect(await store.loadSequence(sequence.id)).toMatchObject({ ok: true, value: { name: "Four", revision: 2 } });
 });
 
 it("preserves failed Table and Sequence drafts through refresh, and restores them as an independent project", async () => {

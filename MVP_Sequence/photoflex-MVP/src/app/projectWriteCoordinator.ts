@@ -126,6 +126,7 @@ export class ProjectWriteCoordinatorImpl implements ProjectWriteCoordinator {
   private readonly acknowledgedSequenceRevisions = new Map<SequenceId, SequenceRevision>();
   private readonly acknowledgedLayoutRevisions = new Map<LayoutId, LayoutRevision>();
   private draftGeneration = 0;
+  private replaceableDraft?: { readonly key: string; run: () => Promise<unknown>; result: Promise<unknown> };
 
   constructor(dependencies: AppDependencies, projectId: ProjectId) {
     this.dependencies = dependencies;
@@ -219,7 +220,8 @@ export class ProjectWriteCoordinatorImpl implements ProjectWriteCoordinator {
     const current = this.currentWorkspace();
     const draft = current && (typeof update === "function" ? update(current.worktableDraft) : update);
     if (draft && (!current || !sameWorktableDraft(draft, current.worktableDraft))) this.latestWorktableDraft = draft;
-    return this.enqueue(() => this.performWorktableSave(draft), () => this.performWorktableSave(this.latestWorktableDraft));
+    const task = () => this.performWorktableSave(draft), retry = () => this.performWorktableSave(this.latestWorktableDraft);
+    return typeof update === "function" ? this.enqueue(task, retry) : this.enqueueDraft("worktable", task, retry, { kind: "workspace" });
   }
 
   private async performWorktableSave(draft?: WorktableDraft): Promise<CoordinatorWorkspaceResult> {
@@ -335,7 +337,7 @@ export class ProjectWriteCoordinatorImpl implements ProjectWriteCoordinator {
   saveLayoutDraft(layout: LayoutDocument): Promise<Result<LayoutWriteResult, LoadError | LayoutWriteError | CoordinatorPausedError>> {
     this.draftGeneration += 1;
     this.latestLayoutDrafts.set(layout.id, layout);
-    return this.enqueue(
+    return this.enqueueDraft(`layout:${layout.id}`,
       () => this.performLayoutSave(layout),
       () => this.performLayoutSave(this.latestLayoutDrafts.get(layout.id) ?? layout),
       { kind: "layout", layoutId: layout.id },
@@ -373,7 +375,7 @@ export class ProjectWriteCoordinatorImpl implements ProjectWriteCoordinator {
   saveSequenceDraft(sequence: SequenceDocument): Promise<Result<SequenceWriteResult, LoadError | SequenceWriteError | CoordinatorPausedError>> {
     this.draftGeneration += 1;
     this.latestSequenceDrafts.set(sequence.id, sequence);
-    return this.enqueue(
+    return this.enqueueDraft(`sequence:${sequence.id}`,
       () => this.performSequenceSave(sequence),
       () => this.performSequenceSave(this.latestSequenceDrafts.get(sequence.id) ?? sequence),
       { kind: "sequence", sequenceId: sequence.id },
@@ -511,7 +513,11 @@ export class ProjectWriteCoordinatorImpl implements ProjectWriteCoordinator {
     task: () => Promise<T>,
     retryTask: (() => Promise<unknown>) | undefined = task,
     scope: ProjectWriteScope = { kind: "workspace" },
+    keepDraftSlot = false,
   ): Promise<T> {
+    // Structural operations and saves of another document form an ordering
+    // barrier: a later draft cannot replace an earlier draft across it.
+    if (!keepDraftSlot) this.replaceableDraft = undefined;
     const scopeKey = writeScopeKey(scope);
     this.pendingWrites += 1;
     this.refreshWriteSnapshot();
@@ -540,6 +546,21 @@ export class ProjectWriteCoordinatorImpl implements ProjectWriteCoordinator {
       this.refreshWriteSnapshot();
     });
     return pending;
+  }
+
+  private enqueueDraft<T>(key: string, task: () => Promise<T>, retry: () => Promise<unknown>, scope: ProjectWriteScope): Promise<T> {
+    if (this.pausedScopes.has(writeScopeKey(scope))) return this.enqueue(task, retry, scope);
+    if (this.replaceableDraft?.key === key) {
+      this.replaceableDraft.run = task;
+      return this.replaceableDraft.result as Promise<T>;
+    }
+    const slot = { key, run: task as () => Promise<unknown>, result: Promise.resolve<unknown>(undefined) };
+    slot.result = this.enqueue(async () => {
+      if (this.replaceableDraft === slot) this.replaceableDraft = undefined;
+      return slot.run();
+    }, retry, scope, true);
+    this.replaceableDraft = slot;
+    return slot.result as Promise<T>;
   }
 
   private refreshWriteSnapshot() {

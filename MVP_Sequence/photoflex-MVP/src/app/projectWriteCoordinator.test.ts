@@ -20,6 +20,48 @@ async function fixture() {
 }
 
 describe("ProjectWriteCoordinator", () => {
+  it("coalesces queued Table drafts and preserves a structural save as an ordering barrier", async () => {
+    const { projectStore, photoSource, workspace } = await fixture();
+    const coordinator = createProjectWriteCoordinator({ projectStore, photoSource }, projectId); await coordinator.load();
+    const original = projectStore.saveWorktable.bind(projectStore);
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const names: number[] = [];
+    const save = vi.spyOn(projectStore, "saveWorktable").mockImplementation(async (id, draft, revision) => {
+      names.push(Number(draft.memos?.[0].text ?? 0));
+      if (names.length === 1) await gate;
+      return original(id, draft, revision);
+    });
+    const draft = (index: number) => ({ ...workspace.worktableDraft, memos: [{ id: "burst-memo", text: String(index), x: 0, y: 0, z: 1, width: 200, height: 100, fontSize: 16, photoIds: [] }] });
+    const first = coordinator.saveWorktable(draft(1));
+    await vi.waitFor(() => expect(save).toHaveBeenCalledOnce());
+    const second = coordinator.saveWorktable(draft(2));
+    const third = coordinator.saveWorktable(draft(3));
+    const barrier = coordinator.saveWorkspace((current) => ({ ...current, name: `At ${current.worktableDraft.memos?.[0].text}` }));
+    const fourth = coordinator.saveWorktable(draft(4));
+    release();
+    expect((await Promise.all([first, second, third, barrier, fourth])).every((result) => result.ok)).toBe(true);
+    expect(names).toEqual([1, 3, 4]);
+    expect(await projectStore.loadWorkspace(projectId)).toMatchObject({ ok: true, value: { name: "At 3", worktableDraft: { memos: [{ text: "4" }] }, revision: 4 } });
+    expect((await coordinator.flushAll()).ok).toBe(true);
+  });
+
+  it("retains the final merged Layout draft when a write fails and retries it", async () => {
+    const projectStore = new MemoryProjectStore(), imported = await projectStore.importBackup(backupBytes());
+    if (!imported.ok) throw Error("fixture import failed");
+    const coordinator = createProjectWriteCoordinator({ projectStore, photoSource: new MemoryPhotoSource() }, imported.value); await coordinator.load();
+    const sequences = await coordinator.listSequences(); if (!sequences.ok) throw Error("missing sequence");
+    const layout = createEmptyLayout({ id: "coalesced-layout" as LayoutId, projectId: imported.value, sequenceId: sequences.value[0].id,
+      pageId: "coalesced-page" as LayoutPageId, name: "Original", createdAt: "2026-10-07" });
+    expect((await coordinator.createLayout(layout)).ok).toBe(true);
+    const original = projectStore.saveLayout.bind(projectStore), save = vi.spyOn(projectStore, "saveLayout").mockResolvedValueOnce(err({ kind: "quota-exceeded" })).mockImplementation(original);
+    const results = await Promise.all([coordinator.saveLayoutDraft({ ...layout, name: "Superseded" }), coordinator.saveLayoutDraft({ ...layout, name: "Retained final" })]);
+    expect(results.every((result) => !result.ok)).toBe(true); expect(save).toHaveBeenCalledOnce();
+    const recovery = await coordinator.exportRecoveryBackup(); if (!recovery.ok) throw Error("missing recovery");
+    expect(JSON.parse(new TextDecoder().decode(recovery.value)).layouts[0].name).toBe("Retained final");
+    expect(await coordinator.retryLayout(layout.id)).toBe(true);
+    expect(await projectStore.loadLayout(layout.id)).toMatchObject({ ok: true, value: { name: "Retained final" } });
+  });
   it("keeps a failed Layout draft in recovery and retries its latest edit", async () => {
     const projectStore = new MemoryProjectStore();
     const imported = await projectStore.importBackup(backupBytes());

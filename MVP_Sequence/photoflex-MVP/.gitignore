@@ -1,11 +1,13 @@
 node_modules/
 dist/
+dist-beta/
 dist-*.zip
 .env
 .env.local
 .env.*.local
 playwright-report/
 test-results/
+tmp/
 tests/fixtures/photos/*.jpg
 !tests/fixtures/photos/.gitkeep
 

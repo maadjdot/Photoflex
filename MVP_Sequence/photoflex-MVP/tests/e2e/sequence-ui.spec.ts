@@ -5,7 +5,7 @@ import { expect, test, type Page } from "@playwright/test";
 const PROJECT_ID = "sequence-visual-project";
 const SEQUENCE_ID = "sequence-visual";
 
-test("Sequence opens over Table as a clean grid and reads uncropped photos", async ({ page }) => {
+test("Sequence opens over Table as a clean grid and reads uncropped photos", async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto("/");
   await expect(page.getByRole("heading", { name: "Projects" })).toBeVisible();
@@ -35,11 +35,11 @@ test("Sequence opens over Table as a clean grid and reads uncropped photos", asy
   const secondRowTop = secondRowFirstColumn!.y;
   expect(secondRowTop).toBeGreaterThan(firstRowTop + 200);
   expect(secondRowFirstColumn!.x).toBeCloseTo(firstColumnX, 0);
-  await page.screenshot({ path: "design-output/Sequence/sequence-overlay-grid-1440.png", fullPage: true });
+  await page.screenshot({ path: testInfo.outputPath("sequence-overlay-grid-1440.png"), fullPage: true });
 
   await page.setViewportSize({ width: 1280, height: 720 });
   await expect(cards).toHaveCount(8);
-  await page.screenshot({ path: "design-output/Sequence/sequence-overlay-grid-1280.png", fullPage: true });
+  await page.screenshot({ path: testInfo.outputPath("sequence-overlay-grid-1280.png"), fullPage: true });
 
   await cards.nth(1).click();
   const preview = page.getByRole("dialog", { name: "Preview photo 2" });
@@ -85,7 +85,7 @@ test("Sequence opens over Table as a clean grid and reads uncropped photos", asy
   const portraitImage = await read.getByAltText("Sequence reading photograph 2").boundingBox();
   expect(portraitImage!.y).toBeGreaterThanOrEqual(portraitFrame!.y - 1);
   expect(portraitImage!.y + portraitImage!.height).toBeLessThanOrEqual(portraitFrame!.y + portraitFrame!.height + 1);
-  await page.screenshot({ path: "design-output/Sequence/sequence-read-1280.png", fullPage: true });
+  await page.screenshot({ path: testInfo.outputPath("sequence-read-1280.png"), fullPage: true });
 
   const scrollBefore = await track.evaluate((element) => element.scrollLeft);
   await track.hover();
@@ -130,11 +130,11 @@ test("Sequence opens over Table as a clean grid and reads uncropped photos", asy
   await page.mouse.up();
   await expect.poll(async () => (await pile.boundingBox())!.width).toBeGreaterThan(originalPileWidth);
   await expect(overlay).toHaveCount(0);
-  await page.screenshot({ path: "design-output/Sequence/sequence-table-card-enlarged.png", fullPage: true });
-  await page.screenshot({ path: "design-output/Sequence/sequence-table-card.png", fullPage: true });
+  await page.screenshot({ path: testInfo.outputPath("sequence-table-card-enlarged.png"), fullPage: true });
+  await page.screenshot({ path: testInfo.outputPath("sequence-table-card.png"), fullPage: true });
 });
 
-test("Layout opens from Sequence and keeps page order at 1280 and 1440", async ({ page }) => {
+test("Layout opens from Sequence and keeps page order at 1280 and 1440", async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto("/");
   await expect(page.getByRole("heading", { name: "Projects" })).toBeVisible();
@@ -170,15 +170,15 @@ test("Layout opens from Sequence and keeps page order at 1280 and 1440", async (
   expect(route).toMatch(/\/layout\//);
   await layout.locator(".layout-pages-list button").nth(1).click();
   await layout.locator(".layout-paper.is-current .layout-object-image-frame").click();
-  await page.screenshot({ path: "design-output/Layout/layout-figma-1440.png", fullPage: true });
+  await page.screenshot({ path: testInfo.outputPath("layout-figma-1440.png"), fullPage: true });
   await expect(layout.getByRole("group", { name: "Template" })).toBeVisible();
-  await page.screenshot({ path: "design-output/Layout/layout-style-1440.png", fullPage: true });
+  await page.screenshot({ path: testInfo.outputPath("layout-style-1440.png"), fullPage: true });
   await layout.locator(".layout-pages-list button").first().click();
   const initialSize = await layout.locator(".layout-paper").first().boundingBox();
   expect(initialSize!.height / initialSize!.width).toBeCloseTo(297 / 210, 1);
   await layout.getByRole("button", { name: "Page size" }).click();
   await expect(layout.getByRole("group", { name: "Page size presets" })).toBeVisible();
-  await page.screenshot({ path: "design-output/Layout/layout-page-size-popup-1440.png", fullPage: true });
+  await page.screenshot({ path: testInfo.outputPath("layout-page-size-popup-1440.png"), fullPage: true });
   await layout.getByRole("group", { name: "Page size presets" }).getByRole("button", { name: "A5" }).click();
   await expect(layout.getByRole("button", { name: "Page size" })).toContainText("A5");
   expect((await layout.locator(".layout-paper").first().boundingBox())!.width).toBeLessThan(initialSize!.width);
@@ -234,7 +234,7 @@ test("Layout opens from Sequence and keeps page order at 1280 and 1440", async (
     expect(bounds!.x).toBeGreaterThanOrEqual(0);
     expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(1280);
   }
-  await page.screenshot({ path: "design-output/Layout/layout-figma-1280.png", fullPage: true });
+  await page.screenshot({ path: testInfo.outputPath("layout-figma-1280.png"), fullPage: true });
   await page.reload();
   await expect(layout.locator(".layout-pages-list button")).toHaveCount(11);
   await expect(layout.getByRole("status")).toContainText("Saved locally");
@@ -653,7 +653,7 @@ test("Layout text survives refresh and reading uses the same lines", async ({ pa
   });
   expect(readerLineHeightRatio).toBeCloseTo(editLineHeightRatio, 3);
   await reader.getByRole("button", { name: "Next", exact: true }).last().click();
-  await expect(reader.locator(".layout-reader-progress")).toContainText("2–3 / 10");
+  await expect(reader.locator(".layout-reader-progress")).toContainText("1–2 / 8");
   await reader.getByRole("button", { name: "Exit reading" }).click();
   await expect(layout.locator(".layout-pages-list button[aria-current=page]")).toContainText("Front cover");
   await expect(layout.locator(".layout-save-status")).toContainText("Saved locally");
@@ -732,7 +732,7 @@ test("Layout Read turns rigid faces, reverses drags and centers closed covers", 
   await expect(book.locator(".stf__item.--soft")).toHaveCount(0);
   const cover = (await reader.locator('article[aria-label="Page 1"]').boundingBox())!;
   expect(cover.x + cover.width / 2).toBeCloseTo(720, 0);
-  await page.screenshot({ path: `design-output/Layout/read-hard-cover-${testInfo.project.name}.png` });
+  await page.screenshot({ path: testInfo.outputPath(`read-hard-cover-${testInfo.project.name}.png`) });
 
   await page.keyboard.press("ArrowRight");
   await expect(counter).toContainText("2–3 / 6");
@@ -740,7 +740,7 @@ test("Layout Read turns rigid faces, reverses drags and centers closed covers", 
   // The same panorama is clipped into the two faces, including the right half.
   await expect(reader.locator('article[aria-label="Page 2"] img.layout-placed-image')).toHaveCount(1);
   await expect(reader.locator('article[aria-label="Page 3"] img.layout-placed-image')).toHaveCount(1);
-  await page.screenshot({ path: `design-output/Layout/read-hard-spread-${testInfo.project.name}.png` });
+  await page.screenshot({ path: testInfo.outputPath(`read-hard-spread-${testInfo.project.name}.png`) });
   const bounds = (await book.boundingBox())!;
   const rightDepth = await book.evaluate((element) => (element as HTMLElement).style.getPropertyValue("--book-right-depth"));
   await page.mouse.move(bounds.x + bounds.width * .96, bounds.y + bounds.height * .5);
@@ -751,7 +751,7 @@ test("Layout Read turns rigid faces, reverses drags and centers closed covers", 
   await expect.poll(() => book.locator(".stf__item.--shown").evaluateAll((leaves) => leaves.some((leaf) =>
     (leaf as HTMLElement).style.transform.includes("rotateY") && (leaf as HTMLElement).style.clipPath === "none"))).toBe(true);
   expect(await book.evaluate((element) => (element as HTMLElement).style.getPropertyValue("--book-right-depth"))).not.toBe(rightDepth);
-  await page.screenshot({ path: `design-output/Layout/read-hard-turn-${testInfo.project.name}.png` });
+  await page.screenshot({ path: testInfo.outputPath(`read-hard-turn-${testInfo.project.name}.png`) });
   await page.mouse.move(bounds.x + bounds.width * .96, bounds.y + bounds.height * .5, { steps: 8 });
   await page.mouse.up();
   await expect(book).not.toHaveAttribute("data-turning");
@@ -835,7 +835,7 @@ test.describe("Layout Read on touch screens", () => {
     await expect(reader.locator(".layout-reader-fit")).toHaveText("125%");
     await reader.locator(".layout-reader-fit").click();
     await expect(reader.locator(".layout-reader-fit")).toHaveText("100%");
-    await page.screenshot({ path: `design-output/Layout/read-hard-mobile-${testInfo.project.name}.png` });
+    await page.screenshot({ path: testInfo.outputPath(`read-hard-mobile-${testInfo.project.name}.png`) });
     await reader.getByRole("button", { name: "Facing", exact: true }).click();
     await expect(book.locator(".stf__wrapper.--landscape")).toHaveCount(1);
     await expect(book.locator(".stf__item.--shown")).toHaveCount(2);
@@ -882,6 +882,8 @@ async function seedHardReaderLayout(page: Page, pageCount: number) {
 
 async function seedSequence(page: Page) {
   await page.evaluate(async ({ projectId, sequenceId }) => {
+    const fixtureModule = "/tests/helpers/browserProjectFixture.ts";
+    const { createBrowserWorkspace } = await import(/* @vite-ignore */ fixtureModule);
     const request = indexedDB.open("photoflex-mvp");
     const database = await new Promise<IDBDatabase>((resolve, reject) => {
       request.onsuccess = () => resolve(request.result);
@@ -897,11 +899,11 @@ async function seedSequence(page: Page) {
     const items = photos.map((photo, index) => ({ id: `sequence-item-${index + 1}`, kind: "photo", photoId: photo.id }));
     const readingUnits = items.map((item, index) => ({ id: `sequence-unit-${index + 1}`, kind: "single", itemId: item.id }));
     const transaction = database.transaction(["projects", "sequences", "versions", "photo-index", "photo-thumbnails", "photo-derived-previews"], "readwrite");
-    transaction.objectStore("projects").put({
-      schemaVersion: 10, projectId, name: "Sequence Visual", memo: "", expectedPhotoCount: null, sources: [], photoStates: {},
+    transaction.objectStore("projects").put(createBrowserWorkspace({
+      projectId, name: "Sequence Visual", memo: "", expectedPhotoCount: null, sources: [], photoStates: {},
       worktableDraft: { projectId, entryOrder: [], placements: {}, groups: [], links: [], pileOrder: [sequenceId], pilePlacements: { [sequenceId]: { sequenceId, x: 120, y: 110, z: 1, width: 402, height: 176 } }, frameOrder: [], frames: {} },
       sequenceIds: [sequenceId], versionIds: [versionId], layoutIds: [], revision: 0, createdAt, updatedAt: createdAt, lastOpenedAt: createdAt,
-    });
+    }));
     transaction.objectStore("sequences").put({ id: sequenceId, projectId, name: "Street Edit", items, segments: [], readingUnits, currentVersionId: versionId, revision: 0, createdAt, updatedAt: createdAt });
     transaction.objectStore("versions").put({ id: versionId, projectId, sequenceId, name: "Initial · Street Edit", itemCount: items.length, items, segments: [], readingUnits, createdAt });
     for (const [index, photo] of photos.entries()) {

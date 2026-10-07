@@ -1,4 +1,5 @@
 import type { LayoutFontFamily, LayoutFontStyle, LayoutFontWeight } from "../../contracts";
+export { needsLayoutChineseFallback } from "./layoutFontCoverage";
 
 export interface LayoutFontDefinition {
   readonly family: LayoutFontFamily;
@@ -35,7 +36,7 @@ export const layoutFontWeight = (weight?: LayoutFontWeight): LayoutFontWeight =>
 export const layoutFontStyle = (style?: LayoutFontStyle): LayoutFontStyle => style ?? "normal";
 
 export function isLayoutFontFamily(value: unknown): value is LayoutFontFamily {
-  return typeof value === "string" && value in LAYOUT_FONT_BY_FAMILY;
+  return typeof value === "string" && Object.hasOwn(LAYOUT_FONT_BY_FAMILY, value);
 }
 
 /** Browser fallback is glyph-based, so unsupported Chinese uses Noto Serif SC without changing Latin glyphs. */

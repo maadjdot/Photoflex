@@ -7,16 +7,18 @@ async function openTable(page: Page) {
   await expect(page.getByRole("heading", { name: "Projects" })).toBeVisible();
   const projectId = `connector-${crypto.randomUUID()}`;
   await page.evaluate(async ({ id, template }) => {
+    const fixtureModule = "/tests/helpers/browserProjectFixture.ts";
+    const { createBrowserWorkspace } = await import(/* @vite-ignore */ fixtureModule);
     const request = indexedDB.open("photoflex-mvp");
     const db = await new Promise<IDBDatabase>((resolve, reject) => { request.onsuccess = () => resolve(request.result); request.onerror = () => reject(request.error); });
     const createdAt = new Date().toISOString(), tx = db.transaction("projects", "readwrite");
-    tx.objectStore("projects").put({ schemaVersion: 10, projectId: id, name: "Line Tool", memo: "", expectedPhotoCount: null, sources: [], photoStates: {},
+    tx.objectStore("projects").put(createBrowserWorkspace({ projectId: id, name: "Line Tool", memo: "", expectedPhotoCount: null, sources: [], photoStates: {},
       worktableDraft: { projectId: id, entryOrder: ["photo"], placements: { photo: { id: "photo", photoId: "photo", filename: "photo.jpg", x: 100, y: 100, width: 200, height: 100, z: 2 } },
         groups: [], links: [], pileOrder: [], pilePlacements: {},
         memos: [{ id: "memo", text: "Connected thoughts", x: 500, y: 100, width: 160, height: 100, z: 3, fontSize: 16, photoIds: [] }],
         frameOrder: ["frame"], frames: { frame: { id: "frame", name: "Frame", x: 800, y: 100, z: 0, displayScale: .5, page: { widthPt: 400, heightPt: 600, templateSource: template, slots: [] } } } },
       resumeContext: { page: "table", filter: "all", tableViewport: { originX: 0, originY: 0, zoom: 1 } },
-      sequenceIds: [], versionIds: [], layoutIds: [], revision: 0, createdAt, updatedAt: createdAt, lastOpenedAt: createdAt });
+      sequenceIds: [], versionIds: [], layoutIds: [], revision: 0, createdAt, updatedAt: createdAt, lastOpenedAt: createdAt }));
     await new Promise<void>((resolve, reject) => { tx.oncomplete = () => resolve(); tx.onerror = () => reject(tx.error); });
     db.close();
   }, { id: projectId, template: frameTemplateSource("single") });

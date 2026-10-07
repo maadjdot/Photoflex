@@ -9,10 +9,17 @@ on:
     paths:
       - "MVP_Sequence/photoflex-MVP/**"
       - ".github/workflows/photoflex-mvp-ci.yml"
+  workflow_dispatch:
+    inputs:
+      build_beta:
+        description: "Build the Beta artifact after all checks pass"
+        type: boolean
+        default: false
 
 jobs:
   check:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     defaults:
       run:
         working-directory: MVP_Sequence/photoflex-MVP
@@ -29,3 +36,31 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm fixture:generate
       - run: pnpm check
+      - name: Install Chrome and Edge for the release gate
+        run: pnpm exec playwright install --with-deps chrome msedge
+      - name: Run the complete browser regression suite
+        run: pnpm test:e2e
+      - name: Preserve browser failures for diagnosis
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: photoflex-browser-failures
+          path: |
+            MVP_Sequence/photoflex-MVP/playwright-report/
+            MVP_Sequence/photoflex-MVP/test-results/
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Build the explicitly configured Beta target
+        if: github.event_name == 'workflow_dispatch' && inputs.build_beta
+        run: pnpm build:beta
+        env:
+          VITE_BETA_CLOUDBASE_ENV_ID: ${{ vars.VITE_BETA_CLOUDBASE_ENV_ID }}
+          VITE_BETA_ORIGIN: ${{ vars.VITE_BETA_ORIGIN }}
+      - name: Preserve the verified Beta artifact
+        if: github.event_name == 'workflow_dispatch' && inputs.build_beta
+        uses: actions/upload-artifact@v7
+        with:
+          name: photoflex-beta-${{ github.sha }}
+          path: MVP_Sequence/photoflex-MVP/dist-beta/
+          if-no-files-found: error
+          retention-days: 14

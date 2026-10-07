@@ -38,6 +38,7 @@ export async function resumePendingProjectDeletions(
   const remaining: ProjectSummary[] = [];
   const failures: Array<{ projectId: ProjectId; error: DeleteProjectWorkspaceError }> = [];
   for (const project of projects) {
+    if (!project.deletionPendingAt || project.loadError) { remaining.push(project); continue; }
     const loaded = await dependencies.projectStore.loadWorkspace(project.id);
     if (!loaded.ok) {
       if (loaded.error.kind !== "not-found") {

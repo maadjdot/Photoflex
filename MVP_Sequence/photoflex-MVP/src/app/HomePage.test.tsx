@@ -3,10 +3,30 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { afterEach, expect, it, vi } from "vitest";
 import { ok, type PhotoId, type ProjectId } from "../contracts";
 import { MemoryPhotoSource } from "../platform/memory/MemoryPhotoSource";
-import { MemoryProjectStore } from "../platform/memory/MemoryProjectStore";
+import { createMemoryProjectDatabase, MemoryProjectStore } from "../platform/memory/MemoryProjectStore";
 import { HomePage } from "./HomePage";
 
 afterEach(() => { cleanup(); vi.restoreAllMocks(); });
+
+it("identifies a damaged project, keeps its recovery action, and still opens a healthy project", async () => {
+  const database = createMemoryProjectDatabase(), projectStore = new MemoryProjectStore(database);
+  const badId = "damaged" as ProjectId, goodId = "healthy" as ProjectId;
+  await projectStore.createProject({ id: badId, name: "Damaged", createdAt: "2026-10-07" });
+  await projectStore.createProject({ id: goodId, name: "Healthy", createdAt: "2026-10-06" });
+  database.corruptProjectIds.add(badId);
+  const navigate = vi.fn();
+  render(<HomePage dependencies={{ projectStore, photoSource: new MemoryPhotoSource() }} navigate={navigate} />);
+  expect((await screen.findByRole("alert")).textContent).toContain("Damaged");
+  expect(screen.getByRole("alert").textContent).toContain(badId);
+  expect(screen.getByRole("button", { name: "Download raw data for recovery" })).toBeTruthy();
+  expect(screen.queryByText("No photos on this Table yet")).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Healthy" }));
+  const open = await screen.findByRole("button", { name: "Open Table" });
+  expect(screen.queryByRole("alert")).toBeNull();
+  fireEvent.click(open);
+  expect(navigate).toHaveBeenCalledWith({ name: "table", projectId: goodId });
+  expect(database.corruptProjectIds.has(badId)).toBe(true);
+});
 
 it("shows only the selected Table's photos, keeps the layout stable during renders, and opens that Table", async () => {
   const projectStore = new MemoryProjectStore();

@@ -36,6 +36,7 @@ import {
 } from "../../contracts";
 import {
   clone,
+  corruptProjectSummary,
   createBackup,
   createWorkspace,
   isSequenceDocument,
@@ -49,7 +50,9 @@ import {
 } from "../projectStoreData";
 import { toSequenceSummary } from "../../modules/sequence";
 import { prepareBackupImport } from "../projectBackup";
-import type { PhotoRef, PhotoId } from "../../contracts";
+import type { PhotoRef, PhotoId, StorageAccessError } from "../../contracts";
+import { acknowledgedCloudSyncState, cloudSyncPending, dirtyCloudSyncState, initialCloudSyncState, installedCloudDocument,
+  type CloudSnapshot, type CloudSnapshotInstall, type CloudSyncSeed, type CloudSyncState } from "../cloudSync";
 
 export interface MemoryProjectDatabase {
   readonly projects: Map<ProjectId, ProjectWorkspace>;
@@ -58,6 +61,7 @@ export interface MemoryProjectDatabase {
   readonly layouts: Map<LayoutId, LayoutDocument>;
   readonly corruptProjectIds: Set<ProjectId>;
   readonly photos: Map<PhotoId, PhotoRef>;
+  readonly cloudSync: Map<ProjectId, CloudSyncState>;
 }
 
 export const createMemoryProjectDatabase = (): MemoryProjectDatabase => ({
@@ -67,6 +71,7 @@ export const createMemoryProjectDatabase = (): MemoryProjectDatabase => ({
   layouts: new Map(),
   corruptProjectIds: new Set(),
   photos: new Map(),
+  cloudSync: new Map(),
 });
 
 interface MemoryProjectStoreOptions {
@@ -80,17 +85,54 @@ export class MemoryProjectStore implements ProjectStore {
     private readonly options: MemoryProjectStoreOptions = {},
   ) {}
 
+  private markCloudChange(id: ProjectId): void {
+    const state = this.database.cloudSync.get(id);
+    if (state) this.database.cloudSync.set(id, dirtyCloudSyncState(state));
+  }
+  async readCloudSyncState(id: ProjectId, seed?: CloudSyncSeed): Promise<Result<CloudSyncState | undefined, StorageAccessError>> {
+    if (this.options.unavailable || (seed && this.options.quotaExceeded)) return err({ kind: "unavailable", retryable: true });
+    let state = this.database.cloudSync.get(id);
+    if (!state && seed) { state = initialCloudSyncState(id, seed); this.database.cloudSync.set(id, state); }
+    return ok(state && clone(state));
+  }
+  private async updateCloudSyncState(id: ProjectId, update: (state: CloudSyncState) => CloudSyncState): Promise<Result<CloudSyncState, StorageAccessError>> {
+    if (this.options.unavailable || this.options.quotaExceeded) return err({ kind: "unavailable", retryable: true });
+    const state = update(this.database.cloudSync.get(id) ?? initialCloudSyncState(id, { revision: null, pending: false }));
+    this.database.cloudSync.set(id, state);
+    return ok(clone(state));
+  }
+  acknowledgeCloudSnapshot(id: ProjectId, localRevision: number, cloudRevision: number) {
+    return this.updateCloudSyncState(id, (state) => acknowledgedCloudSyncState(state, localRevision, cloudRevision));
+  }
+  markCloudPending(id: ProjectId) { return this.updateCloudSyncState(id, dirtyCloudSyncState); }
+  markCloudConflict(id: ProjectId) { return this.updateCloudSyncState(id, (state) => ({ ...state, conflict: true })); }
+  async captureCloudSnapshot(id: ProjectId): Promise<Result<CloudSnapshot, LoadError>> {
+    const before = this.database.cloudSync.get(id);
+    const bytes = await this.exportBackup(id);
+    if (!bytes.ok) return bytes;
+    const after = this.database.cloudSync.get(id);
+    if (!before || !after || before.localRevision !== after.localRevision) return err({ kind: "unavailable", retryable: true });
+    return ok({ document: JSON.parse(new TextDecoder().decode(bytes.value)) as ProjectBackupV1, sync: clone(after) });
+  }
+
   async listProjects(): Promise<
     Result<readonly ProjectSummary[], CorruptDataError | { kind: "unavailable"; retryable: boolean }>
   > {
     if (this.options.unavailable) return err({ kind: "unavailable", retryable: true });
-    const corruptId = this.database.corruptProjectIds.values().next().value;
-    if (corruptId) return err({ kind: "corrupt-data", entityId: corruptId });
     return ok(
-      [...this.database.projects.values()]
-        .map(toProjectSummary)
+      [...new Set([...this.database.projects.keys(), ...this.database.corruptProjectIds])]
+        .map((id) => { const record = this.database.projects.get(id); return record && isWorkspace(record) && !this.database.corruptProjectIds.has(id)
+          ? toProjectSummary(record) : corruptProjectSummary(id, record); })
         .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt)),
     );
+  }
+  async exportRecoveryData(projectId: ProjectId): Promise<Result<Uint8Array, LoadError>> {
+    if (this.options.unavailable) return err({ kind: "unavailable", retryable: true });
+    const project = this.database.projects.get(projectId);
+    if (!project) return err({ kind: "not-found", entity: "project", id: projectId });
+    const documents = <T extends { readonly projectId: ProjectId }>(records: Iterable<T>) => [...records].filter((record) => record.projectId === projectId);
+    return ok(new TextEncoder().encode(JSON.stringify({ format: "photoflex-project-recovery", projectId, project,
+      sequences: documents(this.database.sequences.values()), layouts: documents(this.database.layouts.values()), versions: documents(this.database.versions.values()) })));
   }
 
   async createProject(
@@ -103,6 +145,7 @@ export class MemoryProjectStore implements ProjectStore {
     }
     const workspace = createWorkspace(input);
     this.database.projects.set(input.id, clone(workspace));
+    this.markCloudChange(input.id);
     return ok(workspace);
   }
 
@@ -137,6 +180,7 @@ export class MemoryProjectStore implements ProjectStore {
     }
     const revision = (expectedRevision + 1) as WorkspaceRevision;
     this.database.projects.set(workspace.projectId, clone({ ...workspace, revision }));
+    this.markCloudChange(workspace.projectId);
     return ok({ revision });
   }
 
@@ -180,6 +224,7 @@ export class MemoryProjectStore implements ProjectStore {
     };
     this.database.versions.set(version.id, clone(version));
     this.database.projects.set(projectId, clone(nextWorkspace));
+    this.markCloudChange(projectId);
     return ok({ summary: toVersionSummary(version), revision });
   }
 
@@ -217,6 +262,7 @@ export class MemoryProjectStore implements ProjectStore {
     this.database.versions.set(input.version.id, savedVersion);
     this.database.sequences.set(sequence.id, savedSequence);
     this.database.projects.set(input.projectId, nextWorkspace);
+    this.markCloudChange(input.projectId);
     return ok({ summary: toVersionSummary(savedVersion), workspaceRevision: nextWorkspaceRevision, sequenceRevision: nextSequenceRevision });
   }
 
@@ -232,6 +278,7 @@ export class MemoryProjectStore implements ProjectStore {
     const revision = (expectedWorkspaceRevision + 1) as WorkspaceRevision;
     this.database.versions.delete(versionId);
     this.database.projects.set(projectId, clone({ ...workspace, versionIds: workspace.versionIds.filter((id) => id !== versionId), revision, updatedAt: new Date().toISOString() }));
+    this.markCloudChange(projectId);
     return ok({ revision });
   }
 
@@ -260,6 +307,7 @@ export class MemoryProjectStore implements ProjectStore {
     this.database.sequences.set(sequence.id, clone(sequence));
     this.database.versions.set(initialVersion.id, clone(initialVersion));
     this.database.projects.set(projectId, clone({ ...workspace, worktableDraft, sequenceIds: [...workspace.sequenceIds, sequence.id], versionIds: [...workspace.versionIds, initialVersion.id], revision, updatedAt: sequence.updatedAt }));
+    this.markCloudChange(projectId);
     return ok({ summary: toSequenceSummary(sequence), revision });
   }
 
@@ -301,6 +349,7 @@ export class MemoryProjectStore implements ProjectStore {
     const revision = (expectedRevision + 1) as SequenceRevision;
     const saved = { ...sequence, revision };
     this.database.sequences.set(sequence.id, clone(saved));
+    this.markCloudChange(sequence.projectId);
     return ok({ summary: toSequenceSummary(saved), revision });
   }
 
@@ -319,6 +368,7 @@ export class MemoryProjectStore implements ProjectStore {
     const revision = (expectedRevision + 1) as WorkspaceRevision;
     this.database.layouts.set(layout.id, clone(layout));
     this.database.projects.set(projectId, clone({ ...workspace, layoutIds: [...workspace.layoutIds, layout.id], revision, updatedAt: layout.updatedAt }));
+    this.markCloudChange(projectId);
     return ok({ summary: toLayoutSummary(layout), revision });
   }
 
@@ -354,6 +404,7 @@ export class MemoryProjectStore implements ProjectStore {
     const revision = (expectedRevision + 1) as LayoutRevision;
     const saved = { ...layout, revision };
     this.database.layouts.set(layout.id, clone(saved));
+    this.markCloudChange(layout.projectId);
     return ok({ summary: toLayoutSummary(saved), revision });
   }
 
@@ -383,6 +434,7 @@ export class MemoryProjectStore implements ProjectStore {
     removedLayoutIds.forEach((layoutId) => this.database.layouts.delete(layoutId));
     const revision = (expectedWorkspaceRevision + 1) as WorkspaceRevision;
     this.database.projects.set(projectId, clone({ ...workspace, sequenceIds: workspace.sequenceIds.filter((id) => !removed.has(id)), versionIds, layoutIds, worktableDraft, revision, updatedAt: new Date().toISOString() }));
+    this.markCloudChange(projectId);
     return ok({ revision, sequenceIds: workspace.sequenceIds.filter((id) => !removed.has(id)), versionIds, layoutIds });
   }
 
@@ -416,6 +468,7 @@ export class MemoryProjectStore implements ProjectStore {
     for (const sequenceId of workspace.sequenceIds) this.database.sequences.delete(sequenceId);
     for (const layoutId of workspace.layoutIds) this.database.layouts.delete(layoutId);
     this.database.projects.delete(projectId);
+    this.database.cloudSync.delete(projectId);
     this.database.corruptProjectIds.delete(projectId);
     return ok(undefined);
   }
@@ -453,6 +506,7 @@ export class MemoryProjectStore implements ProjectStore {
     if (this.options.quotaExceeded) return err({ kind: "quota-exceeded" });
     const { backup, photos } = prepared.value;
     this.database.projects.set(backup.project.projectId, clone(backup.project));
+    this.markCloudChange(backup.project.projectId);
     backup.sequences.forEach((s) => this.database.sequences.set(s.id, clone(s)));
     backup.versions.forEach((v) => this.database.versions.set(v.id, clone(v)));
     backup.layouts.forEach((layout) => this.database.layouts.set(layout.id, clone(layout)));
@@ -460,13 +514,18 @@ export class MemoryProjectStore implements ProjectStore {
     return ok(backup.project.projectId);
   }
 
-  async installCloudSnapshot(document: ProjectBackupV1): Promise<Result<void, BackupError>> {
+  async installCloudSnapshot(document: ProjectBackupV1, sync?: CloudSnapshotInstall): Promise<Result<void, BackupError>> {
     const prepared = prepareBackupImport(new TextEncoder().encode(JSON.stringify(document)), true);
     if (!prepared.ok) return prepared;
     if (this.options.unavailable) return err({ kind: "unavailable", retryable: true });
     if (this.options.quotaExceeded) return err({ kind: "quota-exceeded" });
     const { backup, photos } = prepared.value;
+    const current = this.database.cloudSync.get(backup.project.projectId);
+    if (sync && ((current?.localRevision ?? 0) !== sync.expectedLocalRevision || (!sync.replacePending && current && (cloudSyncPending(current) || current.conflict)))) {
+      return err({ kind: "invalid-backup", reason: "Local edits changed while the cloud snapshot was loading." });
+    }
     const previous = this.database.projects.get(backup.project.projectId);
+    const priorSequences = new Map(this.database.sequences), priorLayouts = new Map(this.database.layouts);
     if (previous) {
       previous.versionIds.forEach((id) => this.database.versions.delete(id));
       previous.sequenceIds.forEach((id) => this.database.sequences.delete(id));
@@ -474,11 +533,16 @@ export class MemoryProjectStore implements ProjectStore {
       const oldSources = new Set(previous.sources.map((source) => source.id));
       for (const [id, photo] of this.database.photos) if (oldSources.has(photo.sourceId)) this.database.photos.delete(id);
     }
-    this.database.projects.set(backup.project.projectId, clone(backup.project));
+    this.database.projects.set(backup.project.projectId, clone(sync ? installedCloudDocument(backup.project, previous) : backup.project));
+    this.markCloudChange(backup.project.projectId);
     backup.versions.forEach((version) => this.database.versions.set(version.id, clone(version)));
-    backup.sequences.forEach((sequence) => this.database.sequences.set(sequence.id, clone(sequence)));
-    backup.layouts.forEach((layout) => this.database.layouts.set(layout.id, clone(layout)));
+    backup.sequences.forEach((sequence) => this.database.sequences.set(sequence.id, clone(sync ? installedCloudDocument(sequence, priorSequences.get(sequence.id)) : sequence)));
+    backup.layouts.forEach((layout) => this.database.layouts.set(layout.id, clone(sync ? installedCloudDocument(layout, priorLayouts.get(layout.id)) : layout)));
     photos.forEach((photo) => this.database.photos.set(photo.id, clone(photo)));
+    if (sync) {
+      const localRevision = (current?.localRevision ?? 0) + 1;
+      this.database.cloudSync.set(backup.project.projectId, { projectId: backup.project.projectId, localRevision, acknowledgedRevision: localRevision, cloudRevision: sync.cloudRevision, conflict: false });
+    }
     return ok(undefined);
   }
 }
