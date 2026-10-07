@@ -102,9 +102,11 @@ describe("CloudBackedProjectStore", () => {
     await store.createProject({ id, name: "Pending", createdAt: "2026-09-16T00:00:00.000Z" });
     expect(await store.flushPending()).toBe(false);
     expect(store.getStatus(id)).toBe("retrying");
+    expect(store.getLastUploadMetric(id)).toMatchObject({ outcome: "unavailable", snapshotBytes: expect.any(Number), localRevision: expect.any(Number) });
     fixture.setUnavailable(false);
     expect(await store.flushPending()).toBe(true);
     expect(fixture.rows.get(id)?.name).toBe("Pending");
+    expect(store.getLastUploadMetric(id)).toMatchObject({ outcome: "uploaded", captureMs: expect.any(Number), uploadMs: expect.any(Number) });
   });
 
   it("does not overwrite concurrent cloud changes", async () => {

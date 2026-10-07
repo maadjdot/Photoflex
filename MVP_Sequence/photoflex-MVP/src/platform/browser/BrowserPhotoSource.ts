@@ -94,6 +94,8 @@ const THUMBNAIL_MAX_EDGE = 512;
 // retaining original-file blobs for every visible item.
 const DERIVED_PREVIEW_CACHE_LIMIT = 64;
 const URL_CACHE_LIMIT = 72;
+const DERIVED_PREVIEW_CACHE_BYTES = 24 * 1024 * 1024;
+const URL_CACHE_BYTES = 16 * 1024 * 1024;
 
 const requestValue = <T>(request: IDBRequest<T>): Promise<T> =>
   new Promise((resolve, reject) => {
@@ -155,6 +157,7 @@ export class BrowserPhotoSource implements PhotoSource {
   private readonly thumbnailWaiters: Array<() => void> = [];
   private activeThumbnailJobs = 0;
   private urlClock = 0;
+  private disposed = false;
   private readonly picker: DirectoryPicker;
   private readonly database: Promise<Result<IDBDatabase, unknown>>;
 
@@ -172,6 +175,7 @@ export class BrowserPhotoSource implements PhotoSource {
   }
 
   async close(): Promise<void> {
+    this.disposed = true;
     const opened = await this.database;
     if (opened.ok) opened.value.close();
     for (const cached of this.urlCache.values()) URL.revokeObjectURL(cached.url);
@@ -179,6 +183,7 @@ export class BrowserPhotoSource implements PhotoSource {
     this.derivedPreviewCache.clear();
     this.photoVersions.clear();
     this.fileHandles.clear();
+    this.handles.clear(); this.states.clear();
   }
 
   async chooseFolder(
@@ -729,6 +734,7 @@ export class BrowserPhotoSource implements PhotoSource {
     const opened = await this.database;
     if (!opened.ok) return err(toSourceError());
     const sourceVersion = await this.getPhotoVersion(opened.value, photoId);
+    if (this.disposed) return err(toSourceError());
     if (!sourceVersion) return err({ kind: "photo-not-found", photoId });
     const cacheKey = `thumbnail:${photoId}:${sourceVersion}`;
     const memory = this.urlCache.get(cacheKey);
@@ -739,6 +745,7 @@ export class BrowserPhotoSource implements PhotoSource {
         .objectStore(STORE_NAMES.photoThumbnails)
         .get(photoId),
     ).catch(() => undefined);
+    if (this.disposed) return err(toSourceError());
     if (stored?.maxEdge === THUMBNAIL_MAX_EDGE && stored.sourceVersion === sourceVersion) {
       return ok(this.createLease(cacheKey, stored.blob));
     }
@@ -753,6 +760,7 @@ export class BrowserPhotoSource implements PhotoSource {
       });
     }
     const generated = await job;
+    if (this.disposed) return err(toSourceError());
     return generated.ok
       ? ok(this.createLease(cacheKey, generated.value))
       : generated;
@@ -762,12 +770,14 @@ export class BrowserPhotoSource implements PhotoSource {
     const opened = await this.database;
     if (!opened.ok) return err(toSourceError());
     const sourceVersion = await this.getPhotoVersion(opened.value, photoId);
+    if (this.disposed) return err(toSourceError());
     if (!sourceVersion) return err({ kind: "photo-not-found", photoId });
     const file = await this.readPhotoFile(opened.value, photoId);
     if (!file.ok) return err(file.error);
     const key = `preview:${photoId}:${sourceVersion}`;
     try {
       const blob = this.urlCache.get(key)?.blob ?? await staticPhotoPreview(file.value);
+      if (this.disposed) return err(toSourceError());
       return ok(this.createLease(key, blob));
     } catch { return err(toSourceError()); }
   }
@@ -813,6 +823,7 @@ export class BrowserPhotoSource implements PhotoSource {
     const opened = await this.database;
     if (!opened.ok) return err(toSourceError());
     const sourceVersion = await this.getPhotoVersion(opened.value, photoId);
+    if (this.disposed) return err(toSourceError());
     if (!sourceVersion) return err({ kind: "photo-not-found", photoId });
     const key = `derived:${maxEdge}:${photoId}:${sourceVersion}`;
     const cached = this.derivedPreviewCache.get(key);
@@ -830,6 +841,7 @@ export class BrowserPhotoSource implements PhotoSource {
           .get([photoId, maxEdge]),
       ).catch(() => undefined)
       : undefined;
+    if (this.disposed) return err(toSourceError());
     if (stored?.sourceVersion === sourceVersion) {
       this.derivedPreviewCache.set(key, { blob: stored.blob, sourceVersion, lastUsed: ++this.urlClock });
       this.trimDerivedPreviewCache();
@@ -846,6 +858,7 @@ export class BrowserPhotoSource implements PhotoSource {
       });
     }
     const generated = await job;
+    if (this.disposed) return err(toSourceError());
     if (!generated.ok) return generated;
     this.derivedPreviewCache.set(key, { blob: generated.value, sourceVersion, lastUsed: ++this.urlClock });
     this.trimDerivedPreviewCache();
@@ -853,10 +866,12 @@ export class BrowserPhotoSource implements PhotoSource {
   }
 
   private trimDerivedPreviewCache(): void {
-    while (this.derivedPreviewCache.size > DERIVED_PREVIEW_CACHE_LIMIT) {
+    let bytes = [...this.derivedPreviewCache.values()].reduce((sum, entry) => sum + entry.blob.size, 0);
+    while (this.derivedPreviewCache.size > DERIVED_PREVIEW_CACHE_LIMIT || bytes > DERIVED_PREVIEW_CACHE_BYTES) {
       const oldest = [...this.derivedPreviewCache.entries()].sort((left, right) => left[1].lastUsed - right[1].lastUsed)[0];
       if (!oldest) return;
       this.derivedPreviewCache.delete(oldest[0]);
+      bytes -= oldest[1].blob.size;
     }
   }
 
@@ -1119,6 +1134,9 @@ export class BrowserPhotoSource implements PhotoSource {
         released = true;
         cached.references -= 1;
         cached.lastUsed = ++this.urlClock;
+        if (cached.references === 0 && key.startsWith("preview:") && this.urlCache.get(key) === cached) {
+          this.urlCache.delete(key); URL.revokeObjectURL(cached.url);
+        }
         this.trimUrlCache();
       },
     };
@@ -1128,9 +1146,11 @@ export class BrowserPhotoSource implements PhotoSource {
     const idle = [...this.urlCache.values()]
       .filter((cached) => cached.references === 0)
       .sort((left, right) => left.lastUsed - right.lastUsed);
-    while (this.urlCache.size > URL_CACHE_LIMIT && idle.length) {
+    let bytes = idle.reduce((sum, entry) => sum + entry.blob.size, 0);
+    while ((this.urlCache.size > URL_CACHE_LIMIT || bytes > URL_CACHE_BYTES) && idle.length) {
       const cached = idle.shift()!;
       this.urlCache.delete(cached.key);
+      bytes -= cached.blob.size;
       URL.revokeObjectURL(cached.url);
     }
   }

@@ -13,6 +13,7 @@ import {
   type SequenceItemId,
   type SequenceSegment,
 } from "../../contracts";
+import { rememberEditorState } from "../editorHistory";
 
 export function createSequenceEditor(initial: SequenceDraft): SequenceEditor {
   return new Editor(normalize(initial));
@@ -30,21 +31,21 @@ class Editor implements SequenceEditor {
   undo(): SequenceDraft {
     const previous = this.undoStack.pop();
     if (!previous) return this.snapshot();
-    this.redoStack.push(this.current);
+    rememberEditorState(this.redoStack, this.current);
     this.current = previous;
     return this.snapshot();
   }
   redo(): SequenceDraft {
     const next = this.redoStack.pop();
     if (!next) return this.snapshot();
-    this.undoStack.push(this.current);
+    rememberEditorState(this.undoStack, this.current);
     this.current = next;
     return this.snapshot();
   }
   execute(command: SequenceEditCommand): Result<SequenceDraft, SequenceCommandError> {
     const result = apply(this.current, command);
     if (!result.ok || result.value === this.current) return result.ok ? ok(this.snapshot()) : result;
-    this.undoStack.push(this.current);
+    rememberEditorState(this.undoStack, this.current);
     this.current = result.value;
     this.redoStack.length = 0;
     return ok(this.snapshot());

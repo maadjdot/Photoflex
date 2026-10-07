@@ -1,9 +1,10 @@
 import type { LayoutDocument, LayoutFontFamily, LayoutFontStyle, LayoutFontWeight, LayoutImageFrame, LayoutPaper, PhotoId, PhotoSource } from "../../contracts";
 import { createLayoutPdf, type LayoutPdfFontSource, type LayoutPdfPhoto, type LayoutPdfProgress } from "../../modules/layout/layoutPdf";
-import { LAYOUT_CHINESE_FALLBACK_FONT, LAYOUT_FONT_BY_FAMILY, layoutFontCssShorthand, layoutFontStyle, layoutFontWeight } from "../../modules/layout/layoutFonts";
+import { LAYOUT_CHINESE_FALLBACK_FONT, LAYOUT_FONT_BY_FAMILY, layoutFontCssShorthand, layoutFontStyle, layoutFontWeight, needsLayoutChineseFallback } from "../../modules/layout/layoutFonts";
 import { isDarkLayoutPaper, layoutPaperMaterial } from "../../modules/layout/layoutPaper";
 import { resolveImagePlacement } from "../../modules/page-layout/pageGeometry";
-import { loadLayoutFont, resolveLayoutFontAsset } from "./layoutFontAssets";
+import { loadLayoutFont } from "./layoutFontAssets";
+import { resolveLayoutPdfFontAsset } from "./layoutPdfFontAssets";
 import { decodePhotoImage, encodePhotoCanvas, inspectPhotoImage } from "./photoImage";
 
 export interface LayoutPdfIssue { readonly page: number; readonly objectId: string; readonly kind: "empty" | "missing" | "low-resolution" }
@@ -47,13 +48,13 @@ export async function exportLayoutPdf(snapshot: LayoutDocument, source: PhotoSou
   const addRequest = (family: LayoutFontFamily, weight: LayoutFontWeight, style: LayoutFontStyle) => {
     requests.set(`${family}:${weight}:${style}`, { family, weight, style });
   };
-  const textStyles: Array<{ family: LayoutFontFamily; weight: LayoutFontWeight; style: LayoutFontStyle }> = [];
+  const textStyles: Array<{ family: LayoutFontFamily; weight: LayoutFontWeight; style: LayoutFontStyle; text: string }> = [];
   for (const page of snapshot.pages) for (const object of page.objects) {
     if (object.kind !== "text-box") continue;
     const style = { family: object.style.fontFamily, weight: layoutFontWeight(object.style.fontWeight), style: layoutFontStyle(object.style.fontStyle) };
-    textStyles.push(style);
+    textStyles.push({ ...style, text: object.text });
     addRequest(style.family, style.weight, style.style);
-    addRequest(LAYOUT_CHINESE_FALLBACK_FONT, style.weight, style.style);
+    if (needsLayoutChineseFallback(style.family, object.text, style.weight, style.style)) addRequest(LAYOUT_CHINESE_FALLBACK_FONT, style.weight, style.style);
   }
   const byteLoads = new Map<string, Promise<Uint8Array>>();
   const loadBytes = (url: string, family: LayoutFontFamily) => {
@@ -67,10 +68,10 @@ export async function exportLayoutPdf(snapshot: LayoutDocument, source: PhotoSou
     return promise;
   };
   const fonts: LayoutPdfFontSource[] = await Promise.all([...requests.values()].map(async (request) => {
-    const asset = resolveLayoutFontAsset(request.family, request.weight, request.style);
+    const asset = resolveLayoutPdfFontAsset(request.family, request.weight, request.style);
     return { ...request, ...asset, bytes: await loadBytes(asset.url, request.family) };
   }));
-  await Promise.all(textStyles.map(({ family, weight, style }) => loadLayoutFont(family, weight, style)));
+  await Promise.all(textStyles.map(({ family, weight, style, text }) => loadLayoutFont(family, weight, style, text)));
   const context = document.createElement("canvas").getContext("2d");
   if (!context) throw new Error("This browser could not measure Layout text for PDF export.");
   const bytes = await createLayoutPdf(snapshot, {

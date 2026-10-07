@@ -641,12 +641,24 @@ export class IndexedDbProjectStore implements ProjectStore {
     try {
       // Read all documents in one transaction: a concurrent edit cannot split a backup.
       const tx = projectTransaction(opened.value, [STORE_NAMES.projects, STORE_NAMES.versions, STORE_NAMES.sequences, STORE_NAMES.layouts, STORE_NAMES.photoIndex, STORE_NAMES.cloudSync], "readonly");
-      const [project, allVersions, allSequences, allLayouts, allPhotos, sync] = await Promise.all([
-        requestValue<ProjectWorkspace | undefined>(tx.objectStore(STORE_NAMES.projects).get(projectId)),
+      // Queue source-index reads in the project's success event to keep them in
+      // this same snapshot transaction, without scanning the account's photos.
+      const photoReads = new Promise<{ project?: ProjectWorkspace; photos: PhotoRef[] }>((resolve, reject) => {
+        const request = tx.objectStore(STORE_NAMES.projects).get(projectId);
+        request.onerror = () => reject(request.error);
+        request.onsuccess = () => {
+          const project = request.result as ProjectWorkspace | undefined;
+          if (!project || !isWorkspace(project)) { resolve({ project, photos: [] }); return; }
+          const index = tx.objectStore(STORE_NAMES.photoIndex).index("by-source-id");
+          const reads = [...new Set(project.sources.map((source) => source.id))].map((sourceId) => requestValue<PhotoRef[]>(index.getAll(sourceId)));
+          void Promise.all(reads).then((pages) => resolve({ project, photos: pages.flat().sort((left, right) => left.id < right.id ? -1 : left.id > right.id ? 1 : 0) }), reject);
+        };
+      });
+      const [{ project, photos: allPhotos }, allVersions, allSequences, allLayouts, sync] = await Promise.all([
+        photoReads,
         requestValue<SequenceVersion[]>(tx.objectStore(STORE_NAMES.versions).index("by-project-id").getAll(projectId)),
         requestValue<SequenceDocument[]>(tx.objectStore(STORE_NAMES.sequences).index("by-project-id").getAll(projectId)),
         requestValue<LayoutDocument[]>(tx.objectStore(STORE_NAMES.layouts).index("by-project-id").getAll(projectId)),
-        requestValue<PhotoRef[]>(tx.objectStore(STORE_NAMES.photoIndex).getAll()),
         requestValue<CloudSyncState | undefined>(tx.objectStore(STORE_NAMES.cloudSync).get(projectId)),
       ]);
       if (!project) return err({ kind: "not-found", entity: "project", id: projectId });

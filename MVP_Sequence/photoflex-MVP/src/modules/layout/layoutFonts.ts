@@ -1,4 +1,5 @@
 import type { LayoutFontFamily, LayoutFontStyle, LayoutFontWeight } from "../../contracts";
+export { needsLayoutChineseFallback } from "./layoutFontCoverage";
 
 export interface LayoutFontDefinition {
   readonly family: LayoutFontFamily;

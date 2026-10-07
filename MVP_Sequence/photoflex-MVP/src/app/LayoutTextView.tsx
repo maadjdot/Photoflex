@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import type { LayoutTextBox } from "../contracts";
-import { layoutFontCssShorthand, layoutFontCssStack, layoutFontStyle, layoutFontWeight } from "../modules/layout/layoutFonts";
+import { layoutFontCssShorthand, layoutFontCssStack, layoutFontStyle, layoutFontWeight, needsLayoutChineseFallback } from "../modules/layout/layoutFonts";
 import { layoutText, type LayoutTextResult } from "../modules/layout/layoutText";
 import { loadLayoutFont } from "../platform/browser/layoutFontAssets";
 import { useLocale } from "./locale";
@@ -11,15 +11,16 @@ export function useLayoutText(box: LayoutTextBox | undefined) {
   const family = box?.style.fontFamily;
   const weight = layoutFontWeight(box?.style.fontWeight);
   const style = layoutFontStyle(box?.style.fontStyle);
+  const fallback = family ? needsLayoutChineseFallback(family, box?.text, weight, style) : false;
   useEffect(() => {
     let active = true;
     setState("loading");
-    if (family) void loadLayoutFont(family, weight, style).then(
+    if (family) void loadLayoutFont(family, weight, style, box?.text).then(
       () => { if (active) setState("ready"); },
       () => { if (active) setState("failed"); },
     );
     return () => { active = false; };
-  }, [family, weight, style, attempt]);
+  }, [family, weight, style, fallback, attempt]);
   const result: LayoutTextResult | undefined = useMemo(() => {
     if (!box || state !== "ready") return undefined;
     const context = document.createElement("canvas").getContext("2d");

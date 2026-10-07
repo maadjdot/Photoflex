@@ -3,7 +3,7 @@ import { expect, test } from "@playwright/test";
 test("a failed font request recovers in the same text box without reloading", async ({ page }) => {
   const errors: string[] = []; page.on("pageerror", (error) => errors.push(error.message));
   let failed = true, requests = 0;
-  await page.route(/ArchitectsDaughter-Regular\.ttf$/, async (route) => {
+  await page.route(/ArchitectsDaughter-Regular\.woff2$/, async (route) => {
     requests++;
     if (failed) await route.abort("internetdisconnected"); else await route.continue();
   });

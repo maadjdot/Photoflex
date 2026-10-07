@@ -22,7 +22,14 @@ interface ProjectRow {
   readonly updated_at: string;
 }
 
-const unavailable = (): CloudProjectError => ({ kind: "unavailable", retryable: true });
+const unavailable = (error?: unknown): CloudProjectError => {
+  const details = error as { code?: unknown; status?: unknown; statusCode?: unknown } | null;
+  const code = details?.code, status = Number(details?.status ?? details?.statusCode);
+  return { kind: "unavailable", retryable: true,
+    ...(typeof code === "string" && /^[\w.-]{1,80}$/.test(code) ? { requestCode: code } : {}),
+    ...(Number.isInteger(status) && status >= 100 && status <= 599 ? { httpStatus: status } : {}),
+  };
+};
 
 function isBackup(value: unknown): value is ProjectBackupV1 {
   if (!value || typeof value !== "object") return false;
@@ -67,7 +74,7 @@ export class CloudBaseProjectCloud implements ProjectCloud {
         .select("id,name,schema_version,cloud_revision,updated_at")
         .eq("owner_id", userId.value)
         .order("updated_at", { ascending: false });
-      if (error || !data) return err(unavailable());
+      if (error || !data) return err(unavailable(error));
       const summaries: CloudProjectSummary[] = [];
       for (const row of data as ProjectRow[]) {
         const summary = summaryFromRow(row);
@@ -75,8 +82,8 @@ export class CloudBaseProjectCloud implements ProjectCloud {
         summaries.push(summary.value);
       }
       return ok(summaries);
-    } catch {
-      return err(unavailable());
+    } catch (error) {
+      return err(unavailable(error));
     }
   }
 
@@ -89,21 +96,22 @@ export class CloudBaseProjectCloud implements ProjectCloud {
         .eq("id", projectId)
         .eq("owner_id", userId.value)
         .maybeSingle();
-      if (error) return err(unavailable());
+      if (error) return err(unavailable(error));
       return data ? snapshotFromRow(data as ProjectRow) : err({ kind: "not-found", projectId });
-    } catch {
-      return err(unavailable());
+    } catch (error) {
+      return err(unavailable(error));
     }
   }
 
-  private async reconcilePush(input: PushCloudProjectInput, nextRevision: number): Promise<Result<CloudProjectSnapshot, CloudProjectError>> {
+  private async reconcilePush(input: PushCloudProjectInput, nextRevision: number, failure?: unknown): Promise<Result<CloudProjectSnapshot, CloudProjectError>> {
     const existing = await this.pull(input.projectId);
-    if (!existing.ok) return existing.error.kind === "not-found" ? err(unavailable()) : existing;
+    if (!existing.ok) return existing.error.kind === "not-found" ? err(unavailable(failure))
+      : failure && existing.error.kind === "unavailable" ? err({ ...existing.error, ...unavailable(failure) }) : existing;
     if (existing.value.cloudRevision === nextRevision
       && existing.value.name === input.name
       && existing.value.schemaVersion === input.schemaVersion
       && jsonSemanticEqual(existing.value.document, input.document)) return existing;
-    if (existing.value.cloudRevision === input.expectedCloudRevision) return err(unavailable());
+    if (existing.value.cloudRevision === input.expectedCloudRevision) return err(unavailable(failure));
     return err({ kind: "conflict", expectedRevision: input.expectedCloudRevision, actualRevision: existing.value.cloudRevision });
   }
 
@@ -130,7 +138,7 @@ export class CloudBaseProjectCloud implements ProjectCloud {
       if (input.expectedCloudRevision === null) {
         const { error } = await this.client.rdb().from("projects")
           .insert({ id: input.projectId, owner_id: userId.value, ...values });
-        return error ? this.reconcilePush(input, nextRevision) : ok(committed);
+        return error ? this.reconcilePush(input, nextRevision, error) : ok(committed);
       }
 
       const { count, error } = await this.client.rdb().from("projects")
@@ -139,9 +147,9 @@ export class CloudBaseProjectCloud implements ProjectCloud {
         .eq("owner_id", userId.value)
         .eq("cloud_revision", input.expectedCloudRevision);
       if (!error && count === 1) return ok(committed);
-      return this.reconcilePush(input, nextRevision);
-    } catch {
-      return this.reconcilePush(input, nextRevision);
+      return this.reconcilePush(input, nextRevision, error);
+    } catch (error) {
+      return this.reconcilePush(input, nextRevision, error);
     }
   }
 
@@ -154,11 +162,11 @@ export class CloudBaseProjectCloud implements ProjectCloud {
         .eq("id", projectId)
         .eq("owner_id", userId.value)
         .eq("cloud_revision", expectedCloudRevision);
-      if (error) return err(unavailable());
+      if (error) return err(unavailable(error));
       if (count === 1) return ok(undefined);
       const existing = await this.pull(projectId);
       if (!existing.ok) return existing.error.kind === "not-found" ? ok(undefined) : existing;
       return err({ kind: "conflict", expectedRevision: expectedCloudRevision, actualRevision: existing.value.cloudRevision });
-    } catch { return err(unavailable()); }
+    } catch (error) { return err(unavailable(error)); }
   }
 }

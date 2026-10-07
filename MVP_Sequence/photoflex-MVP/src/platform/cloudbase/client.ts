@@ -1,4 +1,4 @@
-import cloudbase from "@cloudbase/js-sdk";
+import { createModularCloudBaseClient } from "./modularClient.js";
 
 export interface CloudBaseConfiguration {
   readonly envId: string;
@@ -12,7 +12,7 @@ export function readCloudBaseConfiguration(environment: CloudBaseEnvironment): C
 }
 
 export function createCloudBaseClient(configuration: CloudBaseConfiguration) {
-  return cloudbase.init({ env: configuration.envId, region: "ap-shanghai" });
+  return createModularCloudBaseClient(configuration.envId);
 }
 
 export type CloudBaseClient = ReturnType<typeof createCloudBaseClient>;

@@ -6,6 +6,15 @@ import { withProjectSyncLock } from "./projectSyncLock";
 export type { CloudSnapshotCache } from "../cloudSync";
 
 export type CloudSaveStatus = "saved" | "saving" | "retrying" | "conflict" | "cached";
+export interface CloudUploadMetric {
+  readonly snapshotBytes: number;
+  readonly captureMs: number;
+  readonly uploadMs: number;
+  readonly localRevision: number;
+  readonly requestCode?: string;
+  readonly httpStatus?: number;
+  readonly outcome: "uploaded" | "capture-failed" | "exception" | "unauthenticated" | "not-found" | "conflict" | "invalid-snapshot" | "unavailable";
+}
 const unavailable = () => err({ kind: "unavailable" as const, retryable: true });
 const peers = new Map<string, Set<CloudBackedProjectStore>>();
 
@@ -27,6 +36,7 @@ export class CloudBackedProjectStore implements ProjectStore {
   private readonly projectIssues = new Map<ProjectId, LoadError>();
   private readonly failedSnapshots = new Map<ProjectId, Uint8Array>();
   private readonly projectRetries = new Map<ProjectId, ReturnType<typeof setTimeout>>();
+  private readonly uploadMetrics = new Map<ProjectId, CloudUploadMetric>();
   private catalogRequest?: Promise<boolean>;
   private catalogRetry?: ReturnType<typeof setTimeout>;
   private projectListVersion = 0;
@@ -47,6 +57,8 @@ export class CloudBackedProjectStore implements ProjectStore {
   getStatus(id: ProjectId): CloudSaveStatus { return this.states.get(id) ?? "saved"; }
   getProjectListVersion(): number { return this.projectListVersion; }
   getProjectIssue(id: ProjectId): LoadError | undefined { return this.projectIssues.get(id); }
+  /** Local timings and sizes only. No names, photos, credentials or snapshot content. */
+  getLastUploadMetric(id: ProjectId): CloudUploadMetric | undefined { return this.uploadMetrics.get(id); }
   private catalogChanged(): void { this.projectListVersion++; this.listeners.forEach((listener) => listener()); }
   getConflictProjectIds(): readonly ProjectId[] { return [...this.known].filter((id) => this.getStatus(id) === "conflict").sort(); }
   hasPending(): boolean { return [...this.syncStates.values()].some(cloudSyncPending) || this.activeWrites.size > 0; }
@@ -242,12 +254,28 @@ export class CloudBackedProjectStore implements ProjectStore {
         const state = await this.refresh(id);
         if (!state || !cloudSyncPending(state) || state.conflict) return;
         if (this.activeWrites.has(id)) { this.schedule(id); return; }
+        const captureStart = performance.now();
         const snapshot = await this.local.captureCloudSnapshot(id);
-        if (!snapshot.ok) { this.retry(id); return; }
+        if (!snapshot.ok) {
+          this.uploadMetrics.set(id, { snapshotBytes: 0, captureMs: performance.now() - captureStart, uploadMs: 0, localRevision: state.localRevision, outcome: "capture-failed" });
+          this.retry(id); return;
+        }
         const { document, sync } = snapshot.value;
         if (!cloudSyncPending(sync) || sync.conflict) { this.accept(sync); return; }
-        const pushed = await this.cloud.push({ projectId: id, name: document.project.name, schemaVersion: document.project.schemaVersion,
-          document, expectedCloudRevision: sync.cloudRevision });
+        const snapshotBytes = new TextEncoder().encode(JSON.stringify(document)).byteLength;
+        const captureMs = performance.now() - captureStart, uploadStart = performance.now();
+        let pushed: Awaited<ReturnType<ProjectCloud["push"]>>;
+        try {
+          pushed = await this.cloud.push({ projectId: id, name: document.project.name, schemaVersion: document.project.schemaVersion,
+            document, expectedCloudRevision: sync.cloudRevision });
+        } catch (error) {
+          this.uploadMetrics.set(id, { snapshotBytes, captureMs, uploadMs: performance.now() - uploadStart, localRevision: sync.localRevision, outcome: "exception" });
+          throw error;
+        }
+        this.uploadMetrics.set(id, { snapshotBytes, captureMs, uploadMs: performance.now() - uploadStart, localRevision: sync.localRevision,
+          outcome: pushed.ok ? "uploaded" : pushed.error.kind,
+          ...(!pushed.ok && pushed.error.kind === "unavailable" ? { requestCode: pushed.error.requestCode, httpStatus: pushed.error.httpStatus } : {}),
+        });
         let revision: number;
         if (!pushed.ok) {
           if (pushed.error.kind !== "conflict") { this.retry(id); return; }
@@ -398,5 +426,6 @@ export class CloudBackedProjectStore implements ProjectStore {
     this.channel?.close();
     const group = peers.get(this.prefix); group?.delete(this); if (!group?.size) peers.delete(this.prefix);
     this.listeners.clear();
+    this.uploadMetrics.clear();
   }
 }

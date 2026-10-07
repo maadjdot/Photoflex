@@ -1,11 +1,22 @@
 import { describe, expect, it } from "vitest";
 import type { PhotoId, ProjectId, ReadingUnitId, SequenceItem, SequenceItemId, SequenceSegmentId } from "../../contracts";
 import { createSequenceEditor } from "./sequenceEditor";
+import { UNDO_HISTORY_LIMIT } from "../editorHistory";
 
 const item = (id: string, photoId = id): SequenceItem => ({ id: id as SequenceItemId, kind: "photo", photoId: photoId as PhotoId });
 const draft = (items: readonly SequenceItem[]) => ({ projectId: "project" as ProjectId, items, segments: [], readingUnits: items.map((value) => ({ id: `unit-${value.id}` as ReadingUnitId, kind: value.kind === "blank" ? "blank" as const : "single" as const, itemId: value.id })) });
 
 describe("SequenceEditor", () => {
+  it("bounds undo history while preserving redo and clearing a branched future", () => {
+    const editor = createSequenceEditor(draft([item("a"), item("b")]));
+    for (let index = 0; index < UNDO_HISTORY_LIMIT + 20; index++) editor.execute({ type: "move", itemIds: ["a" as SequenceItemId], to: index % 2 === 0 ? 2 : 0 });
+    let count = 0; while (editor.canUndo()) { editor.undo(); count++; }
+    expect(count).toBe(UNDO_HISTORY_LIMIT);
+    for (let index = 0; index < count; index++) editor.redo();
+    expect(editor.canRedo()).toBe(false);
+    editor.undo(); editor.execute({ type: "add", items: [item("new")] });
+    expect(editor.canRedo()).toBe(false); expect(editor.snapshot().items.some((item) => item.id === "new")).toBe(true);
+  });
   it("allows repeated photos with distinct item IDs and moves them atomically", () => {
     const editor = createSequenceEditor(draft([item("a", "photo"), item("b")]));
     expect(editor.execute({ type: "add", items: [item("c", "photo")] }).ok).toBe(true);

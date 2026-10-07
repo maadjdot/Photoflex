@@ -40,7 +40,7 @@ export type CloudProjectError =
   | { readonly kind: "not-found"; readonly projectId: ProjectId }
   | { readonly kind: "conflict"; readonly expectedRevision: number | null; readonly actualRevision: number }
   | { readonly kind: "invalid-snapshot" }
-  | { readonly kind: "unavailable"; readonly retryable: boolean };
+  | { readonly kind: "unavailable"; readonly retryable: boolean; readonly requestCode?: string; readonly httpStatus?: number };
 
 export interface PushCloudProjectInput {
   readonly projectId: ProjectId;

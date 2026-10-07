@@ -88,7 +88,7 @@ test("Home isolates a damaged cloud project and downloads its raw data while a h
     (window as any).__syncFixture = await (await import(/* @vite-ignore */ module)).mountCloudSyncFixture({ databaseName, home: true });
   }, databaseName);
   const root = page.locator("#cloud-sync-fixture");
-  await root.getByRole("button", { name: "Damaged project", exact: true }).click();
+  await root.getByRole("button", { name: /^Damaged project(?: · Data error)?$/ }).click();
   await expect(root.getByRole("alert")).toContainText("damaged-cloud-project");
   await expect(root.getByText("No photos on this Table yet")).toHaveCount(0);
   const downloading = page.waitForEvent("download");

@@ -4,6 +4,17 @@ import { resolveLayoutFontAsset } from "./layoutFontAssets";
 afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
 describe("Layout font assets", () => {
+  it("avoids a Chinese fallback request for ASCII and for a Chinese primary font", async () => {
+    vi.resetModules();
+    const { loadLayoutFont } = await import("./layoutFontAssets");
+    const load = vi.fn(async () => []); vi.stubGlobal("document", { fonts: { load } });
+    await loadLayoutFont("architects-daughter", "normal", "normal", "Album 2026");
+    expect(load).toHaveBeenCalledTimes(1);
+    await loadLayoutFont("architects-daughter", "normal", "normal", "上海");
+    expect(load).toHaveBeenCalledTimes(2);
+    await loadLayoutFont("noto-sans-sc", "normal", "normal", "上海 Album");
+    expect(load).toHaveBeenCalledTimes(3);
+  });
   it("deduplicates in-flight requests, evicts failures and reuses a successful fallback", async () => {
     vi.resetModules();
     const { loadLayoutFont } = await import("./layoutFontAssets");
