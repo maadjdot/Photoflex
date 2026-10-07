@@ -41,7 +41,9 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm fixture:generate
       - name: Check production deployment and rollback behavior
-        run: python3 -m unittest discover -s deploy/tencent -p 'test_*.py'
+        run: |
+          python3 -m unittest discover -s deploy/tencent -p 'test_*.py'
+          node --test deploy/tencent/check_prepare_upload.mjs
       - name: Run unit tests, type checks, and production build
         run: pnpm check
         env:

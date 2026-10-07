@@ -16,19 +16,26 @@ fi
 deploy_run="${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
 key_file="${RUNNER_TEMP}/photoflex-deploy-key"
 hosts_file="${RUNNER_TEMP}/photoflex-known-hosts"
-trap 'rm -f -- "$key_file" "$hosts_file"' EXIT
+upload_dir="$(mktemp -d "${RUNNER_TEMP}/photoflex-upload.XXXXXX")"
+upload_archive="${upload_dir}.tar.gz"
+trap 'rm -f -- "$key_file" "$hosts_file" "$upload_archive"; rm -rf -- "$upload_dir"' EXIT
 umask 077
 printf '%s\n' "$PHOTO_FLEX_SSH_KEY" > "$key_file"
 unset PHOTO_FLEX_SSH_KEY
 printf '%s\n' '42.192.45.207 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBDGTsNIAoPhizYYpklK+0LoN2Ed92PW/lZn0LaLwy9h' > "$hosts_file"
 
-archive_sha="$(sha256sum photoflex-production.tar.gz | cut -d ' ' -f 1)"
+tar -xzf photoflex-production.tar.gz -C "$upload_dir"
+node deploy/tencent/prepare-upload.mjs "$upload_dir"
+tar -czf "$upload_archive" -C "$upload_dir" .
+printf 'Upload archive bytes: '
+stat -c %s "$upload_archive"
+archive_sha="$(sha256sum "$upload_archive" | cut -d ' ' -f 1)"
 ssh -T -i "$key_file" \
   -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes \
   -o UserKnownHostsFile="$hosts_file" -o HostKeyAlgorithms=ssh-ed25519 \
   -o ConnectTimeout=20 -o ServerAliveInterval=15 -o ServerAliveCountMax=8 \
   ubuntu@42.192.45.207 "deploy ${GITHUB_SHA} ${deploy_run} ${archive_sha}" \
-  < photoflex-production.tar.gz
+  < "$upload_archive"
 
 curl --fail --silent --show-error --retry 3 --retry-delay 2 \
   --max-time 20 https://photoflex.site/release.json > live-release.json
