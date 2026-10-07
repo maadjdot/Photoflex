@@ -16,6 +16,7 @@ import {
   type SourceId,
   type SourceRecord,
 } from "../../contracts";
+import { isSupportedPhoto } from "../../contracts/photoFormats";
 
 interface MemorySourceFixture {
   readonly grant: SourceGrant;
@@ -172,7 +173,7 @@ export class MemoryPhotoSource implements PhotoSource {
     const items: DroppedPhotoIngestResult["items"][number][] = [];
     const skipped: DroppedPhotoIngestResult["skipped"][number][] = [];
     for (const handle of handles) {
-      if (handle.kind !== "file" || !/\.jpe?g$/i.test(handle.name)) {
+      if (handle.kind !== "file" || !isSupportedPhoto(handle.name)) {
         skipped.push({ kind: "unsupported-file", relativePath: handle.name });
         continue;
       }

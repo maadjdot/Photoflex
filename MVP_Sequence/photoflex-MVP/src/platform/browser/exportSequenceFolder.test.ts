@@ -3,10 +3,28 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ok, type PhotoId, type SequenceDocument, type SequenceItemId, type SourceId } from "../../contracts";
 import { exportSequenceFolder } from "./exportSequenceFolder";
+import { photoPng } from "../../../tests/helpers/photoImages";
 
 afterEach(() => vi.unstubAllGlobals());
 
 describe("exportSequenceFolder", () => {
+  it("copies mixed extensions and animated PNG bytes without re-encoding", async () => {
+    const parent = new FakeDirectory("Exports");
+    vi.stubGlobal("showDirectoryPicker", vi.fn(async () => parent.asHandle()));
+    const names = ["still.JPG", "alpha.png", "animated.apng", "animated.webp"];
+    const originals = names.map((name, index) => new Blob([index === 2 ? photoPng(96, 64, true) : name]));
+    const source = {
+      getPhoto: async (id: PhotoId) => ok({ id, sourceId: "source" as SourceId, relativePath: `subfolder/${names[Number(id)]}`, width: 96, height: 64 }),
+      readOriginalFile: async (id: PhotoId) => ok(originals[Number(id)]), isExportDirectorySafe: async () => true,
+    };
+    const sequence = { name: "Mixed", items: names.map((_, index) => ({ id: `item-${index}` as SequenceItemId,
+      kind: "photo" as const, photoId: String(index) as PhotoId })) };
+    expect(await exportSequenceFolder(sequence, source)).toMatchObject({ copied: 4, failed: [] });
+    const folder = parent.directories.get("Mixed")!;
+    expect([...folder.files.keys()]).toEqual(names);
+    for (const [index, name] of names.entries()) expect(folder.files.get(name)).toBe(originals[index]);
+  });
+
   it("preserves source filenames, resolves duplicate names, and writes only to the new folder", async () => {
     const parent = new FakeDirectory("Exports");
     vi.stubGlobal("showDirectoryPicker", vi.fn(async () => parent.asHandle()));

@@ -3,6 +3,21 @@ import type { PhotoId, SourceId } from "../../contracts";
 import { MemoryPhotoSource } from "./MemoryPhotoSource";
 
 describe("MemoryPhotoSource", () => {
+  it("accepts PNG, APNG and WebP drops with empty MIME and preserves originals", async () => {
+    const source = new MemoryPhotoSource();
+    const handles = ["alpha.PNG", "animation.apng", "image.WeBp"].map((name) => ({ kind: "file", name,
+      getFile: async () => new File([name], name), isSameEntry: async (other: FileSystemHandle) => other.name === name,
+    }) as unknown as FileSystemFileHandle);
+    const imported = await source.ingestDroppedFiles(handles, [], "external" as SourceId);
+    if (!imported.ok) throw Error("import failed");
+    expect(imported.value.skipped).toEqual([]);
+    expect(imported.value.items.map((item) => item.photo.relativePath.split("/").at(-1))).toEqual(handles.map((handle) => handle.name));
+    for (const item of imported.value.items) {
+      const original = await source.readOriginalFile(item.photo.id);
+      expect(original.ok && await original.value.text()).toBe(item.photo.relativePath.split("/").at(-1));
+    }
+  });
+
   it("deduplicates an external original while reporting unsupported drops", async () => {
     const source = new MemoryPhotoSource();
     const sourceId = "external-source" as SourceId;

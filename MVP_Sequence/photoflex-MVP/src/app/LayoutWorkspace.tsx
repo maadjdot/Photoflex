@@ -278,7 +278,7 @@ export function LayoutWorkspace({ dependencies, persistence, projectId, sequence
           <fieldset><legend>{zh ? "照片质量" : "Photo quality"}</legend>
             {(["low", "medium", "high", "original"] as const).map((option) => {
               const labels = { low: zh ? "低" : "Low", medium: zh ? "中" : "Medium", high: zh ? "高" : "High", original: zh ? "原图" : "Original" };
-              const descriptions = { low: zh ? "150 dpi · 屏幕分享，文件较小" : "150 dpi · smaller files for screens", medium: zh ? "220 dpi · 日常分享与审阅" : "220 dpi · everyday sharing and review", high: zh ? "300 dpi · 优先保留打印细节" : "300 dpi · more detail for print", original: zh ? "嵌入原始 JPEG · 文件可能较大" : "Embed source JPEGs · files may be large" };
+              const descriptions = { low: zh ? "150 dpi · 屏幕分享，文件较小" : "150 dpi · smaller files for screens", medium: zh ? "220 dpi · 日常分享与审阅" : "220 dpi · everyday sharing and review", high: zh ? "300 dpi · 优先保留打印细节" : "300 dpi · more detail for print", original: zh ? "保留原始尺寸和透明度 · 文件可能较大" : "Original dimensions and transparency · files may be large" };
               return <label key={option} className={`layout-export-choice${quality === option ? " is-selected" : ""}`}><input type="radio" name="layout-export-quality" value={option} checked={quality === option} onChange={() => setQuality(option)} autoFocus={option === quality} /><span><strong>{labels[option]}</strong><small>{descriptions[option]}</small></span></label>;
             })}
           </fieldset>

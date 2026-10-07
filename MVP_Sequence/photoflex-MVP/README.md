@@ -31,3 +31,7 @@ corepack pnpm bench
 架构与持久化约束见 [系统架构方案](./docs/PhotoFlex%20MVP%20系统架构方案.md) 和 [ADR-002](./docs/ADR-002-本地持久化并发事务与迁移.md)。
 
 Sequence 页面可从 Read 旁的 `Export PDF` 导出白底照片阅读稿，保留双页和空白页；模块划分与输出规则见 [Sequence PDF 导出](./docs/Sequence_PDF_Export.md)。
+
+## 图片格式
+
+照片来源支持 JPG/JPEG、PNG/APNG 和 WebP，文件夹导入与拖入文件采用相同规则。透明区域显示画布或纸张背景；动态 PNG、WebP 的预览及排版导出统一使用动画首帧。Sequence 文件夹导出保留原始扩展名和完整文件字节。

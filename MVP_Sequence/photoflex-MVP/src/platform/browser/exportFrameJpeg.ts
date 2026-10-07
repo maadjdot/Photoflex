@@ -5,6 +5,7 @@ import { frameCaptionStyle, frameInnerEdge, frameInnerEdgeWhiteGapPt } from "../
 import { layoutPaperMaterial } from "../../modules/layout/layoutPaper";
 import { LAYOUT_CHINESE_FALLBACK_FONT, LAYOUT_FONT_BY_FAMILY } from "../../modules/layout/layoutFonts";
 import { resolveLayoutFontAsset } from "./layoutFontAssets";
+import { decodePhotoImage, encodePhotoCanvas, inspectPhotoImage } from "./photoImage";
 
 function dataUrl(blob: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -58,7 +59,8 @@ export async function createFrameJpeg(frame: WorktableFrame, page: HTMLElement, 
     if (!photo) {
       const file = await source.readOriginalFile(slot.photoId);
       if (!file.ok) throw new Error("A photo is unavailable. Reconnect its source and try again.");
-      const bitmap = await createImageBitmap(file.value);
+      const info = await inspectPhotoImage(file.value);
+      const bitmap = await decodePhotoImage(file.value, info);
       const canvas = document.createElement("canvas");
       try {
         signal?.throwIfAborted();
@@ -66,7 +68,8 @@ export async function createFrameJpeg(frame: WorktableFrame, page: HTMLElement, 
         const context = canvas.getContext("2d");
         if (!context) throw new Error("This browser could not prepare a Frame photo.");
         context.drawImage(bitmap, 0, 0);
-        photo = { url: await dataUrl(await encodeJpeg(canvas)), width: bitmap.width, height: bitmap.height };
+        photo = { url: await dataUrl(await encodePhotoCanvas(canvas, info.format === "jpg" ? "jpg" : "png", .95)),
+          width: bitmap.width, height: bitmap.height };
         photos.set(slot.photoId, photo);
       } finally { bitmap.close(); canvas.width = canvas.height = 0; }
     }

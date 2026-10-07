@@ -19,6 +19,8 @@ import {
 } from "../../contracts";
 import { openPhotoFlexDatabase, STORE_NAMES } from "./indexedDbSchema";
 import { pickWebkitDirectory } from "./webkitDirectoryPicker";
+import { isSupportedPhoto } from "../../contracts/photoFormats";
+import { decodePhotoImage, staticPhotoPreview } from "./photoImage";
 
 type DirectoryPicker = () => Promise<FileSystemDirectoryHandle>;
 
@@ -115,8 +117,6 @@ const initialState = (sourceId: SourceId, status: SourceRuntimeState["status"]):
   skippedCount: 0,
   failedCount: 0,
 });
-
-const isJpeg = (name: string): boolean => /\.(jpe?g)$/i.test(name);
 
 const FINGERPRINT_SAMPLE_SIZE = 64 * 1024;
 
@@ -474,7 +474,7 @@ export class BrowserPhotoSource implements PhotoSource {
           yield ok({ kind: "completed", state });
           return;
         }
-        if (!isJpeg(entry.relativePath)) {
+        if (!isSupportedPhoto(entry.relativePath)) {
           state = { ...state, skippedCount: state.skippedCount + 1 };
           continue;
         }
@@ -627,7 +627,7 @@ export class BrowserPhotoSource implements PhotoSource {
     const accepted: FileSystemFileHandle[] = [];
     try {
       for (const handle of handles) {
-        if (handle.kind !== "file" || !isJpeg(handle.name)) {
+        if (handle.kind !== "file" || !isSupportedPhoto(handle.name)) {
           skipped.push({ kind: "unsupported-file", relativePath: handle.name });
           continue;
         }
@@ -762,7 +762,12 @@ export class BrowserPhotoSource implements PhotoSource {
     const sourceVersion = await this.getPhotoVersion(opened.value, photoId);
     if (!sourceVersion) return err({ kind: "photo-not-found", photoId });
     const file = await this.readPhotoFile(opened.value, photoId);
-    return file.ok ? ok(this.createLease(`preview:${photoId}:${sourceVersion}`, file.value)) : err(file.error);
+    if (!file.ok) return err(file.error);
+    const key = `preview:${photoId}:${sourceVersion}`;
+    try {
+      const blob = this.urlCache.get(key)?.blob ?? await staticPhotoPreview(file.value);
+      return ok(this.createLease(key, blob));
+    } catch { return err(toSourceError()); }
   }
 
   async readOriginalFile(photoId: PhotoId): Promise<Result<Blob, SourceError>> {
@@ -1148,7 +1153,7 @@ async function* walkDirectory(
 
 async function readDimensions(file: File): Promise<{ width: number; height: number }> {
   if (typeof createImageBitmap !== "function") return { width: 0, height: 0 };
-  const bitmap = await createImageBitmap(file);
+  const bitmap = await decodePhotoImage(file);
   const dimensions = { width: bitmap.width, height: bitmap.height };
   bitmap.close();
   return dimensions;
@@ -1160,17 +1165,16 @@ async function createThumbnail(file: Blob): Promise<Blob> {
 
 async function createResizedPreview(file: Blob, maxEdge: number): Promise<Blob> {
   if (typeof createImageBitmap !== "function" || typeof document === "undefined") return file;
-  const bitmap = await createImageBitmap(file);
+  const bitmap = await decodePhotoImage(file);
   const scale = Math.min(1, maxEdge / Math.max(bitmap.width, bitmap.height));
   const canvas = document.createElement("canvas");
   canvas.width = Math.max(1, Math.round(bitmap.width * scale));
   canvas.height = Math.max(1, Math.round(bitmap.height * scale));
   const context = canvas.getContext("2d");
-  if (!context) {
-    bitmap.close();
-    return file;
-  }
-  context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
-  bitmap.close();
-  return new Promise((resolve) => canvas.toBlob((blob) => resolve(blob ?? file), "image/webp", 0.82));
+  try {
+    if (!context) throw new Error("This browser could not prepare a photo preview.");
+    context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    return await new Promise<Blob>((resolve, reject) => canvas.toBlob((blob) => blob ? resolve(blob)
+      : reject(new Error("A photo preview could not be encoded.")), "image/webp", 0.82));
+  } finally { bitmap.close(); canvas.width = canvas.height = 0; }
 }

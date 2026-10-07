@@ -3,6 +3,7 @@ import type { ProjectId, SourceId } from "../../contracts";
 import { BrowserPhotoSource } from "./BrowserPhotoSource";
 import { IndexedDbProjectStore } from "./IndexedDbProjectStore";
 import { backupBytes, backupFixture } from "../../../tests/helpers/projectBackup";
+import { photoPng } from "../../../tests/helpers/photoImages";
 
 const databases: BrowserPhotoSource[] = [];
 
@@ -101,6 +102,43 @@ function selectedFile(relativePath: string): File {
 }
 
 describe("BrowserPhotoSource", () => {
+  it("scans mixed extensions with empty MIME, counts corrupt files, and reuses IDs after rescan and reconnect", async () => {
+    const names = ["one.JPG", "two.JPEG", "alpha.PNG", "motion.ApNg", "photo.WeBp", "broken.png", "ignored.gif", "notes.txt"];
+    const directory = createDirectory("mixed", "Mixed", names);
+    for (const name of names) directory.files.set(name, new File([name.endsWith("ApNg") ? photoPng(96, 64, true) : name], name));
+    vi.stubGlobal("ImageDecoder", class {
+      async decode() { return { image: { width: 96, height: 64, close() {} } }; }
+      close() {}
+    });
+    vi.stubGlobal("createImageBitmap", vi.fn(async (file: File) => {
+      if (file.name === "broken.png") throw new Error("Corrupt photo");
+      return { width: 96, height: 64, close() {} };
+    }));
+    const source = new BrowserPhotoSource({ databaseName: `mixed-${crypto.randomUUID()}`, picker: async () => directory.handle });
+    databases.push(source);
+    const grant = await source.chooseFolder([]);
+    if (!grant.ok) throw Error("folder grant failed");
+    const events = await scanToEnd(source, grant.value.sourceId);
+    expect(events.at(-1)).toMatchObject({ ok: true, value: { state: { indexedCount: 5, skippedCount: 2, failedCount: 1 } } });
+    const first = await source.listPhotos(grant.value.sourceId);
+    if (!first.ok) throw Error("scan failed");
+    expect(first.value.items.map((photo) => photo.relativePath).sort()).toEqual(names.slice(0, 5).sort());
+    const ids = first.value.items.map((photo) => photo.id);
+    await scanToEnd(source, grant.value.sourceId);
+    const second = await source.listPhotos(grant.value.sourceId);
+    expect(second.ok && second.value.items.map((photo) => photo.id)).toEqual(ids);
+    const dropped = await source.ingestDroppedFiles(names.slice(0, 5).map(directory.fileHandle),
+      [{ id: grant.value.sourceId, displayName: "Mixed", kind: "folder", createdAt: "now" }], "external" as SourceId);
+    expect(dropped.ok && dropped.value.items.map((item) => item.status)).toEqual(Array(5).fill("reused"));
+    const reconnected = await source.restoreFolder(grant.value.sourceId);
+    expect(reconnected.ok).toBe(true);
+    const restored = await source.listPhotos(grant.value.sourceId);
+    expect(restored.ok && restored.value.items.map((photo) => photo.id)).toEqual(ids);
+    const animation = first.value.items.find((photo) => photo.relativePath === "motion.ApNg")!;
+    const original = await source.readOriginalFile(animation.id);
+    expect(original.ok && new Uint8Array(await original.value.arrayBuffer())).toEqual(photoPng(96, 64, true));
+  });
+
   it("prefers the native directory picker when the browser provides it", async () => {
     const directory = createDirectory("native", "Native Photos", ["one.jpg"]);
     const nativePicker = vi.fn(async () => directory.handle);

@@ -26,11 +26,11 @@ export async function createSequencePdf(options: SequencePdfOptions, images: Seq
       if (!item) throw new Error(`Reading page ${index + 1} contains an unavailable item.`);
       if (item.kind === "blank") continue;
       if (item.kind === "text" && !images.loadTextJpeg) continue;
-      const bytes = item.kind === "text"
-        ? await images.loadTextJpeg!(item, layout.paperWidth, layout.height, signal)
-        : await images.loadJpeg(item.photoId, signal);
+      const loaded = item.kind === "text"
+        ? { bytes: await images.loadTextJpeg!(item, layout.paperWidth, layout.height, signal), format: "jpg" as const }
+        : await images.loadImage(item.photoId, signal);
       signal?.throwIfAborted();
-      const image = await pdf.embedJpg(bytes);
+      const image = loaded.format === "png" ? await pdf.embedPng(loaded.bytes) : await pdf.embedJpg(loaded.bytes);
       const available = item.kind === "text" ? 1 : 1 - READING_PHOTO_INSET * 2;
       const scale = Math.min(layout.paperWidth * available / image.width, layout.height * available / image.height);
       const width = image.width * scale;
