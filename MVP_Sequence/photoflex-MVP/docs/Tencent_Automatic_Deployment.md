@@ -68,3 +68,5 @@ VITE_ICP_FILING_NUMBER=京ICP备2026063985号-1
 
 TableWorkspace 在 mode 改变后的 effect 中恢复该模式的宽度。对应检查已改为等待最终布局，并同时核对主区 743px、侧栏 280px 和侧栏位置 744px；未修改产品布局或放宽预期尺寸。
 修正后本地 Chrome / Edge 对应回归各通过 1 项（共 2 项）。检查修正提交 `ba794ed` 已推送到 main，其 GitHub 完整 CI 已通过：https://github.com/maadjdot/Photoflex/actions/runs/37650466978 。
+
+首次自动发布检查（https://github.com/maadjdot/Photoflex/actions/runs/37652331258）在 Layout 历史记录单元检查中触发默认 5 秒超时，生产发布步骤被跳过。该检查连续执行 120 次页面编辑及 100 次撤销，现仅为此单项设置 15 秒上限，保留全部次数、断言及历史容量要求；本地对应文件 2 项检查均通过。

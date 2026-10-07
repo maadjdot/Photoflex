@@ -33,7 +33,7 @@ it("bounds Layout undo steps while preserving the last 100 page edits and redo",
   expect(await persistence.loadLayout(layout.id)).toMatchObject({ ok: true, value: { pages: expect.any(Array) } });
   const saved = await persistence.loadLayout(layout.id); expect(saved.ok && saved.value.pages.length).toBe(23);
   view.unmount(); persistence.dispose();
-});
+}, 15_000); // The 220 rendered history operations can exceed 5 seconds on shared CI runners.
 it("cancels an in-progress export when the Layout workspace unmounts", async () => {
   const projectStore = new MemoryProjectStore(), imported = await projectStore.importBackup(backupBytes());
   if (!imported.ok) throw Error("fixture import failed");
