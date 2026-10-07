@@ -1,4 +1,4 @@
-name: PhotoFlex MVP CI
+name: PhotoFlex CI and Tencent deployment
 
 on:
   push:
@@ -16,15 +16,20 @@ on:
         type: boolean
         default: false
 
+permissions:
+  contents: read
+
 jobs:
   check:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     defaults:
       run:
         working-directory: MVP_Sequence/photoflex-MVP
     steps:
       - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
       - uses: pnpm/action-setup@v6.0.10
         with:
           version: 10.15.1
@@ -35,7 +40,13 @@ jobs:
           cache-dependency-path: MVP_Sequence/photoflex-MVP/pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
       - run: pnpm fixture:generate
-      - run: pnpm check
+      - name: Check production deployment and rollback behavior
+        run: python3 -m unittest discover -s deploy/tencent -p 'test_*.py'
+      - name: Run unit tests, type checks, and production build
+        run: pnpm check
+        env:
+          VITE_CLOUDBASE_ENV_ID: photoflex-prod-d8g6nph8u08611400
+          VITE_ICP_FILING_NUMBER: 京ICP备2026063985号-1
       - name: Install Chrome and Edge for the release gate
         run: pnpm exec playwright install --with-deps chrome msedge
       - name: Run the complete browser regression suite
@@ -49,6 +60,34 @@ jobs:
             MVP_Sequence/photoflex-MVP/playwright-report/
             MVP_Sequence/photoflex-MVP/test-results/
           if-no-files-found: ignore
+          retention-days: 7
+      - name: Package the verified main production build
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && !inputs.build_beta
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from "node:fs";
+          const environment = "photoflex-prod-d8g6nph8u08611400";
+          const scripts = fs.readdirSync("dist/assets")
+            .filter(name => name.endsWith(".js"))
+            .map(name => fs.readFileSync(`dist/assets/${name}`, "utf8")).join("\n");
+          if (!scripts.includes(environment) || scripts.includes("photoflex-d0gh9kyug3b971e6d")) {
+            throw new Error("Build must use only the production CloudBase environment");
+          }
+          fs.writeFileSync("dist/release.json", JSON.stringify({
+            commit: process.env.GITHUB_SHA,
+            run: `${process.env.GITHUB_RUN_ID}-${process.env.GITHUB_RUN_ATTEMPT}`,
+            cloudbaseEnvId: environment,
+            builtAt: new Date().toISOString(),
+          }, null, 2) + "\n");
+          NODE
+          tar -czf photoflex-production.tar.gz -C dist .
+      - name: Preserve the production release
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && !inputs.build_beta
+        uses: actions/upload-artifact@v7
+        with:
+          name: photoflex-production-${{ github.sha }}
+          path: MVP_Sequence/photoflex-MVP/photoflex-production.tar.gz
+          if-no-files-found: error
           retention-days: 7
       - name: Build the explicitly configured Beta target
         if: github.event_name == 'workflow_dispatch' && inputs.build_beta
@@ -64,3 +103,34 @@ jobs:
           path: MVP_Sequence/photoflex-MVP/dist-beta/
           if-no-files-found: error
           retention-days: 14
+
+  deploy-production:
+    needs: check
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && !inputs.build_beta
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment:
+      name: tencent-production
+      url: https://photoflex.site
+    concurrency:
+      group: photoflex-tencent-production
+      cancel-in-progress: false
+    defaults:
+      run:
+        working-directory: MVP_Sequence/photoflex-MVP
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v6.5.0
+        with:
+          node-version: 24
+          package-manager-cache: false
+      - uses: actions/download-artifact@v8
+        with:
+          name: photoflex-production-${{ github.sha }}
+          path: MVP_Sequence/photoflex-MVP
+      - name: Publish and verify the public website
+        run: bash deploy/tencent/publish-release.sh
+        env:
+          PHOTO_FLEX_SSH_KEY: ${{ secrets.PHOTO_FLEX_SSH_KEY }}
