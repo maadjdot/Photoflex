@@ -62,7 +62,7 @@ export function LayoutImageFrameView({ frame, photoSource, sourceRevision, onMet
     left: `${placed.x / frame.rect.width * 100}%`, top: `${placed.y / frame.rect.height * 100}%`,
     width: `${placed.width / frame.rect.width * 100}%`, height: `${placed.height / frame.rect.height * 100}%`,
     }} /></span>
-    <FramePhotoEdge edge={{ ...edge, widthPt: edge.widthPt * scale }} cornerRadiusPt={0} rect={{
+    <FramePhotoEdge edge={{ ...edge, widthPt: edge.widthPt * scale }} scale={scale} cornerRadiusPt={0} rect={{
       x: visible.x * scale, y: visible.y * scale, width: visible.width * scale, height: visible.height * scale,
     }} />
   </>;

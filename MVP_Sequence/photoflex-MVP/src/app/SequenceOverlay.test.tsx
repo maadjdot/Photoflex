@@ -161,7 +161,7 @@ it("creates a Layout from a real Sequence, saves page order, and reopens the sam
   fireEvent.dragOver(pages[1], { dataTransfer });
   fireEvent.drop(pages[1], { dataTransfer });
   fireEvent.dragEnd(pages[2], { dataTransfer });
-  await waitFor(() => expect(within(workspace).getByRole("button", { name: "Page 3 Current page" })).toBeTruthy());
+  await waitFor(() => expect(within(workspace).getByRole("button", { name: "Page 2 Current page" })).toBeTruthy());
   expect(pages[0].textContent).toContain("Front cover");
   expect(pages[6].textContent).toContain("Back cover");
   fireEvent.click(within(workspace).getByRole("button", { name: "Single" }));

@@ -202,6 +202,8 @@
 
 .table-frame-slot.has-photo { border: 0; }
 .table-frame-inner-edge { position: absolute; z-index: 1; box-sizing: border-box; border-style: solid; pointer-events: none; }
+.table-frame-inspector .table-frame-checkbox { display: flex; flex-direction: row; align-items: center; gap: 7px; margin-top: 10px; color: #777777; font-size: 11px; cursor: pointer; }
+.table-frame-inspector .table-frame-checkbox input[type="checkbox"] { flex: 0 0 14px; width: 14px; height: 14px; margin: 0; accent-color: #333333; }
 .table-frame-instant-caption:hover, .table-frame-instant-caption.is-dragging { outline: 1px dashed #999999; outline-offset: 3px; }
 .table-frame-instant-caption.is-dragging { cursor: grabbing; }
 .table-frame-caption-field textarea { box-sizing: border-box; width: 100%; min-height: 50px; resize: vertical; padding: 6px; border: 1px solid #e1e1e1; border-radius: 4px; background: #fafafa; color: #333333; font: inherit; }

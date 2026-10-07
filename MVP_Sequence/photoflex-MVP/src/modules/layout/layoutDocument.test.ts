@@ -10,6 +10,16 @@ const initial = () => createEmptyLayout({
 });
 
 describe("Layout document commands", () => {
+  it("persists optional page numbers while accepting documents without the setting", () => {
+    const original = initial();
+    const hidden = applyLayoutCommand(original, { type: "set-page-numbers", show: false });
+    expect(hidden).toMatchObject({ ok: true, value: { showPageNumbers: false } });
+    expect(original.showPageNumbers).toBeUndefined();
+    if (!hidden.ok) throw Error("toggle rejected");
+    expect(isLayoutDocument(JSON.parse(JSON.stringify(hidden.value)))).toBe(true);
+    expect(applyLayoutCommand(hidden.value, { type: "set-page-numbers", show: true })).toMatchObject({ ok: true, value: { showPageNumbers: true } });
+    expect(isLayoutDocument({ ...original, showPageNumbers: "false" })).toBe(false);
+  });
   it("saves photo effects on selected pages and accepts legacy defaults", () => {
     const original = initial();
     const innerEdge = { mode: "bevel" as const, color: "#F1EDE1", widthPt: 3 * MM_TO_PT };

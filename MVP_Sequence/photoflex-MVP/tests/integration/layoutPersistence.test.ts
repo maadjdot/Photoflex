@@ -36,14 +36,14 @@ for (const [name, factory] of [["memory", () => new MemoryProjectStore()], ["Ind
     expect(legacySaved.ok).toBe(true);
     expect(await store.loadLayout(first.id)).toMatchObject({ ok: true, value: { pages: [{ objects: [] }] } });
     if (!legacySaved.ok) throw Error("legacy layout save failed");
-    const edited: LayoutDocument = { ...first, pages: [{ ...first.pages[0], kind: "cover" as const, innerEdge: { mode: "bevel" as const, color: "#F1EDE1", widthPt: 3 }, photoElevationPt: 6,
+    const edited: LayoutDocument = { ...first, showPageNumbers: false, pages: [{ ...first.pages[0], kind: "cover" as const, innerEdge: { mode: "color" as const, color: "#F1EDE1", widthPt: 3, whiteGap: false }, photoElevationPt: 6,
       paper: { color: "#F1EDE1", material: "natural-fiber" as const }, objects: [frame] },
       { id: "page-second" as LayoutPageId, kind: "back-cover" as const, paper: { color: "#28282A", material: "bookcloth" as const }, objects: [] }] };
     const saved = await store.saveLayout(edited, legacySaved.value.revision);
     expect(saved.ok).toBe(true);
     expect(await store.saveLayout({ ...edited, name: "Stale" }, first.revision)).toMatchObject({ ok: false, error: { kind: "layout-conflict" } });
     const loaded = await store.loadLayout(first.id);
-    expect(loaded).toMatchObject({ ok: true, value: { name: "Opening", pages: [
+    expect(loaded).toMatchObject({ ok: true, value: { name: "Opening", showPageNumbers: false, pages: [
       { paper: { color: "#F1EDE1", material: "natural-fiber" }, objects: [frame] },
       { paper: { color: "#28282A", material: "bookcloth" }, objects: [] },
     ] } });
@@ -70,6 +70,7 @@ for (const [name, factory] of [["memory", () => new MemoryProjectStore()], ["Ind
     expect(copy.layouts[0].pages.map((page) => page.paper)).toEqual(edited.pages.map((page) => page.paper));
     expect(copy.layouts[0].pages.map((page) => page.kind)).toEqual(["cover", "back-cover"]);
     expect(copy.layouts[0].pages[0].innerEdge).toEqual(edited.pages[0].innerEdge);
+    expect(copy.layouts[0].showPageNumbers).toBe(false);
     expect(copy.layouts[0].pages[0].photoElevationPt).toBe(6);
     expect(copy.layouts[0].pages[0].objects[0].id).not.toBe(frame.id);
     const copiedPhoto = copy.photoManifest.find((photo) => photo.relativePath === "one.jpg")!.photoId;

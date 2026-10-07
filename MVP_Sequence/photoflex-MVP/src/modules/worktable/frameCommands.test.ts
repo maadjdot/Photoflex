@@ -37,6 +37,10 @@ describe("Frame editing", () => {
     expect(editor.execute({ type: "resize-frame-page", frameId: initial.id, widthPt: initial.page.widthPt * 2, heightPt: initial.page.heightPt, reflow: true }).ok).toBe(true);
     expect(editor.snapshot().frames![initial.id].page.captionStyle?.rect).toMatchObject({ x: 24, y: 24, width: 360 });
     expect(editor.undo()).toEqual(beforeResize);
+    expect(editor.execute({ type: "set-frame-inner-edge", frameId: initial.id, edge: { mode: "color", color: "#333333", widthPt: FRAME_MM_TO_PT, whiteGap: false } }).ok).toBe(true);
+    expect(editor.snapshot().frames![initial.id].page.innerEdge?.whiteGap).toBe(false);
+    expect(editor.undo()).toEqual(beforeResize);
+    expect(validWorktableFrame({ ...initial, page: { ...initial.page, innerEdge: { mode: "color", color: "#333333", widthPt: FRAME_MM_TO_PT, whiteGap: "false" } } })).toBe(false);
     expect(editor.execute({ type: "set-frame-inner-edge", frameId: initial.id, edge: { mode: "none", color: "#FFFFFF", widthPt: FRAME_MM_TO_PT } }).ok).toBe(true);
     expect(editor.undo()).toEqual(beforeResize);
     expect(editor.execute({ type: "set-frame-edge-style", frameId: initial.id, style: { ...edge, shadowStrength: 2 } }).ok).toBe(false);

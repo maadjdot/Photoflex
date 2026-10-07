@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState, type PointerEvent as ReactPointerEvent, type WheelEvent as ReactWheelEvent } from "react";
 import type { LayoutDocument, PhotoId, PhotoSource } from "../contracts";
-import { createLayoutReaderState, layoutReaderFitPage, layoutReaderPageLabel, layoutReaderPreviewEdge, layoutReaderReducer, layoutReaderSpreadIndex, layoutReaderSpreads, layoutReaderVisiblePages, resolveLayoutReaderMode, type LayoutReaderMode } from "../modules/layout/layoutReader";
+import { createLayoutReaderState, layoutReaderFitPage, layoutReaderPreviewEdge, layoutReaderReducer, layoutReaderSpreadIndex, layoutReaderSpreads, layoutReaderVisiblePages, resolveLayoutReaderMode, type LayoutReaderMode } from "../modules/layout/layoutReader";
+import { layoutPageLabel, layoutPageProgressLabel } from "../modules/layout/layoutPageNumbers";
 import { beginPageCurlGoTo, beginPageCurlTurn, cancelPageCurlTurn, commitPageCurlTurn, createPageCurlNavigationState, type PageCurlDirection, type PageCurlNavigationState } from "../modules/layout/pageCurl";
 import { useDialogKeyboard } from "./AppPrimitives";
 import { LayoutPageCurl, type LayoutPageCurlHandle } from "./LayoutPageCurl";
@@ -46,7 +47,7 @@ export function LayoutReader({ document: layout, initialPage, photoSource, onClo
   const pageWidth = fit.width * state.zoom, pageHeight = fit.height * state.zoom;
   const previewEdge = layoutReaderPreviewEdge(fit, state.zoom, globalThis.devicePixelRatio || 1);
   const canPrevious = spreadIndex > 0, canNext = spreadIndex < spreads.length - 1;
-  const label = layoutReaderPageLabel(spread, layout.pages.length);
+  const label = layoutPageProgressLabel(layout, visiblePages, zh);
 
   const updateCurlNavigation = useCallback((next: PageCurlNavigationState) => {
     curlNavigationRef.current = next;
@@ -234,7 +235,7 @@ export function LayoutReader({ document: layout, initialPage, photoSource, onClo
     <button className="layout-reader-edge is-next" aria-label={zh ? "下一页" : "Next"} disabled={!canNext || curlNavigation.status === "turning"} onClick={() => navigate(1)}>›</button>
     <footer className="layout-reader-footer layout-reader-chrome">
       <div className="layout-reader-zoom" role="group" aria-label={zh ? "阅读缩放" : "Read zoom"}><button disabled={state.zoom <= .5} onClick={() => setZoom(state.zoom - .25)}>−</button><button className="layout-reader-fit" onClick={() => setZoom(1)}>{Math.round(state.zoom * 100)}%</button><button disabled={state.zoom >= 3} onClick={() => setZoom(state.zoom + .25)}>＋</button></div>
-      <div className="layout-reader-progress"><input type="range" min="1" max={layout.pages.length} value={state.currentPage + 1} aria-label={zh ? "跳到页面" : "Go to page"} onChange={(event) => goToPage(Number(event.target.value) - 1)} /><output aria-live="polite">{label}</output></div>
+      <div className="layout-reader-progress"><input type="range" min="1" max={layout.pages.length} value={state.currentPage + 1} aria-valuetext={layoutPageLabel(layout, state.currentPage, zh)} aria-label={zh ? "跳到页面" : "Go to page"} onChange={(event) => goToPage(Number(event.target.value) - 1)} /><output aria-live="polite">{label}</output></div>
       <div className="layout-reader-navigation"><button disabled={!canPrevious || curlNavigation.status === "turning"} onClick={() => navigate(-1)}>{zh ? "上一页" : "Previous"}</button><button disabled={!canNext || curlNavigation.status === "turning"} onClick={() => navigate(1)}>{zh ? "下一页" : "Next"}</button></div>
     </footer>
   </section>;

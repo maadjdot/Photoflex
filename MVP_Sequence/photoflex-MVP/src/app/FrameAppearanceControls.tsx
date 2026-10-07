@@ -32,6 +32,7 @@ export function PhotoInnerEdgeControls({ edge, onChange }: { readonly edge: Fram
   return <section className="table-frame-section"><h3>{label("INNER EDGE", "内边框")} <span>{label("Photo edges", "照片边缘")}</span></h3>
     <div className="table-frame-segments" role="group" aria-label={label("Inner edge", "内边框")}>{(["none", "color", "bevel"] as const).map((mode) => <button key={mode} type="button" aria-pressed={edge.mode === mode} onClick={() => update({ mode })}>{mode === "none" ? label("None", "无") : mode === "color" ? label("Color", "纯色") : label("Mat bevel", "卡纸斜边")}</button>)}</div>
     {edge.mode !== "none" && <div className="table-frame-field-grid"><NumberField label={label("Inner edge width", "内边框宽度")} value={edge.widthPt} max={20} onCommit={(widthPt) => update({ widthPt })} /><label className="table-frame-number">{label("Color", "颜色")}<input type="color" aria-label={label("Inner edge color", "内边框颜色")} value={edge.color} onChange={(event) => update({ color: event.currentTarget.value })} /></label></div>}
+    {edge.mode === "color" && <label className="table-frame-checkbox"><input type="checkbox" checked={edge.whiteGap !== false} onChange={(event) => update({ whiteGap: event.currentTarget.checked })} />{label("Thin white gap", "细白边")}</label>}
   </section>;
 }
 

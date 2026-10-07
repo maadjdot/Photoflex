@@ -12,6 +12,8 @@ export interface FrameInnerEdge {
   readonly mode: "none" | "color" | "bevel";
   readonly color: string;
   readonly widthPt: number;
+  /** Omitted values keep the thin white separator on solid color edges. */
+  readonly whiteGap?: boolean;
 }
 export interface FrameEdgeStyle {
   readonly widthPt: number;

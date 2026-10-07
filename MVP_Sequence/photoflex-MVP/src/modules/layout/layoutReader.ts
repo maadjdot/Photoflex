@@ -62,11 +62,6 @@ export function layoutReaderVisiblePages(spread: LayoutReaderSpread | undefined)
   return spread?.slots.filter((page): page is number => page !== null) ?? [];
 }
 
-export function layoutReaderPageLabel(spread: LayoutReaderSpread | undefined, pageCount: number): string {
-  const pages = layoutReaderVisiblePages(spread).map((page) => page + 1);
-  return `${pages.join("–")} / ${pageCount}`;
-}
-
 export function navigateLayoutReaderPage(pageCount: number, currentPage: number, mode: ResolvedLayoutReaderMode, direction: -1 | 1, backCover = false): number {
   const spreads = layoutReaderSpreads(pageCount, mode, backCover);
   if (!spreads.length) return 0;

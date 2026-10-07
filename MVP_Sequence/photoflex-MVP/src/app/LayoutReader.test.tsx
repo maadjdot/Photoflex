@@ -20,6 +20,18 @@ const layout = {
 } as LayoutDocument;
 
 describe("LayoutReader", () => {
+  it("omits cover numbers, numbers the first left body page as one, and hides all printed numbers", () => {
+    const book: LayoutDocument = { ...layout, pages: layout.pages.map((page, index) => ({ ...page,
+      ...(index === 0 ? { kind: "cover" as const } : index === 4 ? { kind: "back-cover" as const } : {}) })) };
+    const view = render(<LayoutReader document={book} initialPage={1} photoSource={{} as PhotoSource} onClose={() => {}} />);
+    expect(screen.getByLabelText("Front cover").querySelector(".layout-paper-number")).toBeNull();
+    expect(screen.getByLabelText("Back cover").querySelector(".layout-paper-number")).toBeNull();
+    expect(screen.getByLabelText("Page 1").querySelector(".layout-paper-number.is-left")?.textContent).toBe("01");
+    expect(screen.getByLabelText("Page 2").querySelector(".layout-paper-number")?.textContent).toBe("02");
+    expect(screen.getByText("1–2 / 3")).toBeTruthy();
+    view.rerender(<LayoutReader document={{ ...book, showPageNumbers: false }} initialPage={1} photoSource={{} as PhotoSource} onClose={() => {}} />);
+    expect(view.container.querySelectorAll(".layout-paper-number")).toHaveLength(0);
+  });
   it("commits responsive page curls, switches to single pages, and closes with Escape", async () => {
     const onClose = vi.fn();
     render(<LayoutReader document={layout} initialPage={0} photoSource={{} as PhotoSource} onClose={onClose} />);

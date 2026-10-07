@@ -1,7 +1,7 @@
 import type { PhotoSource, WorktableFrame } from "../../contracts";
 import { copyFrame } from "../../modules/worktable/frameCommands";
 import { framePaper, resolveFramePhoto } from "../../modules/worktable/frameLayout";
-import { frameCaptionStyle, frameInnerEdge } from "../../modules/worktable/frameAppearance";
+import { frameCaptionStyle, frameInnerEdge, frameInnerEdgeWhiteGapPt } from "../../modules/worktable/frameAppearance";
 import { layoutPaperMaterial } from "../../modules/layout/layoutPaper";
 import { LAYOUT_CHINESE_FALLBACK_FONT, LAYOUT_FONT_BY_FAMILY } from "../../modules/layout/layoutFonts";
 import { resolveLayoutFontAsset } from "./layoutFontAssets";
@@ -89,8 +89,9 @@ export async function createFrameJpeg(frame: WorktableFrame, page: HTMLElement, 
     const elevation = target.querySelector<HTMLElement>(".table-frame-photo-elevation");
     if (elevation) Object.assign(elevation.style, { left: `${x}px`, top: `${y}px`, width: `${width}px`, height: `${height}px` });
     const edge = target.querySelector<HTMLElement>(".table-frame-inner-edge");
-    const edgeWidth = frameInnerEdge(snapshot.page).widthPt;
-    if (edge) Object.assign(edge.style, { left: `${x - edgeWidth}px`, top: `${y - edgeWidth}px`, width: `${width + edgeWidth * 2}px`, height: `${height + edgeWidth * 2}px` });
+    const innerEdge = frameInnerEdge(snapshot.page);
+    const outset = innerEdge.widthPt + frameInnerEdgeWhiteGapPt(innerEdge);
+    if (edge) Object.assign(edge.style, { left: `${x - outset}px`, top: `${y - outset}px`, width: `${width + outset * 2}px`, height: `${height + outset * 2}px` });
   }
   const material = layoutPaperMaterial(framePaper(snapshot.page).material);
   if (material.textureUrl) {

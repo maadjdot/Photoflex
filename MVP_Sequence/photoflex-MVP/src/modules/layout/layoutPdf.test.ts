@@ -5,7 +5,29 @@ import type { LayoutId, LayoutObjectId, LayoutPageId, LayoutTextBox, PhotoId, Pr
 import { createEmptyLayout } from "./layoutDocument";
 import { createLayoutPdf } from "./layoutPdf";
 
+function pageOperators(pdf: PDFDocument, index: number) {
+  const contents = pdf.getPage(index).node.Contents();
+  const streams = contents instanceof PDFArray ? contents.asArray() : contents ? [contents] : [];
+  return streams.map((entry) => new TextDecoder().decode(decodePDFRawStream(pdf.context.lookup(entry) as PDFRawStream).decode())).join("\n");
+}
+
 describe("Layout PDF", () => {
+  it("prints optional body numbers from one and leaves both covers unnumbered", async () => {
+    const base = createEmptyLayout({ id: "layout" as LayoutId, projectId: "project" as ProjectId,
+      sequenceId: "sequence" as SequenceId, pageId: "one" as LayoutPageId, name: "Book", createdAt: "now" });
+    const snapshot = { ...base, pages: [{ id: "cover" as LayoutPageId, kind: "cover" as const, objects: [] },
+      base.pages[0], { id: "two" as LayoutPageId, objects: [] },
+      { id: "back" as LayoutPageId, kind: "back-cover" as const, objects: [] }] };
+    const assets = { fonts: [], loadPhoto: async () => { throw Error("Unexpected photo"); } };
+    const pdf = await PDFDocument.load(await createLayoutPdf(snapshot, assets));
+    expect(pageOperators(pdf, 0)).not.toContain("Tj");
+    expect(pageOperators(pdf, 1)).toContain("<3031> Tj");
+    expect(pageOperators(pdf, 2)).toContain("<3032> Tj");
+    expect(pageOperators(pdf, 3)).not.toContain("Tj");
+    const hidden = await PDFDocument.load(await createLayoutPdf({ ...snapshot, showPageNumbers: false }, assets));
+    expect(hidden.getPageCount()).toBe(4);
+    for (let index = 0; index < 4; index++) expect(pageOperators(hidden, index)).not.toContain("Tj");
+  });
   it("keeps physical page order and empty pages, embedding Chinese as PDF text", async () => {
     const base = createEmptyLayout({ id: "layout" as LayoutId, projectId: "project" as ProjectId,
       sequenceId: "sequence" as SequenceId, pageId: "one" as LayoutPageId, name: "上海街景", createdAt: "2026-09-24" });
@@ -57,6 +79,14 @@ describe("Layout PDF", () => {
     expect(operators).toMatch(/\bre\s+W\s+n\b/);
     expect(operators).toMatch(/\bgs\b/); // translucent photo elevation
     expect(operators).toMatch(/0 0 m\s+106 0 l\s+103 3 l\s+3 3 l/); // the top bevel surrounds the visible crop
+    for (const whiteGap of [true, false]) {
+      const colorSnapshot = { ...snapshot, showPageNumbers: false, pages: [{ ...snapshot.pages[0], photoElevationPt: 0,
+        innerEdge: { mode: "color" as const, color: "#333333", widthPt: 3, whiteGap } }] };
+      const colored = await PDFDocument.load(await createLayoutPdf(colorSnapshot, assets));
+      const coloredOperators = pageOperators(colored, 0);
+      expect(coloredOperators).toContain(whiteGap ? "107 0 l" : "106 0 l");
+      expect((coloredOperators.match(/1 1 1 rg/g) ?? []).length).toBe(whiteGap ? 2 : 1);
+    }
     const coverSnapshot = { ...snapshot, pages: snapshot.pages.map((page, index) => index === 2 ? { ...page, kind: "back-cover" as const } : page) };
     const coverPdf = await PDFDocument.load(await createLayoutPdf(coverSnapshot, assets));
     expect(coverPdf.getPageCount()).toBe(3);

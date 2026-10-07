@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { LayoutDocument } from "../../contracts";
-import { createLayoutReaderState, layoutReaderFitPage, layoutReaderPageLabel, layoutReaderPageObjects, layoutReaderPreviewEdge, layoutReaderReducer, layoutReaderSpreads, navigateLayoutReaderPage, resolveLayoutReaderMode } from "./layoutReader";
+import { createLayoutReaderState, layoutReaderFitPage, layoutReaderPageObjects, layoutReaderPreviewEdge, layoutReaderReducer, layoutReaderSpreads, navigateLayoutReaderPage, resolveLayoutReaderMode } from "./layoutReader";
 
 describe("Layout reader presentation", () => {
   it("keeps the back cover separate for odd and even page counts and navigates both ways", () => {
@@ -14,7 +14,6 @@ describe("Layout reader presentation", () => {
     expect(navigateLayoutReaderPage(5, 3, "facing", 1, true)).toBe(4);
     expect(navigateLayoutReaderPage(5, 4, "facing", -1, true)).toBe(3);
     expect(navigateLayoutReaderPage(5, 4, "facing", 1, true)).toBe(4);
-    expect(layoutReaderPageLabel(layoutReaderSpreads(5, "facing", true).at(-1), 5)).toBe("5 / 5");
   });
 
   it("does not bleed body objects into a back cover or cover objects into the body", () => {
@@ -50,7 +49,6 @@ describe("Layout reader presentation", () => {
     expect(layoutReaderSpreads(1, "facing")).toEqual([{ slots: [null, 0] }]);
     expect(layoutReaderSpreads(4, "facing")).toEqual([{ slots: [null, 0] }, { slots: [1, 2] }, { slots: [3, null] }]);
     expect(layoutReaderSpreads(5, "facing")).toEqual([{ slots: [null, 0] }, { slots: [1, 2] }, { slots: [3, 4] }]);
-    expect(layoutReaderPageLabel(layoutReaderSpreads(5, "facing")[1], 5)).toBe("2–3 / 5");
   });
 
   it("navigates by visible spreads without parity branches in callers", () => {
