@@ -9,6 +9,9 @@ export const FRAME_EDGE_MATERIALS = [
   { id: "metal", label: "Brushed metal" }, { id: "beveled", label: "Beveled / 3D" },
 ] as const;
 export function frameInnerEdge(page: Pick<Page, "innerEdge">): FrameInnerEdge { return page.innerEdge ?? { mode: "none", color: "#FFFFFF", widthPt: FRAME_MM_TO_PT }; }
+export function frameInnerEdgeWhiteGapPt(edge: FrameInnerEdge): number {
+  return edge.mode === "color" && edge.whiteGap !== false ? .5 : 0;
+}
 export function frameEdgeStyle(page: Page): FrameEdgeStyle { return page.edgeStyle ?? { widthPt: page.widthPt * .025, material: "flat", shadowStrength: .25, photoElevationPt: 0 }; }
 export function frameCaptionStyle(page: Page): FrameCaptionStyle {
   return page.captionStyle ?? { rect: { x: page.widthPt * .08, y: page.heightPt * .87, width: page.widthPt * .84, height: page.heightPt * .09 },
@@ -24,7 +27,8 @@ export function reflowFrameCaption(page: Page, widthPt: number, heightPt: number
 const color = (value: unknown) => typeof value === "string" && /^#[0-9a-f]{6}$/i.test(value);
 const within = (n: number, min: number, max: number) => Number.isFinite(n) && n >= min && n <= max;
 export function validFrameInnerEdge(edge: FrameInnerEdge): boolean {
-  return Boolean(edge && ["none", "color", "bevel"].includes(edge.mode) && color(edge.color) && within(edge.widthPt, 0, 20 * FRAME_MM_TO_PT));
+  return Boolean(edge && ["none", "color", "bevel"].includes(edge.mode) && color(edge.color) && within(edge.widthPt, 0, 20 * FRAME_MM_TO_PT)
+    && (edge.whiteGap === undefined || typeof edge.whiteGap === "boolean"));
 }
 export function validFrameEdgeStyle(style: FrameEdgeStyle): boolean {
   return Boolean(style && FRAME_EDGE_MATERIALS.some((entry) => entry.id === style.material) && within(style.widthPt, 0, 100 * FRAME_MM_TO_PT)

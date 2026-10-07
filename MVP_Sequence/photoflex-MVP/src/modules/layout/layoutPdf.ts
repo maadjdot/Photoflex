@@ -1,12 +1,13 @@
 import fontkit from "@pdf-lib/fontkit";
-import { PDFDocument, PDFHexString, PDFName, PDFOperator, PDFOperatorNames, clip, degrees, endMarkedContent, endPath, popGraphicsState, pushGraphicsState, rectangle, rgb, type PDFImage } from "pdf-lib";
+import { PDFDocument, PDFHexString, PDFName, PDFOperator, PDFOperatorNames, StandardFonts, clip, degrees, endMarkedContent, endPath, popGraphicsState, pushGraphicsState, rectangle, rgb, type PDFImage } from "pdf-lib";
 import type { LayoutDocument, LayoutFontFamily, LayoutFontStyle, LayoutFontWeight, LayoutImageFrame, LayoutPage, LayoutPaper, LayoutRect, LayoutTextBox, PhotoId } from "../../contracts";
 import { LAYOUT_CHINESE_FALLBACK_FONT, layoutFontStyle, layoutFontWeight } from "./layoutFonts";
-import { resolveLayoutPaper } from "./layoutPaper";
+import { isDarkLayoutPaper, resolveLayoutPaper } from "./layoutPaper";
+import { layoutPageNumber } from "./layoutPageNumbers";
 import { layoutText } from "./layoutText";
 import { layoutVisiblePhotoRect } from "./layoutPhotoAppearance";
 import { layoutReaderPageObjects } from "./layoutReader";
-import { frameInnerEdge } from "../worktable/frameAppearance";
+import { frameInnerEdge, frameInnerEdgeWhiteGapPt } from "../worktable/frameAppearance";
 import { resolveImagePlacement } from "../page-layout/pageGeometry";
 
 export interface LayoutPdfPhoto { readonly bytes: Uint8Array; readonly width: number; readonly height: number;
@@ -60,6 +61,8 @@ export async function createLayoutPdf(snapshot: LayoutDocument, assets: LayoutPd
   }
   pdf.setTitle(snapshot.name);
   pdf.setCreator("PhotoFlex");
+  const pageNumberFont = snapshot.showPageNumbers !== false && snapshot.pages.some((_, index) => layoutPageNumber(snapshot, index) !== null)
+    ? await pdf.embedFont(StandardFonts.Helvetica) : undefined;
   const embedded = new Map<string, { image: PDFImage; width: number; height: number; renderedRect?: LayoutPdfPhoto["renderedRect"] }>();
   const paperBackgrounds = new Map<string, PDFImage>();
   onProgress?.({ completed: 0, total: snapshot.pages.length });
@@ -110,6 +113,12 @@ export async function createLayoutPdf(snapshot: LayoutDocument, assets: LayoutPd
         }
       } else drawText(page, object, heightPt, fonts, assets.measureText);
     }
+    const pageNumber = layoutPageNumber(snapshot, index);
+    if (pageNumberFont && pageNumber !== null) {
+      const text = String(pageNumber).padStart(2, "0");
+      page.drawText(text, { x: index % 2 === 1 ? 16 : widthPt - 16 - pageNumberFont.widthOfTextAtSize(text, 10),
+        y: 12, size: 10, font: pageNumberFont, color: hexColor(isDarkLayoutPaper(paper) ? "#E0DBCF" : "#9CA3AF") });
+    }
     await pdf.flush();
     onProgress?.({ completed: index + 1, total: snapshot.pages.length });
   }
@@ -134,18 +143,20 @@ function drawPhotoAppearance(page: Page, rect: LayoutRect, appearance: LayoutPag
   }
   const edge = frameInnerEdge(appearance), w = edge.widthPt;
   if (edge.mode === "none" || w <= 0) return;
+  const gap = frameInnerEdgeWhiteGapPt(edge), outset = w + gap;
+  if (gap > 0) page.drawRectangle({ x: x - gap, y: y - gap, width: rect.width + gap * 2, height: rect.height + gap * 2, color: rgb(1, 1, 1) });
   const color = hexColor(edge.color);
   const mix = (ratio: number, target: number) => rgb(color.red * ratio + target * (1 - ratio),
     color.green * ratio + target * (1 - ratio), color.blue * ratio + target * (1 - ratio));
   const colors = edge.mode === "bevel" ? [mix(.65, 0), mix(.9, 1), mix(.7, 1), mix(.82, 0)] : [color, color, color, color];
-  const width = rect.width + 2 * w, height = rect.height + 2 * w;
+  const width = rect.width + 2 * outset, height = rect.height + 2 * outset;
   const paths = [
     `M 0 0 L ${width} 0 L ${width - w} ${w} L ${w} ${w} Z`,
     `M ${width} 0 L ${width} ${height} L ${width - w} ${height - w} L ${width - w} ${w} Z`,
     `M ${width} ${height} L 0 ${height} L ${w} ${height - w} L ${width - w} ${height - w} Z`,
     `M 0 ${height} L 0 0 L ${w} ${w} L ${w} ${height - w} Z`,
   ];
-  paths.forEach((path, index) => page.drawSvgPath(path, { color: colors[index], x: x - w, y: y + rect.height + w }));
+  paths.forEach((path, index) => page.drawSvgPath(path, { color: colors[index], x: x - outset, y: y + rect.height + outset }));
 }
 type Font = Awaited<ReturnType<PDFDocument["embedFont"]>>;
 interface EmbeddedFont { readonly font: Font; readonly characters: ReadonlySet<number>; readonly syntheticBold: boolean; readonly syntheticItalic: boolean }

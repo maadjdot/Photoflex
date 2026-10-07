@@ -81,6 +81,8 @@ export interface LayoutDocument {
   readonly sequenceId: SequenceId;
   readonly name: string;
   readonly pageSpec: { readonly widthPt: number; readonly heightPt: number };
+  /** Omitted values show body page numbers; covers are never numbered. */
+  readonly showPageNumbers?: boolean;
   readonly pages: readonly LayoutPage[];
   readonly revision: LayoutRevision;
   readonly createdAt: string;
@@ -99,6 +101,7 @@ export interface LayoutSummary {
 export type LayoutEditCommand =
   | { readonly type: "rename"; readonly name: string }
   | { readonly type: "set-page-size"; readonly widthPt: number; readonly heightPt: number }
+  | { readonly type: "set-page-numbers"; readonly show: boolean }
   | { readonly type: "add-page"; readonly page: LayoutPage; readonly at?: number }
   | { readonly type: "remove-page"; readonly pageId: LayoutPageId }
   | { readonly type: "move-page"; readonly pageId: LayoutPageId; readonly to: number }

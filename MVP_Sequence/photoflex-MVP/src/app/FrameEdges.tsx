@@ -1,6 +1,6 @@
 import type { CSSProperties } from "react";
 import type { FrameInnerEdge, FrameRect, WorktableFrame } from "../contracts";
-import { frameEdgeStyle } from "../modules/worktable/frameAppearance";
+import { frameEdgeStyle, frameInnerEdgeWhiteGapPt } from "../modules/worktable/frameAppearance";
 
 export function FrameEdge({ page }: { readonly page: WorktableFrame["page"] }) {
   const edge = frameEdgeStyle(page);
@@ -12,10 +12,13 @@ export function FrameEdge({ page }: { readonly page: WorktableFrame["page"] }) {
   </div>;
 }
 
-export function FramePhotoEdge({ edge, cornerRadiusPt, rect }: { readonly edge: FrameInnerEdge; readonly cornerRadiusPt: number; readonly rect: FrameRect }) {
+export function FramePhotoEdge({ edge, cornerRadiusPt, rect, scale = 1 }: { readonly edge: FrameInnerEdge; readonly cornerRadiusPt: number; readonly rect: FrameRect; readonly scale?: number }) {
   if (edge.mode === "none" || edge.widthPt <= 0) return null;
   const color = edge.color;
-  return <span className={`table-frame-inner-edge inner-edge-${edge.mode}`} aria-hidden="true" style={{ left: rect.x - edge.widthPt, top: rect.y - edge.widthPt, width: rect.width + edge.widthPt * 2, height: rect.height + edge.widthPt * 2, borderWidth: edge.widthPt, borderColor: color, borderRadius: cornerRadiusPt > 0 ? cornerRadiusPt + edge.widthPt : 0,
+  const gap = frameInnerEdgeWhiteGapPt(edge) * scale;
+  const outset = edge.widthPt + gap;
+  return <span className={`table-frame-inner-edge inner-edge-${edge.mode}`} aria-hidden="true" style={{ left: rect.x - outset, top: rect.y - outset, width: rect.width + outset * 2, height: rect.height + outset * 2, borderWidth: edge.widthPt, borderColor: color, borderRadius: cornerRadiusPt > 0 ? cornerRadiusPt + outset : 0,
+    boxShadow: gap > 0 ? `inset 0 0 0 ${gap}px #FFFFFF` : "none",
     ...(edge.mode === "bevel" ? { borderTopColor: `color-mix(in srgb, ${color} 65%, #000)`, borderLeftColor: `color-mix(in srgb, ${color} 82%, #000)`,
       borderBottomColor: `color-mix(in srgb, ${color} 70%, #fff)`, borderRightColor: `color-mix(in srgb, ${color} 90%, #fff)` } : {}) }} />;
 }

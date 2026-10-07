@@ -55,7 +55,8 @@ export function isLayoutDocument(value: unknown): value is LayoutDocument {
   if (document.schemaVersion !== 1 || !id(document.id) || !id(document.projectId) || !id(document.sequenceId)
     || typeof document.name !== "string" || !document.name.trim()
     || !finite(document.revision) || !Number.isInteger(document.revision) || document.revision < 0
-    || typeof document.createdAt !== "string" || typeof document.updatedAt !== "string") return false;
+    || typeof document.createdAt !== "string" || typeof document.updatedAt !== "string"
+    || (document.showPageNumbers !== undefined && typeof document.showPageNumbers !== "boolean")) return false;
   const widthPt = document.pageSpec?.widthPt, heightPt = document.pageSpec?.heightPt;
   if (!finite(widthPt) || !finite(heightPt) || widthPt < 50 * MM_TO_PT || widthPt > 600 * MM_TO_PT
     || heightPt < 50 * MM_TO_PT || heightPt > 600 * MM_TO_PT) return false;
@@ -81,7 +82,9 @@ export function applyLayoutCommand(document: LayoutDocument, command: LayoutEdit
   let pages: readonly LayoutPage[] = document.pages;
   let name = document.name;
   let pageSpec = document.pageSpec;
+  let showPageNumbers = document.showPageNumbers;
   if (command.type === "rename") name = command.name.trim();
+  else if (command.type === "set-page-numbers") showPageNumbers = command.show;
   else if (command.type === "set-page-size") {
     const scaleX = command.widthPt / pageSpec.widthPt;
     const scaleY = command.heightPt / pageSpec.heightPt;
@@ -166,6 +169,6 @@ export function applyLayoutCommand(document: LayoutDocument, command: LayoutEdit
       return { ...page, objects: page.objects.filter((object) => object.id !== command.objectId) };
     });
   }
-  const next = { ...document, name, pageSpec, pages };
+  const next = { ...document, name, pageSpec, pages, showPageNumbers };
   return isLayoutDocument(next) ? ok(next) : fail();
 }

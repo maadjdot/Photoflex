@@ -25,16 +25,24 @@ it("edits the page's photo edges and elevation, then applies both to the other p
     }} />;
   }
   render(<Harness />);
+  fireEvent.click(screen.getByRole("button", { name: "Color" }));
+  const gap = screen.getByRole("checkbox", { name: "Thin white gap" }) as HTMLInputElement;
+  expect(gap.checked).toBe(true);
+  fireEvent.click(gap);
+  expect(saved!.pages[0].innerEdge?.whiteGap).toBe(false);
   fireEvent.click(screen.getByRole("button", { name: "Mat bevel" }));
+  expect(screen.queryByRole("checkbox", { name: "Thin white gap" })).toBeNull();
   fireEvent.change(screen.getByLabelText("Inner edge width mm"), { target: { value: "2.5" } });
   fireEvent.blur(screen.getByLabelText("Inner edge width mm"));
   fireEvent.change(screen.getByLabelText("Inner edge color"), { target: { value: "#333333" } });
   fireEvent.change(screen.getByLabelText("Photo elevation mm"), { target: { value: "4" } });
   fireEvent.blur(screen.getByLabelText("Photo elevation mm"));
-  expect(saved!.pages[0].innerEdge).toEqual({ mode: "bevel", widthPt: 2.5 * MM_TO_PT, color: "#333333" });
+  expect(saved!.pages[0].innerEdge).toEqual({ mode: "bevel", widthPt: 2.5 * MM_TO_PT, color: "#333333", whiteGap: false });
   expect(saved!.pages[0].photoElevationPt).toBe(4 * MM_TO_PT);
   expect(saved!.pages[1].innerEdge).toBeUndefined();
   fireEvent.click(screen.getByRole("button", { name: "Apply photo effects to all pages" }));
   expect(saved!.pages[1].innerEdge).toEqual(saved!.pages[0].innerEdge);
   expect(saved!.pages[1].photoElevationPt).toBe(4 * MM_TO_PT);
+  fireEvent.click(screen.getByRole("button", { name: "Color" }));
+  expect((screen.getByRole("checkbox", { name: "Thin white gap" }) as HTMLInputElement).checked).toBe(false);
 });
