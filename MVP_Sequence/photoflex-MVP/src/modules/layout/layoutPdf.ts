@@ -10,7 +10,7 @@ import { layoutReaderPageObjects } from "./layoutReader";
 import { frameInnerEdge, frameInnerEdgeWhiteGapPt } from "../worktable/frameAppearance";
 import { resolveImagePlacement } from "../page-layout/pageGeometry";
 
-export interface LayoutPdfPhoto { readonly bytes: Uint8Array; readonly width: number; readonly height: number;
+export interface LayoutPdfPhoto { readonly bytes: Uint8Array; readonly format: "jpg" | "png"; readonly width: number; readonly height: number;
   readonly renderedRect?: { readonly x: number; readonly y: number; readonly width: number; readonly height: number } }
 export interface LayoutPdfFontSource {
   readonly family: LayoutFontFamily;
@@ -95,7 +95,8 @@ export async function createLayoutPdf(snapshot: LayoutDocument, assets: LayoutPd
         if (!entry) {
           const photo = await assets.loadPhoto(object.photoId, object, signal);
           signal?.throwIfAborted();
-          entry = { image: await pdf.embedJpg(photo.bytes), width: photo.width, height: photo.height, renderedRect: photo.renderedRect };
+          entry = { image: photo.format === "png" ? await pdf.embedPng(photo.bytes) : await pdf.embedJpg(photo.bytes),
+            width: photo.width, height: photo.height, renderedRect: photo.renderedRect };
           embedded.set(key, entry);
         }
         const x = object.rect.x, y = heightPt - object.rect.y - object.rect.height;
@@ -134,17 +135,28 @@ function drawPhotoAppearance(page: Page, rect: LayoutRect, appearance: LayoutPag
   const elevation = appearance.photoElevationPt ?? 0;
   const x = rect.x, y = pageHeight - rect.y - rect.height;
   if (elevation > 0) {
+    // CSS box shadows leave the inside of the photo clear, including transparent pixels.
+    page.pushOperators(pushGraphicsState(), rectangle(0, 0, page.getWidth(), pageHeight),
+      rectangle(x, y, rect.width, rect.height), PDFOperator.of(PDFOperatorNames.ClipEvenOdd), endPath());
     // Layer translucent rings to approximate the same soft shadow as the reader.
     for (let step = 8; step >= 1; step--) {
       const spread = elevation * 1.25 * step / 8;
       page.drawRectangle({ x: x - spread, y: y - elevation - spread, width: rect.width + spread * 2,
         height: rect.height + spread * 2, color: rgb(0, 0, 0), opacity: .3 / 8 });
     }
+    page.pushOperators(popGraphicsState());
   }
   const edge = frameInnerEdge(appearance), w = edge.widthPt;
   if (edge.mode === "none" || w <= 0) return;
   const gap = frameInnerEdgeWhiteGapPt(edge), outset = w + gap;
-  if (gap > 0) page.drawRectangle({ x: x - gap, y: y - gap, width: rect.width + gap * 2, height: rect.height + gap * 2, color: rgb(1, 1, 1) });
+  if (gap > 0) {
+    // Draw only the separator ring so the paper remains visible through the photo.
+    const color = rgb(1, 1, 1);
+    page.drawRectangle({ x: x - gap, y: y - gap, width: rect.width + gap * 2, height: gap, color });
+    page.drawRectangle({ x: x - gap, y: y + rect.height, width: rect.width + gap * 2, height: gap, color });
+    page.drawRectangle({ x: x - gap, y, width: gap, height: rect.height, color });
+    page.drawRectangle({ x: x + rect.width, y, width: gap, height: rect.height, color });
+  }
   const color = hexColor(edge.color);
   const mix = (ratio: number, target: number) => rgb(color.red * ratio + target * (1 - ratio),
     color.green * ratio + target * (1 - ratio), color.blue * ratio + target * (1 - ratio));

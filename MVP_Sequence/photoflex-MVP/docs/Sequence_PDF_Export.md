@@ -7,6 +7,7 @@ Sequence 顶部工具栏的 `Read` 右侧提供 `Export PDF`。一次点击导�
 - 按 `readingUnits` 的顺序，每个阅读单元生成一张 PDF 页面。单张照片独占一页；Spread 左右并排保留在同一页；Blank 保持纯白。重复出现的照片保留每个位置。
 - 只输出 Read 的白色纸面和照片，照片等比居中，每个纸面四边保留 6% 的内容区边距。无页码、标题、Pin、工具栏或外部背景。
 - 使用 Read 同档的 2048px 派生预览。页面尺寸按点击导出时的窗口计算，与该窗口下 Read 的纸面比例一致；Spread 的 PDF 页面比 Single 宽。不是固定 A4 印刷版式。
+- 支持 JPG/JPEG、PNG/APNG、WebP；PNG、WebP 保留透明度，动态图片统一采用动画首帧。透明区域显示 PDF 的白色纸面，Sequence 文件夹复制则保留完整原文件。
 - 点击时复制草稿和窗口尺寸，因此导出过程中继续编辑不影响已启动的任务。切换 Sequence 或离开页面会取消任务。任何照片失败都终止整份导出，不会静默遗漏照片。
 
 ## 模块职责
@@ -16,7 +17,7 @@ Sequence 顶部工具栏的 `Read` 右侧提供 `Export PDF`。一次点击导�
 | `contracts/sequenceExport.ts` | 导出输入、进度与照片编码接口的唯一契约 |
 | `modules/sequence/readingPresentation.ts` | Read 与导出共用的阅读单元展开、纸面尺寸和照片边距 |
 | `modules/sequence-export` | `createSequencePdf`：顺序排版、空白和双页处理、PDF 编码，返回字节；不依赖 DOM 或持久化 |
-| `platform/browser/exportSequencePdf.ts` | 经 PhotoSource 获取预览，解码并转换 JPEG，释放 preview lease / canvas，完成后发起下载并回收 URL |
+| `platform/browser/exportSequencePdf.ts` | 经 PhotoSource 获取预览，将 JPEG 编码为 JPEG，将 PNG、WebP 编码为透明 PNG，释放 preview lease / canvas，完成后发起下载并回收 URL |
 | `app/SequencePdfExportButton.tsx` | 点击快照、进度、取消、失败提示和页面卸载生命周期 |
 
 PDF 库 `pdf-lib` 随浏览器导出模块按需加载。照片逐张解码、嵌入并释放预览资源，避免同时解码整个 Sequence。导出不写 ProjectStore，也不改原片、版本或排序。

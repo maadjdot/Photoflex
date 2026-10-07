@@ -4,6 +4,7 @@ import { PDFArray, PDFDocument, PDFDict, PDFName, PDFRawStream, decodePDFRawStre
 import type { LayoutId, LayoutObjectId, LayoutPageId, LayoutTextBox, PhotoId, ProjectId, SequenceId } from "../../contracts";
 import { createEmptyLayout } from "./layoutDocument";
 import { createLayoutPdf } from "./layoutPdf";
+import { photoPng } from "../../../tests/helpers/photoImages";
 
 function pageOperators(pdf: PDFDocument, index: number) {
   const contents = pdf.getPage(index).node.Contents();
@@ -12,6 +13,26 @@ function pageOperators(pdf: PDFDocument, index: number) {
 }
 
 describe("Layout PDF", () => {
+  it("embeds transparent PNGs with an alpha mask and keeps the separator and shadow outside the photo", async () => {
+    const base = createEmptyLayout({ id: "layout" as LayoutId, projectId: "project" as ProjectId,
+      sequenceId: "sequence" as SequenceId, pageId: "one" as LayoutPageId, name: "Alpha", createdAt: "now" });
+    const frame = { kind: "image-frame" as const, id: "image" as LayoutObjectId, photoId: "png" as PhotoId,
+      rect: { x: 30, y: 40, width: 96, height: 64 }, crop: { mode: "fill" as const, zoom: 1, focal: { x: .5, y: .5 } } };
+    const snapshot = { ...base, showPageNumbers: false, pages: [{ ...base.pages[0], paper: { color: "#123456", material: "none" as const },
+      innerEdge: { mode: "color" as const, color: "#333333", widthPt: 3 }, photoElevationPt: 4, objects: [frame] }] };
+    const pdf = await PDFDocument.load(await createLayoutPdf(snapshot, { fonts: [],
+      loadPhoto: async () => ({ bytes: photoPng(), format: "png", width: 96, height: 64 }) }));
+    const images = pdf.getPage(0).node.Resources()!.lookup(PDFName.of("XObject"), PDFDict)!;
+    const image = pdf.context.lookup(images.get(images.keys()[0])) as PDFRawStream;
+    const mask = pdf.context.lookup(image.dict.get(PDFName.of("SMask"))) as PDFRawStream;
+    const alpha = decodePDFRawStream(mask).decode();
+    expect([...new Set(alpha)]).toEqual([0, 128, 255]);
+    const operators = pageOperators(pdf, 0);
+    expect(operators).toContain("W*");
+    expect(operators).toContain("97 0.5 l");
+    expect(operators).not.toContain("97 65 l");
+  });
+
   it("prints optional body numbers from one and leaves both covers unnumbered", async () => {
     const base = createEmptyLayout({ id: "layout" as LayoutId, projectId: "project" as ProjectId,
       sequenceId: "sequence" as SequenceId, pageId: "one" as LayoutPageId, name: "Book", createdAt: "now" });
@@ -64,7 +85,7 @@ describe("Layout PDF", () => {
       { id: "three" as LayoutPageId, objects: [] }] };
     const jpeg = Buffer.from("/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/2wBDAQkJCQwLDBgNDRgyIRwhMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjL/wAARCAABAAIDASIAAhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEAAwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoL/8QAtREAAgECBAQDBAcFBAQAAQJ3AAECAxEEBSExBhJBUQdhcRMiMoEIFEKRobHBCSMzUvAVYnLRChYkNOEl8RcYGRomJygpKjU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6goOEhYaHiImKkpOUlZaXmJmaoqOkpaanqKmqsrO0tba3uLm6wsPExcbHyMnK0tPU1dbX2Nna4uPk5ebn6Onq8vP09fb3+Pn6/9oADAMBAAIRAxEAPwDlaKKK+eP0k//Z", "base64");
     let loads = 0;
-    const assets = { fonts: [], loadPhoto: async () => { loads++; return { bytes: new Uint8Array(jpeg), width: 2, height: 1 }; } };
+    const assets = { fonts: [], loadPhoto: async () => { loads++; return { bytes: new Uint8Array(jpeg), format: "jpg" as const, width: 2, height: 1 }; } };
     const bytes = await createLayoutPdf(snapshot, assets);
     const pdf = await PDFDocument.load(bytes);
     expect(pdf.getPage(0).node.Resources()?.lookup(PDFName.of("XObject"), PDFDict)?.keys().length).toBe(1);
@@ -85,7 +106,7 @@ describe("Layout PDF", () => {
       const colored = await PDFDocument.load(await createLayoutPdf(colorSnapshot, assets));
       const coloredOperators = pageOperators(colored, 0);
       expect(coloredOperators).toContain(whiteGap ? "107 0 l" : "106 0 l");
-      expect((coloredOperators.match(/1 1 1 rg/g) ?? []).length).toBe(whiteGap ? 2 : 1);
+      expect((coloredOperators.match(/1 1 1 rg/g) ?? []).length).toBe(whiteGap ? 5 : 1);
     }
     const coverSnapshot = { ...snapshot, pages: snapshot.pages.map((page, index) => index === 2 ? { ...page, kind: "back-cover" as const } : page) };
     const coverPdf = await PDFDocument.load(await createLayoutPdf(coverSnapshot, assets));

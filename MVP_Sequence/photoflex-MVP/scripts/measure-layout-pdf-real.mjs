@@ -31,7 +31,7 @@ try {
     const path = photos.get(photoId);
     if (!path) throw new Error(`Missing ${photoId}`);
     const buffer = await readFile(path);
-    return { bytes: new Uint8Array(buffer), ...jpegSize(buffer) };
+    return { bytes: new Uint8Array(buffer), format: "jpg", ...jpegSize(buffer) };
   } });
   const pdf = await PDFDocument.load(bytes);
   console.log(JSON.stringify({ pages: pdf.getPageCount(), uniquePhotos: names.length, pdfBytes: bytes.length,

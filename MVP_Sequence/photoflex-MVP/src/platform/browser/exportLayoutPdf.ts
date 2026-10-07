@@ -1,9 +1,10 @@
 import type { LayoutDocument, LayoutFontFamily, LayoutFontStyle, LayoutFontWeight, LayoutImageFrame, LayoutPaper, PhotoId, PhotoSource } from "../../contracts";
-import { createLayoutPdf, type LayoutPdfFontSource, type LayoutPdfProgress } from "../../modules/layout/layoutPdf";
+import { createLayoutPdf, type LayoutPdfFontSource, type LayoutPdfPhoto, type LayoutPdfProgress } from "../../modules/layout/layoutPdf";
 import { LAYOUT_CHINESE_FALLBACK_FONT, LAYOUT_FONT_BY_FAMILY, layoutFontCssShorthand, layoutFontStyle, layoutFontWeight } from "../../modules/layout/layoutFonts";
 import { isDarkLayoutPaper, layoutPaperMaterial } from "../../modules/layout/layoutPaper";
 import { resolveImagePlacement } from "../../modules/page-layout/pageGeometry";
 import { loadLayoutFont, resolveLayoutFontAsset } from "./layoutFontAssets";
+import { decodePhotoImage, encodePhotoCanvas, inspectPhotoImage } from "./photoImage";
 
 export interface LayoutPdfIssue { readonly page: number; readonly objectId: string; readonly kind: "empty" | "missing" | "low-resolution" }
 export interface LayoutPdfPreflight { readonly blocking: readonly LayoutPdfIssue[]; readonly warnings: readonly LayoutPdfIssue[] }
@@ -74,7 +75,7 @@ export async function exportLayoutPdf(snapshot: LayoutDocument, source: PhotoSou
   if (!context) throw new Error("This browser could not measure Layout text for PDF export.");
   const bytes = await createLayoutPdf(snapshot, {
     fonts,
-    loadPhoto: (photoId, frame, currentSignal) => loadPhotoJpeg(source, photoId, frame, quality, currentSignal),
+    loadPhoto: (photoId, frame, currentSignal) => loadLayoutPhoto(source, photoId, frame, quality, currentSignal),
     loadPaperBackground: renderLayoutPaperJpeg,
     imageKey: quality === "original" ? (frame) => frame.photoId! : (frame) => JSON.stringify([
       frame.photoId, frame.rect.width, frame.rect.height, frame.crop,
@@ -147,20 +148,22 @@ async function renderLayoutPaperJpeg(paper: LayoutPaper, pageSpec: LayoutDocumen
   } finally { bitmap.close(); canvas.width = canvas.height = 0; }
 }
 
-async function loadPhotoJpeg(source: PhotoSource, photoId: PhotoId, frame: LayoutImageFrame, quality: LayoutPdfQuality, signal?: AbortSignal) {
+export async function loadLayoutPhoto(source: PhotoSource, photoId: PhotoId, frame: LayoutImageFrame, quality: LayoutPdfQuality, signal?: AbortSignal): Promise<LayoutPdfPhoto> {
   signal?.throwIfAborted();
   const [file, metadata] = await Promise.all([source.readOriginalFile(photoId), source.getPhoto(photoId)]);
   if (!file.ok) throw new Error("A photo became unavailable during export. Reconnect its source and retry.");
   if (!metadata.ok) throw new Error("A photo became unavailable during export. Reconnect its source and retry.");
-  if (quality === "original") {
+  const info = await inspectPhotoImage(file.value);
+  const format = info.format === "jpg" ? "jpg" : "png";
+  if (quality === "original" && format === "jpg") {
     // Only original quality embeds an unrotated source JPEG without recompression.
     const header = new Uint8Array(await file.value.slice(0, 256 * 1024).arrayBuffer());
     if (jpegOrientation(header) === 1) {
       signal?.throwIfAborted();
-      return { bytes: new Uint8Array(await file.value.arrayBuffer()), width: metadata.value.width, height: metadata.value.height };
+      return { bytes: new Uint8Array(await file.value.arrayBuffer()), format, width: metadata.value.width, height: metadata.value.height };
     }
   }
-  const bitmap = await createImageBitmap(file.value);
+  const bitmap = await decodePhotoImage(file.value, info);
   const canvas = document.createElement("canvas");
   try {
     signal?.throwIfAborted();
@@ -177,14 +180,13 @@ async function loadPhotoJpeg(source: PhotoSource, photoId: PhotoId, frame: Layou
     canvas.height = visible ? Math.max(1, Math.round(visible.height / 72 * targetDpi)) : bitmap.height;
     const context = canvas.getContext("2d");
     if (!context) throw new Error("This browser could not prepare a photo for PDF export.");
-    context.fillStyle = "#fff"; context.fillRect(0, 0, canvas.width, canvas.height);
+    if (format === "jpg") { context.fillStyle = "#fff"; context.fillRect(0, 0, canvas.width, canvas.height); }
     if (placed && visible) context.drawImage(bitmap, (placed.x - visible.x) * canvas.width / visible.width, (placed.y - visible.y) * canvas.height / visible.height,
       placed.width * canvas.width / visible.width, placed.height * canvas.height / visible.height);
     else context.drawImage(bitmap, 0, 0);
-    const jpeg = await new Promise<Blob>((resolve, reject) => canvas.toBlob(
-      (blob) => blob ? resolve(blob) : reject(new Error("A photo could not be encoded for PDF export.")), "image/jpeg", preset?.jpeg ?? .94));
+    const encoded = await encodePhotoCanvas(canvas, format, preset?.jpeg ?? .94);
     signal?.throwIfAborted();
-    return { bytes: new Uint8Array(await jpeg.arrayBuffer()), width: canvas.width, height: canvas.height, renderedRect: visible };
+    return { bytes: new Uint8Array(await encoded.arrayBuffer()), format, width: canvas.width, height: canvas.height, renderedRect: visible };
   } finally { bitmap.close(); canvas.width = canvas.height = 0; }
 }
 

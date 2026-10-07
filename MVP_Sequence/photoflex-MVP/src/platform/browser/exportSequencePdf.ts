@@ -1,10 +1,11 @@
-import type { PhotoId, PhotoSource, SequencePdfOptions } from "../../contracts";
+import { supportedPhotoFormat, type PhotoId, type PhotoSource, type SequencePdfImage, type SequencePdfOptions } from "../../contracts";
 import { createSequencePdf } from "../../modules/sequence-export";
+import { encodePhotoCanvas } from "./photoImage";
 
 /** Browser adapter owns decoding, preview leases and the download URL lifecycle. */
 export async function exportSequencePdf(options: SequencePdfOptions, photoSource: PhotoSource): Promise<void> {
   const bytes = await createSequencePdf(options, {
-    loadJpeg: (photoId, signal) => loadReadingJpeg(photoSource, photoId, signal),
+    loadImage: (photoId, signal) => loadReadingImage(photoSource, photoId, signal),
     loadTextJpeg: (item, width, height, signal) => renderTextPageJpeg(item.text, item.fontSize, width, height, signal),
   });
   options.signal?.throwIfAborted();
@@ -65,8 +66,11 @@ function wrapText(context: CanvasRenderingContext2D, text: string, maxWidth: num
   return lines;
 }
 
-async function loadReadingJpeg(photoSource: PhotoSource, photoId: PhotoId, signal?: AbortSignal): Promise<Uint8Array> {
+async function loadReadingImage(photoSource: PhotoSource, photoId: PhotoId, signal?: AbortSignal): Promise<SequencePdfImage> {
   signal?.throwIfAborted();
+  const metadata = await photoSource.getPhoto(photoId);
+  if (!metadata.ok) throw new Error("A photo could not be loaded. Reconnect its source folder and retry exporting.");
+  const format = supportedPhotoFormat(metadata.value.relativePath) === "jpg" ? "jpg" : "png";
   const result = await photoSource.derivedPreview(photoId, 2048);
   if (!result.ok) throw new Error("A photo could not be loaded. Reconnect its source folder and retry exporting.");
   const image = new Image();
@@ -91,14 +95,14 @@ async function loadReadingJpeg(photoSource: PhotoSource, photoId: PhotoId, signa
     canvas.height = image.naturalHeight;
     const context = canvas.getContext("2d");
     if (!context) throw new Error("This browser could not prepare photos for PDF export.");
-    context.fillStyle = "#fff";
-    context.fillRect(0, 0, canvas.width, canvas.height);
+    if (format === "jpg") {
+      context.fillStyle = "#fff";
+      context.fillRect(0, 0, canvas.width, canvas.height);
+    }
     context.drawImage(image, 0, 0);
-    const jpeg = await new Promise<Blob>((resolve, reject) => canvas.toBlob(
-      (blob) => blob ? resolve(blob) : reject(new Error("A photo could not be prepared for PDF export.")), "image/jpeg", 0.95,
-    ));
+    const encoded = await encodePhotoCanvas(canvas, format, .95);
     signal?.throwIfAborted();
-    return new Uint8Array(await jpeg.arrayBuffer());
+    return { bytes: new Uint8Array(await encoded.arrayBuffer()), format };
   } finally {
     image.src = "";
     canvas.width = canvas.height = 0;

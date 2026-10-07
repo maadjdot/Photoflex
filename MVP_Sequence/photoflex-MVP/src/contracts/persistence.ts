@@ -129,7 +129,7 @@ export interface PhotoSource {
     limit?: number,
   ): Promise<Result<PhotoPage, SourceError>>;
   getPhoto(photoId: PhotoId): Promise<Result<PhotoRef, SourceError>>;
-  /** Import OS-dropped JPEG handles, reusing an existing source photo when it identifies the same file. */
+  /** Import OS-dropped photo handles, reusing an existing source photo when it identifies the same file. */
   ingestDroppedFiles(
     handles: readonly FileSystemHandle[],
     sources: readonly SourceRecord[],

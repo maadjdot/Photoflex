@@ -14,7 +14,9 @@ export interface SequencePdfOptions {
 }
 
 /** Encoded photograph, with orientation applied, ready to embed in a PDF. */
+export interface SequencePdfImage { readonly bytes: Uint8Array; readonly format: "jpg" | "png" }
+
 export interface SequencePdfImageSource {
-  loadJpeg(photoId: PhotoId, signal?: AbortSignal): Promise<Uint8Array>;
+  loadImage(photoId: PhotoId, signal?: AbortSignal): Promise<SequencePdfImage>;
   loadTextJpeg?(item: SequenceTextItem, width: number, height: number, signal?: AbortSignal): Promise<Uint8Array>;
 }

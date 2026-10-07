@@ -227,7 +227,9 @@ export function TablePage({ dependencies, projectId, navigate, sequenceOverlay }
     }
     const photos = imported.value.items.map((item) => item.photo);
     if (photos.length) await placeSourcePhotos(photos, point);
-    if (imported.value.skipped.length) setNotice(`${imported.value.skipped.length} unsupported item(s) skipped. Only JPEG files are supported.`);
+    if (imported.value.skipped.length) setNotice(locale === "zh-CN"
+      ? `已跳过 ${imported.value.skipped.length} 个不支持的项目。支持 JPG、PNG、APNG 和 WebP 文件。`
+      : `${imported.value.skipped.length} unsupported item(s) skipped. Supported files: JPG, PNG, APNG and WebP.`);
   }, [dependencies.photoSource, placeSourcePhotos, save, workspace]);
 
   const requestSequence = (ids: readonly WorktableItemId[]) => {
