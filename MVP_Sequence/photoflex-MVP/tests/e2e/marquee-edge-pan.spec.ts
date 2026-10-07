@@ -5,6 +5,8 @@ test("marquee keeps earlier photos selected while the Table auto-pans", async ({
   await page.goto("/");
   const projectId = `marquee-e2e-${crypto.randomUUID()}`;
   await page.evaluate(async (id) => {
+    const fixtureModule = "/tests/helpers/browserProjectFixture.ts";
+    const { createBrowserWorkspace } = await import(/* @vite-ignore */ fixtureModule);
     const request = indexedDB.open("photoflex-mvp");
     const db = await new Promise<IDBDatabase>((resolve, reject) => { request.onsuccess = () => resolve(request.result); request.onerror = () => reject(request.error); });
     const createdAt = new Date().toISOString();
@@ -13,10 +15,10 @@ test("marquee keeps earlier photos selected while the Table auto-pans", async ({
       later: { id: "later", photoId: "photo-later", x: 710, y: 150, z: 2, width: 90, height: 90, filename: "later.jpg" },
     };
     const transaction = db.transaction("projects", "readwrite");
-    transaction.objectStore("projects").put({ schemaVersion: 9, projectId: id, name: "Marquee Test", memo: "", expectedPhotoCount: null, sources: [], photoStates: {},
+    transaction.objectStore("projects").put(createBrowserWorkspace({ projectId: id, name: "Marquee Test", memo: "", expectedPhotoCount: null, sources: [], photoStates: {},
       worktableDraft: { projectId: id, entryOrder: ["first", "later"], placements, groups: [], links: [], pileOrder: [], pilePlacements: {}, frameOrder: [], frames: {} },
       resumeContext: { page: "table", filter: "all", tableViewport: { originX: 0, originY: 0, zoom: 1 } },
-      sequenceIds: [], versionIds: [], revision: 0, createdAt, updatedAt: createdAt, lastOpenedAt: createdAt });
+      sequenceIds: [], versionIds: [], revision: 0, createdAt, updatedAt: createdAt, lastOpenedAt: createdAt }));
     await new Promise<void>((resolve, reject) => { transaction.oncomplete = () => resolve(); transaction.onerror = () => reject(transaction.error); });
     db.close();
   }, projectId);

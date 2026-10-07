@@ -1,27 +1,48 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 import { readFile } from "node:fs/promises";
 import { backupFixture } from "../helpers/projectBackup";
+import type { ProjectBackupV1 } from "../../src/contracts";
 
-test("first-use guidance, shared navigation and project backup round trip", async ({ page }, testInfo) => {
+async function importBackup(page: Page, document = JSON.stringify(backupFixture())) {
+  return page.evaluate(async (document) => {
+    const module = "/tests/helpers/browserProjectFixture.ts";
+    return (await import(/* @vite-ignore */ module)).importBrowserBackup(document);
+  }, document);
+}
+async function exportBackup(page: Page, projectId: string): Promise<ProjectBackupV1> {
+  return page.evaluate(async (projectId) => {
+    const module = "/tests/helpers/browserProjectFixture.ts";
+    return JSON.parse(await (await import(/* @vite-ignore */ module)).exportBrowserBackup(projectId));
+  }, projectId);
+}
+const photoOrder = (backup: ProjectBackupV1) => backup.sequences[0].items.map((item) =>
+  item.kind === "photo" ? backup.photoManifest.find((photo) => photo.photoId === item.photoId)?.relativePath : item.kind);
+
+test("current first-use guide, navigation and backup API round trip retain project content", async ({ page }, testInfo) => {
+  await page.addInitScript(() => {
+    (window as any).showDirectoryPicker = async () => (await navigator.storage.getDirectory()).getDirectoryHandle("restored-photos");
+  });
   await page.setViewportSize({ width: 1280, height: 800 });
   await page.goto("/");
-  await expect(page.getByRole("heading", { name: "Turn your photographs into a story" })).toBeVisible();
-  const steps = await page.locator(".first-use-steps").boundingBox();
-  const create = await page.getByRole("button", { name: "Create a project", exact: true }).boundingBox();
-  expect(create!.y).toBeGreaterThan(steps!.y + steps!.height);
+  await expect(page.getByRole("heading", { name: "Projects" })).toBeVisible();
+  await page.getByRole("button", { name: "User guide", exact: true }).click();
+  await expect(page.getByRole("dialog", { name: "User guide", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Close user guide" }).click();
+  await page.getByRole("button", { name: "New project", exact: true }).click();
+  const creator = page.getByRole("dialog", { name: "New Project", exact: true });
+  await creator.getByLabel("Project name").fill("First project");
+  await creator.getByRole("button", { name: "Create project", exact: true }).click();
+  await expect(page).toHaveURL(/#\/projects\/[^/]+\/table$/);
+  await expect(page.getByLabel("Photo worktable")).toBeVisible();
   await page.screenshot({ path: testInfo.outputPath("first-use.png") });
-  await page.getByLabel("Project backup file").setInputFiles({ name: "Street.photoflex.json", mimeType: "application/json", buffer: Buffer.from(JSON.stringify(backupFixture())) });
-  await expect(page).toHaveURL(/#\/projects\/[^/]+$/);
-  const projectUrl = page.url();
-  const nav = page.getByRole("navigation", { name: "Project navigation" });
-  await expect(nav.getByRole("button")).toHaveText(["Home", "Project", "Contact Sheet", "Table", "Sequence"]);
-  await expect(nav.locator('[aria-current="page"]')).toHaveText("Project");
-  await expect(page.getByRole("button", { name: "Reconnect folder" })).toBeVisible();
-  await page.screenshot({ path: testInfo.outputPath("restored-project.png") });
-  // A real browser directory handle, isolated in OPFS, supplies the source files.
+
+  // Daily backup controls were removed. Exercise the supported persistence API
+  // instead of introducing a test-only backup button into the product.
+  const projectId = await importBackup(page);
+  await page.goto(`/#/projects/${projectId}`);
+  await expect(page.getByRole("button", { name: "Reconnect folder", exact: true })).toBeVisible();
   await page.evaluate(async () => {
-    const root = await navigator.storage.getDirectory();
-    const folder = await root.getDirectoryHandle("restored-photos", { create: true });
+    const folder = await (await navigator.storage.getDirectory()).getDirectoryHandle("restored-photos", { create: true });
     for (const [name, color] of [["one.jpg", "#43856b"], ["two.jpg", "#b46445"]]) {
       const canvas = document.createElement("canvas"); canvas.width = 1200; canvas.height = 800;
       const ctx = canvas.getContext("2d")!; ctx.fillStyle = color; ctx.fillRect(0, 0, 1200, 800);
@@ -29,88 +50,98 @@ test("first-use guidance, shared navigation and project backup round trip", asyn
       const file = await folder.getFileHandle(name, { create: true });
       const writer = await file.createWritable(); await writer.write(blob); await writer.close();
     }
-    (window as unknown as { showDirectoryPicker: () => Promise<FileSystemDirectoryHandle> }).showDirectoryPicker = async () => folder;
   });
-  await page.getByRole("button", { name: "Reconnect folder" }).click();
-  await expect(page.getByRole("button", { name: "Reconnect folder" })).toHaveCount(0);
-  const download = page.waitForEvent("download");
-  await page.getByRole("button", { name: "Export project backup" }).click();
-  const file = await download;
-  const filePath = testInfo.outputPath("project.photoflex.json");
-  await file.saveAs(filePath);
-  const exported = JSON.parse(await readFile(filePath, "utf8"));
+  await page.getByRole("button", { name: "Reconnect folder", exact: true }).click();
+  await expect(page.locator(".source-card.status-ready")).toBeVisible();
+  await page.locator(".source-card").getByRole("button", { name: "Open", exact: true }).click();
+  await expect(page.locator(".photo-tile img")).toHaveCount(2);
+  await page.getByRole("navigation", { name: "Main navigation" }).getByRole("button", { name: "Table", exact: true }).click();
+  await expect(page).toHaveURL(new RegExp(`#/projects/${projectId}/table$`));
+  await expect(page.locator(".worktable-card")).toHaveCount(2);
+
+  const exported = await exportBackup(page, projectId);
   expect(exported.photoManifest).toHaveLength(2);
   expect(exported.versions).toHaveLength(2);
-  expect(exported.sequences[0].readingUnits).toEqual(backupFixture().sequences[0].readingUnits);
-
-  await nav.getByRole("button", { name: "Contact Sheet", exact: true }).click();
-  await expect(nav.locator('[aria-current="page"]')).toHaveText("Contact Sheet");
-  await expect(page.locator(".photo-tile img")).toHaveCount(2);
-  await nav.getByRole("button", { name: "Table", exact: true }).click();
-  await expect(page.getByLabel("Photo worktable")).toBeVisible();
-  await expect(nav.locator('[aria-current="page"]')).toHaveText("Table");
-  expect((await nav.boundingBox())!.y).toBe(44);
-  expect((await page.locator(".table-page").boundingBox())!.y).toBe(82);
-  await page.screenshot({ path: testInfo.outputPath("table-navigation.png") });
-  await nav.getByRole("button", { name: "Sequence", exact: true }).click();
-  await expect(page.locator(".sequence-workspace")).toBeVisible();
+  expect(exported.sequences[0].readingUnits.map((unit) => unit.kind)).toEqual(backupFixture().sequences[0].readingUnits.map((unit) => unit.kind));
+  await page.goto(`/#/projects/${projectId}/sequences/${exported.sequences[0].id}`);
+  const overlay = page.getByRole("dialog", { name: /^Sequence / });
+  await expect(overlay.getByRole("gridcell")).toHaveCount(3);
   for (const width of [1280, 1024]) {
     await page.setViewportSize({ width, height: 800 });
-    await expect(nav.locator('[aria-current="page"]')).toHaveText("Sequence");
-    expect((await nav.boundingBox())!.y).toBe(44);
-    await expect(page.getByRole("button", { name: "Export PDF", exact: true })).toBeVisible();
-    const bounds = await nav.getByRole("button").evaluateAll((buttons) => buttons.map((button) => { const r = button.getBoundingClientRect(); return { left: r.left, right: r.right }; }));
-    expect(bounds.every((r) => r.left >= 0 && r.right <= width)).toBe(true);
-    await page.screenshot({ path: testInfo.outputPath(`sequence-navigation-${width}.png`) });
+    await expect(overlay.getByRole("button", { name: "Read", exact: true })).toBeVisible();
+    const bounds = await overlay.locator("header button").evaluateAll((buttons) => buttons.map((button) => {
+      const rect = button.getBoundingClientRect(); return { left: rect.left, right: rect.right };
+    }));
+    expect(bounds.every((rect) => rect.left >= 0 && rect.right <= width)).toBe(true);
   }
   await page.goBack();
-  await expect(nav.locator('[aria-current="page"]')).toHaveText("Table");
+  await expect(page).toHaveURL(new RegExp(`#/projects/${projectId}/table$`));
   await page.goForward();
-  await expect(nav.locator('[aria-current="page"]')).toHaveText("Sequence");
-  await nav.getByRole("button", { name: "Home", exact: true }).click();
-  await expect(page.locator(".home-gallery-photo").first()).toBeVisible();
-  await expect(page.getByRole("button", { name: "Open Table", exact: true })).toHaveCount(0);
-  await page.getByLabel("Project backup file").setInputFiles(filePath);
-  await expect(page).toHaveURL(/#\/projects\/[^/]+$/);
-  expect(page.url()).not.toBe(projectUrl);
+  await expect(overlay).toBeVisible();
+
+  const downloading = page.waitForEvent("download");
+  await page.evaluate(async (document) => {
+    const module = "/src/app/downloadRecoveryBackup.ts";
+    (await import(/* @vite-ignore */ module)).downloadRecoveryBackup(new TextEncoder().encode(document));
+  }, JSON.stringify(exported));
+  const filePath = testInfo.outputPath("project.photoflex.json");
+  await (await downloading).saveAs(filePath);
+  const copyId = await importBackup(page, await readFile(filePath, "utf8"));
+  expect(copyId).not.toBe(projectId);
+  const copy = await exportBackup(page, copyId);
+  expect(photoOrder(copy)).toEqual(photoOrder(exported));
+  expect(copy.project.worktableDraft.entryOrder).toHaveLength(2);
+  expect(copy.versions).toHaveLength(2);
+  await page.goto(`/#/projects/${copyId}/table`);
+  await expect(page.locator(".worktable-card")).toHaveCount(2);
+  await page.reload();
+  await expect(page.locator(".worktable-card")).toHaveCount(2);
 });
 
-test("two tabs preserve the first saved edit and recover the conflicting draft as a separate project", async ({ page, context }, testInfo) => {
+test("two tabs retain the saved Sequence and download or copy the conflicting draft", async ({ page, context }, testInfo) => {
   await page.goto("/");
-  await page.getByLabel("Project backup file").setInputFiles({ name: "Street.photoflex.json", mimeType: "application/json", buffer: Buffer.from(JSON.stringify(backupFixture())) });
-  const nav = page.getByRole("navigation", { name: "Project navigation" });
-  await expect(nav.getByRole("button", { name: "Sequence", exact: true })).toBeEnabled();
-  await nav.getByRole("button", { name: "Sequence", exact: true }).click();
-  await expect(page.locator(".sequence-card")).toHaveCount(4);
-  const originalSequenceUrl = page.url();
-  const other = await context.newPage();
-  await other.goto(originalSequenceUrl);
-  await expect(other.locator(".sequence-card")).toHaveCount(4);
-  // A removes the blank page. B still has the original four-item draft.
-  await page.locator(".sequence-card").nth(2).click();
-  await page.locator(".sequence-workspace").press("Delete");
-  await expect(page.locator(".sequence-card")).toHaveCount(3);
-  const readOriginal = async () => page.evaluate(async () => {
-    const request = indexedDB.open("photoflex-mvp");
-    const db = await new Promise<IDBDatabase>((resolve) => { request.onsuccess = () => resolve(request.result); });
-    const id = location.hash.split("/").at(-1)!;
-    const row = await new Promise<{ revision: number; items: { id: string }[] }>((resolve) => { const read = db.transaction("sequences", "readonly").objectStore("sequences").get(id); read.onsuccess = () => resolve(read.result); });
-    db.close(); return row;
-  });
-  await expect.poll(async () => (await readOriginal()).revision).toBe(1);
-  await other.locator(".sequence-card").nth(0).click();
-  await other.locator(".sequence-workspace").press("Delete");
-  await expect(other.getByRole("button", { name: "Changes not saved · Retry" })).toBeVisible();
-  expect((await readOriginal()).items.map((i) => i.id)).toEqual(["i1", "i2", "i4"]);
-  await other.getByRole("navigation", { name: "Project navigation" }).getByRole("button", { name: "Home", exact: true }).click();
-  await expect(other.getByText("Your latest edits have not been saved.")).toBeVisible();
-  expect(other.url()).toBe(originalSequenceUrl);
+  const projectId = await importBackup(page);
+  const before = await exportBackup(page, projectId), sequenceId = before.sequences[0].id;
+  const sequenceUrl = `/#/projects/${projectId}/sequences/${sequenceId}`;
+  await page.goto(sequenceUrl);
+  const grid = page.getByRole("grid", { name: "Sequence photo order" });
+  await expect(grid.getByRole("gridcell")).toHaveCount(3);
+  const other = await context.newPage(); await other.goto(sequenceUrl);
+  const otherGrid = other.getByRole("grid", { name: "Sequence photo order" });
+  await expect(otherGrid.getByRole("gridcell")).toHaveCount(3);
+  await grid.getByRole("gridcell").nth(0).click({ modifiers: ["Control"] });
+  await grid.press("Delete");
+  await expect(grid.getByRole("gridcell")).toHaveCount(2);
+  const savedIds = before.sequences[0].items.slice(1).map((item) => item.id);
+  await expect.poll(async () => (await exportBackup(page, projectId)).sequences[0].items.map((item) => item.id)).toEqual(savedIds);
+  await otherGrid.getByRole("gridcell").nth(1).click({ modifiers: ["Control"] });
+  await otherGrid.press("Delete");
+  await expect(otherGrid.getByRole("gridcell")).toHaveCount(2);
+  await expect(other.getByRole("dialog", { name: /^Sequence / }).getByRole("button", { name: "Retry", exact: true })).toBeVisible();
+  expect((await exportBackup(page, projectId)).sequences[0].items.map((item) => item.id)).toEqual(savedIds);
+  // Browser hash navigation exercises the guarded route while the modal blocks
+  // the background header. It must retain the draft and show recovery actions.
+  await other.evaluate(() => { location.hash = "#/"; });
+  const recovery = other.getByRole("alert").filter({ hasText: "Your latest edits have not been saved." });
+  await expect(recovery).toContainText("Your latest edits have not been saved.");
+  await expect(recovery).toHaveAttribute("open", "");
+  await expect(recovery.getByRole("button", { name: "Keep editing" })).toBeFocused();
+  await other.keyboard.press("Tab");
+  await expect(recovery.getByRole("button", { name: "Download recovery backup" })).toBeFocused();
+  await expect(other).toHaveURL(new RegExp(`#/projects/${projectId}/sequences/${sequenceId}$`));
   await other.screenshot({ path: testInfo.outputPath("conflict-recovery.png") });
-  await other.getByRole("button", { name: "Save recovery copy" }).click();
+  const downloading = other.waitForEvent("download");
+  await recovery.getByRole("button", { name: "Download recovery backup" }).click();
+  const path = testInfo.outputPath("unsaved.photoflex.json"); await (await downloading).saveAs(path);
+  const draft = JSON.parse(await readFile(path, "utf8")) as ProjectBackupV1;
+  expect(photoOrder(draft)).toEqual(["one.jpg", "blank", "one.jpg"]);
+  await recovery.getByRole("button", { name: "Save recovery copy" }).click();
   await expect(other).toHaveURL(/#\/projects\/[^/]+$/);
-  await other.getByRole("navigation", { name: "Project navigation" }).getByRole("button", { name: "Sequence", exact: true }).click();
-  await expect(other.locator(".sequence-card")).toHaveCount(3);
-  expect(await other.locator(".sequence-card").evaluateAll((cards) => cards.map((card) => (card as HTMLElement).dataset.itemId))).toEqual(["i2", "i3", "i4"]);
-  expect((await readOriginal()).items.map((i) => i.id)).toEqual(["i1", "i2", "i4"]);
+  const copyId = other.url().split("#/projects/")[1];
+  expect(copyId).not.toBe(projectId);
+  expect(photoOrder(await exportBackup(other, copyId))).toEqual(photoOrder(draft));
+  await other.getByRole("navigation", { name: "Main navigation" }).getByRole("button", { name: "Sequence", exact: true }).click();
+  await expect(other.getByRole("grid", { name: "Sequence photo order" }).getByRole("gridcell")).toHaveCount(2);
+  expect((await exportBackup(page, projectId)).sequences[0].items.map((item) => item.id)).toEqual(savedIds);
   await other.close();
 });

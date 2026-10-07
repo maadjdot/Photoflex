@@ -5,6 +5,8 @@ async function seedBook(page: Page, legacy: boolean) {
   await page.goto("/");
   await expect(page.getByRole("heading", { name: "Your Projects", exact: true })).toBeVisible();
   await page.evaluate(async ({ projectId, legacy }) => {
+    const fixtureModule = "/tests/helpers/browserProjectFixture.ts";
+    const { createBrowserWorkspace } = await import(/* @vite-ignore */ fixtureModule);
     const request = indexedDB.open("photoflex-mvp");
     const db = await new Promise<IDBDatabase>((resolve, reject) => { request.onsuccess = () => resolve(request.result); request.onerror = () => reject(request.error); });
     const now = new Date().toISOString();
@@ -21,9 +23,9 @@ async function seedBook(page: Page, legacy: boolean) {
     const handle = await directory.getFileHandle(`${projectId}.jpg`, { create: true });
     const writable = await handle.createWritable(); await writable.write(original); await writable.close();
     const transaction = db.transaction(["projects", "sequences", "versions", "layouts", "photo-index", "photo-thumbnails", "photo-derived-previews", "photo-file-handles"], "readwrite");
-    transaction.objectStore("projects").put({ schemaVersion: 10, projectId, name: "Cover sample", memo: "", expectedPhotoCount: null, sources: [], photoStates: {},
+    transaction.objectStore("projects").put(createBrowserWorkspace({ projectId, name: "Cover sample", memo: "", expectedPhotoCount: null, sources: [], photoStates: {},
       worktableDraft: { projectId, entryOrder: [], placements: {}, groups: [], links: [], pileOrder: [], pilePlacements: {}, frameOrder: [], frames: {} },
-      sequenceIds: [sequenceId], versionIds: [versionId], layoutIds: legacy ? ["cover-layout"] : [], revision: 0, createdAt: now, updatedAt: now, lastOpenedAt: now });
+      sequenceIds: [sequenceId], versionIds: [versionId], layoutIds: legacy ? ["cover-layout"] : [], revision: 0, createdAt: now, updatedAt: now, lastOpenedAt: now }));
     transaction.objectStore("sequences").put({ id: sequenceId, projectId, name: "Cover sample", items, segments: [], readingUnits, currentVersionId: versionId, revision: 0, createdAt: now, updatedAt: now });
     transaction.objectStore("versions").put({ id: versionId, projectId, sequenceId, name: "Initial", itemCount: 3, items, segments: [], readingUnits, createdAt: now });
     if (legacy) transaction.objectStore("layouts").put({ schemaVersion: 1, id: "cover-layout", projectId, sequenceId, name: "Cover sample Layout",

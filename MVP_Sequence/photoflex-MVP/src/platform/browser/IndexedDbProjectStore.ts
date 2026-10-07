@@ -37,6 +37,7 @@ import {
 } from "../../contracts";
 import {
   clone,
+  corruptProjectSummary,
   createBackup,
   createWorkspace,
   isSequenceDocument,
@@ -52,6 +53,8 @@ import { toSequenceSummary } from "../../modules/sequence";
 import { openPhotoFlexDatabase, STORE_NAMES } from "./indexedDbSchema";
 import { prepareBackupImport } from "../projectBackup";
 import type { PhotoRef } from "../../contracts";
+import { acknowledgedCloudSyncState, cloudSyncPending, dirtyCloudSyncState, initialCloudSyncState, installedCloudDocument,
+  type CloudSnapshot, type CloudSnapshotInstall, type CloudSyncSeed, type CloudSyncState } from "../cloudSync";
 
 interface IndexedDbProjectStoreOptions {
   readonly indexedDB?: IDBFactory;
@@ -68,6 +71,14 @@ const requestValue = <T>(request: IDBRequest<T>): Promise<T> =>
 
 const isQuotaError = (error: DOMException | null) => error?.name === "QuotaExceededError";
 
+function projectTransaction(database: IDBDatabase, stores: string | string[], mode: IDBTransactionMode): IDBTransaction {
+  return database.transaction(mode === "readwrite" ? [...new Set([...(typeof stores === "string" ? [stores] : stores), STORE_NAMES.cloudSync])] : stores, mode);
+}
+function markCloudChange(transaction: IDBTransaction, projectId: ProjectId): void {
+  const store = transaction.objectStore(STORE_NAMES.cloudSync), request = store.get(projectId);
+  request.onsuccess = () => { if (request.result) store.put(dirtyCloudSyncState(request.result as CloudSyncState)); };
+}
+
 export class IndexedDbProjectStore implements ProjectStore {
   private constructor(
     private readonly database: Promise<Result<IDBDatabase, StorageAccessError>>,
@@ -82,20 +93,54 @@ export class IndexedDbProjectStore implements ProjectStore {
     if (opened.ok) opened.value.close();
   }
 
+  async readCloudSyncState(projectId: ProjectId, seed?: CloudSyncSeed): Promise<Result<CloudSyncState | undefined, StorageAccessError>> {
+    const opened = await this.database;
+    if (!opened.ok) return opened;
+    try {
+      const tx = projectTransaction(opened.value, STORE_NAMES.cloudSync, seed ? "readwrite" : "readonly");
+      return await new Promise((resolve) => {
+        let state: CloudSyncState | undefined;
+        tx.oncomplete = () => resolve(ok(state));
+        tx.onabort = () => resolve(err({ kind: "unavailable", retryable: true }));
+        const store = tx.objectStore(STORE_NAMES.cloudSync), request = store.get(projectId);
+        request.onsuccess = () => {
+          state = request.result as CloudSyncState | undefined;
+          if (!state && seed) { state = initialCloudSyncState(projectId, seed); store.add(state); }
+        };
+      });
+    } catch { return err({ kind: "unavailable", retryable: true }); }
+  }
+
+  private async updateCloudSyncState(projectId: ProjectId, update: (state: CloudSyncState) => CloudSyncState): Promise<Result<CloudSyncState, StorageAccessError>> {
+    const opened = await this.database;
+    if (!opened.ok) return opened;
+    try {
+      const tx = projectTransaction(opened.value, STORE_NAMES.cloudSync, "readwrite");
+      return await new Promise((resolve) => {
+        let state: CloudSyncState;
+        tx.oncomplete = () => resolve(ok(state));
+        tx.onabort = () => resolve(err({ kind: "unavailable", retryable: true }));
+        const store = tx.objectStore(STORE_NAMES.cloudSync), request = store.get(projectId);
+        request.onsuccess = () => { state = update(request.result ?? initialCloudSyncState(projectId, { revision: null, pending: false })); store.put(state); };
+      });
+    } catch { return err({ kind: "unavailable", retryable: true }); }
+  }
+  acknowledgeCloudSnapshot(id: ProjectId, localRevision: number, cloudRevision: number) {
+    return this.updateCloudSyncState(id, (state) => acknowledgedCloudSyncState(state, localRevision, cloudRevision));
+  }
+  markCloudPending(id: ProjectId) { return this.updateCloudSyncState(id, dirtyCloudSyncState); }
+  markCloudConflict(id: ProjectId) { return this.updateCloudSyncState(id, (state) => ({ ...state, conflict: true })); }
+
   async listProjects(): Promise<Result<readonly ProjectSummary[], CorruptDataError | StorageAccessError>> {
     const opened = await this.database;
     if (!opened.ok) return opened;
     try {
-      const transaction = opened.value.transaction(STORE_NAMES.projects, "readonly");
-      const records = await requestValue<unknown[]>(
-        transaction.objectStore(STORE_NAMES.projects).getAll(),
-      );
-      const corrupt = records.find((record) => !isWorkspace(record));
-      if (corrupt) return err({ kind: "corrupt-data", entityId: "unknown-project" });
+      const transaction = projectTransaction(opened.value, STORE_NAMES.projects, "readonly");
+      const store = transaction.objectStore(STORE_NAMES.projects);
+      const [records, keys] = await Promise.all([requestValue<unknown[]>(store.getAll()), requestValue(store.getAllKeys())]);
       return ok(
         records
-          .filter(isWorkspace)
-          .map(toProjectSummary)
+          .map((record, index) => isWorkspace(record) ? toProjectSummary(record) : corruptProjectSummary(String(keys[index]) as ProjectId, record))
           .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt)),
       );
     } catch {
@@ -111,7 +156,7 @@ export class IndexedDbProjectStore implements ProjectStore {
     const workspace = createWorkspace(input);
 
     return new Promise((resolve) => {
-      const transaction = opened.value.transaction(STORE_NAMES.projects, "readwrite");
+      const transaction = projectTransaction(opened.value, STORE_NAMES.projects, "readwrite");
       const store = transaction.objectStore(STORE_NAMES.projects);
       let result: Result<ProjectWorkspace, CreateProjectError> = ok(workspace);
       transaction.oncomplete = () => resolve(result);
@@ -128,6 +173,7 @@ export class IndexedDbProjectStore implements ProjectStore {
           result = err({ kind: "project-id-exists", projectId: input.id });
         } else {
           store.add(clone(workspace));
+          markCloudChange(transaction, input.id);
         }
       };
     });
@@ -137,7 +183,7 @@ export class IndexedDbProjectStore implements ProjectStore {
     const opened = await this.database;
     if (!opened.ok) return opened;
     try {
-      const transaction = opened.value.transaction(STORE_NAMES.projects, "readonly");
+      const transaction = projectTransaction(opened.value, STORE_NAMES.projects, "readonly");
       const workspace = await requestValue<ProjectWorkspace | undefined>(
         transaction.objectStore(STORE_NAMES.projects).get(projectId),
       );
@@ -158,7 +204,7 @@ export class IndexedDbProjectStore implements ProjectStore {
     if (!isWorkspace(workspace)) return err({ kind: "unavailable", retryable: false });
 
     return new Promise((resolve) => {
-      const transaction = opened.value.transaction(STORE_NAMES.projects, "readwrite");
+      const transaction = projectTransaction(opened.value, STORE_NAMES.projects, "readwrite");
       const store = transaction.objectStore(STORE_NAMES.projects);
       let result: Result<{ readonly revision: WorkspaceRevision }, SaveError> = err({
         kind: "unavailable",
@@ -189,6 +235,7 @@ export class IndexedDbProjectStore implements ProjectStore {
         }
         const revision = (expectedRevision + 1) as WorkspaceRevision;
         store.put(clone({ ...workspace, revision }));
+        markCloudChange(transaction, workspace.projectId);
         result = ok({ revision });
       };
     });
@@ -225,7 +272,7 @@ export class IndexedDbProjectStore implements ProjectStore {
     const versionValidation = validateVersionForProject(projectId, initialVersion);
     if (!versionValidation.ok || initialVersion.sequenceId !== sequence.id || initialVersion.id !== sequence.currentVersionId) return err({ kind: "invalid-sequence", reason: "Initial version does not match Sequence." });
     return new Promise((resolve) => {
-      const transaction = opened.value.transaction([STORE_NAMES.projects, STORE_NAMES.sequences, STORE_NAMES.versions], "readwrite");
+      const transaction = projectTransaction(opened.value, [STORE_NAMES.projects, STORE_NAMES.sequences, STORE_NAMES.versions], "readwrite");
       const projects = transaction.objectStore(STORE_NAMES.projects);
       const sequences = transaction.objectStore(STORE_NAMES.sequences);
       const versions = transaction.objectStore(STORE_NAMES.versions);
@@ -247,6 +294,7 @@ export class IndexedDbProjectStore implements ProjectStore {
           versions.add(clone(initialVersion));
           projects.put(clone({ ...workspace, worktableDraft, sequenceIds: [...workspace.sequenceIds, sequence.id], versionIds: [...workspace.versionIds, initialVersion.id], revision, updatedAt: sequence.updatedAt }));
           result = ok({ summary: toSequenceSummary(sequence), revision });
+          markCloudChange(transaction, projectId);
         };
       };
     });
@@ -258,7 +306,7 @@ export class IndexedDbProjectStore implements ProjectStore {
     const opened = await this.database;
     if (!opened.ok) return opened;
     try {
-      const records = await requestValue<SequenceDocument[]>(opened.value.transaction(STORE_NAMES.sequences, "readonly").objectStore(STORE_NAMES.sequences).index("by-project-id").getAll(projectId));
+      const records = await requestValue<SequenceDocument[]>(projectTransaction(opened.value, STORE_NAMES.sequences, "readonly").objectStore(STORE_NAMES.sequences).index("by-project-id").getAll(projectId));
       const byId = new Map(records.map((sequence) => [sequence.id, sequence]));
       const summaries: SequenceSummary[] = [];
       for (const sequenceId of workspace.value.sequenceIds) {
@@ -274,7 +322,7 @@ export class IndexedDbProjectStore implements ProjectStore {
     const opened = await this.database;
     if (!opened.ok) return opened;
     try {
-      const sequence = await requestValue<unknown>(opened.value.transaction(STORE_NAMES.sequences, "readonly").objectStore(STORE_NAMES.sequences).get(sequenceId));
+      const sequence = await requestValue<unknown>(projectTransaction(opened.value, STORE_NAMES.sequences, "readonly").objectStore(STORE_NAMES.sequences).get(sequenceId));
       if (sequence === undefined) return err({ kind: "not-found", entity: "sequence", id: sequenceId });
       return isSequenceDocument(sequence)
         ? ok(clone(sequence))
@@ -291,7 +339,7 @@ export class IndexedDbProjectStore implements ProjectStore {
     const validation = validateSequenceForProject(sequence.projectId, sequence);
     if (!validation.ok) return validation;
     return new Promise((resolve) => {
-      const transaction = opened.value.transaction(STORE_NAMES.sequences, "readwrite");
+      const transaction = projectTransaction(opened.value, STORE_NAMES.sequences, "readwrite");
       const store = transaction.objectStore(STORE_NAMES.sequences);
       let result: Result<{ readonly summary: SequenceSummary; readonly revision: SequenceRevision }, SequenceWriteError> = err({ kind: "unavailable", retryable: true });
       transaction.oncomplete = () => resolve(result);
@@ -306,6 +354,7 @@ export class IndexedDbProjectStore implements ProjectStore {
         const revision = (expectedRevision + 1) as SequenceRevision;
         const saved = { ...sequence, revision };
         store.put(clone(saved));
+        markCloudChange(transaction, sequence.projectId);
         result = ok({ summary: toSequenceSummary(saved), revision });
       };
     });
@@ -321,7 +370,7 @@ export class IndexedDbProjectStore implements ProjectStore {
     if (!opened.ok) return opened;
     if (worktableDraft.projectId !== projectId) return err({ kind: "not-found", entity: "project", id: projectId });
     return new Promise((resolve) => {
-      const transaction = opened.value.transaction([STORE_NAMES.projects, STORE_NAMES.sequences, STORE_NAMES.versions, STORE_NAMES.layouts], "readwrite");
+      const transaction = projectTransaction(opened.value, [STORE_NAMES.projects, STORE_NAMES.sequences, STORE_NAMES.versions, STORE_NAMES.layouts], "readwrite");
       const projects = transaction.objectStore(STORE_NAMES.projects);
       const sequences = transaction.objectStore(STORE_NAMES.sequences);
       const versions = transaction.objectStore(STORE_NAMES.versions);
@@ -359,6 +408,7 @@ export class IndexedDbProjectStore implements ProjectStore {
               const layoutIds = workspace.layoutIds.filter((id) => !removedLayoutIds.has(id));
               projects.put(clone({ ...workspace, sequenceIds, versionIds, layoutIds, worktableDraft, revision, updatedAt: new Date().toISOString() }));
               result = ok({ revision, sequenceIds, versionIds, layoutIds });
+              markCloudChange(transaction, projectId);
             };
           };
         };
@@ -379,7 +429,7 @@ export class IndexedDbProjectStore implements ProjectStore {
     if (!validation.ok) return err(validation.error);
 
     return new Promise((resolve) => {
-      const transaction = opened.value.transaction(
+      const transaction = projectTransaction(opened.value,
         [STORE_NAMES.projects, STORE_NAMES.versions],
         "readwrite",
       );
@@ -430,6 +480,7 @@ export class IndexedDbProjectStore implements ProjectStore {
             }),
           );
           result = ok({ summary: toVersionSummary(version), revision });
+          markCloudChange(transaction, projectId);
         };
       };
     });
@@ -445,7 +496,7 @@ export class IndexedDbProjectStore implements ProjectStore {
     const versionValidation = validateVersionForProject(input.projectId, input.version);
     if (!versionValidation.ok) return versionValidation;
     return new Promise((resolve) => {
-      const transaction = opened.value.transaction([STORE_NAMES.projects, STORE_NAMES.sequences, STORE_NAMES.versions], "readwrite");
+      const transaction = projectTransaction(opened.value, [STORE_NAMES.projects, STORE_NAMES.sequences, STORE_NAMES.versions], "readwrite");
       const projects = transaction.objectStore(STORE_NAMES.projects), sequences = transaction.objectStore(STORE_NAMES.sequences), versions = transaction.objectStore(STORE_NAMES.versions);
       let result: Result<{ readonly summary: VersionSummary; readonly workspaceRevision: WorkspaceRevision; readonly sequenceRevision: SequenceRevision }, SaveSequenceVersionError> = err({ kind: "unavailable", retryable: true });
       transaction.oncomplete = () => resolve(result);
@@ -478,6 +529,7 @@ export class IndexedDbProjectStore implements ProjectStore {
               versions.put(savedVersion);
               projects.put(clone({ ...workspace, revision: workspaceRevision, updatedAt, versionIds: input.mode === "save-as" ? [...workspace.versionIds, input.version.id] : workspace.versionIds }));
               result = ok({ summary: toVersionSummary(savedVersion), workspaceRevision, sequenceRevision });
+              markCloudChange(transaction, input.projectId);
             };
           };
         };
@@ -489,7 +541,7 @@ export class IndexedDbProjectStore implements ProjectStore {
     const opened = await this.database;
     if (!opened.ok) return opened;
     return new Promise((resolve) => {
-      const transaction = opened.value.transaction([STORE_NAMES.projects, STORE_NAMES.sequences, STORE_NAMES.versions], "readwrite");
+      const transaction = projectTransaction(opened.value, [STORE_NAMES.projects, STORE_NAMES.sequences, STORE_NAMES.versions], "readwrite");
       const projects = transaction.objectStore(STORE_NAMES.projects), sequences = transaction.objectStore(STORE_NAMES.sequences), versions = transaction.objectStore(STORE_NAMES.versions);
       let result: Result<{ readonly revision: WorkspaceRevision }, DeleteVersionError> = err({ kind: "unavailable", retryable: true });
       transaction.oncomplete = () => resolve(result);
@@ -511,6 +563,7 @@ export class IndexedDbProjectStore implements ProjectStore {
             versions.delete(versionId);
             projects.put(clone({ ...workspace, versionIds: workspace.versionIds.filter((id) => id !== versionId), revision, updatedAt: new Date().toISOString() }));
             result = ok({ revision });
+            markCloudChange(transaction, projectId);
           };
         };
       };
@@ -523,7 +576,7 @@ export class IndexedDbProjectStore implements ProjectStore {
     const opened = await this.database;
     if (!opened.ok) return opened;
     try {
-      const transaction = opened.value.transaction(STORE_NAMES.versions, "readonly");
+      const transaction = projectTransaction(opened.value, STORE_NAMES.versions, "readonly");
       const versions = await requestValue<SequenceVersion[]>(
         transaction.objectStore(STORE_NAMES.versions).index("by-project-id").getAll(projectId),
       );
@@ -544,7 +597,7 @@ export class IndexedDbProjectStore implements ProjectStore {
     const opened = await this.database;
     if (!opened.ok) return opened;
     try {
-      const transaction = opened.value.transaction(STORE_NAMES.versions, "readonly");
+      const transaction = projectTransaction(opened.value, STORE_NAMES.versions, "readonly");
       const version = await requestValue<SequenceVersion | undefined>(
         transaction.objectStore(STORE_NAMES.versions).get(versionId),
       );
@@ -565,13 +618,14 @@ export class IndexedDbProjectStore implements ProjectStore {
     }
 
     return new Promise((resolve) => {
-      const transaction = opened.value.transaction(
+      const transaction = projectTransaction(opened.value,
         [STORE_NAMES.projects, STORE_NAMES.versions, STORE_NAMES.sequences, STORE_NAMES.layouts],
         "readwrite",
       );
       transaction.oncomplete = () => resolve(ok(undefined));
       transaction.onabort = () => resolve(err({ kind: "unavailable", retryable: true }));
       transaction.objectStore(STORE_NAMES.projects).delete(projectId);
+      transaction.objectStore(STORE_NAMES.cloudSync).delete(projectId);
       const versions = transaction.objectStore(STORE_NAMES.versions);
       for (const versionId of loaded.value.versionIds) versions.delete(versionId);
       const sequences = transaction.objectStore(STORE_NAMES.sequences);
@@ -581,25 +635,51 @@ export class IndexedDbProjectStore implements ProjectStore {
     });
   }
 
-  async exportBackup(projectId: ProjectId): Promise<Result<Uint8Array, LoadError>> {
+  private async readBackupSnapshot(projectId: ProjectId): Promise<Result<{ document: ProjectBackupV1; sync?: CloudSyncState }, LoadError>> {
     const opened = await this.database;
     if (!opened.ok) return opened;
     try {
       // Read all documents in one transaction: a concurrent edit cannot split a backup.
-      const tx = opened.value.transaction([STORE_NAMES.projects, STORE_NAMES.versions, STORE_NAMES.sequences, STORE_NAMES.layouts, STORE_NAMES.photoIndex], "readonly");
-      const [project, allVersions, allSequences, allLayouts, allPhotos] = await Promise.all([
+      const tx = projectTransaction(opened.value, [STORE_NAMES.projects, STORE_NAMES.versions, STORE_NAMES.sequences, STORE_NAMES.layouts, STORE_NAMES.photoIndex, STORE_NAMES.cloudSync], "readonly");
+      const [project, allVersions, allSequences, allLayouts, allPhotos, sync] = await Promise.all([
         requestValue<ProjectWorkspace | undefined>(tx.objectStore(STORE_NAMES.projects).get(projectId)),
         requestValue<SequenceVersion[]>(tx.objectStore(STORE_NAMES.versions).index("by-project-id").getAll(projectId)),
         requestValue<SequenceDocument[]>(tx.objectStore(STORE_NAMES.sequences).index("by-project-id").getAll(projectId)),
         requestValue<LayoutDocument[]>(tx.objectStore(STORE_NAMES.layouts).index("by-project-id").getAll(projectId)),
         requestValue<PhotoRef[]>(tx.objectStore(STORE_NAMES.photoIndex).getAll()),
+        requestValue<CloudSyncState | undefined>(tx.objectStore(STORE_NAMES.cloudSync).get(projectId)),
       ]);
       if (!project) return err({ kind: "not-found", entity: "project", id: projectId });
       if (!isWorkspace(project) || project.versionIds.some((id) => !allVersions.some((v) => v.id === id)) || project.sequenceIds.some((id) => !allSequences.some((s) => s.id === id)) || project.layoutIds.some((id) => !allLayouts.some((layout) => layout.id === id && validateLayoutForProject(projectId, layout).ok))) return err({ kind: "corrupt-data", entityId: projectId });
       const sourceIds = new Set(project.sources.map((s) => s.id));
       const backup = { ...createBackup(project, allVersions.filter((v) => project.versionIds.includes(v.id)), allSequences.filter((s) => project.sequenceIds.includes(s.id)), allLayouts.filter((layout) => project.layoutIds.includes(layout.id))), photoManifest: allPhotos.filter((p) => sourceIds.has(p.sourceId)).map(({ id: photoId, ...p }) => ({ ...p, photoId })) };
-      return ok(new TextEncoder().encode(JSON.stringify(backup)));
+      return ok({ document: backup, sync });
     } catch { return err({ kind: "unavailable", retryable: true }); }
+  }
+
+  async exportBackup(projectId: ProjectId): Promise<Result<Uint8Array, LoadError>> {
+    const snapshot = await this.readBackupSnapshot(projectId);
+    return snapshot.ok ? ok(new TextEncoder().encode(JSON.stringify(snapshot.value.document))) : snapshot;
+  }
+  async exportRecoveryData(projectId: ProjectId): Promise<Result<Uint8Array, LoadError>> {
+    const opened = await this.database;
+    if (!opened.ok) return opened;
+    try {
+      const tx = opened.value.transaction([STORE_NAMES.projects, STORE_NAMES.sequences, STORE_NAMES.layouts, STORE_NAMES.versions], "readonly");
+      const [project, sequences, layouts, versions] = await Promise.all([
+        requestValue(tx.objectStore(STORE_NAMES.projects).get(projectId)),
+        requestValue(tx.objectStore(STORE_NAMES.sequences).index("by-project-id").getAll(projectId)),
+        requestValue(tx.objectStore(STORE_NAMES.layouts).index("by-project-id").getAll(projectId)),
+        requestValue(tx.objectStore(STORE_NAMES.versions).index("by-project-id").getAll(projectId)),
+      ]);
+      if (project === undefined) return err({ kind: "not-found", entity: "project", id: projectId });
+      return ok(new TextEncoder().encode(JSON.stringify({ format: "photoflex-project-recovery", projectId, project, sequences, layouts, versions })));
+    } catch { return err({ kind: "unavailable", retryable: true }); }
+  }
+  async captureCloudSnapshot(projectId: ProjectId): Promise<Result<CloudSnapshot, LoadError>> {
+    const snapshot = await this.readBackupSnapshot(projectId);
+    if (!snapshot.ok) return snapshot;
+    return snapshot.value.sync ? ok({ document: snapshot.value.document, sync: snapshot.value.sync }) : err({ kind: "unavailable", retryable: true });
   }
 
   async importBackup(bytes: Uint8Array): Promise<Result<ProjectId, BackupError>> {
@@ -609,7 +689,7 @@ export class IndexedDbProjectStore implements ProjectStore {
     if (!opened.ok) return opened;
     const { backup, photos } = prepared.value;
     try {
-      const tx = opened.value.transaction([STORE_NAMES.projects, STORE_NAMES.versions, STORE_NAMES.sequences, STORE_NAMES.layouts, STORE_NAMES.photoIndex], "readwrite");
+      const tx = projectTransaction(opened.value, [STORE_NAMES.projects, STORE_NAMES.versions, STORE_NAMES.sequences, STORE_NAMES.layouts, STORE_NAMES.photoIndex], "readwrite");
       return await new Promise((resolve) => {
         let writeError: unknown;
         tx.oncomplete = () => resolve(ok(backup.project.projectId));
@@ -617,6 +697,7 @@ export class IndexedDbProjectStore implements ProjectStore {
         tx.onerror = () => {}; // The abort event reports the atomic failure.
         try {
           tx.objectStore(STORE_NAMES.projects).add(backup.project);
+          markCloudChange(tx, backup.project.projectId);
           backup.versions.forEach((v) => tx.objectStore(STORE_NAMES.versions).add(v));
           backup.sequences.forEach((s) => tx.objectStore(STORE_NAMES.sequences).add(s));
           backup.layouts.forEach((layout) => tx.objectStore(STORE_NAMES.layouts).add(layout));
@@ -626,52 +707,68 @@ export class IndexedDbProjectStore implements ProjectStore {
     } catch { return err({ kind: "unavailable", retryable: true }); }
   }
 
-  async installCloudSnapshot(document: ProjectBackupV1): Promise<Result<void, BackupError>> {
+  async installCloudSnapshot(document: ProjectBackupV1, sync?: CloudSnapshotInstall): Promise<Result<void, BackupError>> {
     const prepared = prepareBackupImport(new TextEncoder().encode(JSON.stringify(document)), true);
     if (!prepared.ok) return prepared;
     const opened = await this.database;
     if (!opened.ok) return opened;
     const { backup, photos } = prepared.value;
     return new Promise((resolve) => {
-      const tx = opened.value.transaction([STORE_NAMES.projects, STORE_NAMES.versions, STORE_NAMES.sequences, STORE_NAMES.layouts, STORE_NAMES.photoIndex], "readwrite");
+      const tx = projectTransaction(opened.value, [STORE_NAMES.projects, STORE_NAMES.versions, STORE_NAMES.sequences, STORE_NAMES.layouts, STORE_NAMES.photoIndex], "readwrite");
       const projects = tx.objectStore(STORE_NAMES.projects);
       const versions = tx.objectStore(STORE_NAMES.versions);
       const sequences = tx.objectStore(STORE_NAMES.sequences);
       const layouts = tx.objectStore(STORE_NAMES.layouts);
       const photoIndex = tx.objectStore(STORE_NAMES.photoIndex);
-      tx.oncomplete = () => resolve(ok(undefined));
+      let result: Result<void, BackupError> = ok(undefined);
+      tx.oncomplete = () => resolve(result);
       tx.onabort = () => resolve(isQuotaError(tx.error) ? err({ kind: "quota-exceeded" }) : err({ kind: "unavailable", retryable: true }));
-      const existing = projects.get(backup.project.projectId);
-      existing.onsuccess = () => {
-        const previous = existing.result as ProjectWorkspace | undefined;
-        const allPhotos = photoIndex.getAll();
-        allPhotos.onsuccess = () => {
-          try {
-            if (previous) {
-              previous.versionIds.forEach((id) => versions.delete(id));
-              previous.sequenceIds.forEach((id) => sequences.delete(id));
-              previous.layoutIds.forEach((id) => layouts.delete(id));
-              const oldSources = new Set(previous.sources.map((source) => source.id));
-              (allPhotos.result as PhotoRef[]).filter((photo) => oldSources.has(photo.sourceId)).forEach((photo) => photoIndex.delete(photo.id));
-            }
-            projects.put(clone(backup.project));
-            backup.versions.forEach((version) => versions.put(clone(version)));
-            backup.sequences.forEach((sequence) => sequences.put(clone(sequence)));
-            backup.layouts.forEach((layout) => layouts.put(clone(layout)));
-            photos.forEach((photo) => photoIndex.put(clone(photo)));
-          } catch { tx.abort(); }
+      const syncStore = tx.objectStore(STORE_NAMES.cloudSync), syncRequest = syncStore.get(backup.project.projectId);
+      syncRequest.onsuccess = () => {
+        const current = syncRequest.result as CloudSyncState | undefined;
+        if (sync && ((current?.localRevision ?? 0) !== sync.expectedLocalRevision || (!sync.replacePending && current && (cloudSyncPending(current) || current.conflict)))) {
+          result = err({ kind: "invalid-backup", reason: "Local edits changed while the cloud snapshot was loading." });
+          return;
+        }
+        const existing = projects.get(backup.project.projectId);
+        existing.onsuccess = () => {
+          const previous = existing.result as ProjectWorkspace | undefined;
+          const priorSequences = sequences.index("by-project-id").getAll(backup.project.projectId);
+          const priorLayouts = layouts.index("by-project-id").getAll(backup.project.projectId);
+          const allPhotos = photoIndex.getAll();
+          allPhotos.onsuccess = () => {
+            try {
+              if (previous) {
+                previous.versionIds.forEach((id) => versions.delete(id));
+                previous.sequenceIds.forEach((id) => sequences.delete(id));
+                previous.layoutIds.forEach((id) => layouts.delete(id));
+                const oldSources = new Set(previous.sources.map((source) => source.id));
+                (allPhotos.result as PhotoRef[]).filter((photo) => oldSources.has(photo.sourceId)).forEach((photo) => photoIndex.delete(photo.id));
+              }
+              projects.put(clone(sync ? installedCloudDocument(backup.project, previous) : backup.project));
+              backup.versions.forEach((version) => versions.put(clone(version)));
+              backup.sequences.forEach((sequence) => sequences.put(clone(sync ? installedCloudDocument(sequence,
+                (priorSequences.result as SequenceDocument[]).find((previous) => previous.id === sequence.id)) : sequence)));
+              backup.layouts.forEach((layout) => layouts.put(clone(sync ? installedCloudDocument(layout,
+                (priorLayouts.result as LayoutDocument[]).find((previous) => previous.id === layout.id)) : layout)));
+              photos.forEach((photo) => photoIndex.put(clone(photo)));
+              if (sync) {
+                const localRevision = (current?.localRevision ?? 0) + 1;
+                syncStore.put({ projectId: backup.project.projectId, localRevision, acknowledgedRevision: localRevision, cloudRevision: sync.cloudRevision, conflict: false } satisfies CloudSyncState);
+              } else markCloudChange(tx, backup.project.projectId);
+            } catch { tx.abort(); }
+          };
         };
       };
     });
   }
-
   async createLayout(projectId: ProjectId, expectedRevision: WorkspaceRevision, layout: LayoutDocument): Promise<Result<{ readonly summary: LayoutSummary; readonly revision: WorkspaceRevision }, LayoutWriteError>> {
     const opened = await this.database;
     if (!opened.ok) return opened;
     const validation = validateLayoutForProject(projectId, layout);
     if (!validation.ok || layout.revision !== 0) return err({ kind: "invalid-layout", reason: "Invalid initial Layout." });
     return new Promise((resolve) => {
-      const tx = opened.value.transaction([STORE_NAMES.projects, STORE_NAMES.sequences, STORE_NAMES.layouts], "readwrite");
+      const tx = projectTransaction(opened.value, [STORE_NAMES.projects, STORE_NAMES.sequences, STORE_NAMES.layouts], "readwrite");
       const projects = tx.objectStore(STORE_NAMES.projects), sequences = tx.objectStore(STORE_NAMES.sequences), layouts = tx.objectStore(STORE_NAMES.layouts);
       let result: Result<{ readonly summary: LayoutSummary; readonly revision: WorkspaceRevision }, LayoutWriteError> = err({ kind: "unavailable", retryable: true });
       tx.oncomplete = () => resolve(result);
@@ -695,6 +792,7 @@ export class IndexedDbProjectStore implements ProjectStore {
               layouts.add(clone(layout));
               projects.put(clone({ ...workspace, layoutIds: [...workspace.layoutIds, layout.id], revision, updatedAt: layout.updatedAt }));
               result = ok({ summary: toLayoutSummary(layout), revision });
+              markCloudChange(tx, projectId);
             };
           };
         };
@@ -708,7 +806,7 @@ export class IndexedDbProjectStore implements ProjectStore {
     const opened = await this.database;
     if (!opened.ok) return opened;
     try {
-      const rows = await requestValue<unknown[]>(opened.value.transaction(STORE_NAMES.layouts, "readonly").objectStore(STORE_NAMES.layouts).index("by-project-id").getAll(projectId));
+      const rows = await requestValue<unknown[]>(projectTransaction(opened.value, STORE_NAMES.layouts, "readonly").objectStore(STORE_NAMES.layouts).index("by-project-id").getAll(projectId));
       const byId = new Map(rows.filter((row): row is LayoutDocument => typeof row === "object" && row !== null && "id" in row).map((row) => [row.id, row]));
       const summaries: LayoutSummary[] = [];
       for (const layoutId of workspace.value.layoutIds) {
@@ -725,7 +823,7 @@ export class IndexedDbProjectStore implements ProjectStore {
     const opened = await this.database;
     if (!opened.ok) return opened;
     try {
-      const layout = await requestValue<unknown>(opened.value.transaction(STORE_NAMES.layouts, "readonly").objectStore(STORE_NAMES.layouts).get(layoutId));
+      const layout = await requestValue<unknown>(projectTransaction(opened.value, STORE_NAMES.layouts, "readonly").objectStore(STORE_NAMES.layouts).get(layoutId));
       if (layout === undefined) return err({ kind: "not-found", entity: "layout", id: layoutId });
       if (!layout || typeof layout !== "object" || !("projectId" in layout) || !validateLayoutForProject((layout as LayoutDocument).projectId, layout as LayoutDocument).ok) return err({ kind: "corrupt-data", entityId: layoutId });
       return ok(clone(layout as LayoutDocument));
@@ -736,7 +834,7 @@ export class IndexedDbProjectStore implements ProjectStore {
     const opened = await this.database;
     if (!opened.ok) return opened;
     return new Promise((resolve) => {
-      const tx = opened.value.transaction(STORE_NAMES.layouts, "readwrite");
+      const tx = projectTransaction(opened.value, STORE_NAMES.layouts, "readwrite");
       const store = tx.objectStore(STORE_NAMES.layouts);
       let result: Result<{ readonly summary: LayoutSummary; readonly revision: LayoutRevision }, LayoutWriteError> = err({ kind: "unavailable", retryable: true });
       tx.oncomplete = () => resolve(result);
@@ -751,6 +849,7 @@ export class IndexedDbProjectStore implements ProjectStore {
         const revision = (expectedRevision + 1) as LayoutRevision;
         const saved = { ...layout, revision };
         store.put(clone(saved));
+        markCloudChange(tx, layout.projectId);
         result = ok({ summary: toLayoutSummary(saved), revision });
       };
     });

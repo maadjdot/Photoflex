@@ -85,6 +85,7 @@ export function resolveLayoutFontAsset(family: LayoutFontFamily, weight?: Layout
 }
 
 const loadedFonts = new Map<string, Promise<void>>();
+const failedFonts = new Set<string>();
 
 function loadOneLayoutFont(family: LayoutFontFamily, weight: LayoutFontWeight, style: LayoutFontStyle): Promise<void> {
   if (typeof document === "undefined" || !document.fonts?.load) return Promise.resolve();
@@ -92,7 +93,23 @@ function loadOneLayoutFont(family: LayoutFontFamily, weight: LayoutFontWeight, s
   const cached = loadedFonts.get(key);
   if (cached) return cached;
   const cssWeight = weight === "bold" ? 700 : 400;
-  const promise = document.fonts.load(`${style} ${cssWeight} 16px "${LAYOUT_FONT_BY_FAMILY[family].cssFamily}"`).then(() => undefined);
+  const cssFamily = LAYOUT_FONT_BY_FAMILY[family].cssFamily;
+  // A CSS FontFace retains its failed load promise. Retrying needs a new face,
+  // with the native weight/style so browser synthesis remains unchanged.
+  const loading = failedFonts.has(key) && typeof FontFace === "function" && document.fonts.add
+    ? (() => {
+      const asset = resolveLayoutFontAsset(family, weight, style);
+      const face = new FontFace(cssFamily, `url("${asset.url}")`, {
+        weight: String(asset.syntheticBold ? 400 : cssWeight), style: asset.syntheticItalic ? "normal" : style,
+      });
+      return face.load().then((loaded) => { document.fonts.add(loaded); });
+    })()
+    : document.fonts.load(`${style} ${cssWeight} 16px "${cssFamily}"`).then(() => undefined);
+  const promise = loading.catch((error: unknown) => {
+    failedFonts.add(key);
+    if (loadedFonts.get(key) === promise) loadedFonts.delete(key);
+    throw error;
+  });
   loadedFonts.set(key, promise);
   return promise;
 }

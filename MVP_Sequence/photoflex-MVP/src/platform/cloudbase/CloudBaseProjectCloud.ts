@@ -11,7 +11,7 @@ import {
   type Result,
 } from "../../contracts";
 import type { CloudBaseClient } from "./client";
-import { jsonSemanticEqual } from "../../app/jsonSemanticEqual";
+import { jsonSemanticEqual } from "../jsonSemanticEqual";
 
 interface ProjectRow {
   readonly id: string;

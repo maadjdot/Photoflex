@@ -5,12 +5,31 @@ import type { FrameId, FrameSlotId, PhotoId, ProjectBackupV1, ProjectStore } fro
 import { createWorktableEditor } from "../../src/modules/worktable/worktableEditor";
 import { defaultFrameCrop, frameTemplateRects, frameTemplateSource, FRAME_MM_TO_PT } from "../../src/modules/worktable/frameLayout";
 import { backupBytes, backupFixture } from "../helpers/projectBackup";
+import { prepareBackupImport } from "../../src/platform/projectBackup";
+import { createEmptyLayout } from "../../src/modules/layout/layoutDocument";
+import type { LayoutId, LayoutObjectId, LayoutPageId } from "../../src/contracts";
 
 const opened: IndexedDbProjectStore[] = [];
 afterEach(async () => { vi.restoreAllMocks(); await Promise.all(opened.splice(0).map((s) => s.close())); });
 function browserStore() { const s = IndexedDbProjectStore.open({ databaseName: `backup-${crypto.randomUUID()}` }); opened.push(s); return s; }
 
 for (const [name, factory] of [["memory", () => new MemoryProjectStore()], ["IndexedDB", browserStore]] as const) describe(name, () => {
+  it("rejects prototype font names in backup imports and cloud installs before writing", async () => {
+    const normalized = prepareBackupImport(backupBytes(), true); if (!normalized.ok) throw Error("fixture normalization failed");
+    const backup = normalized.value.backup;
+    const layout = createEmptyLayout({ id: "font-layout" as LayoutId, projectId: backup.project.projectId,
+      sequenceId: backup.sequences[0].id, pageId: "font-page" as LayoutPageId, name: "Font check", createdAt: "2026-10-07" });
+    for (const fontFamily of ["constructor", "__proto__", "toString"]) {
+      const bad = { ...backup, project: { ...backup.project, layoutIds: [layout.id] }, layouts: [{ ...layout, pages: [{ ...layout.pages[0], objects: [{
+        kind: "text-box", id: "font-text" as LayoutObjectId, rect: { x: 0, y: 0, width: 120, height: 50 }, text: "Caption",
+        style: { fontFamily, fontSizePt: 12, lineHeight: 1.2, color: "#171513", align: "left" },
+      }] }] }] } as unknown as ProjectBackupV1;
+      const store = factory();
+      expect(await store.importBackup(backupBytes(bad))).toMatchObject({ ok: false, error: { kind: "invalid-backup" } });
+      expect(await store.installCloudSnapshot(bad)).toMatchObject({ ok: false, error: { kind: "invalid-backup" } });
+      expect(await store.listProjects()).toMatchObject({ ok: true, value: [] });
+    }
+  });
   it("restores Frame IDs and photo references independently of the original project", async () => {
     const source = factory();
     const imported = await source.importBackup(backupBytes());

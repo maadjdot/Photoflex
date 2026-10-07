@@ -1,6 +1,7 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { createProjectWriteCoordinator, type ProjectWriteCoordinator } from "./projectWriteCoordinator";
 import { downloadRecoveryBackup } from "./downloadRecoveryBackup";
+import { CloudConflictRecovery } from "./CloudConflictRecovery";
 import { AppHeader } from "./AppHeader";
 import { ContactSheetPage } from "./ContactSheetPage";
 import type { AppDependencies } from "./dependencies";
@@ -36,6 +37,14 @@ function M1AppContent({ dependencies }: AppProps) {
   const [homeProjectId, setHomeProjectId] = useState<ProjectId>();
   const [recovering, setRecovering] = useState(false);
   const [recoveryError, setRecoveryError] = useState<string>();
+  const [workspaceEpoch, setWorkspaceEpoch] = useState(0);
+  const recoveryDialogRef = useRef<HTMLDialogElement>(null);
+  useEffect(() => {
+    if (!recovery || !recoveryDialogRef.current) return;
+    const dialog = recoveryDialogRef.current;
+    if (typeof dialog.showModal === "function") dialog.showModal();
+    else dialog.setAttribute("open", ""); // Non-browser test adapters.
+  }, [recovery]);
   const ensureSaved = async () => {
     const current = coordinatorRef.current;
     if (!current?.hasUnsavedWork()) return true;
@@ -45,7 +54,7 @@ function M1AppContent({ dependencies }: AppProps) {
   };
   const [route, navigate] = useAppRoute(ensureSaved);
   const { currentProjectId, contactSourceId, lastSequenceId } = useAppNavigationState(dependencies, route);
-  const coordinator = useMemo(() => currentProjectId ? createProjectWriteCoordinator(dependencies, currentProjectId) : undefined, [dependencies, currentProjectId]);
+  const coordinator = useMemo(() => currentProjectId ? createProjectWriteCoordinator(dependencies, currentProjectId) : undefined, [dependencies, currentProjectId, workspaceEpoch]);
   coordinatorRef.current = coordinator;
   useEffect(() => {
     if (route.name !== "home") setHomeProjectId(undefined);
@@ -76,7 +85,7 @@ function M1AppContent({ dependencies }: AppProps) {
   const usesTableChrome = route.name === "home" || route.name === "table" || route.name === "contact-sheet" || route.name === "sequence" || route.name === "sequence-compare" || route.name === "version-compare";
 
   const projectContent = currentProjectId ? (
-    <ProjectWorkspaceProvider dependencies={dependencies} projectId={currentProjectId} coordinator={coordinator}>
+    <ProjectWorkspaceProvider key={workspaceEpoch} dependencies={dependencies} projectId={currentProjectId} coordinator={coordinator}>
       {(route.name === "table" || route.name === "sequence") && <TableHeader dependencies={dependencies} projectId={route.projectId} lastSequenceId={lastSequenceId} navigate={navigate} />}
       {route.name === "project" && <ProjectPage dependencies={dependencies} projectId={route.projectId} navigate={navigate} />}
       {route.name === "contact-sheet" && <ContactSheetPage dependencies={dependencies} projectId={route.projectId} sourceId={route.sourceId} navigate={navigate} />}
@@ -88,14 +97,22 @@ function M1AppContent({ dependencies }: AppProps) {
       </Suspense>
     </ProjectWorkspaceProvider>
   ) : (
-    <HomePage dependencies={dependencies} navigate={navigate} onSelectedProjectIdChange={setHomeProjectId} />
+    <HomePage key={workspaceEpoch} dependencies={dependencies} navigate={navigate} onSelectedProjectIdChange={setHomeProjectId} />
   );
 
   return (
     <div className={`app-shell${usesTableChrome ? " is-table" : ""}`}>
       {route.name !== "table" && route.name !== "sequence" && <AppHeader dependencies={dependencies} route={route} projectId={currentProjectId} projectSettingsProjectId={route.name === "home" ? homeProjectId : undefined} contactSourceId={contactSourceId} lastSequenceId={lastSequenceId} navigate={navigate} beforeSignOut={ensureSaved} variant={usesTableChrome ? "table" : "default"} />}
       {projectContent}
-      {recovery && <div className="draft-recovery" role="alert"><strong>{t("backup.unsavedTitle")}</strong><p>{t("backup.unsavedDetail")}</p><div><button disabled={recovering} onClick={() => setRecovery(false)}>{t("backup.keepEditing")}</button><button disabled={recovering} onClick={() => void recover(true)}>{t("backup.downloadRecovery")}</button><button disabled={recovering} onClick={() => void recover(false)}>{recovering ? t("project.preparing") : t("backup.saveRecoveryCopy")}</button></div>{recoveryError && <p>{recoveryError}</p>}</div>}
+      {dependencies.cloudSave && <CloudConflictRecovery dependencies={dependencies} projectId={currentProjectId} beforeRecovery={ensureSaved}
+        onOpenCopy={(projectId) => navigate({ name: "project", projectId })} onReloadCloud={(projectId) => {
+          const current = coordinatorRef.current;
+          if (!current || current.projectId === projectId) setWorkspaceEpoch((epoch) => epoch + 1);
+        }} />}
+      {recovery && <dialog ref={recoveryDialogRef} className="draft-recovery" role="alert" aria-label={t("backup.unsavedTitle")}
+        onKeyDown={(event) => event.stopPropagation()} onCancel={(event) => { event.preventDefault(); if (!recovering) setRecovery(false); }}>
+        <strong>{t("backup.unsavedTitle")}</strong><p>{t("backup.unsavedDetail")}</p><div><button disabled={recovering} onClick={() => setRecovery(false)}>{t("backup.keepEditing")}</button><button disabled={recovering} onClick={() => void recover(true)}>{t("backup.downloadRecovery")}</button><button disabled={recovering} onClick={() => void recover(false)}>{recovering ? t("project.preparing") : t("backup.saveRecoveryCopy")}</button></div>{recoveryError && <p>{recoveryError}</p>}
+      </dialog>}
     </div>
   );
 }

@@ -68,6 +68,13 @@ export function createWorkspace(input: CreateProjectInput): ProjectWorkspace {
 
 export const clone = <T>(value: T): T => structuredClone(value);
 
+export function corruptProjectSummary(id: ProjectSummary["id"], record: unknown): ProjectSummary {
+  const value = record as Partial<ProjectWorkspace> | null;
+  return { id, name: typeof value?.name === "string" ? value.name : id,
+    updatedAt: typeof value?.updatedAt === "string" ? value.updatedAt : "",
+    lastOpenedAt: "", sourceCount: 0, tableCount: 0, loadError: "corrupt-data" };
+}
+
 export type VersionProjectValidationError = {
   readonly kind: "invalid-version";
   readonly reason: string;
@@ -98,6 +105,7 @@ export function toProjectSummary(workspace: ProjectWorkspace): ProjectSummary {
     sourceCount: workspace.sources.filter((source) => !source.removedAt).length,
     tableCount: workspace.worktableDraft.entryOrder.length,
     coverPhotoId: workspace.coverPhotoId,
+    ...(workspace.deletionPendingAt ? { deletionPendingAt: workspace.deletionPendingAt } : {}),
   };
 }
 

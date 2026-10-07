@@ -4,6 +4,7 @@ import { createEmptyLayout } from "../../modules/layout/layoutDocument";
 import { backupBytes } from "../../../tests/helpers/projectBackup";
 import { MemoryProjectStore } from "../memory/MemoryProjectStore";
 import { CloudBackedProjectStore } from "./CloudBackedProjectStore";
+import { cloudSyncPending } from "../cloudSync";
 
 const id = "b1990192-73a2-4a09-a21a-d3c47fa164e6" as ProjectId;
 const storage = () => {
@@ -127,13 +128,13 @@ describe("CloudBackedProjectStore", () => {
     const fixture = cloudFixture();
     const local = new MemoryProjectStore();
     const accountStorage = storage();
-    const setItem = vi.spyOn(accountStorage, "setItem").mockImplementation(() => { throw new DOMException("Storage disabled", "QuotaExceededError"); });
+    const readState = vi.spyOn(local, "readCloudSyncState").mockResolvedValue(err({ kind: "unavailable", retryable: true }));
     const store = open(local, fixture.cloud, accountStorage);
     const created = await store.createProject({ id, name: "Never untracked", createdAt: "2026-09-16T00:00:00.000Z" });
     expect(created).toEqual({ ok: false, error: { kind: "unavailable", retryable: true } });
     expect((await local.loadWorkspace(id)).ok).toBe(false);
     expect(fixture.rows.has(id)).toBe(false);
-    setItem.mockRestore();
+    readState.mockRestore();
   });
 
   it("does not import a recovery copy without a pending marker", async () => {
@@ -143,7 +144,7 @@ describe("CloudBackedProjectStore", () => {
     if (!backup.ok) throw new Error("Missing backup");
     const local = new MemoryProjectStore();
     const accountStorage = storage();
-    vi.spyOn(accountStorage, "setItem").mockImplementation(() => { throw new DOMException("Storage disabled", "QuotaExceededError"); });
+    vi.spyOn(local, "readCloudSyncState").mockResolvedValue(err({ kind: "unavailable", retryable: true }));
     const store = open(local, cloudFixture().cloud, accountStorage);
     expect(await store.importBackup(backup.value)).toEqual({ ok: false, error: { kind: "unavailable", retryable: true } });
     const projects = await local.listProjects();
@@ -165,9 +166,11 @@ describe("CloudBackedProjectStore", () => {
     const save = vi.spyOn(local, "saveWorkspace").mockImplementation(async (...args) => { await gate; return original(...args); });
     const pending = store.saveWorkspace({ ...loaded.value, name: "After" }, loaded.value.revision);
     await vi.waitFor(() => expect(save).toHaveBeenCalled());
-    expect(JSON.parse(accountStorage.getItem(`cloud-test:user-1:${id}`)!).pending).toBe(true);
-    expect(await store.flushPending()).toBe(false);
-    release();
+    try {
+      expect(store.hasPending()).toBe(true);
+      expect(store.getStatus(id)).toBe("saving");
+      expect(await store.flushPending()).toBe(false);
+    } finally { release(); }
     expect((await pending).ok).toBe(true);
     expect(await store.flushPending()).toBe(true);
     expect(fixture.rows.get(id)?.name).toBe("After");
@@ -183,7 +186,6 @@ describe("CloudBackedProjectStore", () => {
     if (!loaded.ok) throw new Error("Missing local workspace");
     const rejected = await store.saveWorkspace({ ...loaded.value, name: "Rejected" }, -1 as typeof loaded.value.revision);
     expect(rejected.ok).toBe(false);
-    expect(JSON.parse(accountStorage.getItem(`cloud-test:user-1:${id}`)!).pending).toBe(false);
     expect(store.hasPending()).toBe(false);
     expect(fixture.rows.get(id)?.name).toBe("Original");
   });
@@ -205,29 +207,28 @@ describe("CloudBackedProjectStore", () => {
     fixture.rows.set(id, { ...previous, name: "After", cloudRevision: previous.cloudRevision + 1, document: JSON.parse(new TextDecoder().decode(exported.value)) });
     const reopened = open(local, fixture.cloud, accountStorage);
     expect((await reopened.listProjects()).ok).toBe(true);
+    expect(await reopened.flushPending()).toBe(true);
     expect(reopened.getStatus(id)).toBe("saved");
-    expect(JSON.parse(accountStorage.getItem(`cloud-test:user-1:${id}`)!).pending).toBe(false);
+    const state = await local.readCloudSyncState(id);
+    expect(state.ok && state.value && cloudSyncPending(state.value)).toBe(false);
   });
 
   it("retries a photo-index marker that could not be recorded after a scan", async () => {
     const fixture = cloudFixture();
     const accountStorage = storage();
-    const store = open(new MemoryProjectStore(), fixture.cloud, accountStorage);
+    const local = new MemoryProjectStore();
+    const store = open(local, fixture.cloud, accountStorage);
     const sourceId = "c1990192-73a2-4a09-a21a-d3c47fa164e6" as SourceId;
     await store.createProject({ id, name: "Photos", createdAt: "2026-09-16T00:00:00.000Z", initialSource: { id: sourceId, displayName: "Folder", createdAt: "2026-09-16T00:00:00.000Z" } });
     await store.flushPending();
-    const original = accountStorage.setItem.bind(accountStorage);
-    let failOnce = true;
-    vi.spyOn(accountStorage, "setItem").mockImplementation((key, value) => {
-      if (failOnce) { failOnce = false; throw new DOMException("Storage disabled", "QuotaExceededError"); }
-      original(key, value);
-    });
+    vi.spyOn(local, "markCloudPending").mockResolvedValueOnce(err({ kind: "unavailable", retryable: true }));
     vi.useFakeTimers();
     try {
       await store.photoIndexChanged(sourceId);
       expect(store.getStatus(id)).toBe("retrying");
       await vi.advanceTimersByTimeAsync(3000);
-      expect(accountStorage.getItem(`cloud-test:user-1:${id}`)).toContain('"pending":true');
+      const state = await local.readCloudSyncState(id);
+      expect(state.ok && state.value && cloudSyncPending(state.value)).toBe(true);
       expect(await store.flushPending()).toBe(true);
     } finally { vi.useRealTimers(); }
   });

@@ -15,7 +15,7 @@ import type { LayoutDocument, LayoutSummary } from "./layout";
 import type { SequenceVersion, VersionSummary } from "./versioning";
 import type { PhotoState, WorktableDraft, WorktableViewport } from "./worktable";
 
-export const INDEXED_DB_SCHEMA_VERSION = 12 as const;
+export const INDEXED_DB_SCHEMA_VERSION = 13 as const;
 export const WORKSPACE_SCHEMA_VERSION = 10 as const;
 
 export type SourceStatus =
@@ -178,6 +178,9 @@ export interface ProjectWorkspace {
 }
 
 export interface ProjectSummary {
+  readonly deletionPendingAt?: string;
+  /** A damaged record stays visible and addressable without being presented as an empty project. */
+  readonly loadError?: "corrupt-data";
   readonly id: ProjectId;
   readonly name: string;
   readonly updatedAt: string;
@@ -267,6 +270,8 @@ export type BackupError =
   | StorageAccessError;
 
 export interface ProjectStore {
+  /** Preserve raw damaged records for manual recovery; this is not an importable project backup. */
+  exportRecoveryData?(projectId: ProjectId): Promise<Result<Uint8Array, LoadError>>;
   listProjects(): Promise<Result<readonly ProjectSummary[], CorruptDataError | StorageAccessError>>;
   createProject(input: CreateProjectInput): Promise<Result<ProjectWorkspace, CreateProjectError>>;
   loadWorkspace(projectId: ProjectId): Promise<Result<ProjectWorkspace, LoadError>>;

@@ -731,6 +731,8 @@ export class BrowserPhotoSource implements PhotoSource {
     const sourceVersion = await this.getPhotoVersion(opened.value, photoId);
     if (!sourceVersion) return err({ kind: "photo-not-found", photoId });
     const cacheKey = `thumbnail:${photoId}:${sourceVersion}`;
+    const memory = this.urlCache.get(cacheKey);
+    if (memory) return ok(this.createLease(cacheKey, memory.blob));
     const stored = await requestValue<StoredThumbnail | undefined>(
       opened.value
         .transaction(STORE_NAMES.photoThumbnails, "readonly")
@@ -864,9 +866,7 @@ export class BrowserPhotoSource implements PhotoSource {
       const file = await this.readPhotoFile(database, photoId);
       if (!file.ok) return file;
       const blob = await createThumbnail(file.value);
-      const transaction = database.transaction(STORE_NAMES.photoThumbnails, "readwrite");
-      transaction.objectStore(STORE_NAMES.photoThumbnails).put({ photoId, blob, maxEdge: THUMBNAIL_MAX_EDGE, sourceVersion } satisfies StoredThumbnail);
-      await transactionResult(transaction);
+      await this.persistPreview(database, STORE_NAMES.photoThumbnails, { photoId, blob, maxEdge: THUMBNAIL_MAX_EDGE, sourceVersion });
       return ok(blob);
     } catch {
       return err({ kind: "preview-unavailable", photoId });
@@ -883,7 +883,7 @@ export class BrowserPhotoSource implements PhotoSource {
       const blob = await createResizedPreview(file.value, maxEdge);
       // Persistence is best effort: a full disk must not turn an otherwise
       // usable preview into a visible loading error.
-      if (maxEdge === 768) await this.persistDerivedPreview(database, { photoId, maxEdge, sourceVersion, blob });
+      if (maxEdge === 768) await this.persistPreview(database, STORE_NAMES.photoDerivedPreviews, { photoId, maxEdge, sourceVersion, blob });
       return ok(blob);
     } catch {
       return err({ kind: "preview-unavailable", photoId });
@@ -951,13 +951,25 @@ export class BrowserPhotoSource implements PhotoSource {
     return version;
   }
 
-  private async persistDerivedPreview(database: IDBDatabase, preview: StoredDerivedPreview): Promise<void> {
-    try {
-      const transaction = database.transaction(STORE_NAMES.photoDerivedPreviews, "readwrite");
-      transaction.objectStore(STORE_NAMES.photoDerivedPreviews).put(preview);
-      await transactionResult(transaction);
-    } catch {
-      // Browser quota and private-mode failures should not block the preview.
+  private async persistPreview(database: IDBDatabase, storeName: typeof STORE_NAMES.photoThumbnails | typeof STORE_NAMES.photoDerivedPreviews,
+    preview: StoredThumbnail | StoredDerivedPreview): Promise<void> {
+    // Reclaim only disposable images, preferring the larger derived tier. The
+    // generated blob stays usable even when every cache write fails.
+    const reclaim = [STORE_NAMES.photoDerivedPreviews, STORE_NAMES.photoThumbnails];
+    for (let attempt = 0; attempt <= reclaim.length; attempt++) {
+      try {
+        const transaction = database.transaction(storeName, "readwrite");
+        transaction.objectStore(storeName).put(preview);
+        await transactionResult(transaction);
+        return;
+      } catch (error) {
+        if (!(error instanceof DOMException) || error.name !== "QuotaExceededError" || attempt === reclaim.length) return;
+        try {
+          const transaction = database.transaction(reclaim[attempt], "readwrite");
+          transaction.objectStore(reclaim[attempt]).clear();
+          await transactionResult(transaction);
+        } catch { return; }
+      }
     }
   }
 

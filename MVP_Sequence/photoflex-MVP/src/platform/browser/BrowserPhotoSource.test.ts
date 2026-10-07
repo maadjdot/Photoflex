@@ -4,10 +4,12 @@ import { BrowserPhotoSource } from "./BrowserPhotoSource";
 import { IndexedDbProjectStore } from "./IndexedDbProjectStore";
 import { backupBytes, backupFixture } from "../../../tests/helpers/projectBackup";
 import { photoPng } from "../../../tests/helpers/photoImages";
+import { STORE_NAMES } from "./indexedDbSchema";
 
 const databases: BrowserPhotoSource[] = [];
 
 afterEach(async () => {
+  vi.restoreAllMocks();
   for (const source of databases.splice(0)) {
     await source.close();
   }
@@ -102,6 +104,38 @@ function selectedFile(relativePath: string): File {
 }
 
 describe("BrowserPhotoSource", () => {
+  it("keeps both preview tiers usable under permanent cache quota errors and reuses the thumbnail in memory", async () => {
+    const directory = createDirectory("cache-quota", "Cache quota", ["same.jpg"]);
+    const databaseName = `cache-quota-${crypto.randomUUID()}`;
+    const source = new BrowserPhotoSource({ databaseName, picker: async () => directory.handle }); databases.push(source);
+    const projects = IndexedDbProjectStore.open({ databaseName });
+    try {
+      const created = await projects.createProject({ id: "quota-project" as ProjectId, name: "Retained", createdAt: "2026-10-07" });
+      const grant = await source.chooseFolder([]); if (!grant.ok || !created.ok) throw Error("fixture failed");
+      await scanToEnd(source, grant.value.sourceId);
+      const photos = await source.listPhotos(grant.value.sourceId); if (!photos.ok) throw Error("no photos");
+      const photoId = photos.value.items[0].id;
+      const originalPut = IDBObjectStore.prototype.put;
+      vi.spyOn(IDBObjectStore.prototype, "put").mockImplementation(function (this: IDBObjectStore, ...args) {
+        if ([STORE_NAMES.photoThumbnails, STORE_NAMES.photoDerivedPreviews].includes(this.name as typeof STORE_NAMES.photoThumbnails)) throw new DOMException("Cache is full", "QuotaExceededError");
+        return originalPut.apply(this, args);
+      });
+      const clear = vi.spyOn(IDBObjectStore.prototype, "clear");
+      const first = await source.thumbnail(photoId), second = await source.derivedPreview(photoId, 768);
+      expect(first.ok).toBe(true); expect(second.ok).toBe(true);
+      const reads = directory.getFileReadCount();
+      const cached = await source.thumbnail(photoId);
+      expect(cached.ok && first.ok && cached.value.url).toBe(first.ok && first.value.url);
+      expect(directory.getFileReadCount()).toBe(reads);
+      expect(clear.mock.contexts.map((store) => (store as IDBObjectStore).name)).toEqual([
+        STORE_NAMES.photoDerivedPreviews, STORE_NAMES.photoThumbnails, STORE_NAMES.photoDerivedPreviews, STORE_NAMES.photoThumbnails,
+      ]);
+      expect((await projects.saveWorkspace({ ...created.value, name: "Still editable" }, created.value.revision)).ok).toBe(true);
+      expect(await projects.loadWorkspace(created.value.projectId)).toMatchObject({ ok: true, value: { name: "Still editable" } });
+      expect((await source.readOriginalFile(photoId)).ok).toBe(true);
+      for (const result of [first, second, cached]) if (result.ok) { expect(await (await fetch(result.value.url)).text()).toBe("same.jpg"); result.value.release(); }
+    } finally { await projects.close(); }
+  });
   it("scans mixed extensions with empty MIME, counts corrupt files, and reuses IDs after rescan and reconnect", async () => {
     const names = ["one.JPG", "two.JPEG", "alpha.PNG", "motion.ApNg", "photo.WeBp", "broken.png", "ignored.gif", "notes.txt"];
     const directory = createDirectory("mixed", "Mixed", names);

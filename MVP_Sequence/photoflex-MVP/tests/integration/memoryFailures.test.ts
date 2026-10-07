@@ -22,6 +22,7 @@ describe("MemoryProjectStore 失败模式", () => {
       versions: new Map(),
       sequences: new Map(),
       layouts: new Map(),
+      cloudSync: new Map(),
       corruptProjectIds: new Set([PROJECT_ID]),
     };
     const corrupt = new MemoryProjectStore(corruptDatabase);

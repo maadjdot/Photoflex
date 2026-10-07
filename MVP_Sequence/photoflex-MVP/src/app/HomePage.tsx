@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 import type { ProjectId, ProjectSummary } from "../contracts";
 import { PhotoThumb } from "./PhotoThumb";
 import type { AppDependencies } from "./dependencies";
@@ -8,6 +8,7 @@ import { NewProjectDialog } from "./ProjectDialog";
 import { deleteProjectWorkspace, projectDeletionErrorMessage, resumePendingProjectDeletions } from "./ProjectWorkspaceActions";
 import { createHomeGallery, type HomeGalleryPhoto } from "./homeGallery";
 import { useLocale } from "./locale";
+import { downloadRecoveryBackup } from "./downloadRecoveryBackup";
 
 interface GalleryPhoto extends HomeGalleryPhoto {
   readonly isPortrait: boolean;
@@ -23,6 +24,10 @@ export function HomePage({
   readonly onSelectedProjectIdChange?: (projectId?: ProjectId) => void;
 }) {
   const { locale, t } = useLocale();
+  const subscribe = useCallback((listener: () => void) => dependencies.cloudSave?.subscribe(listener) ?? (() => {}), [dependencies.cloudSave]);
+  const snapshot = useCallback(() => dependencies.cloudSave?.getProjectListVersion?.() ?? 0, [dependencies.cloudSave]);
+  const projectListVersion = useSyncExternalStore(subscribe, snapshot, snapshot);
+  const [reload, setReload] = useState(0);
   const [projects, setProjects] = useState<readonly ProjectSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string>();
@@ -32,7 +37,7 @@ export function HomePage({
   const [editingProjectId, setEditingProjectId] = useState<ProjectId>();
   const [renameDraft, setRenameDraft] = useState("");
   const [selectedProjectId, setSelectedProjectId] = useState<ProjectId>();
-  const [gallery, setGallery] = useState<{ projectId: ProjectId; rows: GalleryPhoto[][] }>();
+  const [gallery, setGallery] = useState<{ projectId: ProjectId; rows: GalleryPhoto[][]; error?: "corrupt-data" | "unavailable" }>();
 
   useEffect(() => {
     let active = true;
@@ -41,7 +46,7 @@ export function HomePage({
       if (result.ok) {
         const recovery = await resumePendingProjectDeletions(dependencies, result.value);
         if (!active) return;
-        if (recovery.failures.length) setError(projectDeletionErrorMessage(recovery.failures[0].error));
+        setError(recovery.failures.length ? projectDeletionErrorMessage(recovery.failures[0].error) : undefined);
         setProjects(recovery.projects);
       }
       else setError(t("home.projectListFailed"));
@@ -50,11 +55,24 @@ export function HomePage({
     return () => {
       active = false;
     };
-  }, [dependencies, t]);
+  }, [dependencies, t, projectListVersion, reload]);
 
   const selectedProject = projects.find((project) => project.id === selectedProjectId) ?? projects[0];
   const activeProjectId = selectedProject?.id;
   const rows = gallery?.projectId === activeProjectId ? gallery?.rows : undefined;
+  const galleryError = gallery?.projectId === activeProjectId ? gallery?.error : undefined;
+  const projectIssue = activeProjectId ? dependencies.cloudSave?.getProjectIssue?.(activeProjectId) : undefined;
+  const projectError = galleryError ?? (projectIssue?.kind === "corrupt-data" ? "corrupt-data" : projectIssue ? "unavailable" : undefined);
+  const retryProject = async () => {
+    if (activeProjectId) await dependencies.cloudSave?.retryProject?.(activeProjectId);
+    setReload((current) => current + 1);
+  };
+  const downloadProjectData = async () => {
+    if (!activeProjectId || !dependencies.projectStore.exportRecoveryData) return;
+    const result = await dependencies.projectStore.exportRecoveryData(activeProjectId);
+    if (result.ok) downloadRecoveryBackup(result.value, "PhotoFlex raw project recovery.json");
+    else setError(t("project.backupFailed"));
+  };
 
   useEffect(() => {
     onSelectedProjectIdChange?.(selectedProject?.id);
@@ -65,9 +83,8 @@ export function HomePage({
     let active = true;
     void dependencies.projectStore.loadWorkspace(activeProjectId).then(async (result) => {
       if (!active) return;
-      if (!result.ok) setError(t("home.projectPhotosFailed"));
       if (!result.ok) {
-        setGallery({ projectId: activeProjectId, rows: [] });
+        setGallery({ projectId: activeProjectId, rows: [], error: result.error.kind === "corrupt-data" ? "corrupt-data" : "unavailable" });
         return;
       }
       const workspace = result.value;
@@ -83,7 +100,7 @@ export function HomePage({
       if (active) setGallery({ projectId: activeProjectId, rows });
     });
     return () => { active = false; };
-  }, [activeProjectId, dependencies.photoSource, dependencies.projectStore, t]);
+  }, [activeProjectId, dependencies.photoSource, dependencies.projectStore, t, reload, projectListVersion]);
 
   const deleteProject = async (project: ProjectSummary) => {
     if (!window.confirm(t("home.deleteConfirm", { name: project.name }))) return;
@@ -173,6 +190,7 @@ export function HomePage({
                     onClick={() => setSelectedProjectId(project.id)}
                   >
                     {project.name}
+                    {project.loadError && <span className="home-project-warning"> · {t("home.projectDamaged")}</span>}
                   </button>
                 )}
                 {editingProjectId === project.id ? (
@@ -213,7 +231,9 @@ export function HomePage({
           <div className="home-gallery-loading" role="status">{t("home.loadingPhotos")}</div>
         ) : selectedProject ? (
           <article className="home-project-feature">
-            {!rows ? <div className="home-gallery-loading" role="status">{t("home.loadingPhotos")}</div> : rows.length ? (
+            {projectError && <InlineError message={t(projectError === "corrupt-data" ? "home.projectCorrupt" : "home.projectUnavailable", { name: selectedProject.name, id: selectedProject.id })} onRetry={() => void retryProject()} />}
+            {projectError === "corrupt-data" && dependencies.projectStore.exportRecoveryData && <button type="button" className="button" onClick={() => void downloadProjectData()}>{t("home.downloadRecoveryData")}</button>}
+            {galleryError ? null : !rows ? <div className="home-gallery-loading" role="status">{t("home.loadingPhotos")}</div> : rows.length ? (
               <div className="home-gallery" aria-label={`${selectedProject.name} ${t("common.photos")}`}>
                 {rows.map((row, rowIndex) => (
                   <div className="home-gallery-row" key={rowIndex}>

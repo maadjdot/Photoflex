@@ -73,7 +73,15 @@ h1, h2, p { margin-top: 0; }
 .login-button { justify-self: end; width: 86px; height: 34px; border: 0; background: transparent; font-size: 16px; }
 .cloud-save-status { color: #28794b; font-size: 12px; white-space: nowrap; }
 .cloud-save-status.is-saving { color: #68645f; }
+.cloud-save-status.is-cached { color: #8b642e; }
 .cloud-save-status.is-retrying, .cloud-save-status.is-conflict { color: #a33b2d; }
+.cloud-conflict-recovery, .cloud-conflict-recovered, .draft-recovery { position: fixed; z-index: 100; top: auto; right: auto; bottom: 42px; left: 50%; margin: 0; transform: translateX(-50%); width: min(660px, calc(100vw - 32px)); padding: 16px; border: 1px solid #b6664f; border-radius: 8px; background: #fff8f2; color: #38291f; box-shadow: 0 4px 18px #0002; font-size: 13px; }
+.cloud-conflict-recovery p, .draft-recovery p { margin: 8px 0; line-height: 1.5; }
+.cloud-conflict-actions, .cloud-conflict-recovered { display: flex; flex-wrap: wrap; gap: 8px; }
+.cloud-conflict-actions button, .cloud-conflict-recovered button { padding: 6px 10px; border: 1px solid #b7a69b; border-radius: 4px; background: #fff; color: inherit; }
+.draft-recovery::backdrop { background: rgb(0 0 0 / 24%); }
+.draft-recovery > div { display: flex; flex-wrap: wrap; gap: 8px; }
+.draft-recovery button { padding: 6px 10px; border: 1px solid #b7a69b; border-radius: 4px; background: #fff; color: inherit; }
 .auth-dialog { width: min(440px, calc(100vw - 32px)); }
 .auth-dialog label { display: grid; gap: 7px; margin-top: 16px; color: #4d4a45; font-size: 14px; }
 .auth-dialog input { height: 42px; padding: 0 12px; border: 1px solid #c9c5bd; border-radius: 4px; font: inherit; }
