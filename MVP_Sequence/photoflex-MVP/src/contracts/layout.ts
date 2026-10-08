@@ -15,6 +15,8 @@ export interface LayoutImageFrame {
   readonly photoId: PhotoId | null;
   /** Directly placed photos resize as a whole at their source aspect ratio. */
   readonly photoAspectRatio?: number;
+  /** Omitted in existing documents and interpreted as fully opaque. */
+  readonly opacity?: number;
   readonly crop: { readonly mode: "fit" | "fill"; readonly zoom: number; readonly focal: { readonly x: number; readonly y: number } };
 }
 

@@ -1,12 +1,15 @@
 import type { LayoutDocument, LayoutEditCommand, LayoutPage } from "../contracts";
 import { frameInnerEdge } from "../modules/worktable/frameAppearance";
-import { FrameAppearanceNumberField, PhotoInnerEdgeControls } from "./FrameAppearanceControls";
+import { PhotoInnerEdgeControls } from "./FrameAppearanceControls";
+import { MM_TO_PT } from "../modules/page-layout/pageGeometry";
+import { LayoutInspectorSlider } from "./LayoutInspectorSlider";
 
-export function LayoutPhotoAppearanceControls({ document, page, command, zh }: {
+export function LayoutPhotoAppearanceControls({ document, page, command, zh, part }: {
   readonly document: LayoutDocument;
   readonly page: LayoutPage;
   readonly command: (edit: LayoutEditCommand) => boolean;
   readonly zh: boolean;
+  readonly part?: "elevation" | "edges";
 }) {
   const innerEdge = frameInnerEdge(page);
   const photoElevationPt = page.photoElevationPt ?? 0;
@@ -15,10 +18,12 @@ export function LayoutPhotoAppearanceControls({ document, page, command, zh }: {
     innerEdge, photoElevationPt, ...changes,
   });
   return <>
-    <PhotoInnerEdgeControls edge={innerEdge} onChange={(edge) => update({ innerEdge: edge })} />
-    <section className="table-frame-section"><h3>{zh ? "照片浮起" : "PHOTO ELEVATION"}</h3>
-      <FrameAppearanceNumberField label={zh ? "照片浮起高度" : "Photo elevation"} value={photoElevationPt} max={20} onCommit={(value) => update({ photoElevationPt: value })} />
+    {part !== "edges" && <LayoutInspectorSlider label={zh ? "照片浮起" : "Photo elevation"} value={photoElevationPt / MM_TO_PT} max={20} unit="mm"
+      inputLabel={zh ? "照片浮起高度 mm" : "Photo elevation mm"} ends={zh ? ["平面", "浮起"] : ["Flat", "Raised"]}
+      onChange={(value) => update({ photoElevationPt: value * MM_TO_PT })} />}
+    {part !== "elevation" && <div className="layout-photo-effects">
+      <PhotoInnerEdgeControls frameToolbar edge={innerEdge} onChange={(edge) => update({ innerEdge: edge })} />
       <button type="button" className="layout-paper-apply-all" onClick={() => update({}, true)}>{zh ? "照片效果应用到全部页面" : "Apply photo effects to all pages"}</button>
-    </section>
+    </div>}
   </>;
 }

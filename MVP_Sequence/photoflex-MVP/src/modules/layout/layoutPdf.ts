@@ -104,12 +104,12 @@ export async function createLayoutPdf(snapshot: LayoutDocument, assets: LayoutPd
         drawPhotoAppearance(page, { ...photoRect, x: x + photoRect.x, y: object.rect.y + photoRect.y }, snapshot.pages[index], heightPt);
         if (entry.renderedRect) page.drawImage(entry.image, { x: x + entry.renderedRect.x,
           y: y + object.rect.height - entry.renderedRect.y - entry.renderedRect.height,
-          width: entry.renderedRect.width, height: entry.renderedRect.height });
+          width: entry.renderedRect.width, height: entry.renderedRect.height, opacity: object.opacity ?? 1 });
         else {
           const placed = resolveImagePlacement(entry, object.rect, object.crop);
           page.pushOperators(pushGraphicsState(), rectangle(x, y, object.rect.width, object.rect.height), clip(), endPath());
           page.drawImage(entry.image, { x: x + placed.x, y: y + object.rect.height - placed.y - placed.height,
-            width: placed.width, height: placed.height });
+            width: placed.width, height: placed.height, opacity: object.opacity ?? 1 });
           page.pushOperators(popGraphicsState());
         }
       } else drawText(page, object, heightPt, fonts, assets.measureText);

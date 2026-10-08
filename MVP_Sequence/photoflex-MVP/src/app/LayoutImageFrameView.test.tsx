@@ -12,7 +12,7 @@ it("places effects around the visible Fit photo, scales physical dimensions, and
     derivedPreview: async () => ok({ url: "preview", release: () => {} }),
   } as unknown as PhotoSource;
   const frame: LayoutImageFrame = { kind: "image-frame", id: "frame" as LayoutImageFrame["id"], rect: { x: 0, y: 0, width: 200, height: 200 },
-    photoId, crop: { mode: "fit", zoom: 1, focal: { x: .5, y: .5 } } };
+    photoId, opacity: .45, crop: { mode: "fit", zoom: 1, focal: { x: .5, y: .5 } } };
   const view = render(<LayoutImageFrameView frame={frame} photoSource={source} sourceRevision={0} scale={.5}
     page={{ id: "page" as import("../contracts").LayoutPageId, objects: [frame], innerEdge: { mode: "bevel", color: "#FFFFFF", widthPt: 4 }, photoElevationPt: 6 }}
     onMetadata={() => {}} onMissing={() => {}} />);
@@ -26,6 +26,8 @@ it("places effects around the visible Fit photo, scales physical dimensions, and
   expect(shadow.style.height).toBe("50%");
   expect(shadow.style.boxShadow).toContain("3px 7.5px");
   expect(view.container.querySelector(".layout-image-clip img")).toBeTruthy();
+  expect(view.container.querySelector<HTMLImageElement>("img")!.style.opacity).toBe("0.45");
+  expect(shadow.style.opacity).toBe("");
 });
 it("releases its preview lease when the visible page is removed", async () => {
   const release = vi.fn();

@@ -308,7 +308,7 @@ test("Layout edits frames, drops photos, crops and applies a template as one und
   expect((await frame.boundingBox())!.width).toBeCloseTo(beforeCancelledResize.width, 0);
   await frame.click();
   await layout.getByRole("button", { name: "Fit", exact: true }).click();
-  await layout.getByRole("button", { name: "Crop photo" }).click();
+  await layout.getByRole("button", { name: "Crop", exact: true }).click();
   const cropPoint = (await frame.boundingBox())!;
   await page.mouse.move(cropPoint.x + cropPoint.width / 2, cropPoint.y + cropPoint.height / 2);
   await page.mouse.wheel(0, -220);
@@ -320,7 +320,7 @@ test("Layout edits frames, drops photos, crops and applies a template as one und
   await page.mouse.move(cropPoint.x + cropPoint.width / 2, cropPoint.y + cropPoint.height / 2);
   await page.mouse.wheel(0, -220);
   await frame.getByRole("button", { name: "Done" }).click();
-  await expect(layout.getByRole("button", { name: "Crop photo" })).toBeVisible();
+  await expect(layout.getByRole("button", { name: "Crop", exact: true })).toBeVisible();
   const beforeQuickCrop = await frame.locator("img").getAttribute("style");
   await page.mouse.move(cropPoint.x + cropPoint.width / 2, cropPoint.y + cropPoint.height / 2);
   await page.mouse.down({ button: "right" });
@@ -566,7 +566,8 @@ test("Layout edits a facing spread with direct photos and multi-selection", asyn
   await expect(reader).toHaveCount(0);
 });
 
-test("Layout text survives refresh and reading uses the same lines", async ({ page }) => {
+test("Layout text survives refresh and reading uses the same lines", async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto("/");
   await expect(page.getByRole("heading", { name: "Projects" })).toBeVisible();
   await seedSequence(page);
@@ -592,7 +593,7 @@ test("Layout text survives refresh and reading uses the same lines", async ({ pa
   await expect(frame).not.toHaveClass(/is-selected/);
   await frame.click();
   await expect(layout.locator(".layout-properties-panel h3", { hasText: "TEXT BOX" })).toHaveCount(0);
-  await expect(layout.locator(".layout-properties-panel h3", { hasText: "TYPE" })).toBeVisible();
+  await expect(layout.locator(".layout-properties-panel h3", { hasText: "Typography" })).toBeVisible();
   const fontSelect = layout.getByRole("combobox", { name: "Font" });
   await expect(fontSelect.locator("option")).toHaveCount(15);
   const fontOptions = await fontSelect.locator("option").allTextContents();
@@ -618,6 +619,8 @@ test("Layout text survives refresh and reading uses the same lines", async ({ pa
   });
   expect(await page.evaluate(() => document.fonts.check('italic 700 16px "PhotoFlex Architects Daughter"'))).toBe(true);
   expect(await page.evaluate(() => document.fonts.check('italic 700 16px "PhotoFlex Noto Serif SC"'))).toBe(true);
+  await layout.locator(".layout-properties-panel").evaluate((element) => { element.scrollTop = 0; });
+  await page.screenshot({ path: testInfo.outputPath("layout-design-text-1440.png") });
   await expect(layout.locator(".layout-save-status")).toContainText("Saved locally");
 
   await frame.dblclick();

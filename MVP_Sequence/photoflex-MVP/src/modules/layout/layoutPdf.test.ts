@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
-import { PDFArray, PDFDocument, PDFDict, PDFName, PDFRawStream, decodePDFRawStream } from "pdf-lib";
+import { PDFArray, PDFDocument, PDFDict, PDFName, PDFNumber, PDFRawStream, decodePDFRawStream } from "pdf-lib";
 import type { LayoutId, LayoutObjectId, LayoutPageId, LayoutTextBox, PhotoId, ProjectId, SequenceId } from "../../contracts";
 import { createEmptyLayout } from "./layoutDocument";
 import { createLayoutPdf } from "./layoutPdf";
@@ -13,6 +13,20 @@ function pageOperators(pdf: PDFDocument, index: number) {
 }
 
 describe("Layout PDF", () => {
+  it.each([false, true])("exports photo opacity for the rendered crop path: %s", async (rendered) => {
+    const base = createEmptyLayout({ id: "layout" as LayoutId, projectId: "project" as ProjectId,
+      sequenceId: "sequence" as SequenceId, pageId: "one" as LayoutPageId, name: "Opacity", createdAt: "now" });
+    const frame = { kind: "image-frame" as const, id: "image" as LayoutObjectId, photoId: "photo" as PhotoId, opacity: .45,
+      rect: { x: 30, y: 40, width: 96, height: 64 }, crop: { mode: "fill" as const, zoom: 1, focal: { x: .5, y: .5 } } };
+    const pdf = await PDFDocument.load(await createLayoutPdf({ ...base, showPageNumbers: false, pages: [{ ...base.pages[0], objects: [frame] }] }, {
+      fonts: [], loadPhoto: async () => ({ bytes: photoPng(), format: "png", width: 96, height: 64,
+        renderedRect: rendered ? { x: 0, y: 0, width: 96, height: 64 } : undefined }),
+    }));
+    const states = pdf.getPage(0).node.Resources()!.lookup(PDFName.of("ExtGState"), PDFDict);
+    const photoState = states.keys().find((name) => states.lookup(name, PDFDict).lookup(PDFName.of("ca"), PDFNumber).asNumber() === .45);
+    expect(photoState).toBeDefined();
+    expect(pageOperators(pdf, 0)).toContain(`${photoState!.toString()} gs`);
+  });
   it("embeds transparent PNGs with an alpha mask and keeps the separator and shadow outside the photo", async () => {
     const base = createEmptyLayout({ id: "layout" as LayoutId, projectId: "project" as ProjectId,
       sequenceId: "sequence" as SequenceId, pageId: "one" as LayoutPageId, name: "Alpha", createdAt: "now" });

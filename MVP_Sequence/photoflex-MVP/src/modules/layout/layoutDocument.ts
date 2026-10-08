@@ -34,7 +34,8 @@ function validObject(value: unknown, widthPt: number, heightPt: number, pageInde
   if (!id(object.id) || !validRect(object.rect, widthPt, heightPt, pageIndex, pageCount, backCover)) return false;
   if (object.kind === "image-frame") {
     return (object.photoId === null || id(object.photoId)) && Boolean(object.crop?.focal) && validCrop(object.crop!)
-      && (object.photoAspectRatio === undefined || (finite(object.photoAspectRatio) && object.photoAspectRatio > 0));
+      && (object.photoAspectRatio === undefined || (finite(object.photoAspectRatio) && object.photoAspectRatio > 0))
+      && (object.opacity === undefined || (finite(object.opacity) && object.opacity >= 0 && object.opacity <= 1));
   }
   if (object.kind === "text-box") {
     const style = object.style;

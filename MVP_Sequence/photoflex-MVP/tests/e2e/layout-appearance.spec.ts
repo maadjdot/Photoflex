@@ -67,9 +67,10 @@ test("new Layout includes covers and persists photo effects in editing and readi
   await pages.nth(1).click();
   await expect(workspace.locator(".layout-paper.is-current .layout-paper-number")).toHaveText("01");
   const properties = workspace.getByRole("complementary", { name: "Page properties" });
+  await properties.getByText("Photo edges", { exact: true }).click();
   await properties.getByRole("button", { name: "Mat bevel", exact: true }).click();
-  await properties.getByLabel("Inner edge width mm").fill("2");
-  await properties.getByLabel("Inner edge width mm").press("Tab");
+  await properties.getByLabel("Inner edge width mm", { exact: true }).fill("2");
+  await properties.getByLabel("Inner edge width mm", { exact: true }).press("Tab");
   await properties.getByLabel("Photo elevation mm").fill("4");
   await properties.getByLabel("Photo elevation mm").press("Tab");
   await expect(workspace.locator(".layout-paper.is-current .inner-edge-bevel")).toBeVisible();
@@ -79,7 +80,7 @@ test("new Layout includes covers and persists photo effects in editing and readi
   await page.screenshot({ path: testInfo.outputPath("layout-photo-effects.png") });
   await page.reload();
   await pages.nth(1).click();
-  await expect(properties.getByLabel("Inner edge width mm")).toHaveValue("2");
+  await expect(properties.getByLabel("Inner edge width mm", { exact: true })).toHaveValue("2");
   await expect(properties.getByLabel("Photo elevation mm")).toHaveValue("4");
   await workspace.getByRole("button", { name: "Read", exact: true }).click();
   const reader = page.locator(".layout-reader");
@@ -190,10 +191,11 @@ test("white gaps and page number visibility persist through undo, reload, and re
   const properties = workspace.getByRole("complementary", { name: "Page properties" });
   const gap = properties.getByRole("checkbox", { name: "Thin white gap" });
   const numbers = properties.getByRole("checkbox", { name: "Show page numbers" });
+  await properties.getByText("Photo edges", { exact: true }).click();
   await properties.getByRole("button", { name: "Color", exact: true }).click();
   await properties.getByLabel("Inner edge color").fill("#333333");
-  await properties.getByLabel("Inner edge width mm").fill("2");
-  await properties.getByLabel("Inner edge width mm").press("Tab");
+  await properties.getByLabel("Inner edge width mm", { exact: true }).fill("2");
+  await properties.getByLabel("Inner edge width mm", { exact: true }).press("Tab");
   const edge = workspace.locator(".layout-paper.is-current .inner-edge-color");
   await expect(gap).toBeChecked();
   await expect(edge).not.toHaveCSS("box-shadow", "none");
@@ -212,6 +214,7 @@ test("white gaps and page number visibility persist through undo, reload, and re
   await page.reload();
   await pages.nth(1).click();
   await expect(numbers).not.toBeChecked();
+  await properties.getByText("Photo edges", { exact: true }).click();
   await expect(gap).not.toBeChecked();
   await expect(edge).toHaveCSS("box-shadow", "none");
   await page.screenshot({ path: testInfo.outputPath("layout-white-gap-off.png") });
@@ -281,4 +284,59 @@ test("Canvas uses the same optional white gap and restores it after reload", asy
   await gap.check();
   await expect(edge).not.toHaveCSS("box-shadow", "none");
   await page.screenshot({ path: testInfo.outputPath("canvas-white-gap-on.png") });
+});
+
+
+test("Design inspector persists image opacity through undo, reload, and reading", async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  const projectId = await seedBook(page, true);
+  await page.goto('/#/projects/' + projectId + '/sequences/cover-sequence/layout/cover-layout');
+  const workspace = page.getByRole("main", { name: "Layout workspace" });
+  const properties = workspace.getByRole("complementary", { name: "Page properties" });
+  const photo = workspace.locator(".layout-paper.is-current .layout-placed-image");
+  await workspace.locator(".layout-paper.is-current .layout-object-image-frame").click();
+  await expect(properties.getByRole("heading", { name: "Design", exact: true })).toBeVisible();
+  await expect(properties.getByRole("button", { name: /Crop|Backward|Forward|Duplicate|Delete frame/ })).toHaveCount(0);
+  await expect(properties.getByText("Layer order", { exact: true })).toHaveCount(0);
+  await expect(properties.getByText("Frame actions", { exact: true })).toHaveCount(0);
+  const opacity = properties.getByRole("spinbutton", { name: "Image opacity %" });
+  await expect(opacity).toHaveValue("100");
+  await opacity.fill("45");
+  await opacity.press("Enter");
+  await expect(photo).toHaveCSS("opacity", "0.45");
+  await workspace.getByRole("button", { name: "Undo", exact: true }).click();
+  await expect(opacity).toHaveValue("100");
+  await expect(photo).toHaveCSS("opacity", "1");
+  await workspace.getByRole("button", { name: "Redo", exact: true }).click();
+  await expect(opacity).toHaveValue("45");
+  await expect(workspace.getByText("Saved locally", { exact: true })).toBeVisible();
+  await page.reload();
+  await workspace.locator(".layout-paper.is-current .layout-object-image-frame").click();
+  await expect(opacity).toHaveValue("45");
+  await expect(photo).toHaveCSS("opacity", "0.45");
+  const slider = properties.getByRole("slider", { name: "Opacity", exact: true });
+  await slider.press("End");
+  await expect(photo).toHaveCSS("opacity", "1");
+  await slider.press("Home");
+  await expect(photo).toHaveCSS("opacity", "0");
+  await opacity.fill("45");
+  await opacity.press("Enter");
+  await properties.evaluate((element) => { element.scrollTop = 0; });
+  await expect(properties).toHaveCSS("width", "257px");
+  const icons = await properties.locator('.table-frame-panel-close img, .layout-paper-dropdown-caret img, .layout-checkbox-mark img').evaluateAll((elements) => elements.map((element) => ({
+    width: element.getBoundingClientRect().width, height: element.getBoundingClientRect().height,
+    loaded: (element as HTMLImageElement).complete && (element as HTMLImageElement).naturalWidth > 0,
+  })));
+  expect(icons).toHaveLength(4);
+  expect(icons.every((icon) => icon.loaded && [10, 12].includes(icon.width) && icon.width === icon.height)).toBe(true);
+  await page.screenshot({ path: testInfo.outputPath("layout-design-1440.png") });
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.screenshot({ path: testInfo.outputPath("layout-design-1280.png") });
+  await properties.getByRole("button", { name: "Close Design panel" }).click();
+  await expect(properties).toHaveCount(0);
+  await workspace.getByRole("button", { name: "Design", exact: true }).click();
+  await expect(properties).toBeVisible();
+  await expect(opacity).toHaveValue("45");
+  await workspace.getByRole("button", { name: "Read", exact: true }).click();
+  await expect(page.locator('.layout-reader article[aria-label="Page 1"] .layout-placed-image')).toHaveCSS("opacity", "0.45");
 });

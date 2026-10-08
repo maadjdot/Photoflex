@@ -11,6 +11,22 @@ const initial = () => createEmptyLayout({
 });
 
 describe("Layout document commands", () => {
+  it("round-trips image opacity, accepts legacy frames, and rejects values outside 0–1", () => {
+    const original = initial();
+    const frame = { kind: "image-frame" as const, id: "opacity-frame" as LayoutObjectId, photoId: "photo" as PhotoId,
+      rect: { x: 20, y: 20, width: 200, height: 240 }, crop: { mode: "fit" as const, zoom: 1, focal: { x: .5, y: .5 } } };
+    const edit = (opacity?: number) => applyLayoutCommand(original, { type: "upsert-object", pageId: original.pages[0].id, object: { ...frame, opacity } });
+    for (const opacity of [undefined, 0, .45, 1]) {
+      const result = edit(opacity);
+      expect(result.ok).toBe(true);
+      if (!result.ok) throw Error("opacity rejected");
+      const restored = JSON.parse(JSON.stringify(result.value));
+      expect(isLayoutDocument(restored)).toBe(true);
+      expect(restored.pages[0].objects[0].opacity).toBe(opacity);
+    }
+    for (const opacity of [-.1, 1.1, NaN, Infinity]) expect(edit(opacity).ok).toBe(false);
+    expect(original.pages[0].objects).toEqual([]);
+  });
   it("persists optional page numbers while accepting documents without the setting", () => {
     const original = initial();
     const hidden = applyLayoutCommand(original, { type: "set-page-numbers", show: false });

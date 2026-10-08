@@ -3,26 +3,28 @@ import type { LayoutDocument, LayoutEditCommand, LayoutPage, LayoutPaper } from 
 import { LAYOUT_PAPER_COLORS, LAYOUT_PAPER_MATERIALS, resolveLayoutPaper } from "../modules/layout/layoutPaper";
 import { LayoutPaperBackdrop } from "./LayoutPaperBackdrop";
 
-export function LayoutPaperControls({ document, page, command, zh }: {
+export function LayoutPaperControls({ document, page, command, zh, caretIcon }: {
   readonly document: LayoutDocument;
   readonly page: LayoutPage;
   readonly command: (edit: LayoutEditCommand) => boolean;
   readonly zh: boolean;
+  readonly caretIcon?: string;
 }) {
   const paper = resolveLayoutPaper(page);
   const setPaper = (next: LayoutPaper, allPages = false) => command({ type: "set-paper",
     pageIds: allPages ? document.pages.map((entry) => entry.id) : [page.id], paper: next });
   const allSame = document.pages.every((entry) => { const current = resolveLayoutPaper(entry); return current.color.toUpperCase() === paper.color.toUpperCase() && current.material === paper.material; });
-  return <PaperControls paper={paper} onChange={setPaper} zh={zh} onApplyAll={() => setPaper(paper, true)} allSame={allSame} />;
+  return <PaperControls paper={paper} onChange={setPaper} zh={zh} caretIcon={caretIcon} materialLabel={zh ? "纹理" : "Texture"} onApplyAll={() => setPaper(paper, true)} allSame={allSame} />;
 }
 
-export function PaperControls({ paper, onChange, zh = false, onApplyAll, allSame, caretIcon }: {
+export function PaperControls({ paper, onChange, zh = false, onApplyAll, allSame, caretIcon, materialLabel }: {
   readonly paper: LayoutPaper;
   readonly onChange: (paper: LayoutPaper) => boolean;
   readonly zh?: boolean;
   readonly onApplyAll?: () => void;
   readonly allSame?: boolean;
   readonly caretIcon?: string;
+  readonly materialLabel?: string;
 }) {
   const [openMenu, setOpenMenu] = useState<"color" | "material" | "custom" | null>(null);
   const controlsRef = useRef<HTMLElement>(null);
@@ -69,7 +71,7 @@ export function PaperControls({ paper, onChange, zh = false, onApplyAll, allSame
       </div>}
     </div>
     <div className="layout-paper-field">
-      <span className="layout-paper-field-label">{label("Material", "材质")}</span>
+      <span className="layout-paper-field-label">{materialLabel ?? label("Material", "材质")}</span>
       <button type="button" className="layout-paper-dropdown-trigger" aria-label={label("Paper material", "纸张材质")} aria-haspopup="listbox" aria-expanded={openMenu === "material"} aria-controls="layout-paper-material-menu" onClick={() => setOpenMenu((current) => current === "material" ? null : "material")}>
         <span className="layout-paper-material-sample"><LayoutPaperBackdrop paper={{ color: paper.color, material: selectedMaterial.id }} /></span>
         <span>{zh ? selectedMaterial.nameZh : selectedMaterial.name}</span><span className="layout-paper-dropdown-caret" aria-hidden="true">{caretIcon ? <img src={caretIcon} alt="" width="10" height="10" /> : "⌄"}</span>

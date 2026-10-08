@@ -1,0 +1,65 @@
+/* Layout Design inspector, aligned with the Figma sidebar and Frame settings. */
+.layout-properties-panel.is-frame-toolbar { border-color: var(--frame-line); scrollbar-width: thin; scrollbar-color: #c8c8c8 transparent; }
+.layout-properties-panel.is-frame-toolbar .table-frame-panel-header { height: 57px; padding: 16px 16px 12px; }
+.layout-properties-panel.is-frame-toolbar .table-frame-panel-header h2 { margin: 0; color: var(--frame-ink); font-size: 15px; font-weight: 600; line-height: 22.5px; letter-spacing: -.375px; }
+.layout-properties-panel.is-frame-toolbar .table-frame-inspector { padding: 16px; }
+.layout-properties-panel.is-frame-toolbar .table-frame-section { gap: 8px; padding: 0; border: 0; }
+.layout-properties-panel.is-frame-toolbar .table-frame-section h3 { color: var(--frame-text); font-size: 11px; line-height: 16.5px; }
+.layout-properties-panel.is-frame-toolbar .table-frame-section h3 > span { color: var(--frame-faint); font-size: 9px; font-weight: 400; }
+.layout-page-settings, .layout-object-settings { display: flex; flex-direction: column; gap: 16px; }
+.layout-page-settings { padding-bottom: 16px; border-bottom: 1px solid var(--frame-line); }
+.layout-object-settings { padding-top: 16px; }
+.layout-properties-panel .layout-inspector-object-heading { display: flex; align-items: center; justify-content: space-between; margin: 16px 0; color: var(--frame-ink); font-size: 12px; font-weight: 600; line-height: 18px; }
+.layout-object-settings .layout-inspector-object-heading { margin: 0; }
+.layout-inspector-object-heading > span { color: var(--frame-faint); font-size: 9px; font-weight: 400; }
+.layout-properties-panel.is-frame-toolbar .table-frame-inspector :is(input:not([type="range"]):not([type="checkbox"]), select) { height: 28px; background: #fff; }
+.layout-properties-panel.is-frame-toolbar .layout-paper-field-label { color: var(--frame-faint); font-size: 9px; font-weight: 500; line-height: 13.5px; letter-spacing: .225px; text-transform: uppercase; }
+.layout-properties-panel.is-frame-toolbar .layout-paper-dropdown-trigger { height: 28px; min-height: 28px; gap: 8px; color: var(--frame-text); font-size: 10px; }
+.layout-properties-panel .layout-paper-field:last-child .layout-paper-dropdown-trigger .layout-paper-material-sample { display: none; }
+.layout-properties-panel.is-frame-toolbar .layout-paper-apply-all { min-height: 24px; padding: 3px 6px; color: var(--frame-muted); font-size: 9px; }
+.layout-properties-panel .layout-paper-apply-all:disabled { display: none; }
+.layout-photo-effects { display: flex; flex-direction: column; gap: 8px; }
+.layout-extra-photo-settings { margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--frame-line); }
+.layout-extra-photo-settings > summary { color: var(--frame-text); font-size: 11px; font-weight: 500; cursor: pointer; }
+.layout-extra-photo-settings[open] > summary { margin-bottom: 12px; }
+.layout-properties-panel.is-frame-toolbar .layout-template-strip { gap: 6px; }
+.layout-properties-panel.is-frame-toolbar .layout-template-strip button { height: 36px; min-height: 36px; padding: 4px; border-radius: 6px; background: #fff; }
+.layout-properties-panel.is-frame-toolbar .layout-template-strip button[aria-pressed="true"] { border-color: var(--frame-ink); background: #fff; box-shadow: var(--frame-control-shadow); }
+.layout-properties-panel.is-frame-toolbar .layout-template-strip .table-frame-mini { width: 100%; height: 26px; border: 0; background: #99a1af; }
+.layout-properties-panel.is-frame-toolbar .layout-template-strip .table-frame-mini.mini-diptych { background: linear-gradient(90deg, #99a1af 0 calc(50% - .5px), #fff calc(50% - .5px) calc(50% + .5px), #99a1af calc(50% + .5px)); }
+.layout-properties-panel.is-frame-toolbar .layout-template-strip .table-frame-mini.mini-triptych { background: linear-gradient(90deg, #99a1af 0 calc(33.33% - .5px), #fff calc(33.33% - .5px) calc(33.33% + .5px), #99a1af calc(33.33% + .5px) calc(66.67% - .5px), #fff calc(66.67% - .5px) calc(66.67% + .5px), #99a1af calc(66.67% + .5px)); }
+.layout-properties-panel.is-frame-toolbar .layout-template-strip .table-frame-mini.mini-quad-grid { background: linear-gradient(90deg, transparent calc(50% - .5px), #fff calc(50% - .5px) calc(50% + .5px), transparent calc(50% + .5px)), linear-gradient(transparent calc(50% - .5px), #fff calc(50% - .5px) calc(50% + .5px), transparent calc(50% + .5px)), #99a1af; }
+.layout-properties-panel.is-frame-toolbar .layout-template-strip .table-frame-mini.mini-full-page { background: #6a7282; }
+.layout-properties-panel.is-frame-toolbar .table-frame-checkbox { margin: 0; gap: 8px; color: #4a5565; font-size: 10px; line-height: 15px; }
+.layout-page-numbers { position: relative; }
+.layout-page-numbers input[type="checkbox"] { appearance: none; border: 1px solid #767676; border-radius: 2px; background: #fff; box-shadow: none; }
+.layout-page-numbers input[type="checkbox"]:checked { border-color: var(--frame-ink); background: var(--frame-ink); }
+.layout-checkbox-mark { position: absolute; top: 50%; left: 1px; display: none; width: 12px; height: 12px; transform: translateY(-50%); pointer-events: none; }
+.layout-page-numbers input:checked + .layout-checkbox-mark { display: block; }
+.layout-properties-panel.is-frame-toolbar .table-frame-field-grid { gap: 8px; }
+.layout-properties-panel.is-frame-toolbar .layout-position-field { display: flex; flex-direction: row; align-items: center; gap: 6px; color: var(--frame-faint); }
+.layout-properties-panel.is-frame-toolbar .layout-position-field input { padding: 0 8px; font-size: 11px; }
+.layout-properties-panel.is-frame-toolbar .table-frame-soft-group { gap: 8px; }
+.layout-properties-panel.is-frame-toolbar .table-frame-soft-group .table-frame-segments { gap: 0; padding: 2px; border-radius: 6px; background: var(--frame-line); }
+.layout-properties-panel.is-frame-toolbar .table-frame-soft-group .table-frame-segments > button { height: 28px; border-radius: 4px; }
+.layout-properties-panel.is-frame-toolbar .table-frame-inspector p { margin: 0; color: var(--frame-muted); font-size: 10px; line-height: 16.25px; }
+.layout-properties-panel.is-frame-toolbar .table-frame-inspector .layout-inline-photo-action { min-height: 0; padding: 0; border: 0; background: transparent; box-shadow: none; color: var(--frame-muted); font-size: 9px; font-weight: 400; line-height: 16.5px; }
+.layout-properties-panel.is-frame-toolbar .table-frame-inspector .layout-inline-photo-action:hover { color: var(--frame-ink); text-decoration: underline; }
+.layout-inspector-slider h3 label { cursor: pointer; }
+.layout-slider-controls { display: flex; align-items: center; gap: 10px; }
+.layout-slider-controls > input[type="range"] { flex: 1; min-width: 0; }
+.layout-properties-panel.is-frame-toolbar .layout-slider-number { position: relative; flex: 0 0 54px; }
+.layout-properties-panel.is-frame-toolbar .layout-slider-number input { padding: 0 19px 0 6px; font-size: 10px; }
+.layout-slider-number > span { position: absolute; right: 5px; top: 7px; color: var(--frame-faint); font-size: 9px; pointer-events: none; }
+.layout-slider-ends { display: flex; justify-content: space-between; color: var(--frame-faint); font-size: 8px; line-height: 12px; }
+.layout-properties-panel.is-frame-toolbar dl { display: grid; grid-template-columns: auto 1fr; align-items: baseline; gap: 8px; margin: 0; padding: 0; font-size: 10px; }
+.layout-properties-panel.is-frame-toolbar dt { margin: 0; color: var(--frame-muted); }
+.layout-properties-panel.is-frame-toolbar dd { margin: 0; text-align: right; }
+.layout-properties-panel.is-frame-toolbar .layout-number-field { color: var(--frame-muted); }
+.layout-properties-panel.is-frame-toolbar .layout-property-grid .layout-position-field { color: var(--frame-faint); }
+.layout-properties-panel.is-frame-toolbar .table-frame-inspector > .table-frame-section { margin-top: 16px; }
+.layout-properties-panel.is-frame-toolbar .table-frame-inspector select { appearance: none; padding: 0 26px 0 8px; background-image: url("../assets/icons/layout-design/chevron.svg"); background-position: right 8px center; background-repeat: no-repeat; }
+@media (forced-colors: active) {
+  .layout-page-numbers input[type="checkbox"] { appearance: auto; }
+  .layout-checkbox-mark { display: none !important; }
+}
