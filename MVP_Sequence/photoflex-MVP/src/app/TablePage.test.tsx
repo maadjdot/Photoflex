@@ -452,7 +452,10 @@ describe("TablePage", () => {
     expect(screen.queryByRole("button", { name: "Hand" })).toBeNull();
     expect(screen.queryByRole("group", { name: "Table selection actions" })).toBeNull();
     expect(screen.getByRole("group", { name: "Canvas tools" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Move toolbar vertically" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Move toolbar vertically" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Grid" }).hasAttribute("disabled")).toBe(true);
+    expect(screen.getByRole("button", { name: "Row" }).hasAttribute("disabled")).toBe(true);
+    expect(screen.getByRole("button", { name: "Hide left toolbar" }).closest("header")).toBeTruthy();
     expect(screen.queryByRole("button", { name: /登录/ })).toBeNull();
     expect(screen.queryByText(/Juxtapose/)).toBeNull();
 

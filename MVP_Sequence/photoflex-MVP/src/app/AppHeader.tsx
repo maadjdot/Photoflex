@@ -40,7 +40,7 @@ export function AppHeader({ dependencies, route, projectId, contactSourceId, las
   const label = projectLabel ?? projectName ?? projectId;
   const settingsProjectId = showProjectSettings ? projectSettingsProjectId ?? (route.name === "home" ? undefined : projectId) : undefined;
   return <header className={`topbar${variant === "table" ? " is-table" : ""}${route.name === "home" ? " is-home" : ""}`}>
-    {variant === "table" ? <div className="table-header-project">{brand}{projectId && <><span className="table-header-slash" aria-hidden="true">/</span><span className="project-context-name" title={label}>{label}</span></>}</div> : <>{brand}{projectId && <span className="project-context-name" title={label}>{label}</span>}</>}
+    {variant === "table" ? <div className="table-header-project"><div id="table-header-toolbar-toggle" />{brand}{projectId && <><span className="table-header-slash" aria-hidden="true">/</span><span className="project-context-name" title={label}>{label}</span></>}</div> : <>{brand}{projectId && <span className="project-context-name" title={label}>{label}</span>}</>}
     {route.name !== "home" && route.name !== "table" && route.name !== "sequence" && <nav className="topnav" aria-label={t("nav.main")}>
       {(!projectId || variant === "table") && <NavButton onClick={() => navigate({ name: "home" })}>{t("nav.home")}</NavButton>}
       <NavButton active={route.name === "project" || route.name === "contact-sheet"} disabled={!projectId} onClick={() => projectId && navigate({ name: "table", projectId })}>{t("nav.table")}</NavButton>
