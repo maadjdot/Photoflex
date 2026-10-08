@@ -1,0 +1,314 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>PhotoFlex · 纸张颜色与材质原型</title>
+  <style>
+    :root {
+      color-scheme: light;
+      font-family: Inter, "PingFang SC", "Microsoft YaHei", sans-serif;
+      --ink: #242321;
+      --muted: #77746e;
+      --line: #d7d2ca;
+      --panel: rgb(250 249 247 / 92%);
+      --desk: #e8e5df;
+      --paper-color: #f4efe5;
+      --texture-image: none;
+      --texture-size: 36% auto;
+      --texture-opacity: 0;
+      --texture-filter: none;
+      --texture-blend: soft-light;
+      --texture-repeat: repeat;
+      --texture-position: 0 0;
+    }
+
+    * { box-sizing: border-box; }
+    html, body { width: 100%; height: 100%; margin: 0; }
+    body { overflow: hidden; background: var(--desk); color: var(--ink); }
+    button { color: inherit; font: inherit; }
+
+    .app { width: 100%; height: 100%; }
+    .variant { display: none; width: 100%; height: 100%; }
+    .variant.is-active { display: grid; }
+
+    .controls {
+      overflow: auto;
+      padding: 34px 28px 88px;
+      border-right: 1px solid var(--line);
+      background: var(--panel);
+      backdrop-filter: blur(18px);
+    }
+    .eyebrow { margin: 0 0 7px; color: var(--muted); font-size: 10px; letter-spacing: .18em; }
+    h1 { margin: 0; font-family: Georgia, "Noto Serif SC", serif; font-size: 25px; font-weight: 500; }
+    .selection { margin: 8px 0 32px; color: var(--muted); font-size: 12px; }
+    .control-section + .control-section { margin-top: 30px; }
+    .control-section h2 { margin: 0 0 13px; font-size: 11px; font-weight: 600; letter-spacing: .12em; }
+
+    .swatches { display: grid; grid-template-columns: repeat(6, 30px); gap: 11px; }
+    .swatch {
+      position: relative;
+      width: 30px;
+      height: 30px;
+      padding: 0;
+      border: 1px solid rgb(20 20 20 / 12%);
+      border-radius: 50%;
+      background: var(--swatch);
+      cursor: pointer;
+    }
+    .swatch[aria-pressed="true"]::after {
+      position: absolute;
+      inset: -5px;
+      border: 1.5px solid var(--ink);
+      border-radius: 50%;
+      content: "";
+    }
+    .swatch:focus-visible, .material:focus-visible, .prototype-switcher button:focus-visible { outline: 2px solid #315e9f; outline-offset: 3px; }
+
+    .materials { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; }
+    .material {
+      display: grid;
+      grid-template-columns: 35px 1fr;
+      align-items: center;
+      gap: 9px;
+      min-height: 49px;
+      padding: 6px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+      cursor: pointer;
+      text-align: left;
+    }
+    .material[aria-pressed="true"] { border-color: var(--ink); box-shadow: inset 0 0 0 1px var(--ink); }
+    .material-sample { width: 35px; height: 35px; overflow: hidden; border-radius: 5px; }
+    .material span:last-child { font-size: 11px; line-height: 1.25; }
+
+    .paper-fill, .material-sample {
+      position: relative;
+      isolation: isolate;
+      background-color: var(--paper-color);
+    }
+    .paper-fill::before, .material-sample::before {
+      position: absolute;
+      inset: 0;
+      background-image: var(--texture-image);
+      background-position: var(--texture-position);
+      background-repeat: var(--texture-repeat);
+      background-size: var(--texture-size);
+      content: "";
+      filter: var(--texture-filter);
+      mix-blend-mode: var(--texture-blend);
+      opacity: var(--texture-opacity);
+      pointer-events: none;
+    }
+    .paper-fill::after {
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(115deg, rgb(255 255 255 / 7%), transparent 34%, rgb(0 0 0 / 4%));
+      content: "";
+      pointer-events: none;
+    }
+
+    /* A — the paper at page scale */
+    .variant-a { grid-template-columns: 310px minmax(0, 1fr); }
+    .variant-a .stage { display: grid; place-items: center; min-width: 0; padding: 48px; }
+    .page {
+      width: min(42vw, 480px);
+      aspect-ratio: 210 / 297;
+      overflow: hidden;
+      border: 1px solid rgb(30 28 24 / 9%);
+      border-radius: 2px;
+      box-shadow: 0 26px 70px rgb(52 48 41 / 22%), 0 4px 13px rgb(52 48 41 / 12%);
+    }
+
+    /* B — an intentionally close texture inspection */
+    .variant-b { grid-template-columns: 290px minmax(0, 1fr); background: #d8d5cf; }
+    .variant-b .controls { padding-top: 26px; }
+    .closeup-wrap { min-width: 0; padding: 34px; }
+    .closeup {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      border-radius: 9px;
+      box-shadow: 0 20px 54px rgb(40 36 30 / 19%);
+    }
+    /* C — judge one material across four light paper colours */
+    .variant-c { grid-template-columns: 310px minmax(0, 1fr); }
+    .comparison { display: grid; grid-template-columns: repeat(2, minmax(180px, 1fr)); gap: 18px; min-width: 0; padding: 38px; }
+    .compare-paper {
+      min-height: 0;
+      overflow: hidden;
+      border: 1px solid rgb(20 20 20 / 8%);
+      border-radius: 4px;
+      box-shadow: 0 16px 34px rgb(45 41 35 / 13%);
+    }
+    .prototype-switcher {
+      position: fixed;
+      z-index: 20;
+      bottom: 18px;
+      left: 50%;
+      display: grid;
+      grid-template-columns: 36px auto 36px;
+      align-items: center;
+      overflow: hidden;
+      border: 1px solid rgb(255 255 255 / 18%);
+      border-radius: 999px;
+      background: #20201f;
+      box-shadow: 0 9px 24px rgb(0 0 0 / 24%);
+      color: #fff;
+      transform: translateX(-50%);
+    }
+    .prototype-switcher button { width: 36px; height: 34px; border: 0; background: transparent; color: #fff; cursor: pointer; }
+    .prototype-switcher span { min-width: 126px; padding: 0 10px; font-size: 11px; text-align: center; }
+
+    @media (max-width: 760px) {
+      body { overflow: auto; }
+      .variant.is-active { grid-template-columns: 1fr; height: auto; min-height: 100%; }
+      .controls { border-right: 0; border-bottom: 1px solid var(--line); }
+      .variant-a .stage { min-height: 620px; padding: 34px 20px 90px; }
+      .page { width: min(78vw, 430px); }
+      .variant-b .closeup-wrap { min-height: 620px; padding: 22px 18px 90px; }
+      .comparison { min-height: 760px; grid-template-columns: repeat(2, minmax(130px, 1fr)); padding: 22px 18px 90px; }
+    }
+  </style>
+</head>
+<body>
+  <!-- PROTOTYPE ONLY: three focused views of paper colour/material, switchable with ?variant=A|B|C. -->
+  <main class="app">
+    <section class="variant variant-a" data-variant="A">
+      <aside class="controls" data-controls></aside>
+      <div class="stage"><div class="page paper-fill" aria-label="纸张效果预览"></div></div>
+    </section>
+
+    <section class="variant variant-b" data-variant="B">
+      <aside class="controls" data-controls></aside>
+      <div class="closeup-wrap"><div class="closeup paper-fill" aria-label="材质近看"></div></div>
+    </section>
+
+    <section class="variant variant-c" data-variant="C">
+      <aside class="controls" data-controls></aside>
+      <div class="comparison" aria-label="颜色对比">
+        <div class="compare-paper paper-fill" data-compare="#F8F7F3"></div>
+        <div class="compare-paper paper-fill" data-compare="#FDF6EC"></div>
+        <div class="compare-paper paper-fill" data-compare="#FAFBF6"></div>
+        <div class="compare-paper paper-fill" data-compare="#F1EDE1"></div>
+      </div>
+    </section>
+  </main>
+
+  <nav class="prototype-switcher" aria-label="原型查看方式">
+    <button type="button" data-direction="-1" aria-label="上一种查看方式">←</button>
+    <span data-variant-label></span>
+    <button type="button" data-direction="1" aria-label="下一种查看方式">→</button>
+  </nav>
+
+  <script>
+    const colours = [
+      ["纯白", "#FFFFFF"], ["雪绒白", "#F8F7F3"], ["蜜杏白", "#FDF6EC"], ["雾绿白", "#FAFBF6"],
+      ["亚麻白", "#F0EEE8"], ["旧纸米", "#F1EDE1"], ["暖象牙", "#F4EFE5"], ["岩灰", "#8B8984"], ["炭黑", "#28282A"],
+      ["可可棕", "#432E28"], ["灰褐", "#5B4C45"], ["深苔绿", "#465146"], ["暗橄榄", "#5B603E"],
+      ["墨水蓝", "#1E2B45"], ["烟雾蓝", "#404A58"], ["灰玫瑰", "#835660"], ["暗桑葚", "#5D4149"],
+    ];
+
+    const materials = [
+      { id: "smooth", name: "无纹理", image: "none", size: "36% auto", lightOpacity: 0, darkOpacity: 0, filter: "none" },
+      { id: "fine-paper", name: "细纹棉纸", image: "url('../textures/518d18969c27ec8f08915b0806992829.jpg')", size: "42% auto", lightOpacity: .16, darkOpacity: .30, filter: "grayscale(1) brightness(.55) contrast(1.7)" },
+      { id: "natural-fiber", name: "自然纤维纸", image: "url('../textures/98cf52da8dcc0f7a0d77d1716a27ae93.jpg')", size: "58% auto", lightOpacity: .20, darkOpacity: .42, filter: "grayscale(1) brightness(.55) contrast(2)" },
+      { id: "fine-linen", name: "细麻布纹", image: "url('../textures/2d118c280cc96107ea9cf8d12685072f.jpg')", size: "36% auto", lightOpacity: .22, darkOpacity: .44, filter: "grayscale(1) brightness(.56) contrast(2.25)" },
+      { id: "coarse-linen", name: "粗麻布纹", image: "url('../textures/6378e85474b36ed354f217347b1603aa.jpg')", size: "52% auto", lightOpacity: .26, darkOpacity: .50, filter: "grayscale(1) brightness(.58) contrast(2.35)" },
+      { id: "bookcloth", name: "斜纹装帧布", image: "url('../textures/0adfbebe48aa454c2a3a8a6c60789d61.jpg')", size: "cover", lightOpacity: .20, darkOpacity: .42, filter: "grayscale(1) brightness(2.9) contrast(1.8)", repeat: "no-repeat", position: "center" },
+    ];
+
+    const variants = [
+      { id: "A", label: "A — 整页" },
+      { id: "B", label: "B — 纹理近看" },
+      { id: "C", label: "C — 色彩对比" },
+    ];
+
+    const params = new URLSearchParams(location.search);
+    let variant = variants.some((item) => item.id === params.get("variant")) ? params.get("variant") : "A";
+    let colour = colours.find((item) => item[1] === params.get("colour")) ?? colours[1];
+    let material = materials.find((item) => item.id === params.get("material")) ?? materials[3];
+
+    function controlsMarkup() {
+      return `
+        <p class="eyebrow">PAPER STUDY</p>
+        <h1>纸张颜色与材质</h1>
+        <p class="selection" data-selection></p>
+        <section class="control-section">
+          <h2>颜色</h2>
+          <div class="swatches" role="group" aria-label="纸张颜色">
+            ${colours.map(([name, value]) => `<button class="swatch" type="button" style="--swatch:${value}" data-colour="${value}" aria-label="${name} ${value}" title="${name} · ${value}"></button>`).join("")}
+          </div>
+        </section>
+        <section class="control-section">
+          <h2>材质</h2>
+          <div class="materials" role="group" aria-label="纸张材质">
+            ${materials.map((entry) => `<button class="material" type="button" data-material="${entry.id}"><span class="material-sample"></span><span>${entry.name}</span></button>`).join("")}
+          </div>
+        </section>`;
+    }
+
+    document.querySelectorAll("[data-controls]").forEach((node) => { node.innerHTML = controlsMarkup(); });
+
+    function applyMaterialStyle(element, selectedMaterial = material, selectedColour = colour[1]) {
+      const rgb = selectedColour.match(/[a-f\d]{2}/gi).map((value) => parseInt(value, 16) / 255);
+      const linear = rgb.map((value) => value <= .04045 ? value / 12.92 : ((value + .055) / 1.055) ** 2.4);
+      const isLight = linear[0] * .2126 + linear[1] * .7152 + linear[2] * .0722 > .62;
+      element.style.setProperty("--paper-color", selectedColour);
+      element.style.setProperty("--texture-image", selectedMaterial.image);
+      element.style.setProperty("--texture-size", selectedMaterial.size);
+      element.style.setProperty("--texture-opacity", isLight ? selectedMaterial.lightOpacity : selectedMaterial.darkOpacity);
+      element.style.setProperty("--texture-filter", selectedMaterial.filter);
+      element.style.setProperty("--texture-blend", isLight ? "multiply" : "soft-light");
+      element.style.setProperty("--texture-repeat", selectedMaterial.repeat ?? "repeat");
+      element.style.setProperty("--texture-position", selectedMaterial.position ?? "0 0");
+    }
+
+    function writeUrl() {
+      const next = new URLSearchParams(location.search);
+      next.set("variant", variant);
+      next.set("colour", colour[1]);
+      next.set("material", material.id);
+      history.replaceState(null, "", `${location.pathname}?${next.toString()}`);
+    }
+
+    function render() {
+      document.querySelectorAll("[data-variant]").forEach((node) => node.classList.toggle("is-active", node.dataset.variant === variant));
+      document.querySelector("[data-variant-label]").textContent = variants.find((item) => item.id === variant).label;
+      document.querySelectorAll("[data-selection]").forEach((node) => { node.textContent = `${colour[0]} · ${material.name}`; });
+      document.querySelectorAll("[data-colour]").forEach((node) => node.setAttribute("aria-pressed", String(node.dataset.colour === colour[1])));
+      document.querySelectorAll("[data-material]").forEach((node) => node.setAttribute("aria-pressed", String(node.dataset.material === material.id)));
+      document.querySelectorAll(".paper-fill:not([data-compare])").forEach((node) => applyMaterialStyle(node));
+      document.querySelectorAll("[data-compare]").forEach((node) => applyMaterialStyle(node, material, node.dataset.compare));
+      document.querySelectorAll(".material").forEach((node) => {
+        const entry = materials.find((item) => item.id === node.dataset.material);
+        applyMaterialStyle(node.querySelector(".material-sample"), entry);
+      });
+      writeUrl();
+    }
+
+    document.addEventListener("click", (event) => {
+      const colourButton = event.target.closest("[data-colour]");
+      if (colourButton) colour = colours.find((item) => item[1] === colourButton.dataset.colour);
+      const materialButton = event.target.closest("[data-material]");
+      if (materialButton) material = materials.find((item) => item.id === materialButton.dataset.material);
+      const directionButton = event.target.closest("[data-direction]");
+      if (directionButton) {
+        const index = variants.findIndex((item) => item.id === variant);
+        variant = variants[(index + Number(directionButton.dataset.direction) + variants.length) % variants.length].id;
+      }
+      if (colourButton || materialButton || directionButton) render();
+    });
+
+    document.addEventListener("keydown", (event) => {
+      if (!["ArrowLeft", "ArrowRight"].includes(event.key) || event.target.matches("input, textarea, [contenteditable]")) return;
+      const index = variants.findIndex((item) => item.id === variant);
+      variant = variants[(index + (event.key === "ArrowRight" ? 1 : -1) + variants.length) % variants.length].id;
+      render();
+    });
+
+    render();
+  </script>
+</body>
+</html>

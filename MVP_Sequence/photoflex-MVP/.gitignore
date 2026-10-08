@@ -10,5 +10,6 @@ test-results/
 tmp/
 tests/fixtures/photos/*.jpg
 !tests/fixtures/photos/.gitkeep
+test_photos/
 
 .vercel
