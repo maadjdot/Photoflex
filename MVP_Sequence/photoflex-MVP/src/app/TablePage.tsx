@@ -25,7 +25,7 @@ import { sequencePileCardWidth } from "./sequenceCardGeometry";
 const PILE_HEIGHT = 176;
 interface SequenceConfirmation { name: string; itemIds: readonly WorktableItemId[] }
 
-export function TablePage({ dependencies, projectId, navigate, sequenceOverlay }: { dependencies: AppDependencies; projectId: ProjectId; navigate: (route: AppRoute) => void; sequenceOverlay?: { readonly sequenceId: SequenceId; readonly openVersionId?: VersionId } }) {
+export function TablePage({ dependencies, projectId, navigate, focusSequenceId, sequenceOverlay }: { dependencies: AppDependencies; projectId: ProjectId; navigate: (route: AppRoute) => void; focusSequenceId?: SequenceId; sequenceOverlay?: { readonly sequenceId: SequenceId; readonly openVersionId?: VersionId } }) {
   const { locale, t } = useLocale();
   const { workspace, save, saveWorktable, deleteSequences, createSequenceBundle, listSequences, coordinator, loading, error } = useProjectWorkspaceSession(dependencies, projectId);
   const [summaries, setSummaries] = useState<readonly SequenceSummary[]>([]);
@@ -348,6 +348,7 @@ export function TablePage({ dependencies, projectId, navigate, sequenceOverlay }
       photoSource={dependencies.photoSource}
       summaries={summaries}
       initialViewport={tableLifecycle.initialViewport}
+      focusSequenceId={focusSequenceId ?? sequenceOverlay?.sequenceId}
       onViewportChange={tableLifecycle.onViewportChange}
       selectedMemoId={selectedMemoId}
       connectorToolActive={connectorToolActive}

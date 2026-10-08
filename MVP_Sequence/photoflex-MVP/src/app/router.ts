@@ -5,7 +5,7 @@ export type AppRoute =
   | { readonly name: "home" }
   | { readonly name: "project"; readonly projectId: ProjectId }
   | { readonly name: "contact-sheet"; readonly projectId: ProjectId; readonly sourceId: SourceId }
-  | { readonly name: "table"; readonly projectId: ProjectId }
+  | { readonly name: "table"; readonly projectId: ProjectId; readonly focusSequenceId?: SequenceId }
   | { readonly name: "sequence"; readonly projectId: ProjectId; readonly sequenceId: SequenceId; readonly openVersionId?: VersionId }
   | { readonly name: "layout"; readonly projectId: ProjectId; readonly sequenceId: SequenceId; readonly layoutId: LayoutId }
   | { readonly name: "sequence-compare"; readonly projectId: ProjectId; readonly leftSequenceId: SequenceId; readonly rightSequenceId: SequenceId }
@@ -14,7 +14,7 @@ export type AppRoute =
 export function routeToHash(route: AppRoute): string {
   if (route.name === "home") return "#/";
   if (route.name === "project") return `#/projects/${route.projectId}`;
-  if (route.name === "table") return `#/projects/${route.projectId}/table`;
+  if (route.name === "table") return `#/projects/${route.projectId}/table${route.focusSequenceId ? `?focusSequence=${encodeURIComponent(route.focusSequenceId)}` : ""}`;
   if (route.name === "sequence") return `#/projects/${route.projectId}/sequences/${route.sequenceId}${route.openVersionId ? `?openVersion=${encodeURIComponent(route.openVersionId)}` : ""}`;
   if (route.name === "layout") return `#/projects/${route.projectId}/sequences/${route.sequenceId}/layout/${route.layoutId}`;
   if (route.name === "sequence-compare") return `#/projects/${route.projectId}/sequences/compare/${route.leftSequenceId}/${route.rightSequenceId}`;
@@ -29,7 +29,8 @@ export function readRoute(hash = globalThis.location?.hash ?? ""): AppRoute {
   const projectId = safeDecode(parts[1]) as ProjectId | undefined;
   if (!projectId) return { name: "home" };
   if (parts[2] === "table" && parts.length === 3) {
-    return { name: "table", projectId };
+    const focusSequenceId = hashQuery(hash).get("focusSequence") as SequenceId | null;
+    return focusSequenceId ? { name: "table", projectId, focusSequenceId } : { name: "table", projectId };
   }
   if (parts[2] === "sequences" && parts[3] === "compare" && parts[4] && parts[5]) {
     const leftSequenceId = safeDecode(parts[4]) as SequenceId | undefined;

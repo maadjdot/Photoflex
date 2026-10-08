@@ -101,7 +101,7 @@ function M1AppContent({ dependencies }: AppProps) {
       {(route.name === "table" || route.name === "sequence") && <TableHeader dependencies={dependencies} projectId={route.projectId} lastSequenceId={lastSequenceId} navigate={navigate} />}
       {route.name === "project" && <ProjectPage dependencies={dependencies} projectId={route.projectId} navigate={navigate} />}
       {route.name === "contact-sheet" && <ContactSheetPage dependencies={dependencies} projectId={route.projectId} sourceId={route.sourceId} navigate={navigate} />}
-      {(route.name === "table" || route.name === "sequence") && <TablePage dependencies={dependencies} projectId={route.projectId} navigate={navigate} sequenceOverlay={route.name === "sequence" ? { sequenceId: route.sequenceId, openVersionId: route.openVersionId } : undefined} />}
+      {(route.name === "table" || route.name === "sequence") && <TablePage dependencies={dependencies} projectId={route.projectId} navigate={navigate} focusSequenceId={route.name === "table" ? route.focusSequenceId : undefined} sequenceOverlay={route.name === "sequence" ? { sequenceId: route.sequenceId, openVersionId: route.openVersionId } : undefined} />}
       <Suspense fallback={<main className="page centered-state"><div className="loading-mark" /><p>{t("status.loadingWorkspace")}</p></main>}>
         {route.name === "sequence-compare" && <SequenceComparePage dependencies={dependencies} projectId={route.projectId} leftSequenceId={route.leftSequenceId} rightSequenceId={route.rightSequenceId} navigate={navigate} />}
         {route.name === "version-compare" && <VersionComparePage dependencies={dependencies} projectId={route.projectId} leftVersionId={route.leftVersionId} rightVersionId={route.rightVersionId} navigate={navigate} />}

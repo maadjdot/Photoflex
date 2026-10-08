@@ -51,3 +51,40 @@ it("restores Table state and persists the latest viewport through its lifecycle 
   unmount();
   coordinator.dispose();
 });
+
+it("does not overwrite the saved viewport when Table leaves before initialization", async () => {
+  const projectStore = new MemoryProjectStore();
+  const created = await projectStore.createProject({ id: projectId, name: "Loading", createdAt: "2026-09-07T00:00:00.000Z" });
+  if (!created.ok) throw new Error("project fixture failed");
+  const viewport = { originX: -4200, originY: -1800, zoom: 0.75 };
+  await projectStore.saveWorkspace({ ...created.value, resumeContext: { page: "table", filter: "all", tableViewport: viewport } }, created.value.revision);
+  const coordinator = createProjectWriteCoordinator({ projectStore, photoSource: new MemoryPhotoSource() }, projectId);
+  await coordinator.load();
+  const { unmount } = renderHook(() => useTableWorkspaceLifecycle({
+    projectId, coordinator, resetCommittedDraft: vi.fn(), onInitialized: vi.fn(), onError: vi.fn(),
+  }));
+  unmount();
+  await coordinator.flush();
+  const saved = await projectStore.loadWorkspace(projectId);
+  expect(saved.ok && saved.value.resumeContext?.tableViewport).toEqual(viewport);
+  coordinator.dispose();
+});
+
+it("saves the last viewport when leaving before the pan debounce finishes", async () => {
+  const projectStore = new MemoryProjectStore();
+  const created = await projectStore.createProject({ id: projectId, name: "Pending pan", createdAt: "2026-09-07T00:00:00.000Z" });
+  if (!created.ok) throw new Error("project fixture failed");
+  const coordinator = createProjectWriteCoordinator({ projectStore, photoSource: new MemoryPhotoSource() }, projectId);
+  const resetCommittedDraft = vi.fn(), onInitialized = vi.fn(), onError = vi.fn();
+  const { result, unmount } = renderHook(() => useTableWorkspaceLifecycle({
+    projectId, workspace: created.value, coordinator, resetCommittedDraft, onInitialized, onError,
+  }));
+  await waitFor(() => expect(result.current.ready).toBe(true));
+  const viewport = { originX: -5200, originY: -3800, zoom: 0.75 };
+  act(() => result.current.onViewportChange(viewport));
+  unmount();
+  await coordinator.flush();
+  const saved = await projectStore.loadWorkspace(projectId);
+  expect(saved.ok && saved.value.resumeContext?.tableViewport).toEqual(viewport);
+  coordinator.dispose();
+});

@@ -22,6 +22,14 @@ describe("readRoute", () => {
     );
   });
 
+  it("preserves the Sequence to focus when returning to Table", () => {
+    const projectId = "project-1" as ProjectId;
+    const focusSequenceId = "sequence /?#" as SequenceId;
+    const route = { name: "table" as const, projectId, focusSequenceId };
+    expect(routeToHash(route)).toBe("#/projects/project-1/table?focusSequence=sequence%20%2F%3F%23");
+    expect(readRoute(routeToHash(route))).toEqual(route);
+  });
+
   it("reads Sequence and Sequence Compare routes", () => {
     const projectId = "project-1" as ProjectId;
     const left = "sequence-a" as SequenceId;

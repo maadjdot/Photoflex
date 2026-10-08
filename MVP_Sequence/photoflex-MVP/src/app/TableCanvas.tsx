@@ -79,6 +79,7 @@ interface TableCanvasProps {
   readonly photoSource: AppDependencies["photoSource"];
   readonly summaries: readonly SequenceSummary[];
   readonly initialViewport: WorktableViewport;
+  readonly focusSequenceId?: SequenceId;
   readonly onViewportChange: (viewport: WorktableViewport) => void;
   readonly onOpenPhoto: (photoId: PhotoId) => void;
   readonly onOpenSequence: (sequenceId: SequenceId) => void;
@@ -154,6 +155,7 @@ export const TableCanvas = forwardRef<TableCanvasHandle, TableCanvasProps>(funct
     setConnectorObjectPreview((current) => rect ? { ...rect, kind: "frame", id } : current?.kind === "frame" && current.id === id ? undefined : current);
   }, []);
   const viewportRef = useRef(viewport);
+  const focusedSequenceRef = useRef<SequenceId | undefined>(undefined);
   const photoRetentionRef = useRef(new Map<WorktableItemId, number>());
   const photoRetentionTimerRef = useRef<number | undefined>(undefined);
   viewportRef.current = viewport;
@@ -274,6 +276,23 @@ export const TableCanvas = forwardRef<TableCanvasHandle, TableCanvasProps>(funct
     window.addEventListener("resize", measure);
     return () => window.removeEventListener("resize", measure);
   }, [draft]);
+
+  useEffect(() => {
+    const sequenceId = props.focusSequenceId;
+    if (!sequenceId) { focusedSequenceRef.current = undefined; return; }
+    if (focusedSequenceRef.current === sequenceId || !stageSize.width || !stageSize.height) return;
+    const pile = draft.pilePlacements[sequenceId];
+    const summary = summaryById.get(sequenceId);
+    if (!pile || !summary) return;
+    const width = Math.max(pile.width, sequencePileCardWidth(summary.previewPhotoIds.length));
+    const height = Math.max(pile.height, 176);
+    const current = viewportRef.current;
+    focusedSequenceRef.current = sequenceId;
+    setViewport({ ...current,
+      originX: stageSize.width / 2 - (pile.x + width / 2) * current.zoom,
+      originY: stageSize.height / 2 - (pile.y + height / 2) * current.zoom,
+    });
+  }, [draft.pilePlacements, props.focusSequenceId, setViewport, stageSize, summaryById]);
 
   useEffect(() => {
     const retention = photoRetentionRef.current;

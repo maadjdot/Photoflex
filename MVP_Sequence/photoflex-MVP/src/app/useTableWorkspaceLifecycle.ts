@@ -124,8 +124,11 @@ export function useTableWorkspaceLifecycle({
   }, [activeSequenceId, coordinator, initializedProjectId, onError, projectId]);
 
   useEffect(() => () => {
-    if (viewportSaveTimerRef.current !== undefined) window.clearTimeout(viewportSaveTimerRef.current);
-    if (reloadRequestedRef.current !== projectId) return;
+    // Initialization can be cleaned up before the saved viewport has loaded.
+    // Only a pending user pan or zoom needs an extra write when leaving Table.
+    if (viewportSaveTimerRef.current === undefined || reloadRequestedRef.current !== projectId) return;
+    window.clearTimeout(viewportSaveTimerRef.current);
+    viewportSaveTimerRef.current = undefined;
     void coordinator.updateResumeContext((current) => ({
       page: "table",
       filter: "all",
