@@ -30,7 +30,7 @@ export function AccountWorkspaceGate({ dependencies, children }: {
   const [awaitingVerification, setAwaitingVerification] = useState(false);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string>();
-  useEffect(() => { if (user === null) dependencies.analytics?.track("page_view", "account"); }, [dependencies.analytics, user]);
+  useEffect(() => { if (user === null && !window.location.hash.startsWith("#/admin/analytics")) dependencies.analytics?.track("page_view", "account"); }, [dependencies.analytics, user]);
 
   useEffect(() => {
     if (!account || !factory) return;

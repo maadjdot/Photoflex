@@ -34,6 +34,17 @@ test('invalid tokens are rejected rather than silently treated as visitor activi
   const handler = createHandler({ repository: { insert: async () => assert.fail() },verify: async () => { throw new Error('unauthorized'); },origins: ['http://localhost:4173'],now: () => now });
   assert.equal((await handler(request({ events: [event()] },{ headers: { origin: 'http://localhost:4173',authorization: 'Bearer bad' } }))).status,401);
 });
+
+test('CloudBase malformed JWT responses deny authentication without reading statistics', async () => {
+  for (const status of [400,401,403]) {
+    const verify = cloudbaseVerifier('development-env',async () => ({ ok: false,status }));
+    const handler = createHandler({ repository: { read: async () => assert.fail('unauthorized read') },verify,adminIds: ['admin'],origins: ['http://localhost:4173'],now: () => now });
+    const result = await handler(request({ from: '2026-10-08',to: '2026-10-08' },{ path: '/stats',headers: { origin: 'http://localhost:4173',authorization: 'Bearer malformed' } }));
+    assert.equal(result.status,401);
+    assert.deepEqual(result.body,{ error: 'unauthorized' });
+  }
+  await assert.rejects(cloudbaseVerifier('development-env',async () => ({ ok: false,status: 500 }))('token'),/auth_unavailable/);
+});
 test('rejects content, paths, arbitrary properties, oversized batches, old/future timestamps', () => {
   for (const change of [{ properties: { filename: 'private.jpg' } },{ properties: { memo: 'private' } },{ url: '#/projects/private-id' },{ occurred_at: '2026-01-01' },{ occurred_at: '2027-01-01' },{ properties: { count: 1.2 } }]) assert.throws(() => validateEvents({ events: [event(change)] },now));
   assert.throws(() => validateEvents({ events: Array.from({ length: 21 },() => event()) },now));

@@ -5,7 +5,8 @@ export function cloudbaseVerifier(envId, fetcher = fetch) {
   if (!/^[a-zA-Z0-9-]+$/.test(envId)) throw new Error('invalid_environment');
   return async token => {
     const response = await fetcher(`https://${envId}.api.tcloudbasegateway.com/auth/v1/user/me`, { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(5000) });
-    if (!response.ok) throw new Error(response.status === 401 || response.status === 403 ? 'unauthorized' : 'auth_unavailable');
+    // CloudBase also returns 400 for malformed or expired JWTs on this fixed endpoint.
+    if (!response.ok) throw new Error([400,401,403].includes(response.status) ? 'unauthorized' : 'auth_unavailable');
     const profile = await response.json();
     const id = profile.sub || profile.user_id;
     if (typeof id !== 'string' || !/^[\w-]{1,128}$/.test(id) || profile.internal_user_type === 'anonymous' || (profile.status && profile.status !== 'ACTIVE')) throw new Error('unauthorized');
