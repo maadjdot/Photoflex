@@ -1,0 +1,11 @@
+.analytics-admin { max-width: 1200px; margin: auto; padding: 32px 24px; color: #252525; background: #fafaf7; min-height: 100vh; }
+.analytics-admin h1 { margin-top: 16px; font-size: 28px; }
+.analytics-admin h2 { font-size: 20px; }
+.analytics-admin p { line-height: 1.6; color: #555; }
+.analytics-admin form { display: flex; flex-wrap: wrap; align-items: end; gap: 16px; margin: 24px 0; }
+.analytics-admin label { display: grid; gap: 8px; }
+.analytics-admin input, .analytics-admin button { padding: 8px 12px; border: 1px solid #aaa; border-radius: 4px; }
+.analytics-admin section { margin: 32px 0; overflow-x: auto; }
+.analytics-admin table { width: 100%; border-collapse: collapse; text-align: left; font-variant-numeric: tabular-nums; }
+.analytics-admin th, .analytics-admin td { padding: 10px 12px; border-bottom: 1px solid #ddd; white-space: nowrap; }
+.analytics-admin th { background: #eee; }

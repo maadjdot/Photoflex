@@ -44,10 +44,15 @@ jobs:
         run: |
           python3 -m unittest discover -s deploy/tencent -p 'test_*.py'
           node --test deploy/tencent/check_prepare_upload.mjs
+      - name: Verify analytics collection, SQL permissions, and metric definitions
+        run: |
+          npm ci --prefix cloudfunctions/analytics --ignore-scripts
+          npm test --prefix cloudfunctions/analytics
       - name: Run unit tests, type checks, and production build
         run: pnpm check
         env:
           VITE_CLOUDBASE_ENV_ID: photoflex-prod-d8g6nph8u08611400
+          VITE_ANALYTICS_URL: ${{ vars.VITE_ANALYTICS_URL }}
           VITE_ICP_FILING_NUMBER: 京ICP备2026063985号-1
       - name: Install Chrome and Edge for the release gate
         run: pnpm exec playwright install --with-deps chrome msedge

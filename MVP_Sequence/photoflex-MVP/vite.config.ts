@@ -19,13 +19,16 @@ function betaReleaseRecord(configuration: BetaReleaseConfiguration): Plugin {
 }
 
 export default defineConfig(({ command, mode }) => {
-  if (command !== "build" || mode !== "beta") return { plugins: [react()] };
+  let revision = process.env.VITE_SITE_VERSION || packageInfo.version;
+  try { revision = process.env.VITE_SITE_VERSION || execFileSync("git", ["rev-parse", "--short=12", "HEAD"], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim(); } catch { /* Local builds may not have Git access. */ }
+  const define = { __SITE_VERSION__: JSON.stringify(revision) };
+  if (command !== "build" || mode !== "beta") return { plugins: [react()], define };
   const environment = loadEnv("beta", process.cwd(), "VITE_");
   const development = loadEnv("development", process.cwd(), "VITE_");
   const configuration = readBetaReleaseConfiguration(environment, development.VITE_CLOUDBASE_ENV_ID);
   return {
     plugins: [react(), betaReleaseRecord(configuration)],
-    define: { "import.meta.env.VITE_CLOUDBASE_ENV_ID": JSON.stringify(configuration.envId) },
+    define: { ...define, "import.meta.env.VITE_CLOUDBASE_ENV_ID": JSON.stringify(configuration.envId) },
     build: { outDir: "dist-beta" },
   };
 });

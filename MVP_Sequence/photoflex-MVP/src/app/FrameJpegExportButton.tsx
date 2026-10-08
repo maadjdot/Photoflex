@@ -2,6 +2,8 @@ import { useEffect, useRef, useState, type RefObject } from "react";
 import type { PhotoSource, WorktableFrame } from "../contracts";
 import { useLocale } from "./locale";
 import { exportFrameJpeg } from "../platform/browser/exportFrameJpeg";
+import { beginAnalyticsOperation, failureKind } from "../platform/analytics/analytics";
+import { analyticsForPhotoSource } from "../platform/analytics/instrumentDependencies";
 
 export function FrameJpegExportButton({ frame, pageRef, photoSource }: {
   readonly frame: WorktableFrame;
@@ -20,10 +22,13 @@ export function FrameJpegExportButton({ frame, pageRef, photoSource }: {
     const controller = new AbortController();
     active.current = controller;
     setBusy(true); setNotice(undefined);
+    const operation = beginAnalyticsOperation(analyticsForPhotoSource(photoSource), "export_started", "frame", { format: "jpeg", count: 1 });
     try {
       await exportFrameJpeg(frame, page, photoSource, controller.signal);
+      operation.finish(!controller.signal.aborted, { error_kind: controller.signal.aborted ? "cancelled" : undefined });
       if (!controller.signal.aborted) setNotice(zh ? "JPEG 已开始下载。" : "JPEG download started.");
     } catch (error) {
+      operation.finish(false, { error_kind: controller.signal.aborted ? "cancelled" : failureKind(error instanceof Error ? error.name : undefined) });
       if (!controller.signal.aborted) setNotice(zh ? "JPEG 导出失败，请检查照片来源后重试。" : error instanceof Error ? error.message : "The Frame could not be exported. Try again.");
     } finally {
       active.current = undefined;

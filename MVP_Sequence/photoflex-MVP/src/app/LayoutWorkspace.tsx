@@ -11,6 +11,7 @@ import { PhotoThumb } from "./PhotoThumb";
 import { CloudSaveStatus } from "./CloudControls";
 import { UserGuideButton } from "./UserGuide";
 import type { LayoutPdfPreflight, LayoutPdfQuality } from "../platform/browser/exportLayoutPdf";
+import { beginAnalyticsOperation, failureKind } from "../platform/analytics/analytics";
 import { UNDO_HISTORY_LIMIT } from "../modules/editorHistory";
 import type { ProjectWriteCoordinator } from "./projectWriteCoordinator";
 import type { AppRoute } from "./router";
@@ -46,6 +47,7 @@ export function LayoutWorkspace({ dependencies, persistence, projectId, sequence
   const editSequence = useRef(0);
   const prepareExport = useRef<(() => void) | undefined>(undefined);
   const exportController = useRef<AbortController | undefined>(undefined);
+  const exportOperation = useRef<ReturnType<typeof beginAnalyticsOperation> | undefined>(undefined);
   const exportSnapshot = useRef<LayoutDocument | undefined>(undefined);
   const exportQuality = useRef<LayoutPdfQuality>("medium");
   const exportButton = useRef<HTMLButtonElement>(null);
@@ -55,7 +57,7 @@ export function LayoutWorkspace({ dependencies, persistence, projectId, sequence
   const [exportCheck, setExportCheck] = useState<LayoutPdfPreflight>();
   const [exportProgress, setExportProgress] = useState({ completed: 0, total: 0 });
   const [exportError, setExportError] = useState<string>();
-  useEffect(() => () => { exportController.current?.abort(); }, [layoutId]);
+  useEffect(() => () => { exportController.current?.abort(); exportOperation.current?.finish(false, { error_kind: "cancelled" }); }, [layoutId]);
 
   useEffect(() => {
     let live = true;
@@ -152,15 +154,18 @@ export function LayoutWorkspace({ dependencies, persistence, projectId, sequence
     const loaded = await persistence.loadSequence(sequenceId);
     if (loaded.ok && loaded.value.projectId === projectId) setSequence(loaded.value);
   };
-  const cancelExport = () => { exportController.current?.abort(); exportController.current = undefined; exportSnapshot.current = undefined; setExportState("idle"); };
+  const cancelExport = () => { exportController.current?.abort(); exportOperation.current?.finish(false, { error_kind: "cancelled" }); exportController.current = undefined; exportSnapshot.current = undefined; setExportState("idle"); };
   const performExport = async (snapshot: LayoutDocument, controller: AbortController, selectedQuality: LayoutPdfQuality) => {
+    const operation = exportOperation.current;
     try {
       setExportState("exporting");
       const { exportLayoutPdf } = await import("../platform/browser/exportLayoutPdf");
       controller.signal.throwIfAborted();
       await exportLayoutPdf(snapshot, dependencies.photoSource, controller.signal, setExportProgress, selectedQuality);
+      operation?.finish(!controller.signal.aborted, { error_kind: controller.signal.aborted ? "cancelled" : undefined });
       if (!controller.signal.aborted) setExportState("idle");
     } catch (error) {
+      operation?.finish(false, { error_kind: controller.signal.aborted ? "cancelled" : failureKind(error instanceof Error ? error.name : undefined) });
       if (!controller.signal.aborted) { setExportError(error instanceof Error ? error.message : String(error)); setExportState("failed"); }
     } finally { if (exportController.current === controller) { exportController.current = undefined; exportSnapshot.current = undefined; } }
   };
@@ -175,6 +180,9 @@ export function LayoutWorkspace({ dependencies, persistence, projectId, sequence
     exportSnapshot.current = snapshot;
     const controller = new AbortController();
     exportController.current = controller;
+    exportOperation.current?.finish(false, { error_kind: "cancelled" });
+    const operation = beginAnalyticsOperation(dependencies.analytics, "export_started", "layout", { format: "pdf", count: snapshot.pages.length });
+    exportOperation.current = operation;
     setExportError(undefined); setExportCheck(undefined); setExportProgress({ completed: 0, total: snapshot.pages.length }); setExportState("checking");
     try {
       const { preflightLayoutPdf } = await import("../platform/browser/exportLayoutPdf");
@@ -182,9 +190,11 @@ export function LayoutWorkspace({ dependencies, persistence, projectId, sequence
       const check = await preflightLayoutPdf(snapshot, dependencies.photoSource, controller.signal);
       if (controller.signal.aborted) return;
       setExportCheck(check);
+      if (check.blocking.length) operation.finish(false, { error_kind: "unavailable" });
       if (check.blocking.length || check.warnings.length) { setExportState("ready"); return; }
       await performExport(snapshot, controller, selectedQuality);
     } catch (error) {
+      operation.finish(false, { error_kind: controller.signal.aborted ? "cancelled" : failureKind(error instanceof Error ? error.name : undefined) });
       if (!controller.signal.aborted) { setExportError(error instanceof Error ? error.message : String(error)); setExportState("failed"); }
     } finally { if (exportController.current === controller && !exportSnapshot.current) exportController.current = undefined; }
   };

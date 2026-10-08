@@ -13,6 +13,7 @@ import { useSequenceReorderDrag } from "./useSequenceReorderDrag";
 import { sequenceItemInDirection, type SequenceArrow } from "./sequenceKeyboardNavigation";
 import { useSequenceSession } from "./sequenceSession";
 import { exportSequenceFolder, SequenceFolderExportError } from "../platform/browser/exportSequenceFolder";
+import { beginAnalyticsOperation, failureKind } from "../platform/analytics/analytics";
 import { LayoutCreateDialog } from "./LayoutCreateDialog";
 
 interface SequenceOverlayProps {
@@ -95,14 +96,17 @@ export function SequenceOverlay({ dependencies, persistence, projectId, sequence
     if (!sequence || !photos.length || folderExporting) return;
     setFolderExporting(true);
     setFolderExportNotice(t("sequence.folderChoosing"));
+    const operation = beginAnalyticsOperation(dependencies.analytics, "export_started", "sequence", { format: "folder", count: photos.length });
     try {
       const result = await exportSequenceFolder(sequence, dependencies.photoSource, ({ completed, total }) => {
         setFolderExportNotice(t("sequence.folderCopying", { completed, total }));
       });
+      operation.finish(result.failed.length === 0, { count: result.copied, failed_count: result.failed.length, error_kind: result.failed.length ? "partial" : undefined });
       setFolderExportNotice(result.failed.length
         ? t("sequence.folderCreatedWithFailures", { folder: result.folderName, copied: result.copied, failed: result.failed.length })
         : t("sequence.folderCreated", { folder: result.folderName, copied: result.copied }));
     } catch (error) {
+      operation.finish(false, { error_kind: failureKind(error instanceof SequenceFolderExportError ? error.kind : undefined) });
       if (error instanceof SequenceFolderExportError && error.kind === "cancelled") {
         setFolderExportNotice(undefined);
       } else if (error instanceof SequenceFolderExportError && error.kind === "unsupported") {
@@ -117,7 +121,7 @@ export function SequenceOverlay({ dependencies, persistence, projectId, sequence
     } finally {
       setFolderExporting(false);
     }
-  }, [dependencies.photoSource, folderExporting, photos.length, sequence, t]);
+  }, [dependencies.photoSource, dependencies.analytics, folderExporting, photos.length, sequence, t]);
 
   const removePhotoItems = useCallback((ids: readonly SequenceItemId[]) => {
     if (!sequence || !ids.length) return false;

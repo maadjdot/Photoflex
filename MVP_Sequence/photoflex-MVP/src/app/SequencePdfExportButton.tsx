@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import type { PhotoSource, SequenceDocument, SequencePdfProgress } from "../contracts";
 import exportIcon from "../assets/icons/sequence-export.svg";
 import { useLocale } from "./locale";
+import { beginAnalyticsOperation, failureKind } from "../platform/analytics/analytics";
+import { analyticsForPhotoSource } from "../platform/analytics/instrumentDependencies";
 
 export function SequencePdfExportButton({ sequence, photoSource }: { sequence: SequenceDocument; photoSource: PhotoSource }) {
   const { locale, t } = useLocale();
@@ -16,6 +18,7 @@ export function SequencePdfExportButton({ sequence, photoSource }: { sequence: S
     active.current = controller;
     setNotice(undefined);
     setProgress({ completed: 0, total: sequence.readingUnits.length });
+    const operation = beginAnalyticsOperation(analyticsForPhotoSource(photoSource), "export_started", "sequence", { format: "pdf", count: sequence.readingUnits.length });
     try {
       const options = {
         sequence: structuredClone(sequence),
@@ -25,8 +28,10 @@ export function SequencePdfExportButton({ sequence, photoSource }: { sequence: S
       };
       const { exportSequencePdf } = await import("../platform/browser/exportSequencePdf");
       await exportSequencePdf(options, photoSource);
+      operation.finish(!controller.signal.aborted, { error_kind: controller.signal.aborted ? "cancelled" : undefined });
       if (!controller.signal.aborted) setNotice(locale === "zh-CN" ? "PDF 已开始下载。" : "PDF download started.");
     } catch (error) {
+      operation.finish(false, { error_kind: controller.signal.aborted ? "cancelled" : failureKind(error instanceof Error ? error.name : undefined) });
       if (!controller.signal.aborted) setNotice(error instanceof Error ? error.message : "PDF export failed. Please retry.");
     } finally {
       if (active.current === controller) { active.current = undefined; setProgress(undefined); }

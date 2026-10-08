@@ -1,6 +1,7 @@
 import type { SignInRes } from "@cloudbase/js-sdk/auth";
 import { err, ok, type AccountError, type AccountSession, type AccountUser, type Result } from "../../contracts";
 import type { CloudBaseClient } from "./client";
+import type { Analytics } from "../analytics/analytics";
 
 type AuthFailure = { readonly code?: string; readonly status?: string | number; readonly message?: string };
 
@@ -21,14 +22,18 @@ export function toAccountError(error: AuthFailure): AccountError {
 
 export class CloudBaseAccountSession implements AccountSession {
   private pendingVerification?: (params: { token: string }) => Promise<SignInRes>;
+  private authChangeVersion = 0;
 
-  constructor(private readonly client: CloudBaseClient) {}
+  constructor(private readonly client: CloudBaseClient, private readonly analytics?: Analytics) {}
 
   async getCurrentUser(): Promise<Result<AccountUser | null, AccountError>> {
+    const observedVersion = this.authChangeVersion;
     try {
       const { data, error } = await this.client.auth.getSession();
       if (error) return err(toAccountError(error));
-      return ok(data.session?.user?.id ? toUser(data.session.user) : null);
+      const user = data.session?.user?.id ? toUser(data.session.user) : null;
+      if (observedVersion === this.authChangeVersion) this.analytics?.setUser(user?.id ?? null);
+      return ok(user);
     } catch {
       return err({ kind: "unavailable", retryable: true });
     }
@@ -36,7 +41,10 @@ export class CloudBaseAccountSession implements AccountSession {
 
   subscribe(listener: (user: AccountUser | null) => void): () => void {
     const { data } = this.client.auth.onAuthStateChange((_event, session) => {
-      listener(session?.user?.id ? toUser(session.user) : null);
+      this.authChangeVersion++;
+      const user = session?.user?.id ? toUser(session.user) : null;
+      this.analytics?.setUser(user?.id ?? null);
+      listener(user);
     });
     return () => data.subscription.unsubscribe();
   }
@@ -47,6 +55,7 @@ export class CloudBaseAccountSession implements AccountSession {
       if (error) return err(toAccountError(error));
       const user = data.user ?? data.session?.user;
       if (!user?.id) return err({ kind: "unavailable", retryable: false });
+      this.analytics?.setUser(String(user.id));
       return ok(toUser(user));
     } catch {
       return err({ kind: "unavailable", retryable: true });
@@ -62,6 +71,7 @@ export class CloudBaseAccountSession implements AccountSession {
       const registeredUser = data.user ?? data.session?.user;
       const user = registeredUser?.id ? toUser(registeredUser) : undefined;
       if (!data.session && !this.pendingVerification) return err({ kind: "unavailable", retryable: false });
+      if (data.session && user) { this.analytics?.setUser(user.id); this.analytics?.track("signup_completed", "account"); }
       return ok({ ...(user ? { user } : {}), confirmationRequired: !data.session });
     } catch {
       return err({ kind: "unavailable", retryable: true });
@@ -76,6 +86,8 @@ export class CloudBaseAccountSession implements AccountSession {
       const user = data.user ?? data.session?.user;
       if (!user?.id) return err({ kind: "unavailable", retryable: false });
       this.pendingVerification = undefined;
+      this.analytics?.setUser(String(user.id));
+      this.analytics?.track("signup_completed", "account");
       return ok(toUser(user));
     } catch {
       return err({ kind: "unavailable", retryable: true });
@@ -85,6 +97,7 @@ export class CloudBaseAccountSession implements AccountSession {
   async signOut(): Promise<Result<void, AccountError>> {
     try {
       const response = await this.client.auth.signOut();
+      if (!response || !("error" in response) || !response.error) this.analytics?.setUser(null);
       return response && "error" in response && response.error ? err(toAccountError(response.error)) : ok(undefined);
     } catch {
       return err({ kind: "unavailable", retryable: true });

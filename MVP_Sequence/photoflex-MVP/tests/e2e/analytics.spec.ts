@@ -1,0 +1,32 @@
+import { expect, test } from "@playwright/test";
+import type { AnalyticsEvent } from "../../src/platform/analytics/analytics";
+test("real project creation, photo indexing, sequence persistence and PDF download report outcomes without content", async ({ page }) => {
+  await page.goto("/");
+  await page.evaluate(async () => {
+    const module = "/tests/helpers/analyticsBrowserFixture.tsx";
+    (window as any).analyticsFixture = await (await import(/* @vite-ignore */ module)).mountAnalyticsFixture();
+    (window as any).analyticsFixture.setOffline(true);
+  });
+  const app = page.locator("#analytics-fixture");
+  await app.getByRole("button", { name: "New project", exact: true }).click();
+  const dialog = app.getByRole("dialog", { name: "New Project", exact: true });
+  await dialog.getByLabel("Project name", { exact: true }).fill("private-project-name");
+  await dialog.getByLabel("Project memo", { exact: true }).fill("private-memo-content");
+  await dialog.getByRole("button", { name: "Browse folder", exact: true }).click();
+  await dialog.getByRole("button", { name: "Create project", exact: true }).click();
+  await expect(app.getByLabel("Photo worktable", { exact: true })).toBeVisible();
+  const events = () => page.evaluate(() => (window as any).analyticsFixture.events()) as Promise<AnalyticsEvent[]>;
+  await expect.poll(async () => (await events()).filter(event => event.name === "photos_imported").length).toBe(1);
+  await page.evaluate(() => (window as any).analyticsFixture.saveAndMountPdf());
+  const download = page.waitForEvent("download");
+  await page.locator("#analytics-export").getByRole("button", { name: "Export PDF", exact: true }).click();
+  expect((await download).suggestedFilename()).toBe("private-sequence-name.pdf");
+  await expect(page.locator("#analytics-export").getByRole("status")).toHaveText("PDF download started.");
+  const recorded = await events();
+  for (const name of ["project_created", "photo_import_started", "photos_imported", "sequence_saved", "export_started", "export_generated"]) expect(recorded.filter(event => event.name === name)).toHaveLength(1);
+  const start = recorded.find(event => event.name === "export_started")!;
+  expect(recorded.find(event => event.name === "export_generated")!.properties.attempt_id).toBe(start.properties.attempt_id);
+  expect(recorded.find(event => event.name === "photos_imported")!.properties.count).toBe(1);
+  const payload = JSON.stringify(recorded);
+  for (const text of ["private-project-name", "private-sequence-name", "private-folder", "private-original", "private-memo-content", "#/projects/"]) expect(payload).not.toContain(text);
+});

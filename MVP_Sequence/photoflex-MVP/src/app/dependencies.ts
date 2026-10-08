@@ -6,6 +6,9 @@ import { CloudBaseAccountSession } from "../platform/cloudbase/CloudBaseAccountS
 import { CloudBaseProjectCloud } from "../platform/cloudbase/CloudBaseProjectCloud";
 import { CloudBackedProjectStore, type CloudSaveStatus } from "../platform/cloudbase/CloudBackedProjectStore";
 import { onSharedScanCompleted } from "./ProjectSourceMonitor";
+import { createAnalytics, type Analytics } from "../platform/analytics/analytics";
+import { instrumentPhotoSource, instrumentProjectStore } from "../platform/analytics/instrumentDependencies";
+import { cloudbaseAnalyticsApi } from "../platform/analytics/cloudbaseTransport";
 
 export interface AppDiagnosticEvent {
   readonly name: "write-failure";
@@ -17,6 +20,8 @@ export interface AppDiagnosticEvent {
 }
 
 export interface AppDependencies {
+  readonly analytics?: Analytics;
+  readonly analyticsAdmin?: { stats(from: string, to: string): Promise<unknown> };
   readonly projectStore: ProjectStore;
   readonly photoSource: PhotoSource;
   readonly accountSession?: AccountSession;
@@ -70,11 +75,27 @@ export function createBrowserDependencies(): AppDependencies {
   const configuration = readCloudBaseConfiguration(import.meta.env);
   const cloudbase = configuration ? createCloudBaseClient(configuration) : undefined;
   const local = createLocalWorkspace();
-  const accountSession = cloudbase ? new CloudBaseAccountSession(cloudbase) : undefined;
+  const analyticsUrl = import.meta.env.VITE_ANALYTICS_URL;
+  const analyticsApi = cloudbase && analyticsUrl ? cloudbaseAnalyticsApi(analyticsUrl, cloudbase) : undefined;
+  let analytics: ReturnType<typeof createAnalytics> | undefined;
+  if (analyticsApi) {
+    try {
+      let storage: Storage | undefined;
+      try { storage = window.localStorage; } catch { /* Storage is optional for telemetry. */ }
+      analytics = createAnalytics(analyticsApi.deliver, __SITE_VERSION__, storage);
+    } catch { /* Analytics initialization cannot block opening the application. */ }
+  }
+  if (analytics) {
+    window.addEventListener("pagehide", () => { void analytics.flush(); });
+    document.addEventListener("visibilitychange", () => { if (document.visibilityState === "hidden") void analytics.flush(); });
+  }
+  const accountSession = cloudbase ? new CloudBaseAccountSession(cloudbase, analytics) : undefined;
   const projectCloud = cloudbase ? new CloudBaseProjectCloud(cloudbase, accountSession!) : undefined;
   return {
-    projectStore: local.projectStore,
-    photoSource: local.photoSource,
+    projectStore: instrumentProjectStore(local.projectStore, analytics),
+    photoSource: instrumentPhotoSource(local.photoSource, analytics),
+    analytics,
+    analyticsAdmin: analyticsApi,
     ...(accountSession && projectCloud ? {
       accountSession,
       projectCloud,
@@ -82,11 +103,14 @@ export function createBrowserDependencies(): AppDependencies {
         open(userId: string): AccountWorkspace {
           const scoped = createLocalWorkspace(databaseNameForAccount(userId));
           const synced = new CloudBackedProjectStore(scoped.projectStore as IndexedDbProjectStore, projectCloud, window.localStorage, `photoflex:cloud-auto:${configuration!.envId}:${userId}`);
-          const unsubscribeScan = onSharedScanCompleted(scoped.photoSource, (sourceId) => { void synced.photoIndexChanged(sourceId); });
+          const photoSource = instrumentPhotoSource(scoped.photoSource, analytics);
+          const unsubscribeScan = onSharedScanCompleted(photoSource, (sourceId) => { void synced.photoIndexChanged(sourceId); });
           return {
             dependencies: {
-              projectStore: synced,
-              photoSource: scoped.photoSource,
+              projectStore: instrumentProjectStore(synced, analytics),
+              photoSource,
+              analytics,
+              analyticsAdmin: analyticsApi,
               accountSession,
               projectCloud,
               cloudSave: synced,

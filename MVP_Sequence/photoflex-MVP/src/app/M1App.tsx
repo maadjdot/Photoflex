@@ -16,6 +16,7 @@ import { ProjectWorkspaceProvider } from "./useProjectWorkspace";
 import { LocaleProvider, useLocale } from "./locale";
 import { AccountWorkspaceGate } from "./AccountWorkspaceGate";
 import type { ProjectId } from "../contracts";
+import { AnalyticsAdminPage } from "./AnalyticsAdminPage";
 
 export { VirtualPhotoGrid } from "./VirtualPhotoGrid";
 
@@ -28,7 +29,13 @@ interface AppProps {
 }
 
 export function M1App(props: AppProps) {
-  return <LocaleProvider><AccountWorkspaceGate dependencies={props.dependencies}>{(dependencies) => <M1AppContent dependencies={dependencies} />}</AccountWorkspaceGate></LocaleProvider>;
+  const [hash, setHash] = useState(window.location.hash);
+  useEffect(() => {
+    const visit = () => setHash(window.location.hash);
+    visit(); window.addEventListener("hashchange", visit);
+    return () => window.removeEventListener("hashchange", visit);
+  }, []);
+  return <LocaleProvider><AccountWorkspaceGate dependencies={props.dependencies}>{(dependencies) => hash.startsWith("#/admin/analytics") ? <AnalyticsAdminPage api={dependencies.analyticsAdmin} /> : <M1AppContent dependencies={dependencies} />}</AccountWorkspaceGate></LocaleProvider>;
 }
 
 function M1AppContent({ dependencies }: AppProps) {
@@ -54,6 +61,10 @@ function M1AppContent({ dependencies }: AppProps) {
     return result.ok;
   };
   const [route, navigate] = useAppRoute(ensureSaved);
+  useEffect(() => {
+    const feature = route.name === "contact-sheet" ? "contact_sheet" : route.name.includes("compare") ? "compare" : route.name;
+    dependencies.analytics?.track("page_view", feature as "home" | "project" | "contact_sheet" | "table" | "sequence" | "layout" | "compare");
+  }, [dependencies.analytics, route]);
   const { currentProjectId, contactSourceId, lastSequenceId } = useAppNavigationState(dependencies, route);
   const coordinator = useMemo(() => currentProjectId ? createProjectWriteCoordinator(dependencies, currentProjectId) : undefined, [dependencies, currentProjectId, workspaceEpoch]);
   coordinatorRef.current = coordinator;
