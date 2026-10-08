@@ -100,6 +100,7 @@ export function TablePage({ dependencies, projectId, navigate, focusSequenceId, 
     const result = tableSession.execute(command);
     if (!result.ok) setNotice("kind" in result.error && result.error.kind === "frame-capacity" ? "This Frame has too few empty photo slots." : t("table.operationFailed"));
     else if (command.type === "remove-frame") setSelectedFrameId(undefined);
+    return result;
   }, [t, tableSession.execute]);
   const createFrame = (templateId: FrameTemplateId, useFirst = false) => {
     const selectedPhotos = orderPhotoIdsByTablePosition(draft, actions.mutablePhotoIds);

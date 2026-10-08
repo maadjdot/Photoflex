@@ -1,10 +1,11 @@
-import type { PhotoSource, WorktableFrame } from "../../contracts";
+import type { LayoutFontFamily, LayoutFontStyle, LayoutFontWeight, PhotoSource, WorktableFrame } from "../../contracts";
 import { copyFrame } from "../../modules/worktable/frameCommands";
 import { framePaper, resolveFramePhoto } from "../../modules/worktable/frameLayout";
-import { frameCaptionStyle, frameInnerEdge, frameInnerEdgeWhiteGapPt } from "../../modules/worktable/frameAppearance";
+import { frameInnerEdge, frameInnerEdgeWhiteGapPt } from "../../modules/worktable/frameAppearance";
 import { layoutPaperMaterial } from "../../modules/layout/layoutPaper";
-import { LAYOUT_CHINESE_FALLBACK_FONT, LAYOUT_FONT_BY_FAMILY } from "../../modules/layout/layoutFonts";
-import { resolveLayoutFontAsset } from "./layoutFontAssets";
+import { LAYOUT_CHINESE_FALLBACK_FONT, LAYOUT_FONT_BY_FAMILY, layoutFontCssShorthand } from "../../modules/layout/layoutFonts";
+import { loadLayoutFont, resolveLayoutFontAsset } from "./layoutFontAssets";
+import { layoutText } from "../../modules/layout/layoutText";
 import { decodePhotoImage, encodePhotoCanvas, inspectPhotoImage } from "./photoImage";
 
 function dataUrl(blob: Blob): Promise<string> {
@@ -47,7 +48,7 @@ function clonePage(element: HTMLElement): HTMLElement {
 export async function createFrameJpeg(frame: WorktableFrame, page: HTMLElement, source: PhotoSource, signal?: AbortSignal): Promise<Blob> {
   const snapshot = copyFrame(frame);
   const clone = clonePage(page);
-  clone.querySelectorAll(".table-frame-slot-handle, .table-frame-alignment-guides, .table-frame-slot:not(.has-photo)").forEach((node) => node.remove());
+  clone.querySelectorAll(".table-frame-slot-handle, .table-frame-text-draw-preview, .table-frame-alignment-guides, .table-frame-slot:not(.has-photo), .layout-font-status").forEach((node) => node.remove());
   Object.assign(clone.style, { position: "relative", left: "0", top: "0", width: `${snapshot.page.widthPt}px`, height: `${snapshot.page.heightPt}px`,
     transform: "none", border: "0", boxShadow: "none", margin: "0", opacity: "1" });
   clone.querySelectorAll<HTMLElement>(".table-frame-slot").forEach((node) => { node.style.outline = "none"; });
@@ -92,7 +93,7 @@ export async function createFrameJpeg(frame: WorktableFrame, page: HTMLElement, 
     const elevation = target.querySelector<HTMLElement>(".table-frame-photo-elevation");
     if (elevation) Object.assign(elevation.style, { left: `${x}px`, top: `${y}px`, width: `${width}px`, height: `${height}px` });
     const edge = target.querySelector<HTMLElement>(".table-frame-inner-edge");
-    const innerEdge = frameInnerEdge(snapshot.page);
+    const innerEdge = slot.innerEdge ?? frameInnerEdge(snapshot.page);
     const outset = innerEdge.widthPt + frameInnerEdgeWhiteGapPt(innerEdge);
     if (edge) Object.assign(edge.style, { left: `${x - outset}px`, top: `${y - outset}px`, width: `${width + outset * 2}px`, height: `${height + outset * 2}px` });
   }
@@ -105,17 +106,37 @@ export async function createFrameJpeg(frame: WorktableFrame, page: HTMLElement, 
       if (node.style.backgroundImage.includes("url(")) node.style.backgroundImage = `url("${texture}")`;
     }
   }
-  if (snapshot.page.caption) {
-    const caption = frameCaptionStyle(snapshot.page);
-    const fonts = await Promise.all([...new Set([caption.fontFamily, LAYOUT_CHINESE_FALLBACK_FONT])].map(async (family) => {
-      const asset = resolveLayoutFontAsset(family, caption.fontWeight, caption.fontStyle);
+  const textBoxes = snapshot.page.textBoxes ?? [];
+  if (textBoxes.some((box) => box.text)) {
+    const requested = new Map<string, { family: LayoutFontFamily; weight: LayoutFontWeight; style: LayoutFontStyle }>();
+    for (const box of textBoxes) for (const family of [box.style.fontFamily, LAYOUT_CHINESE_FALLBACK_FONT]) {
+      const weight = box.style.fontWeight ?? "normal", style = box.style.fontStyle ?? "normal";
+      requested.set(`${family}:${weight}:${style}`, { family, weight, style });
+    }
+    await Promise.all(textBoxes.map((box) => loadLayoutFont(box.style.fontFamily, box.style.fontWeight, box.style.fontStyle, box.text)));
+    const fonts = await Promise.all([...requested.values()].map(async ({ family, weight, style }) => {
+      const asset = resolveLayoutFontAsset(family, weight, style);
       const response = await fetch(asset.url, { signal });
-      if (!response.ok) throw new Error("The Frame caption font could not be loaded.");
-      return `@font-face { font-family: "${LAYOUT_FONT_BY_FAMILY[family].cssFamily}"; font-weight: ${caption.fontWeight === "bold" ? 700 : 400}; font-style: ${caption.fontStyle ?? "normal"}; src: url("${await dataUrl(await response.blob())}"); }`;
+      if (!response.ok) throw new Error("The Frame text font could not be loaded.");
+      return `@font-face { font-family: "${LAYOUT_FONT_BY_FAMILY[family].cssFamily}"; font-weight: ${weight === "bold" ? 700 : 400}; font-style: ${style}; src: url("${await dataUrl(await response.blob())}"); }`;
     }));
     const style = document.createElement("style");
     style.textContent = fonts.join("\n");
     clone.prepend(style);
+    const measure = document.createElement("canvas").getContext("2d");
+    if (!measure) throw new Error("This browser could not prepare Frame text.");
+    for (const box of textBoxes) {
+      const container = [...clone.querySelectorAll<HTMLElement>("[data-frame-text-id]")].find((node) => node.dataset.frameTextId === box.id)?.querySelector<HTMLElement>(".layout-text-content");
+      if (!container) continue;
+      container.replaceChildren();
+      const lines = layoutText(box, (text, size) => { measure.font = layoutFontCssShorthand(box.style.fontFamily, size * 4 / 3, box.style.fontWeight, box.style.fontStyle); return measure.measureText(text).width * 3 / 4; });
+      for (const line of lines.lines) {
+        const node = document.createElement("div");
+        node.textContent = line.text || "\u00a0";
+        node.style.whiteSpace = "pre";
+        container.append(node);
+      }
+    }
   }
   signal?.throwIfAborted();
   const scale = Math.min(300 / 72, 8192 / Math.max(snapshot.page.widthPt, snapshot.page.heightPt));

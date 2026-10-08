@@ -1,9 +1,10 @@
 import { describe, expect, it } from "vitest";
-import type { FrameId, FrameSlotId, FrameTemplateId, PhotoId, ProjectId, WorktableFrame } from "../../contracts";
+import type { FrameId, FrameSlotId, FrameTemplateId, LayoutObjectId, PhotoId, ProjectId, WorktableFrame } from "../../contracts";
 import { createEmptyWorktable, createWorktableEditor } from "./worktableEditor";
 import { defaultFrameCrop, framePageSize, framePaper, FRAME_FAMILIES, frameTemplateRects, frameTemplateSource, resolveFramePhoto, FRAME_MM_TO_PT } from "./frameLayout";
 import { frameCaptionStyle, frameEdgeStyle } from "./frameAppearance";
-import { validWorktableFrame } from "./frameCommands";
+import { copyFrame, validWorktableFrame } from "./frameCommands";
+import { createFrameTextBox } from "./frameText";
 
 const pageWidth = 210 * FRAME_MM_TO_PT, pageHeight = 297 * FRAME_MM_TO_PT;
 function frame(templateId: FrameTemplateId): WorktableFrame {
@@ -15,6 +16,50 @@ function frame(templateId: FrameTemplateId): WorktableFrame {
 }
 
 describe("Frame editing", () => {
+  it("stores independent text boxes, scales their geometry and restores text edits with undo", () => {
+    const editor = createWorktableEditor(createEmptyWorktable("project" as ProjectId));
+    const initial = { ...frame("single"), page: { ...frame("single").page, caption: "Old caption" } };
+    editor.execute({ type: "create-frame", frame: initial });
+    const first = { ...createFrameTextBox(initial.page, "text-1" as LayoutObjectId, { x: 20, y: 30, width: 160, height: 60 }), text: "First\n上海" };
+    const second = { ...createFrameTextBox(initial.page, "text-2" as LayoutObjectId, { x: 200, y: 300, width: 180, height: 70 }), text: "Second" };
+    expect(editor.execute({ type: "upsert-frame-text", frameId: initial.id, textBox: first }).ok).toBe(true);
+    expect(editor.execute({ type: "upsert-frame-text", frameId: initial.id, textBox: second }).ok).toBe(true);
+    expect(editor.snapshot().frames![initial.id].page.caption).toBeUndefined();
+    const before = editor.snapshot();
+    const changed = { ...first, text: "Changed", style: { ...first.style, fontSizePt: 24, fontWeight: "bold" as const } };
+    expect(editor.execute({ type: "upsert-frame-text", frameId: initial.id, textBox: changed }).ok).toBe(true);
+    expect(editor.snapshot().frames![initial.id].page.textBoxes).toEqual([changed, second]);
+    expect(editor.undo()).toEqual(before);
+    editor.redo();
+    const copied = copyFrame(editor.snapshot().frames![initial.id]);
+    expect(copied.page.textBoxes![0].style).not.toBe(editor.snapshot().frames![initial.id].page.textBoxes![0].style);
+    expect(editor.execute({ type: "resize-frame-page", frameId: initial.id, widthPt: initial.page.widthPt * 2, heightPt: initial.page.heightPt, reflow: true }).ok).toBe(true);
+    expect(editor.snapshot().frames![initial.id].page.textBoxes![0].rect).toEqual({ x: 40, y: 30, width: 320, height: 60 });
+    expect(editor.execute({ type: "remove-frame-text", frameId: initial.id, textId: first.id }).ok).toBe(true);
+    expect(editor.snapshot().frames![initial.id].page.textBoxes?.map((box) => box.id)).toEqual([second.id]);
+    expect(editor.undo().frames![initial.id].page.textBoxes).toHaveLength(2);
+    const current = editor.snapshot().frames![initial.id];
+    expect(validWorktableFrame({ ...current, page: { ...current.page, textBoxes: [first, first] } })).toBe(false);
+    expect(editor.execute({ type: "upsert-frame-text", frameId: initial.id, textBox: { ...first, rect: { ...first.rect, width: 0 } } }).ok).toBe(false);
+  });
+
+  it("changes only the selected photo box's inner edge and elevation", () => {
+    const editor = createWorktableEditor(createEmptyWorktable("project" as ProjectId));
+    const initial = frame("diptych");
+    editor.execute({ type: "create-frame", frame: initial });
+    const slotId = initial.page.slots[0].id;
+    const edge = { mode: "bevel" as const, color: "#333333", widthPt: 2 * FRAME_MM_TO_PT };
+    expect(editor.execute({ type: "set-frame-slot-inner-edge", frameId: initial.id, slotId, edge }).ok).toBe(true);
+    expect(editor.execute({ type: "set-frame-slot-elevation", frameId: initial.id, slotId, photoElevationPt: 3 * FRAME_MM_TO_PT }).ok).toBe(true);
+    const page = editor.snapshot().frames![initial.id].page;
+    expect(page.slots[0]).toMatchObject({ innerEdge: edge, photoElevationPt: 3 * FRAME_MM_TO_PT });
+    expect(page.slots[1].innerEdge).toBeUndefined();
+    expect(page.slots[1].photoElevationPt).toBeUndefined();
+    expect(page.innerEdge).toBeUndefined();
+    expect(page.edgeStyle).toBeUndefined();
+    expect(editor.execute({ type: "set-frame-slot-elevation", frameId: initial.id, slotId, photoElevationPt: 21 * FRAME_MM_TO_PT }).ok).toBe(false);
+    expect(editor.undo().frames![initial.id].page.slots[0].photoElevationPt).toBeUndefined();
+  });
   it("offers four families and defaults every preset to pure white", () => {
     expect(FRAME_FAMILIES.map((family) => family.id)).toEqual(["plain", "instax", "polaroid", "frames"]);
     for (const family of FRAME_FAMILIES) {

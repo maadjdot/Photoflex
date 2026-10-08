@@ -1,4 +1,4 @@
-import type { PhotoId } from "./ids";
+import type { LayoutObjectId, PhotoId } from "./ids";
 import type { LayoutPaper, LayoutTextBox } from "./layout";
 
 export type FrameId = string & { readonly __brand: "FrameId" };
@@ -22,6 +22,7 @@ export interface FrameEdgeStyle {
   readonly photoElevationPt: number;
 }
 export type FrameCaptionStyle = LayoutTextBox["style"] & { readonly rect: FrameRect };
+export type FrameTextBox = LayoutTextBox;
 
 export interface FrameRect {
   readonly x: number;
@@ -43,6 +44,8 @@ export interface FrameSlot {
   readonly crop: FrameCrop;
   readonly cornerRadiusPt?: number;
   readonly origin?: "template" | "manual";
+  readonly innerEdge?: FrameInnerEdge;
+  readonly photoElevationPt?: number;
 }
 
 export interface FrameTemplateSource {
@@ -72,6 +75,7 @@ export interface WorktableFrame {
     readonly innerEdge?: FrameInnerEdge;
     readonly caption?: string;
     readonly captionStyle?: FrameCaptionStyle;
+    readonly textBoxes?: readonly FrameTextBox[];
     readonly cornerRadiusPt?: number;
     readonly bleedPt?: number;
     readonly templateSource: FrameTemplateSource;
@@ -97,6 +101,10 @@ export type FrameEditCommand =
   | { readonly type: "set-frame-inner-edge"; readonly frameId: FrameId; readonly edge: FrameInnerEdge }
   | { readonly type: "set-frame-caption"; readonly frameId: FrameId; readonly caption: string }
   | { readonly type: "set-frame-caption-style"; readonly frameId: FrameId; readonly style: FrameCaptionStyle }
+  | { readonly type: "upsert-frame-text"; readonly frameId: FrameId; readonly textBox: FrameTextBox }
+  | { readonly type: "remove-frame-text"; readonly frameId: FrameId; readonly textId: LayoutObjectId }
+  | { readonly type: "set-frame-slot-inner-edge"; readonly frameId: FrameId; readonly slotId: FrameSlotId; readonly edge: FrameInnerEdge }
+  | { readonly type: "set-frame-slot-elevation"; readonly frameId: FrameId; readonly slotId: FrameSlotId; readonly photoElevationPt: number }
   | { readonly type: "set-frame-photo-fit"; readonly frameId: FrameId; readonly mode: "fit" | "fill" }
   | { readonly type: "set-frame-bleed"; readonly frameId: FrameId; readonly bleedPt: number }
   | { readonly type: "fill-frame-slots"; readonly frameId: FrameId; readonly photoIds: readonly PhotoId[] }

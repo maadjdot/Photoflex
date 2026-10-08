@@ -16,6 +16,7 @@ import plusIcon from "../assets/icons/table-plus.svg";
 import type {
   FrameId,
   FrameSlotId,
+  LayoutObjectId,
   DerivedPreviewMaxEdge,
   PhotoId,
   SequenceDocument,
@@ -62,7 +63,7 @@ interface TableCanvasSession {
   readonly draft: WorktableDraft;
   readonly selectedPhotoIds: readonly WorktableItemId[];
   readonly selectedPileIds: readonly SequenceId[];
-  readonly execute: (command: WorktableEditCommand) => unknown;
+  readonly execute: (command: WorktableEditCommand) => { readonly ok: boolean };
   readonly undo: () => unknown;
   readonly redo: () => unknown;
   readonly copySelection: () => boolean;
@@ -146,7 +147,7 @@ export const TableCanvas = forwardRef<TableCanvasHandle, TableCanvasProps>(funct
   const [trayScrollLeft, setTrayScrollLeft] = useState(0);
   const stageRef = useRef<HTMLDivElement>(null);
   const frameClipboard = useRef<FrameId | undefined>(undefined);
-  const [selectedFrameSlot, setSelectedFrameSlot] = useState<{ frameId: FrameId; slotId: FrameSlotId }>();
+  const [selectedFrameObject, setSelectedFrameObject] = useState<{ frameId: FrameId; kind: "photo"; slotId: FrameSlotId } | { frameId: FrameId; kind: "text"; textId: LayoutObjectId }>();
   const [connectorObjectPreview, setConnectorObjectPreview] = useState<Omit<ConnectorTarget, "z">>();
   const memoGeometryPreview = useCallback((id: string, rect?: Pick<ConnectorTarget, "x" | "y" | "width" | "height">) => {
     setConnectorObjectPreview((current) => rect ? { ...rect, kind: "memo", id } : current?.kind === "memo" && current.id === id ? undefined : current);
@@ -186,7 +187,7 @@ export const TableCanvas = forwardRef<TableCanvasHandle, TableCanvasProps>(funct
   }, [onViewportChange]);
 
   const execute = useCallback((command: WorktableEditCommand) => {
-    session.execute(command);
+    return session.execute(command);
   }, [session]);
 
   const gestures = useTableGestures({
@@ -429,10 +430,14 @@ export const TableCanvas = forwardRef<TableCanvasHandle, TableCanvasProps>(funct
     }
     if (props.selectedFrameId) {
       const frame = draft.frames?.[props.selectedFrameId];
-      const slot = selectedFrameSlot?.frameId === frame?.id ? frame?.page.slots.find((item) => item.id === selectedFrameSlot?.slotId) : undefined;
+      const slotId = selectedFrameObject?.kind === "photo" && selectedFrameObject.frameId === frame?.id ? selectedFrameObject.slotId : undefined;
+      const textId = selectedFrameObject?.kind === "text" && selectedFrameObject.frameId === frame?.id ? selectedFrameObject.textId : undefined;
+      const slot = frame?.page.slots.find((item) => item.id === slotId);
+      const text = frame?.page.textBoxes?.find((box) => box.id === textId);
       if (frame && (event.key === "Delete" || event.key === "Backspace")) {
         event.preventDefault();
-        if (slot) { session.execute({ type: "remove-frame-slot", frameId: frame.id, slotId: slot.id }); setSelectedFrameSlot(undefined); }
+        if (slot) { session.execute({ type: "remove-frame-slot", frameId: frame.id, slotId: slot.id }); setSelectedFrameObject(undefined); }
+        else if (text) { session.execute({ type: "remove-frame-text", frameId: frame.id, textId: text.id }); setSelectedFrameObject(undefined); }
         else { session.execute({ type: "remove-frame", frameId: frame.id }); props.onSelectFrame?.(undefined); }
         return;
       }
@@ -443,7 +448,7 @@ export const TableCanvas = forwardRef<TableCanvasHandle, TableCanvasProps>(funct
         session.execute({ type: "duplicate-frame", frameId: source.id, copyId: id, slotIds: source.page.slots.map(() => crypto.randomUUID() as FrameSlotId) });
         props.onSelectFrame?.(id); return;
       }
-      if (event.key === "Escape") { event.preventDefault(); if (slot) setSelectedFrameSlot(undefined); else props.onSelectFrame?.(undefined); return; }
+      if (event.key === "Escape") { event.preventDefault(); if (slot || text) setSelectedFrameObject(undefined); else props.onSelectFrame?.(undefined); return; }
     }
     const actions = deriveTableActions(draft, new Set(selectedPhotoIds), new Set(selectedPileIds));
     const mutableSelectedIds = actions.mutablePhotoIds;
@@ -635,6 +640,9 @@ export const TableCanvas = forwardRef<TableCanvasHandle, TableCanvasProps>(funct
       aria-keyshortcuts="ArrowLeft ArrowRight ArrowUp ArrowDown J B K Shift+K L Escape"
       aria-label={t("table.worktable")}
       onPointerDownCapture={(event) => {
+        const active = document.activeElement;
+        const target = event.target as HTMLElement;
+        if (active instanceof HTMLElement && (active.closest(".is-frame-toolbar") || active.matches(".table-frame-text-input")) && !target.closest(".is-frame-toolbar") && target !== active) active.blur();
         if (!props.connectorToolActive && !(event.target as Element).closest("[data-worktable-connector-id], .worktable-canvas-controls")) props.onSelectConnector?.(undefined);
         connectors.onPointerDownCapture(event);
       }}
@@ -645,7 +653,7 @@ export const TableCanvas = forwardRef<TableCanvasHandle, TableCanvasProps>(funct
       onPointerLeave={connectors.onPointerLeave}
       onClickCapture={(event) => { if (props.connectorToolActive && !(event.target as Element).closest(".worktable-canvas-controls")) { event.preventDefault(); event.stopPropagation(); } }}
       onDoubleClickCapture={(event) => { if (props.connectorToolActive) { event.preventDefault(); event.stopPropagation(); } }}
-      onPointerDown={(event) => { if (event.target === event.currentTarget || (event.target as HTMLElement).classList.contains("worktable-world")) { props.onSelectMemo?.(undefined); props.onSelectFrame?.(undefined); setSelectedFrameSlot(undefined); } gestures.onStagePointerDown(event); }}
+      onPointerDown={(event) => { if (event.target === event.currentTarget || (event.target as HTMLElement).classList.contains("worktable-world")) { props.onSelectMemo?.(undefined); props.onSelectFrame?.(undefined); setSelectedFrameObject(undefined); } gestures.onStagePointerDown(event); }}
       onPointerMove={gestures.onStagePointerMove}
       onPointerUp={(event) => gestures.finishGesture(event)}
       onPointerCancel={(event) => gestures.finishGesture(event, true)}
@@ -707,10 +715,11 @@ export const TableCanvas = forwardRef<TableCanvasHandle, TableCanvasProps>(funct
           const frame = draft.frames?.[id]; if (!frame) return false;
           const size = frameWorldSize(frame), left = (-viewport.originX - 192) / viewport.zoom, top = (-viewport.originY - 192) / viewport.zoom;
           return id === props.selectedFrameId || (frame.x + size.width >= left && frame.y + size.height >= top && frame.x <= left + (stageSize.width + 384) / viewport.zoom && frame.y <= top + (stageSize.height + 384) / viewport.zoom);
-        }).map((id) => <TableFrameCard key={id} frame={draft.frames![id]} layerZ={draft.frames![id].frontOfPhotos ? draft.frames![id].z : Math.min(draft.frames![id].z, lowestPhotoZ - 1)} selected={props.selectedFrameId === id} settingsHost={props.frameSettingsHost} selectedSlotId={selectedFrameSlot?.frameId === id ? selectedFrameSlot.slotId : undefined}
-          onSelectSlot={(slotId) => { setSelectedFrameSlot(slotId ? { frameId: id, slotId } : undefined); if (slotId) stageRef.current?.focus(); }} viewportZoom={viewport.zoom} photoSource={photoSource}
-          sourceRevision={sourceRevision} missingPhotoIds={missingPhotoIds} onPhotoError={onPhotoError} onSelect={(frameId) => { if (frameId !== props.selectedFrameId) setSelectedFrameSlot(undefined); props.onSelectFrame?.(frameId); }} onClose={() => { setSelectedFrameSlot(undefined); props.onSelectFrame?.(undefined); }}
-          onExecute={(command) => { execute(command); if (command.type === "remove-frame") props.onSelectFrame?.(undefined); }} dropTarget={preview.targetFrameId === id} onGeometryPreview={frameGeometryPreview} />)}
+        }).map((id) => <TableFrameCard key={id} frame={draft.frames![id]} layerZ={draft.frames![id].frontOfPhotos ? draft.frames![id].z : Math.min(draft.frames![id].z, lowestPhotoZ - 1)} selected={props.selectedFrameId === id} settingsHost={props.frameSettingsHost} selectedSlotId={selectedFrameObject?.kind === "photo" && selectedFrameObject.frameId === id ? selectedFrameObject.slotId : undefined}
+          selectedTextId={selectedFrameObject?.kind === "text" && selectedFrameObject.frameId === id ? selectedFrameObject.textId : undefined} onSelectText={(textId) => { setSelectedFrameObject(textId ? { frameId: id, kind: "text", textId } : undefined); if (textId) stageRef.current?.focus(); }}
+          onSelectSlot={(slotId) => { setSelectedFrameObject(slotId ? { frameId: id, kind: "photo", slotId } : undefined); if (slotId) stageRef.current?.focus(); }} viewportZoom={viewport.zoom} photoSource={photoSource}
+          sourceRevision={sourceRevision} missingPhotoIds={missingPhotoIds} onPhotoError={onPhotoError} onSelect={(frameId) => { if (frameId !== props.selectedFrameId) setSelectedFrameObject(undefined); props.onSelectFrame?.(frameId); }} onClose={() => { setSelectedFrameObject(undefined); props.onSelectFrame?.(undefined); }}
+          onExecute={(command) => { const result = execute(command); if (result.ok && command.type === "remove-frame") props.onSelectFrame?.(undefined); return result.ok; }} dropTarget={preview.targetFrameId === id} onGeometryPreview={frameGeometryPreview} />)}
         {draft.entryOrder.filter((id) => renderedPhotoIds.has(id)).map((id) => {
           const item = draft.placements[id];
           const chosen = selected.has(id);

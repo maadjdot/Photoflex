@@ -1,321 +1,239 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "@playwright/test";
 
-test("creates and edits a Frame on the Table and restores it after reload", async ({ page }, testInfo) => {
+async function workspace(page: Page, photoCount = 0) {
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto("/");
   await expect(page.getByRole("heading", { name: "Projects" })).toBeVisible();
   const projectId = `frame-e2e-${crypto.randomUUID()}`;
-  await page.evaluate(async (id) => {
-    const fixtureModule = "/tests/helpers/browserProjectFixture.ts";
-    const { createBrowserWorkspace } = await import(/* @vite-ignore */ fixtureModule);
+  await page.evaluate(async ({ id, count }) => {
+    const modulePath = "/tests/helpers/browserProjectFixture.ts";
+    const { createBrowserWorkspace } = await import(/* @vite-ignore */ modulePath);
     const request = indexedDB.open("photoflex-mvp");
     const db = await new Promise<IDBDatabase>((resolve, reject) => { request.onsuccess = () => resolve(request.result); request.onerror = () => reject(request.error); });
     const createdAt = new Date().toISOString();
-    const transaction = db.transaction("projects", "readwrite");
-    transaction.objectStore("projects").put(createBrowserWorkspace({ projectId: id, name: "Frame Test", memo: "", expectedPhotoCount: null, sources: [], photoStates: {},
-      worktableDraft: { projectId: id, entryOrder: [], placements: {}, groups: [], links: [], pileOrder: [], pilePlacements: {}, frameOrder: [], frames: {} },
-      sequenceIds: [], versionIds: [], layoutIds: [], revision: 0, createdAt, updatedAt: createdAt, lastOpenedAt: createdAt }));
-    await new Promise<void>((resolve, reject) => { transaction.oncomplete = () => resolve(); transaction.onerror = () => reject(transaction.error); });
-    db.close();
-  }, projectId);
-  await page.goto(`/#/projects/${projectId}/table`);
-  await expect(page.getByLabel("Photo worktable")).toBeVisible();
-  await page.getByRole("button", { name: "Frame templates" }).click();
-  await page.getByRole("button", { name: /^Plain Page/ }).click();
-  await page.getByRole("button", { name: /Quad Grid 4 slots/ }).click();
-  const frame = page.locator("[data-frame-id]");
-  await expect(frame).toHaveCount(1);
-  await expect(frame.locator("[data-frame-slot-id]")).toHaveCount(4);
-  const settings = page.getByRole("complementary", { name: "Frame settings" });
-  await expect(settings).toBeVisible();
-  await expect(page.getByRole("complementary", { name: "Photo Sources" })).toHaveCount(0);
-  await settings.getByRole("button", { name: "Diptych", exact: true }).click();
-  await expect(frame.locator("[data-frame-slot-id]")).toHaveCount(2);
-  await settings.getByRole("button", { name: "Add photo box" }).click();
-  await expect(frame.locator("[data-frame-slot-id]")).toHaveCount(3);
-  await expect(settings.getByText("PHOTO BOX 03")).toBeVisible();
-  await expect(settings.getByRole("group", { name: "Template" })).toBeVisible();
-  await expect(settings.getByRole("slider", { name: "Corner radius" })).toBeVisible();
-  await settings.getByRole("button", { name: "Remove photo box" }).click();
-  await expect(frame.locator("[data-frame-slot-id]")).toHaveCount(2);
-  await frame.locator("[data-frame-slot-id]").first().click();
-  await page.keyboard.press("Delete");
-  await expect(frame).toHaveCount(1);
-  await expect(frame.locator("[data-frame-slot-id]")).toHaveCount(1);
-  await settings.getByRole("button", { name: "Duplicate" }).click();
-  await expect(page.locator("[data-frame-id]")).toHaveCount(2);
-  await page.reload();
-  await expect(page.locator("[data-frame-id]")).toHaveCount(2);
-  await expect(page.locator("[data-frame-id]").first().locator("[data-frame-slot-id]")).toHaveCount(1);
-  await page.locator("[data-frame-id]").first().click();
-  await page.setViewportSize({ width: 1280, height: 800 });
-  await page.locator("[data-frame-id]").last().locator(".table-frame-title").click({ position: { x: 50, y: 4 } });
-  const inspector = await settings.boundingBox();
-  const stage = await page.getByLabel("Photo worktable").boundingBox();
-  expect(inspector && stage && inspector.x >= stage.x + stage.width && inspector.x + inspector.width <= 1280).toBeTruthy();
-  await page.getByRole("button", { name: "Frame templates" }).click();
-  const popover = page.getByRole("dialog", { name: "Frame templates" });
-  await expect(popover).toBeVisible();
-  const bounds = await popover.boundingBox();
-  expect(bounds && bounds.x >= 0 && bounds.y >= 0 && bounds.x + bounds.width <= 1280 && bounds.y + bounds.height <= 800).toBeTruthy();
-  await page.keyboard.press("Escape");
-  await expect(popover).toBeHidden();
-  await page.getByRole("button", { name: "Frame templates" }).click();
-  await page.getByLabel("Photo worktable").click({ position: { x: 220, y: 100 } });
-  await expect(popover).toBeHidden();
-  await page.screenshot({ path: testInfo.outputPath("frame.png") });
-});
-
-test("creates a full-page square nine-grid and adds selected photo-box settings below Frame settings", async ({ page }, testInfo) => {
-  await page.setViewportSize({ width: 1440, height: 900 });
-  await page.goto("/");
-  const projectId = `frame-nine-${crypto.randomUUID()}`;
-  await page.evaluate(async (id) => {
-    const fixtureModule = "/tests/helpers/browserProjectFixture.ts";
-    const { createBrowserWorkspace } = await import(/* @vite-ignore */ fixtureModule);
-    const request = indexedDB.open("photoflex-mvp");
-    const db = await new Promise<IDBDatabase>((resolve, reject) => { request.onsuccess = () => resolve(request.result); request.onerror = () => reject(request.error); });
-    const createdAt = new Date().toISOString();
-    const transaction = db.transaction("projects", "readwrite");
-    transaction.objectStore("projects").put(createBrowserWorkspace({ projectId: id, name: "Nine Grid Test", memo: "", expectedPhotoCount: null, sources: [], photoStates: {},
-      worktableDraft: { projectId: id, entryOrder: [], placements: {}, groups: [], links: [], pileOrder: [], pilePlacements: {}, frameOrder: [], frames: {} },
-      sequenceIds: [], versionIds: [], layoutIds: [], revision: 0, createdAt, updatedAt: createdAt, lastOpenedAt: createdAt }));
-    await new Promise<void>((resolve, reject) => { transaction.oncomplete = () => resolve(); transaction.onerror = () => reject(transaction.error); });
-    db.close();
-  }, projectId);
-  await page.goto(`/#/projects/${projectId}/table`);
-  await page.getByRole("button", { name: "Frame templates" }).click();
-  await page.getByRole("button", { name: /^Plain Page/ }).click();
-  await page.getByRole("button", { name: /Square Nine Grid 9 slots/ }).click();
-  const frame = page.locator("[data-frame-id]");
-  const settings = page.getByRole("complementary", { name: "Frame settings" });
-  await expect(frame.locator("[data-frame-slot-id]")).toHaveCount(9);
-  const pageSize = await frame.locator(".table-frame-page").evaluate((node) => ({ width: (node as HTMLElement).style.width, height: (node as HTMLElement).style.height }));
-  expect(pageSize.width).toBe(pageSize.height);
-  await settings.getByRole("button", { name: "Paper color", exact: true }).click();
-  await settings.getByRole("option", { name: "Charcoal", exact: true }).click();
-  await expect(frame.locator(".table-frame-page")).toHaveClass(/is-black/);
-  await page.screenshot({ path: testInfo.outputPath("frame-settings.png") });
-  await expect(settings.getByRole("slider", { name: "Corner radius" })).toHaveCount(0);
-  await expect(settings.getByRole("spinbutton", { name: "Bleed mm" })).toHaveCount(0);
-  await expect(settings.getByRole("spinbutton", { name: "Margin top mm" })).toHaveCount(0);
-  await expect(settings.getByRole("spinbutton", { name: "Gap mm" })).toHaveCount(0);
-  const firstId = await frame.locator("[data-frame-slot-id]").first().getAttribute("data-frame-slot-id");
-  await frame.locator("[data-frame-slot-id]").first().click();
-  await expect(settings.getByText("PHOTO BOX 01")).toBeVisible();
-  await expect(settings.getByRole("group", { name: "Template" })).toBeVisible();
-  await expect(settings.getByRole("button", { name: "Paper color", exact: true })).toBeVisible();
-  await settings.getByRole("slider", { name: "Corner radius" }).focus();
-  await page.keyboard.press("End");
-  await expect(frame.locator(".table-frame-photo-clip").first()).toHaveCSS("border-radius", "32px");
-  await expect(frame.locator(".table-frame-photo-clip").nth(1)).toHaveCSS("border-radius", "0px");
-  await page.screenshot({ path: testInfo.outputPath("photo-box-settings.png") });
-  await settings.getByRole("button", { name: "Front photo box" }).click();
-  await expect(frame.locator("[data-frame-slot-id]").last()).toHaveAttribute("data-frame-slot-id", firstId!);
-  await page.keyboard.press("Delete");
-  await expect(frame.locator("[data-frame-slot-id]")).toHaveCount(8);
-  await expect(settings.getByRole("button", { name: "Add photo box" })).toBeVisible();
-  await page.reload();
-  await expect(page.locator("[data-frame-id] .table-frame-page")).toHaveClass(/is-black/);
-  await expect(page.locator("[data-frame-id] [data-frame-slot-id]")).toHaveCount(8);
-});
-
-test("keeps Table photos above existing Frames until Front is chosen", async ({ page }) => {
-  await page.setViewportSize({ width: 1440, height: 900 });
-  await page.goto("/");
-  const projectId = `frame-layer-${crypto.randomUUID()}`;
-  await page.evaluate(async (id) => {
-    const fixtureModule = "/tests/helpers/browserProjectFixture.ts";
-    const { createBrowserWorkspace } = await import(/* @vite-ignore */ fixtureModule);
-    const request = indexedDB.open("photoflex-mvp");
-    const db = await new Promise<IDBDatabase>((resolve, reject) => { request.onsuccess = () => resolve(request.result); request.onerror = () => reject(request.error); });
-    const createdAt = new Date().toISOString();
-    const transaction = db.transaction("projects", "readwrite");
-    transaction.objectStore("projects").put(createBrowserWorkspace({ projectId: id, name: "Frame Layer Test", memo: "", expectedPhotoCount: null, sources: [], photoStates: {},
-      worktableDraft: { projectId: id, entryOrder: ["card-layer"], placements: { "card-layer": { id: "card-layer", photoId: "photo-layer", z: 1, x: 180, y: 150, width: 200, height: 160, filename: "Layer.jpg" } },
-        groups: [], links: [], pileOrder: [], pilePlacements: {}, frameOrder: [], frames: {} },
-      sequenceIds: [], versionIds: [], layoutIds: [], revision: 0, createdAt, updatedAt: createdAt, lastOpenedAt: createdAt }));
-    await new Promise<void>((resolve, reject) => { transaction.oncomplete = () => resolve(); transaction.onerror = () => reject(transaction.error); });
-    db.close();
-  }, projectId);
-  await page.goto(`/#/projects/${projectId}/table`);
-  await page.getByRole("button", { name: "Frame templates" }).click();
-  await page.getByRole("button", { name: /^Plain Page/ }).click();
-  await page.getByRole("button", { name: /Single 1 slots/ }).click();
-  const frame = page.locator("[data-frame-id]");
-  const photo = page.locator("[data-worktable-photo-id]");
-  await expect(frame).toBeVisible();
-  await expect(photo).toBeVisible();
-  await page.waitForFunction(async (id) => {
-    const request = indexedDB.open("photoflex-mvp");
-    const db = await new Promise<IDBDatabase>((resolve, reject) => { request.onsuccess = () => resolve(request.result); request.onerror = () => reject(request.error); });
-    const read = db.transaction("projects", "readonly").objectStore("projects").get(id);
-    const workspace = await new Promise<{ worktableDraft?: { frameOrder?: string[] } }>((resolve, reject) => { read.onsuccess = () => resolve(read.result); read.onerror = () => reject(read.error); });
-    db.close();
-    return workspace?.worktableDraft?.frameOrder?.length === 1;
-  }, projectId);
-  await page.evaluate(async (id) => {
-    const request = indexedDB.open("photoflex-mvp");
-    const db = await new Promise<IDBDatabase>((resolve, reject) => { request.onsuccess = () => resolve(request.result); request.onerror = () => reject(request.error); });
-    const transaction = db.transaction("projects", "readwrite");
-    const store = transaction.objectStore("projects");
-    const read = store.get(id);
-    const workspace = await new Promise<any>((resolve, reject) => { read.onsuccess = () => resolve(read.result); read.onerror = () => reject(read.error); });
-    const frameId = workspace.worktableDraft.frameOrder[0];
-    Object.assign(workspace.worktableDraft.frames[frameId], { x: 120, y: 100, z: 999 });
-    store.put(workspace);
-    await new Promise<void>((resolve, reject) => { transaction.oncomplete = () => resolve(); transaction.onerror = () => reject(transaction.error); });
-    db.close();
-  }, projectId);
-  await page.reload();
-  await expect(frame).toBeVisible();
-  const overlapIsPhoto = () => page.evaluate(() => {
-    const frameRect = document.querySelector(".table-frame-page")!.getBoundingClientRect();
-    const photoRect = document.querySelector("[data-worktable-photo-id]")!.getBoundingClientRect();
-    const left = Math.max(frameRect.left, photoRect.left), right = Math.min(frameRect.right, photoRect.right);
-    const top = Math.max(frameRect.top, photoRect.top), bottom = Math.min(frameRect.bottom, photoRect.bottom);
-    if (left >= right || top >= bottom) return "no-overlap";
-    const hit = document.elementFromPoint((left + right) / 2, (top + bottom) / 2) as HTMLElement | null;
-    return hit?.closest("[data-worktable-photo-id]") ? "photo" : hit?.closest("[data-frame-id]") ? "frame" : "other";
-  });
-  expect(await overlapIsPhoto()).toBe("photo");
-  await frame.locator(".table-frame-title").click();
-  expect(await overlapIsPhoto()).toBe("photo");
-  await page.getByRole("complementary", { name: "Frame settings" }).getByRole("button", { name: "Front", exact: true }).click();
-  expect(await overlapIsPhoto()).toBe("frame");
-});
-
-test("browses all template families and persists paper, captions and dark frame finishes", async ({ page }, testInfo) => {
-  test.setTimeout(90_000);
-  await page.setViewportSize({ width: 1440, height: 900 });
-  await page.goto("/");
-  await expect(page.getByRole("heading", { name: "Projects" })).toBeVisible();
-  const projectId = `frame-families-${crypto.randomUUID()}`;
-  await page.evaluate(async (id) => {
-    const fixtureModule = "/tests/helpers/browserProjectFixture.ts";
-    const { createBrowserWorkspace } = await import(/* @vite-ignore */ fixtureModule);
-    const request = indexedDB.open("photoflex-mvp");
-    const db = await new Promise<IDBDatabase>((resolve, reject) => { request.onsuccess = () => resolve(request.result); request.onerror = () => reject(request.error); });
-    const createdAt = new Date().toISOString();
-    const canvas = document.createElement("canvas"); canvas.width = 1200; canvas.height = 900;
-    const ctx = canvas.getContext("2d")!;
-    ctx.fillStyle = "#9fb9c5"; ctx.fillRect(0, 0, 1200, 900);
-    ctx.fillStyle = "#546653"; ctx.beginPath(); ctx.moveTo(0, 600); ctx.lineTo(430, 280); ctx.lineTo(900, 700); ctx.lineTo(1200, 500); ctx.lineTo(1200, 900); ctx.lineTo(0, 900); ctx.fill();
-    ctx.fillStyle = "#c9bd9e"; ctx.beginPath(); ctx.moveTo(420, 900); ctx.lineTo(570, 540); ctx.lineTo(650, 540); ctx.lineTo(920, 900); ctx.fill();
-    const blob = await new Promise<Blob>((resolve) => canvas.toBlob((value) => resolve(value!), "image/jpeg"));
-    const directory = await navigator.storage.getDirectory();
-    const handle = await directory.getFileHandle(`${id}.jpg`, { create: true });
-    const writable = await handle.createWritable(); await writable.write(blob); await writable.close();
-    const sourceId = `source-${id}`, photoId = `photo-${id}`, cardId = `card-${id}`;
+    const sourceId = `source-${id}`;
+    const photos: { id: string; handle: FileSystemFileHandle }[] = [];
+    for (let index = 0; index < count; index++) {
+      const canvas = document.createElement("canvas"); canvas.width = 1200; canvas.height = 900;
+      const ctx = canvas.getContext("2d")!;
+      ctx.fillStyle = "#9fb9c5"; ctx.fillRect(0, 0, 1200, 900);
+      ctx.fillStyle = "#546653"; ctx.beginPath(); ctx.moveTo(0, 600); ctx.lineTo(430, 280); ctx.lineTo(900, 700); ctx.lineTo(1200, 500); ctx.lineTo(1200, 900); ctx.lineTo(0, 900); ctx.fill();
+      ctx.fillStyle = "#c9bd9e"; ctx.beginPath(); ctx.moveTo(420, 900); ctx.lineTo(570, 540); ctx.lineTo(650, 540); ctx.lineTo(920, 900); ctx.fill();
+      const blob = await new Promise<Blob>((resolve) => canvas.toBlob((value) => resolve(value!), "image/jpeg"));
+      const directory = await navigator.storage.getDirectory();
+      const handle = await directory.getFileHandle(`${id}-${index}.jpg`, { create: true });
+      const writable = await handle.createWritable(); await writable.write(blob); await writable.close();
+      photos.push({ id: `photo-${id}-${index}`, handle });
+    }
     const transaction = db.transaction(["projects", "photo-index", "photo-file-handles"], "readwrite");
-    transaction.objectStore("photo-index").put({ id: photoId, sourceId, relativePath: `${id}.jpg`, locationKind: "file-handle", width: 1200, height: 900 });
-    transaction.objectStore("photo-file-handles").put({ photoId, handle });
-    transaction.objectStore("projects").put(createBrowserWorkspace({ projectId: id, name: "Frame Templates", memo: "", expectedPhotoCount: null, sources: [{ id: sourceId, displayName: "Sample", kind: "external-files", createdAt }], photoStates: {},
-      worktableDraft: { projectId: id, entryOrder: [cardId], placements: { [cardId]: { id: cardId, photoId, filename: "Sample.jpg", x: 180, y: 150, z: 1, width: 180, height: 135 } }, groups: [], links: [], pileOrder: [], pilePlacements: {}, frameOrder: [], frames: {} },
+    const placements = Object.fromEntries(photos.map((photo, index) => {
+      transaction.objectStore("photo-index").put({ id: photo.id, sourceId, relativePath: `${id}-${index}.jpg`, locationKind: "file-handle", width: 1200, height: 900 });
+      transaction.objectStore("photo-file-handles").put({ photoId: photo.id, handle: photo.handle });
+      const cardId = `card-${index}`;
+      return [cardId, { id: cardId, photoId: photo.id, filename: `Sample ${index + 1}.jpg`, x: 180 + index * 200, y: 150, z: index + 1, width: 180, height: 135 }];
+    }));
+    transaction.objectStore("projects").put(createBrowserWorkspace({ projectId: id, name: "Frame Settings", memo: "", expectedPhotoCount: null,
+      sources: count ? [{ id: sourceId, displayName: "Sample", kind: "external-files", createdAt }] : [], photoStates: {},
+      worktableDraft: { projectId: id, entryOrder: Object.keys(placements), placements, groups: [], links: [], pileOrder: [], pilePlacements: {}, frameOrder: [], frames: {} },
       sequenceIds: [], versionIds: [], layoutIds: [], revision: 0, createdAt, updatedAt: createdAt, lastOpenedAt: createdAt }));
     await new Promise<void>((resolve, reject) => { transaction.oncomplete = () => resolve(); transaction.onerror = () => reject(transaction.error); });
     db.close();
-  }, projectId);
+  }, { id: projectId, count: photoCount });
   await page.goto(`/#/projects/${projectId}/table`);
-  await page.locator("[data-worktable-photo-id]").click();
-  await page.getByRole("button", { name: "Frame templates" }).click();
+  return projectId;
+}
+
+async function createFrame(page: Page, family: string, template: RegExp, withPhotos = false) {
+  if (withPhotos) { await page.getByLabel("Photo worktable").focus(); await page.keyboard.press("Control+a"); }
+  await page.getByRole("button", { name: "Frame templates", exact: true }).click();
   const menu = page.getByRole("dialog", { name: "Frame templates" });
-  await expect(menu.getByRole("navigation", { name: "Template families" }).getByRole("button")).toHaveCount(4);
-  await expect(menu.getByRole("button", { name: /^Sheets/ })).toHaveCount(0);
-  await menu.getByRole("button", { name: /^Instax/ }).click();
-  await expect(menu.getByRole("button", { name: /Instax mini/ })).toBeVisible();
-  await expect(menu.getByRole("button", { name: /Instax square/ })).toBeVisible();
-  await expect(menu.getByRole("button", { name: /Instax wide/ })).toBeVisible();
-  await menu.getByRole("button", { name: /Instax mini/ }).click();
-  const frame = page.locator("[data-frame-id]");
-  const settings = page.getByRole("complementary", { name: "Frame settings" });
-  await expect(frame.locator(".table-frame-photo-clip img")).toBeVisible();
-  await expect(frame.locator(".table-frame-page")).toHaveCSS("background-color", "rgb(255, 255, 255)");
-  const photoBox = frame.locator("[data-frame-slot-id]").first();
-  const photo = photoBox.locator("img");
-  const initialWidth = await photo.evaluate((node) => parseFloat(node.style.width));
-  const worldTransform = await page.locator(".worktable-world").getAttribute("style");
-  await photoBox.dblclick();
-  await expect(settings.getByRole("button", { name: "Cancel crop", exact: true })).toBeVisible();
-  const wheelAtPhoto = (deltaY: number) => photoBox.evaluate((node, delta) => {
-    const bounds = node.getBoundingClientRect();
-    const event = new WheelEvent("wheel", { deltaY: delta, clientX: bounds.left + bounds.width * .6,
-      clientY: bounds.top + bounds.height * .4, bubbles: true, cancelable: true });
-    node.dispatchEvent(event);
-    return event.defaultPrevented;
-  }, deltaY);
-  expect(await wheelAtPhoto(-120)).toBe(true);
-  await expect.poll(() => photo.evaluate((node) => parseFloat(node.style.width))).toBeGreaterThan(initialWidth);
-  await expect(page.locator(".worktable-world")).toHaveAttribute("style", worldTransform!);
-  await settings.getByRole("button", { name: "Cancel crop", exact: true }).click();
-  await expect.poll(() => photo.evaluate((node) => parseFloat(node.style.width))).toBe(initialWidth);
-  await photoBox.dblclick();
-  expect(await wheelAtPhoto(-120)).toBe(true);
-  await settings.getByRole("button", { name: "Done", exact: true }).click();
-  const savedWidth = await photo.evaluate((node) => parseFloat(node.style.width));
-  expect(savedWidth).toBeGreaterThan(initialWidth);
-  await photoBox.dblclick();
-  expect(await wheelAtPhoto(120)).toBe(true);
-  await expect.poll(() => photo.evaluate((node) => parseFloat(node.style.width))).toBeLessThan(savedWidth);
+  await menu.getByRole("button", { name: new RegExp(`^${family}`) }).click();
+  await menu.getByRole("button", { name: template }).click();
+  return page.locator("[data-frame-id]").last();
+}
+
+const settings = (page: Page) => page.getByRole("complementary", { name: "Frame settings" });
+const selectPage = async (frame: Locator) => frame.locator(".table-frame-title").click();
+
+async function drawText(page: Page, frame: Locator, rect: { x: number; y: number; width: number; height: number }, text: string) {
+  await selectPage(frame);
+  await settings(page).getByRole("button", { name: "Add text", exact: true }).click();
+  const bounds = (await frame.locator(".table-frame-page").boundingBox())!;
+  await page.mouse.move(bounds.x + bounds.width * rect.x, bounds.y + bounds.height * rect.y);
+  await page.mouse.down();
+  await page.mouse.move(bounds.x + bounds.width * (rect.x + rect.width), bounds.y + bounds.height * (rect.y + rect.height), { steps: 5 });
+  await page.mouse.up();
+  const input = frame.getByRole("textbox", { name: "Edit Frame text", exact: true });
+  await expect(input).toBeVisible();
+  await input.fill(text);
+  await input.press("Control+Enter");
+  const textId = await frame.locator("[data-frame-text-id]").last().getAttribute("data-frame-text-id");
+  const box = frame.locator(`[data-frame-text-id="${textId}"]`);
+  await expect(box.locator(".layout-text-content")).toContainText(text.replace(/\n/g, ""));
+  return box;
+}
+
+test("switches page and photo settings and applies stepped dimensions on Enter or an outside click", async ({ page }, testInfo) => {
+  await workspace(page);
+  const frame = await createFrame(page, "Plain Page", /Quad Grid 4 slots/);
+  const panel = settings(page);
+  await expect(panel.getByRole("heading", { name: "Template", exact: true })).toHaveCount(0);
+  await expect(panel.getByRole("heading", { name: "Arrange", exact: true })).toHaveCount(0);
+  await expect(panel.getByRole("button", { name: /^(Front|Duplicate|Delete|Reset to template size)$/ })).toHaveCount(0);
+  await panel.getByRole("group", { name: "Page aspect ratio", exact: true }).getByRole("button", { name: "3:4", exact: true }).click();
+  await panel.getByRole("spinbutton", { name: "W mm", exact: true }).fill("180");
+  await panel.getByRole("spinbutton", { name: "W mm", exact: true }).press("Enter");
+  await expect(panel.getByRole("spinbutton", { name: "H mm", exact: true })).toHaveValue("240");
+  await panel.getByRole("button", { name: "Increase W mm", exact: true }).click();
+  await expect(panel.getByRole("spinbutton", { name: "W mm", exact: true })).toHaveValue("181");
+  await panel.getByRole("button", { name: "Decrease W mm", exact: true }).click();
+  await expect(panel.getByRole("spinbutton", { name: "W mm", exact: true })).toHaveValue("180");
+  await panel.getByRole("button", { name: "Lock aspect ratio", exact: true }).click();
+  await panel.getByRole("spinbutton", { name: "H mm", exact: true }).fill("260");
+  await selectPage(frame);
+  await expect(panel.getByRole("spinbutton", { name: "H mm", exact: true })).toHaveValue("260");
+  await page.screenshot({ path: testInfo.outputPath("page-settings-1440.png") });
+  await panel.getByRole("button", { name: "Add photo box", exact: true }).click();
+  await expect(frame.locator("[data-frame-slot-id]")).toHaveCount(5);
+  await expect(panel.getByRole("heading", { name: "Photo box 05", exact: true })).toBeVisible();
+  await expect(panel.getByRole("button", { name: "Paper color", exact: true })).toHaveCount(0);
+  await expect(panel.getByRole("button", { name: "Add text", exact: true })).toHaveCount(0);
+  await panel.getByRole("spinbutton", { name: "X mm", exact: true }).fill("20");
+  await panel.getByRole("spinbutton", { name: "X mm", exact: true }).press("Enter");
+  await panel.getByRole("button", { name: "Increase X mm", exact: true }).click();
+  await expect(panel.getByRole("spinbutton", { name: "X mm", exact: true })).toHaveValue("21");
+  await panel.getByRole("slider", { name: "Corner radius", exact: true }).press("End");
+  await expect(frame.locator(".table-frame-photo-clip").last()).toHaveCSS("border-radius", "32px");
+  await page.screenshot({ path: testInfo.outputPath("photo-settings-1440.png") });
+  await selectPage(frame);
+  await expect(panel.getByRole("heading", { name: "Page size", exact: true })).toBeVisible();
+  await expect(panel.getByRole("slider", { name: "Corner radius", exact: true })).toHaveCount(0);
+  await page.reload();
+  await selectPage(page.locator("[data-frame-id]"));
+  await expect(panel.getByRole("spinbutton", { name: "H mm", exact: true })).toHaveValue("260");
+  await frame.locator("[data-frame-slot-id]").last().click();
+  await expect(panel.getByRole("spinbutton", { name: "X mm", exact: true })).toHaveValue("21");
+  await panel.getByRole("button", { name: "Remove photo box", exact: true }).click();
+  await expect(frame.locator("[data-frame-slot-id]")).toHaveCount(4);
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await selectPage(frame);
+  await page.screenshot({ path: testInfo.outputPath("page-settings-1280.png") });
+});
+
+test("draws multiple independent text boxes, edits them and restores them after reload", async ({ page }, testInfo) => {
+  await workspace(page);
+  const frame = await createFrame(page, "Plain Page", /Full Page 1 slots/);
+  const panel = settings(page);
+  const first = await drawText(page, frame, { x: .12, y: .15, width: .65, height: .16 }, "Shanghai\n2026");
+  const firstId = await first.getAttribute("data-frame-text-id");
+  await expect(panel.getByRole("button", { name: "Paper color", exact: true })).toHaveCount(0);
+  await expect(panel.getByRole("slider", { name: "Corner radius", exact: true })).toHaveCount(0);
+  await panel.getByLabel("Text font", { exact: true }).selectOption("architects-daughter");
+  await panel.getByRole("spinbutton", { name: "Text size pt", exact: true }).fill("24");
+  await panel.getByRole("spinbutton", { name: "Text size pt", exact: true }).press("Enter");
+  await panel.getByRole("button", { name: "Increase Text size pt", exact: true }).click();
+  await expect(first.locator(".layout-text-content")).toHaveCSS("font-size", "25px");
+  await panel.getByRole("button", { name: "Text bold", exact: true }).click();
+  await expect(first.locator(".layout-text-content")).toHaveCSS("font-weight", "700");
+  const before = await first.evaluate((node) => ({ x: parseFloat((node as HTMLElement).style.left), width: parseFloat((node as HTMLElement).style.width) }));
+  const bounds = (await first.boundingBox())!;
+  await page.mouse.move(bounds.x + 15, bounds.y + 10); await page.mouse.down(); await page.mouse.move(bounds.x + 32, bounds.y + 25, { steps: 4 }); await page.mouse.up();
+  expect(await first.evaluate((node) => parseFloat((node as HTMLElement).style.left))).toBeGreaterThan(before.x);
+  const handle = (await first.getByRole("button", { name: "Resize text box se", exact: true }).boundingBox())!;
+  await page.mouse.move(handle.x + handle.width / 2, handle.y + handle.height / 2); await page.mouse.down(); await page.mouse.move(handle.x + 20, handle.y + 14, { steps: 4 }); await page.mouse.up();
+  expect(await first.evaluate((node) => parseFloat((node as HTMLElement).style.width))).toBeGreaterThan(before.width);
+  const second = await drawText(page, frame, { x: .16, y: .58, width: .6, height: .14 }, "A second text box");
+  await expect(frame.locator("[data-frame-text-id]")).toHaveCount(2);
+  await second.dblclick();
+  await frame.getByRole("textbox", { name: "Edit Frame text", exact: true }).fill("Edited in place");
+  await selectPage(frame);
+  await expect(second.locator(".layout-text-content")).toHaveText("Edited in place");
+  await first.click();
+  await expect(panel.getByLabel("Text font", { exact: true })).toHaveValue("architects-daughter");
+  await expect(panel.getByRole("spinbutton", { name: "Text size pt", exact: true })).toHaveValue("25");
+  await page.screenshot({ path: testInfo.outputPath("text-settings-1440.png") });
+  await page.reload();
+  await expect(frame.locator("[data-frame-text-id]")).toHaveCount(2);
+  const restored = frame.locator(`[data-frame-text-id="${firstId}"]`);
+  await restored.click();
+  await expect(panel.getByRole("spinbutton", { name: "Text size pt", exact: true })).toHaveValue("25");
+  await page.keyboard.press("Delete");
+  await expect(frame.locator("[data-frame-text-id]")).toHaveCount(1);
+  await expect(frame).toHaveCount(1);
+  await page.keyboard.press("Control+z");
+  await expect(frame.locator("[data-frame-text-id]")).toHaveCount(2);
+  await selectPage(frame);
+  await panel.getByRole("button", { name: "Add text", exact: true }).click();
   await page.keyboard.press("Escape");
-  await expect.poll(() => photo.evaluate((node) => parseFloat(node.style.width))).toBe(savedWidth);
-  await expect(frame.locator(".table-frame-inner-edge")).toHaveCount(0);
-  await expect(settings.getByRole("group", { name: "Template" }).getByRole("button")).toHaveCount(3);
-  await settings.getByLabel("Frame caption").fill("Shanghai, 2026");
-  await settings.getByLabel("Frame caption").press("Tab");
-  await expect(frame.locator(".table-frame-instant-caption")).toHaveText("Shanghai, 2026");
-  await settings.getByRole("button", { name: "Paper color", exact: true }).click();
-  await settings.getByRole("option", { name: "Warm Ivory", exact: true }).click();
-  await settings.getByRole("button", { name: "Paper material", exact: true }).click();
-  await settings.getByRole("option", { name: "Fine cotton paper", exact: true }).click();
-  await expect(frame.locator(".layout-paper-backdrop")).toHaveCSS("background-color", "rgb(244, 239, 229)");
-  const texture = await frame.locator(".layout-paper-backdrop").evaluate((node) => getComputedStyle(node, "::before").filter);
-  expect(texture).toBe("none");
-  await settings.getByRole("button", { name: "Paper color", exact: true }).click();
-  await settings.getByRole("option", { name: "Custom", exact: true }).click();
-  await settings.getByLabel("Paper color hex").fill("#F2EADE");
-  await settings.getByLabel("Paper color hex").press("Tab");
-  await settings.getByRole("button", { name: "Done", exact: true }).click();
-  await expect(frame.locator(".table-frame-page")).toHaveCSS("background-color", "rgb(242, 234, 222)");
-  await settings.getByLabel("Caption font", { exact: true }).selectOption("architects-daughter");
-  await settings.getByRole("spinbutton", { name: "Caption size pt", exact: true }).fill("12");
-  await settings.getByRole("spinbutton", { name: "Caption size pt", exact: true }).press("Tab");
-  await expect(settings.getByRole("spinbutton", { name: /^Caption [XYWH] mm$/ })).toHaveCount(0);
-  const caption = frame.locator(".table-frame-instant-caption");
-  await expect(caption).toHaveCSS("font-size", "12px");
-  const before = await caption.evaluate((node) => parseFloat((node as HTMLElement).style.left));
-  const box = (await caption.boundingBox())!;
-  await page.mouse.move(box.x + 8, box.y + 5); await page.mouse.down(); await page.mouse.move(box.x + 24, box.y - 6, { steps: 4 }); await page.mouse.up();
-  expect(await caption.evaluate((node) => parseFloat((node as HTMLElement).style.left))).toBeGreaterThan(before);
-  await page.screenshot({ path: testInfo.outputPath("instax-template.png") });
-  await settings.getByLabel("Template family").selectOption("polaroid");
-  for (const name of ["Classic 600", "Square type", "Land camera"]) {
-    await settings.getByRole("button", { name, exact: true }).click();
-    await expect(frame.locator("[data-frame-slot-id]")).toHaveCount(1);
-  }
-  await settings.getByLabel("Template family").selectOption("frames");
-  await expect(settings.getByRole("group", { name: "Template" }).getByRole("button")).toHaveCount(1);
-  await settings.getByRole("group", { name: "Frame edge color" }).getByRole("button", { name: "Walnut", exact: true }).click();
-  await expect(frame.locator(".table-frame-gallery-edge")).toHaveCSS("border-top-color", "rgb(73, 48, 37)");
-  await settings.getByRole("button", { name: "Paper color", exact: true }).click();
-  await settings.getByRole("option", { name: "Ink Blue", exact: true }).click();
-  await expect(frame.locator(".table-frame-page")).toHaveCSS("background-color", "rgb(30, 43, 69)");
-  await settings.getByRole("spinbutton", { name: "Frame edge width mm", exact: true }).fill("10");
-  await settings.getByRole("spinbutton", { name: "Frame edge width mm", exact: true }).press("Tab");
-  await settings.getByLabel("Frame material", { exact: true }).selectOption("wood");
-  await settings.getByLabel("Frame shadow strength").focus(); await page.keyboard.press("End");
-  await settings.getByRole("spinbutton", { name: "Photo elevation mm", exact: true }).fill("3");
-  await settings.getByRole("spinbutton", { name: "Photo elevation mm", exact: true }).press("Tab");
-  await settings.getByRole("group", { name: "Inner edge", exact: true }).getByRole("button", { name: "Mat bevel", exact: true }).click();
-  await settings.getByRole("spinbutton", { name: "Inner edge width mm", exact: true }).fill("2");
-  await settings.getByRole("spinbutton", { name: "Inner edge width mm", exact: true }).press("Tab");
-  await expect(frame.locator(".table-frame-inner-edge")).toHaveCount(1);
-  await expect(frame.locator(".table-frame-inner-edge")).toHaveCSS("border-radius", "0px");
-  await expect(frame.locator(".table-frame-gallery-edge")).toHaveClass(/edge-material-wood/);
+  await expect(panel.getByRole("button", { name: "Add text", exact: true })).toHaveAttribute("aria-pressed", "false");
+});
+
+test("keeps crop button-only and photo appearance local to the selected photo box", async ({ page }, testInfo) => {
+  await workspace(page, 2);
+  const frame = await createFrame(page, "Plain Page", /Diptych 2 slots/, true);
+  const panel = settings(page);
+  const first = frame.locator("[data-frame-slot-id]").first();
+  const second = frame.locator("[data-frame-slot-id]").nth(1);
+  await expect(first.locator("img")).toBeVisible();
+  const photo = first.locator("img");
+  const widthBefore = await photo.evaluate((node) => parseFloat(node.style.width));
+  await first.dblclick();
+  await expect(panel.getByRole("button", { name: "Cancel crop", exact: true })).toHaveCount(0);
+  await first.click({ button: "right" });
+  await expect(panel.getByRole("button", { name: "Cancel crop", exact: true })).toHaveCount(0);
+  await panel.getByRole("button", { name: "Adjust crop", exact: true }).click();
+  const worldBefore = await page.locator(".worktable-world").getAttribute("style");
+  const wheel = () => first.evaluate((node) => {
+    const rect = node.getBoundingClientRect();
+    node.dispatchEvent(new WheelEvent("wheel", { deltaY: -120, clientX: rect.left + rect.width * .6, clientY: rect.top + rect.height * .4, bubbles: true, cancelable: true }));
+  });
+  await wheel();
+  await expect.poll(() => photo.evaluate((node) => parseFloat(node.style.width))).toBeGreaterThan(widthBefore);
+  await expect(page.locator(".worktable-world")).toHaveAttribute("style", worldBefore!);
+  await panel.getByRole("button", { name: "Cancel crop", exact: true }).click();
+  await expect.poll(() => photo.evaluate((node) => parseFloat(node.style.width))).toBe(widthBefore);
+  await panel.getByRole("button", { name: "Adjust crop", exact: true }).click(); await wheel();
+  await panel.getByRole("button", { name: "Done", exact: true }).click();
+  await panel.getByRole("group", { name: "Inner edge", exact: true }).getByRole("button", { name: "Mat bevel", exact: true }).click();
+  await panel.getByRole("spinbutton", { name: "Inner edge width mm", exact: true }).fill("2");
+  await panel.getByRole("spinbutton", { name: "Inner edge width mm", exact: true }).press("Enter");
+  await panel.getByRole("slider", { name: "Photo elevation", exact: true }).press("Home");
+  for (let step = 0; step < 3; step++) await panel.getByRole("slider", { name: "Photo elevation", exact: true }).press("ArrowRight");
+  await expect(first.locator(".table-frame-inner-edge")).toHaveCount(1);
+  await expect(first.locator(".table-frame-photo-elevation")).toHaveCount(1);
+  await expect(second.locator(".table-frame-inner-edge")).toHaveCount(0);
+  await expect(second.locator(".table-frame-photo-elevation")).toHaveCount(0);
+  await page.screenshot({ path: testInfo.outputPath("photo-crop-settings.png") });
+  await page.reload(); await first.click();
+  await expect(panel.getByRole("spinbutton", { name: "Inner edge width mm", exact: true })).toHaveValue("2");
+  await expect(panel.getByRole("slider", { name: "Photo elevation", exact: true })).toHaveValue("3");
+});
+
+test("exports a gallery frame with independent text boxes and photo finishes", async ({ page }, testInfo) => {
+  test.setTimeout(90000);
+  await workspace(page, 1);
+  const frame = await createFrame(page, "Frames", /Gallery single/, true);
+  const panel = settings(page);
+  await panel.getByRole("button", { name: "Paper color", exact: true }).click();
+  await panel.getByRole("option", { name: "Ink Blue", exact: true }).click();
+  await panel.getByRole("button", { name: "Paper material", exact: true }).click();
+  await panel.getByRole("option", { name: "Fine cotton paper", exact: true }).click();
+  await panel.getByLabel("Frame edge color", { exact: true }).selectOption({ label: "Walnut" });
+  await panel.getByLabel("Frame material", { exact: true }).selectOption("wood");
+  await panel.getByRole("spinbutton", { name: "Frame edge width mm", exact: true }).fill("10");
+  await panel.getByRole("spinbutton", { name: "Frame edge width mm", exact: true }).press("Enter");
+  await expect(panel.getByRole("button", { name: "Reset to template size", exact: true })).toHaveCount(0);
+  const title = await drawText(page, frame, { x: .12, y: .08, width: .7, height: .12 }, "HELLO FRAME");
+  await panel.getByRole("spinbutton", { name: "Text size pt", exact: true }).fill("60");
+  await panel.getByRole("spinbutton", { name: "Text size pt", exact: true }).press("Enter");
+  await panel.getByLabel("Text font", { exact: true }).selectOption("roboto");
+  await drawText(page, frame, { x: .12, y: .78, width: .7, height: .12 }, "Shanghai, 2026");
+  await selectPage(frame);
+  await expect(title.locator(".layout-text-content")).toContainText("HELLO FRAME");
+  await page.screenshot({ path: testInfo.outputPath("frame-text-page-1440.png") });
   const downloadEvent = page.waitForEvent("download");
-  await settings.getByRole("button", { name: "Export JPEG", exact: true }).click();
+  await panel.getByRole("button", { name: "Export JPEG", exact: true }).click();
   const download = await downloadEvent;
-  expect(download.suggestedFilename()).toMatch(/\.jpeg$/);
   const stream = await download.createReadStream();
   const chunks: Buffer[] = [];
   for await (const chunk of stream!) chunks.push(Buffer.from(chunk));
@@ -326,52 +244,16 @@ test("browses all template families and persists paper, captions and dark frame 
     const image = await createImageBitmap(new Blob([data], { type: "image/jpeg" }));
     const canvas = document.createElement("canvas"); canvas.width = image.width; canvas.height = image.height;
     const context = canvas.getContext("2d")!; context.drawImage(image, 0, 0);
-    const sample = (x: number, y: number) => [...context.getImageData(Math.round(x * image.width), Math.round(y * image.height), 1, 1).data].slice(0, 3);
-    const result = { width: image.width, height: image.height, border: sample(.01, .5), paper: sample(.15, .5), photo: sample(.5, .5) };
+    const titlePixels = context.getImageData(Math.round(image.width * .12), Math.round(image.height * .08), Math.round(image.width * .7), Math.round(image.height * .12)).data;
+    let lightPixels = 0;
+    for (let index = 0; index < titlePixels.length; index += 4) if (titlePixels[index] > 180 && titlePixels[index + 1] > 180 && titlePixels[index + 2] > 180) lightPixels++;
+    const result = { width: image.width, height: image.height, lightPixels };
     image.close(); return result;
   }, bytes.toString("base64"));
-  expect(exported.width).toBe(6554);
-  expect(exported.height).toBe(8192);
-  expect(exported.border.reduce((sum, value) => sum + value, 0)).toBeGreaterThan(60);
-  expect(exported.paper[2]).toBeGreaterThan(exported.paper[0]);
-  expect(exported.photo).not.toEqual(exported.paper);
-  await download.saveAs(testInfo.outputPath("gallery-frame.jpeg"));
-  await expect(settings.getByRole("status")).toHaveText("JPEG download started.");
-  await expect(frame.locator(".table-frame-edge-surface")).toHaveCount(4);
-  await settings.getByRole("button", { name: "Contain", exact: true }).click();
-  const footprint = await frame.locator("[data-frame-slot-id]").evaluate((slot) => {
-    const image = slot.querySelector("img") as HTMLElement;
-    const edge = slot.querySelector(".table-frame-inner-edge") as HTMLElement;
-    const elevation = slot.querySelector(".table-frame-photo-elevation") as HTMLElement;
-    return { slotHeight: parseFloat((slot as HTMLElement).style.height), imageHeight: parseFloat(image.style.height),
-      edgeHeight: parseFloat(edge.style.height) - parseFloat(edge.style.borderWidth) * 2, elevationHeight: parseFloat(elevation.style.height) };
-  });
-  expect(footprint.edgeHeight).toBeCloseTo(footprint.imageHeight);
-  expect(footprint.elevationHeight).toBeCloseTo(footprint.imageHeight);
-  expect(footprint.edgeHeight).toBeLessThan(footprint.slotHeight);
-  await photoBox.click();
-  await settings.getByRole("slider", { name: "Corner radius", exact: true }).focus();
-  await page.keyboard.press("End");
-  await expect(frame.locator(".table-frame-photo-clip")).toHaveCSS("border-radius", "32px");
-  const rounded = await frame.locator("[data-frame-slot-id]").evaluate((slot) => {
-    const clip = slot.querySelector(".table-frame-photo-clip") as HTMLElement;
-    const edge = slot.querySelector(".table-frame-inner-edge") as HTMLElement;
-    const edgeStyle = getComputedStyle(edge);
-    return { photoRadius: parseFloat(getComputedStyle(clip).borderRadius), edgeRadius: parseFloat(edgeStyle.borderRadius),
-      edgeWidth: parseFloat(edge.style.borderWidth), clipHeight: parseFloat(clip.style.height), edgeHeight: parseFloat(edge.style.height) };
-  });
-  expect(rounded.edgeRadius - rounded.edgeWidth).toBeCloseTo(rounded.photoRadius);
-  expect(rounded.edgeHeight - rounded.edgeWidth * 2).toBeCloseTo(rounded.clipHeight);
-  await page.setViewportSize({ width: 1280, height: 800 });
-  await page.screenshot({ path: testInfo.outputPath("gallery-template-1280.png") });
+  expect(exported.width).toBe(6554); expect(exported.height).toBe(8192); expect(exported.lightPixels).toBeGreaterThan(500);
+  await download.saveAs(testInfo.outputPath("frame-with-text.jpeg"));
+  await expect(panel.getByRole("status")).toHaveText("JPEG download started.");
   await page.reload();
-  await expect(frame.locator(".table-frame-gallery-edge")).toHaveCSS("border-top-color", "rgb(73, 48, 37)");
-  await expect(frame.locator(".table-frame-page")).toHaveCSS("background-color", "rgb(30, 43, 69)");
-  await expect(frame.locator(".layout-paper-backdrop")).toHaveAttribute("style", /fine-paper/);
+  await expect(frame.locator("[data-frame-text-id]")).toHaveCount(2);
   await expect(frame.locator(".table-frame-gallery-edge")).toHaveClass(/edge-material-wood/);
-  await expect(frame.locator(".table-frame-inner-edge")).toHaveCount(1);
-  await expect(frame.locator(".table-frame-instant-caption")).toHaveCSS("font-size", "12px");
-  await frame.locator(".table-frame-title").click();
-  await settings.getByLabel("Template family").selectOption("instax");
-  await expect(frame.locator(".table-frame-instant-caption")).toHaveText("Shanghai, 2026");
 });

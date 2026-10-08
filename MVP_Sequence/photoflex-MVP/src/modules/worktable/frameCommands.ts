@@ -3,6 +3,7 @@ import type { FrameCommandError, FrameEditCommand, FrameId, FrameSlot, Worktable
 import { defaultFrameCrop, frameFamily, framePageSize, FRAME_TEMPLATES, frameTemplateRects, frameWorldSize, validFrameCrop, FRAME_MM_TO_PT } from "./frameLayout";
 import { isLayoutPaper } from "../layout/layoutPaper";
 import { reflowFrameCaption, validFrameCaptionStyle, validFrameEdgeStyle, validFrameInnerEdge } from "./frameAppearance";
+import { copyFrameTextBox, reflowFrameTextBoxes, validFrameTextBox } from "./frameText";
 
 const failure = (kind: FrameCommandError["kind"]) => err({ kind } as FrameCommandError);
 const framesOf = (draft: WorktableDraft) => draft.frames ?? {};
@@ -22,6 +23,8 @@ export function validWorktableFrame(frame: unknown): frame is WorktableFrame {
   if (page.innerEdge !== undefined && !validFrameInnerEdge(page.innerEdge)) return false;
   if (page.edgeStyle !== undefined && !validFrameEdgeStyle(page.edgeStyle)) return false;
   if (page.captionStyle !== undefined && !validFrameCaptionStyle(page.captionStyle, page)) return false;
+  if (page.textBoxes !== undefined && (!Array.isArray(page.textBoxes) || new Set(page.textBoxes.map((box) => box?.id)).size !== page.textBoxes.length
+    || !page.textBoxes.every((box) => validFrameTextBox(box, page)))) return false;
   if (page.cornerRadiusPt !== undefined && (!Number.isFinite(page.cornerRadiusPt) || page.cornerRadiusPt < 0 || page.cornerRadiusPt > 32)) return false;
   if (page.bleedPt !== undefined && (!Number.isFinite(page.bleedPt) || page.bleedPt < 0 || page.bleedPt > 20 * FRAME_MM_TO_PT)) return false;
   if (![page.widthPt, page.heightPt].every((n) => Number.isFinite(n) && n >= 50 * FRAME_MM_TO_PT && n <= 1000 * FRAME_MM_TO_PT)) return false;
@@ -32,7 +35,9 @@ export function validWorktableFrame(frame: unknown): frame is WorktableFrame {
   if (new Set(page.slots.map((slot) => slot?.id)).size !== page.slots.length) return false;
   return page.slots.every((slot) => {
     if (!slot || !slot.rect || !slot.crop || !slot.crop.focal || typeof slot.id !== "string" || !slot.id || (slot.photoId !== null && typeof slot.photoId !== "string") || (slot.origin !== undefined && slot.origin !== "manual" && slot.origin !== "template") || !validFrameCrop(slot.crop)
-      || (slot.cornerRadiusPt !== undefined && (!Number.isFinite(slot.cornerRadiusPt) || slot.cornerRadiusPt < 0 || slot.cornerRadiusPt > 32))) return false;
+      || (slot.cornerRadiusPt !== undefined && (!Number.isFinite(slot.cornerRadiusPt) || slot.cornerRadiusPt < 0 || slot.cornerRadiusPt > 32))
+      || (slot.innerEdge !== undefined && !validFrameInnerEdge(slot.innerEdge))
+      || (slot.photoElevationPt !== undefined && (!Number.isFinite(slot.photoElevationPt) || slot.photoElevationPt < 0 || slot.photoElevationPt > 20 * FRAME_MM_TO_PT))) return false;
     const { x, y, width, height } = slot.rect;
     return [x, y, width, height].every(Number.isFinite) && width >= FRAME_MM_TO_PT && height >= FRAME_MM_TO_PT
       && x + width >= FRAME_MM_TO_PT && y + height >= FRAME_MM_TO_PT
@@ -53,8 +58,9 @@ export function copyFrame(frame: WorktableFrame): WorktableFrame {
     ...(frame.page.edgeStyle ? { edgeStyle: { ...frame.page.edgeStyle } } : {}),
     ...(frame.page.innerEdge ? { innerEdge: { ...frame.page.innerEdge } } : {}),
     ...(frame.page.captionStyle ? { captionStyle: { ...frame.page.captionStyle, rect: { ...frame.page.captionStyle.rect } } } : {}),
+    ...(frame.page.textBoxes ? { textBoxes: frame.page.textBoxes.map(copyFrameTextBox) } : {}),
     templateSource: { ...frame.page.templateSource, marginsPt: { ...frame.page.templateSource.marginsPt } },
-    slots: frame.page.slots.map((slot) => ({ ...slot, rect: { ...slot.rect }, crop: { ...slot.crop, focal: { ...slot.crop.focal } } })),
+    slots: frame.page.slots.map((slot) => ({ ...slot, ...(slot.innerEdge ? { innerEdge: { ...slot.innerEdge } } : {}), rect: { ...slot.rect }, crop: { ...slot.crop, focal: { ...slot.crop.focal } } })),
   } };
 }
 
@@ -87,6 +93,15 @@ export function applyFrameCommand(draft: WorktableDraft, command: FrameEditComma
   if (command.type === "set-frame-inner-edge") return update({ ...frame, page: { ...frame.page, innerEdge: { ...command.edge } } });
   if (command.type === "set-frame-caption") return update({ ...frame, page: { ...frame.page, caption: command.caption } });
   if (command.type === "set-frame-caption-style") return update({ ...frame, page: { ...frame.page, captionStyle: { ...command.style, rect: { ...command.style.rect } } } });
+  if (command.type === "upsert-frame-text") {
+    const texts = frame.page.textBoxes ?? [];
+    return update({ ...frame, page: { ...frame.page, caption: undefined, captionStyle: undefined,
+      textBoxes: texts.some((box) => box.id === command.textBox.id) ? texts.map((box) => box.id === command.textBox.id ? copyFrameTextBox(command.textBox) : box) : [...texts, copyFrameTextBox(command.textBox)] } });
+  }
+  if (command.type === "remove-frame-text") {
+    if (!frame.page.textBoxes?.some((box) => box.id === command.textId)) return failure("invalid-frame");
+    return update({ ...frame, page: { ...frame.page, textBoxes: frame.page.textBoxes.filter((box) => box.id !== command.textId) } });
+  }
   if (command.type === "set-frame-photo-fit") return update({ ...frame, page: { ...frame.page,
     slots: frame.page.slots.map((slot) => ({ ...slot, crop: { ...slot.crop, mode: command.mode } })) } });
   if (command.type === "set-frame-bleed") return update({ ...frame, page: { ...frame.page, bleedPt: command.bleedPt } });
@@ -98,11 +113,13 @@ export function applyFrameCommand(draft: WorktableDraft, command: FrameEditComma
       let templateIndex = 0;
       return update({ ...frame, page: { ...frame.page, widthPt: command.widthPt, heightPt: command.heightPt,
         ...reflowFrameCaption(frame.page, command.widthPt, command.heightPt),
+        ...reflowFrameTextBoxes(frame.page, command.widthPt, command.heightPt),
         templateSource: { ...frame.page.templateSource, modified: false },
         slots: frame.page.slots.map((slot) => slot.origin === "manual" ? slot : { ...slot, rect: rects[templateIndex++] ?? slot.rect }) } });
     }
     return update({ ...frame, page: { ...frame.page, widthPt: command.widthPt, heightPt: command.heightPt,
       ...reflowFrameCaption(frame.page, command.widthPt, command.heightPt),
+      ...reflowFrameTextBoxes(frame.page, command.widthPt, command.heightPt),
       templateSource: { ...frame.page.templateSource, modified: true } } });
   }
   if (command.type === "bring-frame-to-front") {
@@ -120,9 +137,10 @@ export function applyFrameCommand(draft: WorktableDraft, command: FrameEditComma
       ...Object.values(draft.placements), ...Object.values(draft.pilePlacements), ...(draft.memos ?? []),
     ];
     while (occupied.some((item) => x < item.x + item.width + 24 && x + size.width + 24 > item.x && frame.y < item.y + item.height + 24 && frame.y + size.height + 24 > item.y)) x += size.width + 36;
-    const copy: WorktableFrame = { ...copyFrame(frame), id: command.copyId, name: `${frame.name} copy`, x,
+    const copied = copyFrame(frame);
+    const copy: WorktableFrame = { ...copied, id: command.copyId, name: `${frame.name} copy`, x,
       frontOfPhotos: false, y: frame.y, z: Math.min(1, ...Object.values(draft.placements).map((item) => item.z)) - 1,
-      page: { ...frame.page, slots: frame.page.slots.map((slot, index) => ({ ...slot, id: command.slotIds[index] })) } };
+      page: { ...copied.page, slots: copied.page.slots.map((slot, index) => ({ ...slot, id: command.slotIds[index] })) } };
     return validWorktableFrame(copy) ? ok({ ...draft, frameOrder: [...order, copy.id], frames: { ...frames, [copy.id]: copy } }) : failure("invalid-frame");
   }
   if (command.type === "apply-frame-template") {
@@ -145,7 +163,7 @@ export function applyFrameCommand(draft: WorktableDraft, command: FrameEditComma
       : { id: crypto.randomUUID() as FrameSlot["id"], rect, photoId: null, crop: defaultFrameCrop(command.template.id), origin: "template" });
     const retainedPhotos = managed.slice(targetCount).filter((slot) => slot.photoId).map((slot): FrameSlot => keepOnPage({ ...slot, origin: "manual" }));
     return update({ ...frame, displayScale: resetSize ? Math.max(.1, Math.min(4, frame.page.heightPt * frame.displayScale / heightPt)) : frame.displayScale,
-      page: { ...frame.page, widthPt, heightPt, ...reflowFrameCaption(frame.page, widthPt, heightPt), templateSource: { ...command.template, modified: false }, slots: [...laidOut, ...manual, ...retainedPhotos] } });
+      page: { ...frame.page, widthPt, heightPt, ...reflowFrameCaption(frame.page, widthPt, heightPt), ...reflowFrameTextBoxes(frame.page, widthPt, heightPt), templateSource: { ...command.template, modified: false }, slots: [...laidOut, ...manual, ...retainedPhotos] } });
   }
   if (command.type === "add-frame-slot") {
     if (frame.page.slots.some((slot) => slot.id === command.slotId)) return failure("invalid-frame");
@@ -168,6 +186,10 @@ export function applyFrameCommand(draft: WorktableDraft, command: FrameEditComma
   if (command.type === "set-frame-slot-corner-radius") {
     if (!frame.page.slots.some((slot) => slot.id === command.slotId)) return failure("unknown-frame-slot");
     return update({ ...frame, page: { ...frame.page, slots: frame.page.slots.map((slot) => slot.id === command.slotId ? { ...slot, cornerRadiusPt: command.cornerRadiusPt } : slot) } });
+  }
+  if (command.type === "set-frame-slot-inner-edge" || command.type === "set-frame-slot-elevation") {
+    if (!frame.page.slots.some((slot) => slot.id === command.slotId)) return failure("unknown-frame-slot");
+    return update({ ...frame, page: { ...frame.page, slots: frame.page.slots.map((slot) => slot.id !== command.slotId ? slot : command.type === "set-frame-slot-inner-edge" ? { ...slot, innerEdge: { ...command.edge } } : { ...slot, photoElevationPt: command.photoElevationPt }) } });
   }
   if (command.type === "fill-frame-slots") {
     const empty = frame.page.slots.filter((slot) => !slot.photoId);

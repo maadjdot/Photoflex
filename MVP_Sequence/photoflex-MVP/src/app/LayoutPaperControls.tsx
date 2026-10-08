@@ -16,12 +16,13 @@ export function LayoutPaperControls({ document, page, command, zh }: {
   return <PaperControls paper={paper} onChange={setPaper} zh={zh} onApplyAll={() => setPaper(paper, true)} allSame={allSame} />;
 }
 
-export function PaperControls({ paper, onChange, zh = false, onApplyAll, allSame }: {
+export function PaperControls({ paper, onChange, zh = false, onApplyAll, allSame, caretIcon }: {
   readonly paper: LayoutPaper;
   readonly onChange: (paper: LayoutPaper) => boolean;
   readonly zh?: boolean;
   readonly onApplyAll?: () => void;
   readonly allSame?: boolean;
+  readonly caretIcon?: string;
 }) {
   const [openMenu, setOpenMenu] = useState<"color" | "material" | "custom" | null>(null);
   const controlsRef = useRef<HTMLElement>(null);
@@ -47,12 +48,13 @@ export function PaperControls({ paper, onChange, zh = false, onApplyAll, allSame
       window.document.removeEventListener("keydown", closeOnEscape);
     };
   }, [openMenu]);
-  return <section ref={controlsRef} className="table-frame-section layout-paper-section"><h3>{label("PAPER", "纸张")}</h3>
+  return <section ref={controlsRef} className="table-frame-section layout-paper-section"><h3>{label(caretIcon ? "Paper" : "PAPER", "纸张")}</h3>
+    <div className="layout-paper-fields">
     <div className="layout-paper-field">
       <span className="layout-paper-field-label">{label("Color", "颜色")}</span>
       <button type="button" className="layout-paper-dropdown-trigger" aria-label={label("Paper color", "纸张颜色")} aria-haspopup="listbox" aria-expanded={openMenu === "color"} aria-controls="layout-paper-color-menu" onClick={() => setOpenMenu((current) => current === "color" ? null : "color")}>
         <span className="layout-paper-color-swatch" style={{ backgroundColor: selectedColor.color }} />
-        <span>{zh ? selectedColor.nameZh : selectedColor.name}</span><span className="layout-paper-dropdown-caret" aria-hidden="true">⌄</span>
+        <span>{zh ? selectedColor.nameZh : selectedColor.name}</span><span className="layout-paper-dropdown-caret" aria-hidden="true">{caretIcon ? <img src={caretIcon} alt="" width="10" height="10" /> : "⌄"}</span>
       </button>
       {openMenu === "color" && <div id="layout-paper-color-menu" className="layout-paper-dropdown-menu" role="listbox" aria-label={label("Paper colors", "纸张颜色选项")}>
         {LAYOUT_PAPER_COLORS.map((entry) => <button key={entry.color} type="button" role="option" aria-selected={paper.color.toUpperCase() === entry.color} aria-label={zh ? entry.nameZh : entry.name} className="layout-paper-dropdown-option" title={`${zh ? entry.nameZh : entry.name} · ${entry.color}`} onClick={() => choosePaper({ ...paper, color: entry.color })}>
@@ -70,13 +72,14 @@ export function PaperControls({ paper, onChange, zh = false, onApplyAll, allSame
       <span className="layout-paper-field-label">{label("Material", "材质")}</span>
       <button type="button" className="layout-paper-dropdown-trigger" aria-label={label("Paper material", "纸张材质")} aria-haspopup="listbox" aria-expanded={openMenu === "material"} aria-controls="layout-paper-material-menu" onClick={() => setOpenMenu((current) => current === "material" ? null : "material")}>
         <span className="layout-paper-material-sample"><LayoutPaperBackdrop paper={{ color: paper.color, material: selectedMaterial.id }} /></span>
-        <span>{zh ? selectedMaterial.nameZh : selectedMaterial.name}</span><span className="layout-paper-dropdown-caret" aria-hidden="true">⌄</span>
+        <span>{zh ? selectedMaterial.nameZh : selectedMaterial.name}</span><span className="layout-paper-dropdown-caret" aria-hidden="true">{caretIcon ? <img src={caretIcon} alt="" width="10" height="10" /> : "⌄"}</span>
       </button>
       {openMenu === "material" && <div id="layout-paper-material-menu" className="layout-paper-dropdown-menu" role="listbox" aria-label={label("Paper materials", "纸张材质选项")}>
         {LAYOUT_PAPER_MATERIALS.map((entry) => <button key={entry.id} type="button" role="option" aria-selected={paper.material === entry.id} aria-label={zh ? entry.nameZh : entry.name} className="layout-paper-dropdown-option" onClick={() => choosePaper({ ...paper, material: entry.id })}>
           <span className="layout-paper-material-sample"><LayoutPaperBackdrop paper={{ color: paper.color, material: entry.id }} /></span><span>{zh ? entry.nameZh : entry.name}</span>
         </button>)}
       </div>}
+    </div>
     </div>
     {onApplyAll && <button type="button" className="layout-paper-apply-all" disabled={allSame} onClick={onApplyAll}>{label("Apply to all pages", "应用到全部页面")}</button>}
   </section>;

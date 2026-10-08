@@ -88,7 +88,7 @@ describe("TablePage", () => {
     await waitFor(() => expect(restoredStage.querySelectorAll("[data-frame-id]")).toHaveLength(1));
   });
 
-  it("keeps a loaded photo visible when its photo box is brought to front", async () => {
+  it("keeps a loaded photo visible when switching selected photo boxes", async () => {
     const dependencies = await createFixture();
     render(<App dependencies={dependencies} />);
     const stage = await screen.findByLabelText("Photo worktable");
@@ -110,13 +110,16 @@ describe("TablePage", () => {
     expect(first.querySelector("img")?.classList.contains("table-frame-image-enter")).toBe(true);
     fireEvent.pointerDown(first, { pointerId: 37, button: 0, clientX: 420, clientY: 240 });
     fireEvent.pointerUp(frame, { pointerId: 37, button: 0, clientX: 420, clientY: 240 });
-    fireEvent.click(screen.getByRole("button", { name: "Front photo box" }));
-    expect(frame.querySelector("[data-frame-slot-id]:last-child")?.getAttribute("data-frame-slot-id")).toBe(first.getAttribute("data-frame-slot-id"));
+    const second = frame.querySelectorAll<HTMLElement>("[data-frame-slot-id]")[1];
+    fireEvent.pointerDown(second, { pointerId: 38, button: 0, clientX: 420, clientY: 350 });
+    fireEvent.pointerUp(frame, { pointerId: 38, button: 0, clientX: 420, clientY: 350 });
+    fireEvent.pointerDown(first, { pointerId: 39, button: 0, clientX: 420, clientY: 240 });
+    fireEvent.pointerUp(frame, { pointerId: 39, button: 0, clientX: 420, clientY: 240 });
     expect(first.querySelector(".table-frame-loading")).toBeNull();
     expect(first.querySelector("img")?.getAttribute("src")).toBe(image.getAttribute("src"));
   });
 
-  it("places Table photos above a Frame by default and honors Frame Front", async () => {
+  it("places Table photos above Frames and keeps keyboard copies below them", async () => {
     const dependencies = await createFixture();
     render(<App dependencies={dependencies} />);
     const stage = await screen.findByLabelText("Photo worktable");
@@ -129,9 +132,10 @@ describe("TablePage", () => {
     const lowestPhotoZ = Math.min(...photos.map((photo) => Number(photo.style.zIndex)));
     expect(Number(frame.style.zIndex)).toBeLessThan(lowestPhotoZ);
     const settings = within(screen.getByRole("complementary", { name: "Frame settings" }));
-    fireEvent.click(settings.getByRole("button", { name: /^Front$/ }));
-    expect(Number(frame.style.zIndex)).toBeGreaterThan(Math.max(...photos.map((photo) => Number(photo.style.zIndex))));
-    fireEvent.click(settings.getByRole("button", { name: "Duplicate" }));
+    expect(settings.queryByRole("button", { name: /^Front$/ })).toBeNull();
+    expect(settings.queryByRole("button", { name: "Duplicate" })).toBeNull();
+    fireEvent.keyDown(stage, { key: "c", ctrlKey: true });
+    fireEvent.keyDown(stage, { key: "v", ctrlKey: true });
     const duplicate = [...stage.querySelectorAll<HTMLElement>("[data-frame-id]")].find((item) => item !== frame)!;
     expect(Number(duplicate.style.zIndex)).toBeLessThan(lowestPhotoZ);
   });
@@ -168,7 +172,7 @@ describe("TablePage", () => {
     });
   });
 
-  it("moves a Fill photo crop with a right-button drag and saves it on release", async () => {
+  it("only edits a Fill photo crop after the toolbar button is used and saves on Done", async () => {
     const dependencies = await createFixture();
     render(<App dependencies={dependencies} />);
     const stage = await screen.findByLabelText("Photo worktable");
@@ -185,6 +189,14 @@ describe("TablePage", () => {
     fireEvent.pointerDown(slot, { pointerId: 81, button: 2, clientX: 200, clientY: 200 });
     fireEvent.pointerMove(frame, { pointerId: 81, button: 2, clientX: 235, clientY: 200 });
     fireEvent.pointerUp(frame, { pointerId: 81, button: 2, clientX: 235, clientY: 200 });
+    expect(screen.queryByRole("button", { name: "Cancel crop" })).toBeNull();
+    fireEvent.pointerDown(slot, { pointerId: 82, button: 0, clientX: 200, clientY: 200 });
+    fireEvent.pointerUp(frame, { pointerId: 82, button: 0, clientX: 200, clientY: 200 });
+    fireEvent.click(screen.getByRole("button", { name: "Adjust crop" }));
+    fireEvent.pointerDown(slot, { pointerId: 83, button: 0, clientX: 200, clientY: 200 });
+    fireEvent.pointerMove(frame, { pointerId: 83, button: 0, clientX: 235, clientY: 200 });
+    fireEvent.pointerUp(frame, { pointerId: 83, button: 0, clientX: 235, clientY: 200 });
+    fireEvent.click(screen.getByRole("button", { name: "Done" }));
     await waitFor(async () => {
       const workspace = await dependencies.projectStore.loadWorkspace(projectId);
       expect(workspace.ok).toBe(true);
@@ -211,13 +223,13 @@ describe("TablePage", () => {
     fireEvent.pointerDown(first, { pointerId: 82, button: 0, clientX: 200, clientY: 200 });
     fireEvent.pointerUp(frame, { pointerId: 82, button: 0, clientX: 200, clientY: 200 });
     fireEvent.click(screen.getByRole("button", { name: "Adjust crop" }));
-    fireEvent.change(screen.getByRole("slider", { name: /Zoom/ }), { target: { value: "2" } });
+    fireEvent.change(screen.getByRole("slider", { name: "Crop zoom" }), { target: { value: "2" } });
     expect(screen.getByRole("button", { name: "Done" })).toBeTruthy();
 
     fireEvent.pointerDown(second, { pointerId: 83, button: 0, clientX: 400, clientY: 200 });
     fireEvent.pointerUp(frame, { pointerId: 83, button: 0, clientX: 400, clientY: 200 });
 
-    expect(screen.getByRole("heading", { name: /PHOTO BOX 02/ })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: /Photo box 02/ })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Done" })).toBeNull();
   });
 

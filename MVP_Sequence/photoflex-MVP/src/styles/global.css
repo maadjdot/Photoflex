@@ -1,5 +1,6 @@
 @import "./table-chrome.css";
 @import "./table-frame.css";
+@import "./frame-toolbar.css";
 
 @font-face {
   font-family: "Ancizar Serif";
