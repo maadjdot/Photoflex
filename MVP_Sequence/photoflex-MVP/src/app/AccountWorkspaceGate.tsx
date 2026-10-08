@@ -16,12 +16,13 @@ export function AccountWorkspaceGate({ dependencies, children }: {
   readonly dependencies: AppDependencies;
   readonly children: (scoped: AppDependencies) => ReactNode;
 }) {
-  const { t } = useLocale();
+  const { t, locale } = useLocale();
   const account = dependencies.accountSession;
   const factory = dependencies.accountWorkspaces;
   const [user, setUser] = useState<AccountUser | null>();
   const [workspace, setWorkspace] = useState<AccountWorkspace>();
   const [mode, setMode] = useState<"sign-in" | "sign-up">("sign-in");
+  const adminLogin = window.location.hash.startsWith("#/admin/analytics") && mode === "sign-in";
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -118,8 +119,8 @@ export function AccountWorkspaceGate({ dependencies, children }: {
               <input type="text" required minLength={2} autoComplete="name" placeholder={t("cloud.fullNamePlaceholder")} value={fullName} onChange={(event) => setFullName(event.target.value)} />
             </label>}
             <label className="account-auth-field">
-              <span>{t("cloud.email")}</span>
-              <input type="email" required autoComplete="email" placeholder="you@example.com" value={email} onChange={(event) => setEmail(event.target.value)} />
+              <span>{adminLogin ? locale === "zh-CN" ? "用户名或邮箱" : "Username or email" : t("cloud.email")}</span>
+              <input type={adminLogin ? "text" : "email"} required autoComplete={adminLogin ? "username" : "email"} placeholder={adminLogin ? "administrator" : "you@example.com"} value={email} onChange={(event) => setEmail(event.target.value)} />
             </label>
             <label className="account-auth-field">
               <span className="account-auth-label-row">

@@ -1,13 +1,12 @@
 import { createServer } from 'node:http';
-import pg from 'pg';
 import { createHandler, cloudbaseVerifier } from './handler.mjs';
-import { createRepository } from './repository.mjs';
+import { createCloudBaseRepository } from './cloudbaseRepository.mjs';
 
 const list = name => (process.env[name] || '').split(',').map(value => value.trim()).filter(Boolean);
 const origins = list('ANALYTICS_ALLOWED_ORIGINS');
-if (!process.env.ANALYTICS_DATABASE_URL || !process.env.CLOUDBASE_ENV_ID || !origins.length) throw new Error('Missing analytics service configuration');
-const pool = new pg.Pool({ connectionString: process.env.ANALYTICS_DATABASE_URL, max: 3, connectionTimeoutMillis: 5000, idleTimeoutMillis: 10000, statement_timeout: 10000 });
-const handle = createHandler({ repository: createRepository(pool), verify: cloudbaseVerifier(process.env.CLOUDBASE_ENV_ID), origins, adminIds: list('ANALYTICS_ADMIN_IDS'), excludedUsers: list('ANALYTICS_INTERNAL_USER_IDS'), excludedVisitors: list('ANALYTICS_INTERNAL_VISITOR_IDS') });
+const apiKey = process.env.CLOUDBASE_ANALYTICS_API_KEY || process.env.CLOUDBASE_APIKEY;
+if (!apiKey || !process.env.CLOUDBASE_ENV_ID || !origins.length) throw new Error('Missing analytics service configuration');
+const handle = createHandler({ repository: createCloudBaseRepository(process.env.CLOUDBASE_ENV_ID,apiKey), verify: cloudbaseVerifier(process.env.CLOUDBASE_ENV_ID), origins, adminIds: list('ANALYTICS_ADMIN_IDS'), excludedUsers: list('ANALYTICS_INTERNAL_USER_IDS'), excludedVisitors: list('ANALYTICS_INTERNAL_VISITOR_IDS') });
 createServer(async (request,response) => {
   const path = new URL(request.url,'http://localhost').pathname;
   if (path === '/health' && request.method === 'GET') { response.writeHead(200,{ 'Content-Type': 'application/json' }); response.end('{"ok":true}'); return; }

@@ -13,3 +13,9 @@ it("records registration only after OTP confirmation and clears telemetry identi
   await account.signOut(); expect(analytics.setUser).toHaveBeenLastCalledWith(null);
   expect(JSON.stringify(analytics.track.mock.calls)).not.toContain("private");
 });
+it("uses the username credential for the administrator account", async () => {
+  const signInWithPassword = vi.fn(async () => ({ data: { user: { id: "admin-id" } }, error: null }));
+  const account = new CloudBaseAccountSession({ auth: { signInWithPassword } } as unknown as CloudBaseClient);
+  expect((await account.signIn("administrator", "test-password")).ok).toBe(true);
+  expect(signInWithPassword).toHaveBeenCalledWith({ username: "administrator", password: "test-password" });
+});

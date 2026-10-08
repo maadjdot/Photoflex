@@ -51,7 +51,7 @@ export class CloudBaseAccountSession implements AccountSession {
 
   async signIn(email: string, password: string): Promise<Result<AccountUser, AccountError>> {
     try {
-      const { data, error } = await this.client.auth.signInWithPassword({ email, password });
+      const { data, error } = await this.client.auth.signInWithPassword(email.includes("@") ? { email, password } : { username: email, password });
       if (error) return err(toAccountError(error));
       const user = data.user ?? data.session?.user;
       if (!user?.id) return err({ kind: "unavailable", retryable: false });

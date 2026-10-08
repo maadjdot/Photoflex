@@ -12,6 +12,25 @@ import { LocaleProvider } from "./locale";
 afterEach(() => { cleanup(); window.location.hash = "#/"; });
 
 describe("AccountWorkspaceGate", () => {
+  it("allows username sign-in only on the private analytics route", async () => {
+    window.location.hash = "#/admin/analytics";
+    const accountSession: AccountSession = {
+      getCurrentUser: vi.fn(async () => ok(null)), subscribe: vi.fn(() => () => undefined),
+      signIn: vi.fn(async () => ok({ id: "admin-id" })), signUp: vi.fn(), signOut: vi.fn(),
+    };
+    const dependencies: AppDependencies = {
+      projectStore: new MemoryProjectStore(), photoSource: new MemoryPhotoSource(), accountSession,
+      accountWorkspaces: { open: vi.fn(() => ({ dependencies: { projectStore: new MemoryProjectStore(), photoSource: new MemoryPhotoSource(), accountSession }, close: vi.fn(async () => undefined) })) },
+    };
+    render(<LocaleProvider><AccountWorkspaceGate dependencies={dependencies}>{() => <div>ADMIN WORKSPACE</div>}</AccountWorkspaceGate></LocaleProvider>);
+    const username = await screen.findByLabelText("Username or email");
+    expect(username.getAttribute("type")).toBe("text");
+    fireEvent.change(username, { target: { value: "administrator" } });
+    fireEvent.change(screen.getByPlaceholderText("••••••••"), { target: { value: "test-password" } });
+    fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
+    expect(await screen.findByText("ADMIN WORKSPACE")).toBeTruthy();
+    expect(accountSession.signIn).toHaveBeenCalledWith("administrator", "test-password");
+  });
   it("hides the local workspace after logout and opens an account-scoped workspace after login", async () => {
     const authListeners: Array<(user: { id: string; email?: string } | null) => void> = [];
     const accountSession: AccountSession = {

@@ -1,6 +1,6 @@
 # PhotoFlex 首版行为分析：实施与部署准备
 
-本轮按用户选择仅做本地验收和部署准备。功能分支为 `codex/product-analytics`，基础提交为 `c941996fbcd2114f83d3f1bfe79c4332854b11c7`。未执行云端建表、云函数部署、生产启用或 main 合并。用户现有根应用 `package.json`、`pnpm-lock.yaml` 的 Vercel Analytics 修改及未跟踪文档保留，不纳入本功能提交。
+用户于 2026-10-08 要求部署。功能分支为 `codex/product-analytics`，基础提交为 `c941996fbcd2114f83d3f1bfe79c4332854b11c7`。部署前核对发现开发/生产 PostgreSQL 都是共享集群，没有可用 TCP 直连地址，因此运行服务采用官方 HTTP/RPC 访问。用户确认生产统计管理员为 `administrator`，应用用户 ID `2107522617501024256`；此前提供的 `100052883805` 是腾讯云账号 UIN，不能作为应用管理员 ID。用户现有根应用 package/lock 修改及未跟踪文档保留，不纳入本功能提交。
 
 ## 实现位置与边界
 
@@ -8,8 +8,8 @@
 - `instrumentDependencies.ts`：项目创建、初始序列持久化/后续保存、新来源扫描、拖入照片结果。自动重新打开/恢复来源扫描不重复记录导入。序列保存最多每 30 秒记录一次。
 - `CloudBaseAccountSession.ts`：注册需认证成功；邮箱验证码未确认时无 `signup_completed`。退出和认证变更同步解除绑定，旧初始化结果不能覆盖较新的身份。
 - 导出：Sequence PDF、Frame JPEG、Layout PDF，以及已有的序列文件夹导出。开始与完成用 `attempt_id` 关联。Layout 包含预检；预检阻塞、取消、生成异常分别记录失败。文件夹复制有部分失败时不记为完整生成成功。
-- `cloudfunctions/analytics`：独立 CloudBase Web 云函数，Node 22+，端口 9000，`POST /events`、`POST /stats`、`GET /health`。通过当前环境 `/auth/v1/user/me` 核验用户令牌，只保留认证 ID 与创建时间。请求的账号 ID、项目 ID、URL 和任意属性均不能进入事件。
-- `#/admin/analytics`：私有统计页。每个统计请求均需后端认证并命中管理员 ID 名单。普通账号不能读取事件、认证事实或统计。
+- `cloudfunctions/analytics`：独立 CloudBase Web 云函数，Node 20.19，端口 9000，`POST /events`、`POST /stats`、`GET /health`。通过当前环境 `/auth/v1/user/me` 核验用户令牌，只保留认证 ID 与创建时间；后端通过三项受限 SQL RPC 访问分析表。请求的账号 ID、项目 ID、URL 和任意属性均不能进入事件。
+- `#/admin/analytics`：私有统计页，支持管理员用户名或邮箱登录，常规用户页面继续使用邮箱登录。每个统计请求均需后端认证并命中管理员 ID 名单。普通账号不能读取事件、认证事实或统计。
 
 不改变项目云同步、`public.projects`、认证账号、照片存放方式、Caddy、Hermes 或网站发布路径。未登录访客不启用 CloudBase 匿名登录。没有照片云上传或旧项目数据迁移。
 
@@ -53,7 +53,7 @@
 ```
 
 ```powershell
-# ANALYTICS_DATABASE_URL 仅在后端/安全终端中设置。
+# CLOUDBASE_ENV_ID 与 CLOUDBASE_ANALYTICS_API_KEY 仅在后端/安全终端中设置。
 node cloudfunctions/analytics/import-auth-facts.mjs sanitized-facts.json 2026-10-08T00:00:00Z
 ```
 
@@ -63,19 +63,19 @@ node cloudfunctions/analytics/import-auth-facts.mjs sanitized-facts.json 2026-10
 
 ## 数据库与权限变更
 
-审查 `cloudfunctions/analytics/migrations/001_analytics.sql`。它在事务内新增四张独立表及索引：`analytics_events`、`analytics_session_accounts`、`analytics_auth_users`、`analytics_auth_coverage`，以及 `photoflex_analytics` NOLOGIN 权限组。
+依序审查 `cloudfunctions/analytics/migrations/001_analytics.sql` 和 `002_cloudbase_rpc.sql`。001 在事务内新增四张独立表及索引：`analytics_events`、`analytics_session_accounts`、`analytics_auth_users`、`analytics_auth_coverage`；002 新增三项 SQL RPC。
 
-所有表启用并强制 RLS，撤销 PUBLIC 和存在的 anon/authenticated 默认权限。仅该后端权限组有 SELECT/INSERT 权限；认证事实/覆盖表额外有 UPDATE 权限。后端组没有 projects 权限，没有 analytics 删除权限。数据库超级管理员仍保有运维权限，不可拿该账号作为采集服务身份。
+所有表启用并强制 RLS，撤销 PUBLIC 和存在的 anon/authenticated 默认权限。RPC 为 SECURITY INVOKER，仅 service_role 可调用；分析表仅授予 service_role SELECT/INSERT，认证事实/覆盖表额外有 UPDATE，未授予分析事件 DELETE。普通用户与访客既不能直接访问表，也不能调用 RPC。
 
-用数据库管理员在开发环境执行一次迁移，随后在控制台安全地创建专用登录角色 `analytics_runtime`（非 SUPERUSER、非 BYPASSRLS、非表所有者），授予其 `photoflex_analytics`。连接字符串密码只存云函数环境变量。若已有默认 PUBLIC projects 权限，先确认项目现有权限策略；不要因 analytics 授权扩大其权限。SQL 不包含密码，也不复制已有项目数据。
+共享集群使用 CloudBase 后端 API Key，映射为 service_role 并具有 BYPASSRLS；它仍受表级权限控制，但现有 projects 已授予 service_role 权限，因此该密钥属于环境级管理员凭证，不应被描述为只能访问分析表。它只存采集云函数的后端环境变量，不进入浏览器、代码包、GitHub 变量或仓库。采集服务只调用固定的三项分析 RPC，无任意 SQL 或代理入口。没有重置数据库密码、升级集群、修改原 projects 授权或复制既有项目。
 
 ## 开发部署验收（尚未执行）
 
-1. 目标为 `photoflex-d0gh9kyug3b971e6d`。核对实际 PostgreSQL 连接地址、专用角色权限与管理员账号在此环境的身份。
-2. 执行新增表迁移，配置专用数据库角色，通过真实连接再次验证普通账号/访客读取被拒绝、后端不能访问 projects。
-3. 从 `cloudfunctions/analytics` 单独部署名为 `photoflex-analytics` 的 **Web/HTTP 云函数**（不是普通事件函数），Node 22+，启动命令 `npm start`。运行依赖使用 `npm ci --omit=dev --ignore-scripts`；PGlite 仅供本地/CI 测试，不进入函数运行包。
+1. 目标为 `photoflex-d0gh9kyug3b971e6d`。核对分析表尚不存在，以及管理员账号在此环境的身份。
+2. 依序执行 001 与 002；创建专用后端 API Key，只放在当前环境采集函数。通过角色模拟和真实令牌再次验证普通账号/访客不能读写分析表或调用 RPC。
+3. 单独部署名为 `photoflex-analytics` 的 **Web/HTTP 云函数**（不是普通事件函数），Node.js 20.19，9000 端口，关闭自动安装依赖。包仅含 server、handler、cloudbaseRepository、statistics、validation、package 和可执行 scf_bootstrap；无运行依赖。启动脚本使用 `/var/lang/node20/bin/node server.mjs`。PGlite 仅供测试，不进入运行包。
 4. 使用实际 HTTP 触发器 URL。开放未登录 HTTP 访问供访客采集；管理员接口的身份核验在函数内完成，不依赖前端隐藏入口。不要为这个函数改写环境内其他云函数的安全规则。
-5. 后端配置：`CLOUDBASE_ENV_ID`、`ANALYTICS_DATABASE_URL`、`ANALYTICS_ALLOWED_ORIGINS`、`ANALYTICS_ADMIN_IDS=100052883805`、`ANALYTICS_INTERNAL_USER_IDS`、`ANALYTICS_INTERNAL_VISITOR_IDS`。origin 逐个精确列出，不用 `*`。SQL 连接启用证书验证，使用 CloudBase 控制台提供的有效参数。
+5. 后端配置：`CLOUDBASE_ENV_ID`、`CLOUDBASE_ANALYTICS_API_KEY`、`ANALYTICS_ALLOWED_ORIGINS`、`ANALYTICS_ADMIN_IDS`（开发环境对应实际认证 ID）、`ANALYTICS_INTERNAL_USER_IDS`、`ANALYTICS_INTERNAL_VISITOR_IDS`。origin 逐个精确列出，不用 `*`。HTTP 仅使用官方 HTTPS 环境域名，不跳过证书验证。
 6. 前端开发构建显式设置 `VITE_ANALYTICS_URL` 为触发器根 URL，继续使用开发 CloudBase 环境 ID。入口追加 `/events` 和 `/stats`；访问 `#/admin/analytics`。
 7. 真实注册 OTP 未完成时确认没有注册完成事件；完成后核对服务端 ID/认证创建时间。依次创建项目、导入照片、创建和保存序列、生成 PDF/JPEG；取消与预检失败检查 attempt 关联及分类；同一事件重复发送检查一行。
 8. 退出并切换两个测试账号，检查旧账号队列不使用新令牌发送、会话与访客 ID 已更新。无令牌的访问不创建匿名认证账号。普通账号直接请求 `/stats` 必须 403；伪造 body 的 user_id 必须 400；管理员应能读取统计。
@@ -83,7 +83,7 @@ node cloudfunctions/analytics/import-auth-facts.mjs sanitized-facts.json 2026-10
 
 ## 生产启用的审查顺序（尚未授权执行）
 
-待开发环境真实验收后提交具体变更审查：新增表 SQL、专用角色授权、Web 函数包与环境变量名称、管理员/内部测试名单、公开采集 URL、前端功能分支差异及 CI 结果。生产目标为 `photoflex-prod-d8g6nph8u08611400`。
+待开发环境真实验收后审查：新增表/RPC SQL、Web 函数包与后端 API Key、管理员/内部测试名单、公开采集 URL、前端功能分支差异及 CI 结果。生产目标为 `photoflex-prod-d8g6nph8u08611400`，管理员 ID 为 `2107522617501024256`。创建密钥、表/RPC 授权和公开采集接口须按浏览器操作规则取得执行时确认；普通发布已由用户“部署”请求授权。
 
 先在生产新增独立表和函数，确认权限、认证和健康检查，再配置仓库公开变量 `VITE_ANALYTICS_URL`。现有 CI 新增函数 tests，并将该变量传入原有生产构建；空变量保持埋点关闭。main 合并仍会走现有完整检查并自动发布到腾讯云，不跳过验收，不恢复 Vercel 部署。
 
@@ -103,4 +103,4 @@ pnpm test:e2e
 
 2026-10-08 本地结果：应用 92 个测试文件、482 项测试通过，TypeScript 与生产构建通过；函数 16 项测试通过（包含真实 PostgreSQL DDL/权限检查）；完整 Chrome/Edge 回归 86 项通过，最后身份生命周期调整后新增流程再跑两浏览器均通过。根应用 package/lock 文件哈希与开始工作时一致。尚无开发或生产 CloudBase 部署/令牌验收结果。
 
-官方接口依据：[认证当前用户信息](https://docs.cloudbase.net/http-api/auth/user-me)、[PostgreSQL 连接方式](https://docs.cloudbase.net/database/postgresql/connecting-to-postgresql)、[HTTP 云函数客户端访问](https://docs.cloudbase.net/cloud-function/function-calls/httpclient)、[Web 云函数端口与启动方式](https://docs.cloudbase.net/recipes/connect-openai-api-cloud-function)。本实现采用 CloudBase HTTP 认证和原生 PostgreSQL 连接，不复用旧 Supabase 方案。
+官方接口依据：[认证当前用户信息](https://docs.cloudbase.net/http-api/auth/user-me)、[RPC 接口](https://docs.cloudbase.net/http-api/pgdb/rpc-call)、[PG 认证与 service_role](https://docs.cloudbase.net/authentication-v2/auth/auth-pg)、[HTTP 云函数客户端访问](https://docs.cloudbase.net/cloud-function/function-calls/httpclient)、[运行时路径](https://docs.cloudbase.net/cloud-function/runtime-support)。本实现采用 CloudBase HTTP 认证和 PostgreSQL RPC，不复用旧 Supabase 接口假设。

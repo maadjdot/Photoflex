@@ -1,10 +1,5 @@
 BEGIN;
 -- Additive only: never reads or alters public.projects or authentication tables.
-DO $$ BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'photoflex_analytics') THEN
-    CREATE ROLE photoflex_analytics NOLOGIN;
-  END IF;
-END $$;
 CREATE TABLE public.analytics_events (
   event_id uuid PRIMARY KEY,
   visitor_id uuid NOT NULL,
@@ -57,12 +52,5 @@ DO $$ BEGIN
   END IF;
 END $$;
 -- No anon/authenticated policy: end users cannot read or write any analytics table.
-CREATE POLICY analytics_service_events ON public.analytics_events TO photoflex_analytics USING (true) WITH CHECK (true);
-CREATE POLICY analytics_service_users ON public.analytics_auth_users TO photoflex_analytics USING (true) WITH CHECK (true);
-CREATE POLICY analytics_service_coverage ON public.analytics_auth_coverage TO photoflex_analytics USING (true) WITH CHECK (true);
-CREATE POLICY analytics_service_sessions ON public.analytics_session_accounts TO photoflex_analytics USING (true) WITH CHECK (true);
-GRANT USAGE ON SCHEMA public TO photoflex_analytics;
-GRANT SELECT, INSERT ON public.analytics_events TO photoflex_analytics;
-GRANT SELECT, INSERT ON public.analytics_session_accounts TO photoflex_analytics;
-GRANT SELECT, INSERT, UPDATE ON public.analytics_auth_users, public.analytics_auth_coverage TO photoflex_analytics;
+-- The CloudBase service_role backend grants are installed separately by migration 002.
 COMMIT;
