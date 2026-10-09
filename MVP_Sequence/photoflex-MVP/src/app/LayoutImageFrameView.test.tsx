@@ -29,6 +29,26 @@ it("places effects around the visible Fit photo, scales physical dimensions, and
   expect(view.container.querySelector<HTMLImageElement>("img")!.style.opacity).toBe("0.45");
   expect(shadow.style.opacity).toBe("");
 });
+
+it("shows the full photo faintly outside the crop while keeping the saved preview clipped", async () => {
+  const photoId = "photo" as PhotoId;
+  const source = { getPhoto: async () => ok({ id: photoId, width: 300, height: 200 }),
+    derivedPreview: async () => ok({ url: "preview", release: () => {} }) } as unknown as PhotoSource;
+  const frame: LayoutImageFrame = { kind: "image-frame", id: "frame" as LayoutImageFrame["id"],
+    rect: { x: 0, y: 0, width: 150, height: 200 }, photoId,
+    crop: { mode: "fill", zoom: 1, focal: { x: .25, y: .5 } } };
+  const view = render(<LayoutImageFrameView frame={frame} photoSource={source} sourceRevision={0} cropping
+    onMetadata={() => {}} onMissing={() => {}} />);
+  await waitFor(() => expect(view.container.querySelector(".layout-crop-photo-outside")).toBeTruthy());
+  const outside = view.container.querySelector<HTMLImageElement>(".layout-crop-photo-outside")!;
+  expect(outside.style.width).toBe("200%");
+  expect(outside.style.opacity).toBe("0.25");
+  expect(outside.style.clipPath).toContain("evenodd");
+  expect(view.container.querySelector(".layout-image-clip img")).toBeTruthy();
+  view.rerender(<LayoutImageFrameView frame={frame} photoSource={source} sourceRevision={0}
+    onMetadata={() => {}} onMissing={() => {}} />);
+  expect(view.container.querySelector(".layout-crop-photo-outside")).toBeNull();
+});
 it("releases its preview lease when the visible page is removed", async () => {
   const release = vi.fn();
   const photoId = "photo" as PhotoId;

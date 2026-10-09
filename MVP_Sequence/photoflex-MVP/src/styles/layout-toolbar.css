@@ -22,6 +22,16 @@
 .layout-extra-photo-settings { margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--frame-line); }
 .layout-extra-photo-settings > summary { color: var(--frame-text); font-size: 11px; font-weight: 500; cursor: pointer; }
 .layout-extra-photo-settings[open] > summary { margin-bottom: 12px; }
+.layout-inspector-section > summary { display: flex; align-items: center; gap: 8px; list-style: none; cursor: pointer; }
+.layout-inspector-section > summary::-webkit-details-marker { display: none; }
+.layout-inspector-section > summary::before { content: ""; flex: 0 0 10px; width: 10px; height: 10px; background: url("../assets/icons/layout-design/chevron.svg") center / contain no-repeat; transform: rotate(-90deg); }
+.layout-inspector-section[open] > summary::before { transform: rotate(0); }
+.layout-inspector-section > summary h3 { flex: 1; margin: 0; }
+.layout-inspector-section > summary > span { color: var(--frame-faint); font-size: 9px; }
+.layout-inspector-section-body { display: flex; flex-direction: column; gap: 8px; padding-top: 8px; }
+.layout-inspector-section:not([open]) > .layout-inspector-section-body { display: none; }
+.layout-inspector-section > summary:focus-visible { outline: 2px solid #6b7280; outline-offset: 3px; border-radius: 3px; }
+.layout-inspector-section.layout-extra-photo-settings[open] > summary { margin-bottom: 0; }
 .layout-properties-panel.is-frame-toolbar .layout-template-strip { gap: 6px; }
 .layout-properties-panel.is-frame-toolbar .layout-template-strip button { height: 36px; min-height: 36px; padding: 4px; border-radius: 6px; background: #fff; }
 .layout-properties-panel.is-frame-toolbar .layout-template-strip button[aria-pressed="true"] { border-color: var(--frame-ink); background: #fff; box-shadow: var(--frame-control-shadow); }

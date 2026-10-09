@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import type { LayoutId, LayoutObjectId, LayoutPageId, PhotoId, ProjectId, SequenceId } from "../../contracts";
 import { applyLayoutCommand, createEmptyLayout } from "./layoutDocument";
-import { alignLayoutRect, createImageFrame, drawImageRect, imageTemplateFrames, panImageCrop, replaceFramePhoto, transformImageRect, zoomImageCropAtPoint } from "./layoutImages";
-import { MM_TO_PT } from "../page-layout/pageGeometry";
+import { alignLayoutRect, createImageFrame, drawImageRect, imageTemplateFrames, panImageCrop, replaceFramePhoto, resizeImageCropFrame, transformImageRect, zoomImageCropAtPoint } from "./layoutImages";
+import { MM_TO_PT, resolveImagePlacement, validCrop } from "../page-layout/pageGeometry";
 
 const spec = { widthPt: 210 * MM_TO_PT, heightPt: 297 * MM_TO_PT };
 describe("Layout image actions", () => {
@@ -38,6 +38,34 @@ describe("Layout image actions", () => {
     const zoomed = zoomImageCropAtPoint(first.crop, { width: 200, height: 100 }, first.rect, 2, { x: 25, y: 50 });
     expect(zoomed.zoom).toBe(2);
     expect(zoomed.focal.x).toBeLessThan(.5);
+  });
+
+  it.each(["n", "ne", "e", "se", "s", "sw", "w", "nw"] as const)("moves the %s crop boundary without moving or rescaling the photo", (handle) => {
+    const image = { width: 1200, height: 800 };
+    const frame = { ...createImageFrame("crop" as LayoutObjectId, { x: 100, y: 80, width: 300, height: 200 }, "photo" as PhotoId), photoAspectRatio: 1.5 };
+    const dx = handle.includes("w") ? 30 : -30, dy = handle.includes("n") ? 25 : -25;
+    const cropped = resizeImageCropFrame(frame, image, handle, dx, dy);
+    const placement = resolveImagePlacement(image, cropped.rect, cropped.crop);
+    expect(cropped.rect.width <= frame.rect.width && cropped.rect.height <= frame.rect.height).toBe(true);
+    expect(placement.width).toBeCloseTo(300);
+    expect(placement.height).toBeCloseTo(200);
+    expect(cropped.rect.x + placement.x).toBeCloseTo(100);
+    expect(cropped.rect.y + placement.y).toBeCloseTo(80);
+    expect(cropped.photoAspectRatio).toBeUndefined();
+    expect(validCrop(cropped.crop)).toBe(true);
+  });
+
+  it("can expand a crop back over the full photo and clamps at its actual bounds", () => {
+    const image = { width: 1200, height: 800 };
+    const frame = createImageFrame("crop" as LayoutObjectId, { x: 100, y: 80, width: 300, height: 200 }, "photo" as PhotoId);
+    const cropped = resizeImageCropFrame(frame, image, "se", -90, -50);
+    const restored = resizeImageCropFrame(cropped, image, "se", 1000, 1000);
+    expect(restored.rect).toEqual(frame.rect);
+    const smallest = resizeImageCropFrame(frame, image, "se", -1000, -1000);
+    expect(validCrop(smallest.crop)).toBe(true);
+    const placement = resolveImagePlacement(image, smallest.rect, smallest.crop);
+    expect(placement.width).toBeCloseTo(300);
+    expect(placement.height).toBeCloseTo(200);
   });
 
   it("replaces image frames in one document command while preserving text, and templates become ordinary frames", () => {

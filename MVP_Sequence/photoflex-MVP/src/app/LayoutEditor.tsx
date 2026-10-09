@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type DragEvent, type PointerEvent as ReactPointerEvent, type WheelEvent as ReactWheelEvent } from "react";
 import type { LayoutDocument, LayoutEditCommand, LayoutFontFamily, LayoutImageFrame, LayoutObjectId, LayoutPageId, LayoutRect, LayoutTextBox, PhotoId, SequenceDocument } from "../contracts";
-import { alignLayoutRect, createImageFrame, drawImageRect, imageTemplateFrames, panImageCrop, replaceFramePhoto, transformImageRect, zoomImageCropAtPoint, type LayoutAlignmentGuide, type ResizeHandle } from "../modules/layout/layoutImages";
+import { alignLayoutRect, createImageFrame, drawImageRect, imageTemplateFrames, panImageCrop, replaceFramePhoto, resizeImageCropFrame, transformImageRect, zoomImageCropAtPoint, type LayoutAlignmentGuide, type ResizeHandle } from "../modules/layout/layoutImages";
 import { DEFAULT_LAYOUT_FONT, LAYOUT_FONT_BY_FAMILY, LAYOUT_FONTS, layoutFontCssStack, layoutFontStyle, layoutFontWeight } from "../modules/layout/layoutFonts";
 import { facingPageIndices } from "../modules/layout/layoutPages";
 import { layoutPageLabel, layoutPageProgressLabel } from "../modules/layout/layoutPageNumbers";
@@ -14,6 +14,7 @@ import { LayoutPaperBackdrop } from "./LayoutPaperBackdrop";
 import { LayoutPaperControls } from "./LayoutPaperControls";
 import { LayoutPhotoAppearanceControls } from "./LayoutPhotoAppearanceControls";
 import { LayoutInspectorSlider } from "./LayoutInspectorSlider";
+import { LayoutInspectorSection } from "./LayoutInspectorSection";
 import { useLocale } from "./locale";
 import { PhotoThumb } from "./PhotoThumb";
 import undoIcon from "../assets/icons/table-undo.svg";
@@ -23,25 +24,28 @@ import designChevronIcon from "../assets/icons/layout-design/chevron.svg";
 import designCheckIcon from "../assets/icons/layout-design/check.svg";
 
 type Point = { x: number; y: number };
+type CropDraft = { pageId: LayoutPageId; frameId: LayoutObjectId; rect: LayoutRect; crop: ImageCrop };
 type Gesture =
   | { kind: "marquee"; pageId: LayoutPageId; pageIndex: number; pointerId: number; start: Point; current: Point; additive: boolean }
   | { kind: "group"; pageId: LayoutPageId; pageIndex: number; pointerId: number; start: Point; dx: number; dy: number; objects: readonly { pageId: LayoutPageId; pageIndex: number; object: LayoutImageFrame | LayoutTextBox }[] }
   | { kind: "draw"; objectKind: "image-frame" | "text-box"; pageId: LayoutPageId; pageIndex: number; pointerId: number; start: Point; current: Point }
   | { kind: "frame"; pageId: LayoutPageId; pageIndex: number; pointerId: number; object: LayoutImageFrame | LayoutTextBox; handle: ResizeHandle; start: Point; rect: LayoutRect; guides: readonly LayoutAlignmentGuide[] }
-  | { kind: "crop"; pageId: LayoutPageId; pageIndex: number; pointerId: number; frame: LayoutImageFrame; start: Point; initialCrop: ImageCrop; baseCrop: ImageCrop; crop: ImageCrop; quick: boolean; moved: boolean };
+  | { kind: "crop"; pageId: LayoutPageId; pageIndex: number; pointerId: number; frame: LayoutImageFrame; start: Point; initialDraft: CropDraft; baseCrop: ImageCrop; crop: ImageCrop; quick: boolean; moved: boolean }
+  | { kind: "crop-frame"; pageId: LayoutPageId; pageIndex: number; pointerId: number; frame: LayoutImageFrame; start: Point; initialDraft: CropDraft; handle: Exclude<ResizeHandle, "move"> };
 const photoDragType = "application/x-photoflex-photo-id";
 const templateLabels: Record<LayoutTemplateId, string> = { single: "Single", diptych: "Diptych", triptych: "Triptych", "quad-grid": "Quad Grid", "full-page": "Full Page" };
 const newObjectId = () => crypto.randomUUID() as LayoutObjectId;
 const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
 const fieldLabel = (zh: boolean, en: string, chinese: string) => zh ? chinese : en;
 
-function RectNumberField({ label, valuePt, onCommit, step = .1, min, max }: {
-  label: string; valuePt: number; onCommit: (valuePt: number) => boolean; step?: number; min?: number; max?: number;
+function RectNumberField({ label, valuePt, onCommit, step = .1, min, max, readOnly = false }: {
+  label: string; valuePt: number; onCommit: (valuePt: number) => boolean; step?: number; min?: number; max?: number; readOnly?: boolean;
 }) {
   const formatted = String(+(valuePt / MM_TO_PT).toFixed(1));
   const [value, setValue] = useState(formatted);
   useEffect(() => setValue(formatted), [formatted]);
-  return <label className={`layout-number-field${/^[XYWH] mm$/.test(label) ? " layout-position-field" : ""}`}><span title={label}>{label.replace(/ mm$/, "")}</span><input aria-label={label} type="number" min={min} max={max} step={step} value={value} onChange={(event) => setValue(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); }} onBlur={() => {
+  return <label className={`layout-number-field${/^[XYWH] mm$/.test(label) ? " layout-position-field" : ""}`}><span title={label}>{label.replace(/ mm$/, "")}</span><input aria-label={label} type="number" min={min} max={max} step={step} value={value} readOnly={readOnly} onChange={(event) => setValue(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); }} onBlur={() => {
+    if (readOnly) return;
     if (!value.trim()) { setValue(formatted); return; }
     const next = Number(value) * MM_TO_PT;
     if (!Number.isFinite(next) || Math.abs(next - valuePt) < .001) { setValue(formatted); return; }
@@ -112,7 +116,7 @@ export function LayoutEditor({ document, sequence, dependencies, selectedIndex, 
   const [selectedIds, setSelectedIds] = useState<ReadonlySet<LayoutObjectId>>(new Set());
   const [gesture, setGesture] = useState<Gesture>();
   const gestureRef = useRef<Gesture | undefined>(undefined);
-  const [cropDraft, setCropDraft] = useState<{ pageId: LayoutPageId; frameId: LayoutObjectId; crop: ImageCrop }>();
+  const [cropDraft, setCropDraft] = useState<CropDraft>();
   const cropRef = useRef<typeof cropDraft>(undefined);
   const [templateId, setTemplateId] = useState<LayoutTemplateId>("single");
   const [templatePhotoItemIds, setTemplatePhotoItemIds] = useState<string[]>([]);
@@ -248,20 +252,23 @@ export function LayoutEditor({ document, sequence, dependencies, selectedIndex, 
   const beginCrop = (frame: LayoutImageFrame, pageId: LayoutPageId) => {
     if (!frame.photoId) return;
     selectOnly(frame.id);
-    setActiveCrop({ pageId, frameId: frame.id, crop: frame.crop });
+    setActiveCrop({ pageId, frameId: frame.id, rect: frame.rect, crop: frame.crop });
     setTool("select");
   };
   const finishCrop = () => {
     const draft = cropRef.current;
     if (!draft) return;
     const frame = document.pages.find((entry) => entry.id === draft.pageId)?.objects.find((object) => object.id === draft.frameId);
-    if (frame?.kind === "image-frame" && JSON.stringify(frame.crop) !== JSON.stringify(draft.crop)) updateFrame({ ...frame, crop: draft.crop }, draft.pageId);
+    if (frame?.kind === "image-frame" && (JSON.stringify(frame.crop) !== JSON.stringify(draft.crop) || JSON.stringify(frame.rect) !== JSON.stringify(draft.rect))) {
+      updateFrame({ ...frame, rect: draft.rect, crop: draft.crop,
+        photoAspectRatio: JSON.stringify(frame.rect) === JSON.stringify(draft.rect) ? frame.photoAspectRatio : undefined }, draft.pageId);
+    }
     setActiveCrop(undefined); setActiveGesture(undefined);
   };
   const cancel = () => { setActiveGesture(undefined); setActiveCrop(undefined); };
   const cancelPointer = () => {
     const current = gestureRef.current;
-    if (current?.kind === "crop") setActiveCrop(current.quick ? undefined : { pageId: current.pageId, frameId: current.frame.id, crop: current.initialCrop });
+    if (current?.kind === "crop" || current?.kind === "crop-frame") setActiveCrop(current.kind === "crop" && current.quick ? undefined : current.initialDraft);
     setActiveGesture(undefined);
   };
   prepareExport.current = () => {
@@ -273,7 +280,7 @@ export function LayoutEditor({ document, sequence, dependencies, selectedIndex, 
     if (active?.kind === "frame" && JSON.stringify(active.rect) !== JSON.stringify(active.object.rect)) {
       command({ type: "upsert-object", pageId: active.pageId, object: { ...active.object, rect: active.rect } });
     }
-    if (active?.kind === "crop") setActiveCrop({ pageId: active.pageId, frameId: active.frame.id, crop: active.crop });
+    if (active?.kind === "crop") setActiveCrop({ ...active.initialDraft, crop: active.crop });
     setActiveGesture(undefined);
     finishCrop();
   };
@@ -358,11 +365,15 @@ export function LayoutEditor({ document, sequence, dependencies, selectedIndex, 
       const draft = cropRef.current;
       if (frame.kind === "image-frame" && (event.button === 2 || (draft?.frameId === frame.id && draft.pageId === pageId))) {
         const activeDraft = draft?.frameId === frame.id && draft.pageId === pageId ? draft : undefined;
-        const initialCrop = activeDraft?.crop ?? frame.crop;
+        const initialDraft = activeDraft ?? { pageId, frameId: frame.id, rect: frame.rect, crop: frame.crop };
+        const initialCrop = initialDraft.crop;
         const quick = event.button === 2 && !activeDraft;
         const baseCrop = quick && initialCrop.mode === "fit" ? { ...initialCrop, mode: "fill" as const } : initialCrop;
-        setActiveCrop({ pageId, frameId: frame.id, crop: baseCrop });
-        setActiveGesture({ kind: "crop", pageId, pageIndex, pointerId: event.pointerId, frame, start: at, initialCrop, baseCrop, crop: baseCrop, quick, moved: false });
+        const activeFrame = { ...frame, rect: initialDraft.rect, crop: baseCrop };
+        setActiveCrop({ ...initialDraft, crop: baseCrop });
+        if (handle !== "move" && event.button === 0) setActiveGesture({ kind: "crop-frame", pageId, pageIndex, pointerId: event.pointerId,
+          frame: activeFrame, start: at, initialDraft, handle });
+        else setActiveGesture({ kind: "crop", pageId, pageIndex, pointerId: event.pointerId, frame: activeFrame, start: at, initialDraft, baseCrop, crop: baseCrop, quick, moved: false });
       }
       else { if (draft) setActiveCrop(undefined); setActiveGesture({ kind: "frame", pageId, pageIndex, pointerId: event.pointerId, object: frame, handle, start: at, rect: frame.rect, guides: [] }); }
     } else if (tool === "draw" || tool === "text") {
@@ -420,12 +431,18 @@ export function LayoutEditor({ document, sequence, dependencies, selectedIndex, 
       }
       setActiveGesture({ ...current, rect: alignedRect, guides });
     }
+    else if (current.kind === "crop-frame") {
+      const size = current.frame.photoId && photoSizes.get(current.frame.photoId);
+      if (!size) return;
+      const resized = resizeImageCropFrame(current.frame, size, current.handle, at.x - current.start.x, at.y - current.start.y);
+      setActiveCrop({ ...current.initialDraft, rect: resized.rect, crop: resized.crop });
+    }
     else {
       const size = current.frame.photoId && photoSizes.get(current.frame.photoId);
       if (!size) return;
       const crop = panImageCrop(current.baseCrop, size, current.frame.rect, at.x - current.start.x, at.y - current.start.y);
       setActiveGesture({ ...current, crop, moved: Math.hypot(at.x - current.start.x, at.y - current.start.y) > 1 });
-      setActiveCrop({ pageId: current.pageId, frameId: current.frame.id, crop });
+      setActiveCrop({ ...current.initialDraft, crop });
     }
   };
   const pointerEnd = (event: ReactPointerEvent, pageIndex: number) => {
@@ -460,7 +477,7 @@ export function LayoutEditor({ document, sequence, dependencies, selectedIndex, 
     } else if (current.kind === "frame" && JSON.stringify(current.rect) !== JSON.stringify(current.object.rect)) {
       command({ type: "upsert-object", pageId: current.pageId, object: { ...current.object, rect: current.rect } });
     } else if (current.kind === "crop" && current.quick) {
-      if (current.moved && JSON.stringify(current.crop) !== JSON.stringify(current.initialCrop)) updateFrame({ ...current.frame, crop: current.crop }, current.pageId);
+      if (current.moved && JSON.stringify(current.crop) !== JSON.stringify(current.initialDraft.crop)) updateFrame({ ...current.frame, crop: current.crop }, current.pageId);
       setActiveCrop(undefined);
     }
   };
@@ -474,8 +491,8 @@ export function LayoutEditor({ document, sequence, dependencies, selectedIndex, 
     if (!paper) return;
     const point = pointOnPaper(event, paper);
     const zoom = draft.crop.zoom * Math.exp(-event.deltaY * .002);
-    setActiveCrop({ ...draft, crop: zoomImageCropAtPoint(draft.crop, size, frame.rect, zoom,
-      { x: point.x - frame.rect.x, y: point.y - frame.rect.y }) });
+    setActiveCrop({ ...draft, crop: zoomImageCropAtPoint(draft.crop, size, draft.rect, zoom,
+      { x: point.x - draft.rect.x, y: point.y - draft.rect.y }) });
   };
   const insertPhoto = async (photoId: PhotoId, pageIndex = selectedIndex, at?: Point, targetFrame?: LayoutImageFrame) => {
     const targetPage = document.pages[pageIndex];
@@ -513,9 +530,9 @@ export function LayoutEditor({ document, sequence, dependencies, selectedIndex, 
     } catch { /* Invalid geometry leaves the current page unchanged. */ }
   };
   const formatRect = (rect: LayoutRect) => layoutObjectStyle(rect, document.pageSpec);
-  const selectedObject = selectedFrame ?? selectedText;
+  const selectedObject = selectedFrame && cropDraft?.frameId === selectedFrame.id ? { ...selectedFrame, rect: cropDraft.rect } : selectedFrame ?? selectedText;
   const updateText = (box: LayoutTextBox, mergeKey?: string, pageId = page.id) => command({ type: "upsert-object", pageId, object: box }, mergeKey);
-  const rectField = (axis: keyof LayoutRect, label: string) => selectedObject && <RectNumberField key={`${selectedObject.id}-${axis}`} label={label} valuePt={selectedObject.rect[axis]} onCommit={(value) => command({ type: "upsert-object", pageId: page.id, object: { ...selectedObject, rect: { ...selectedObject.rect, [axis]: value } } })} />;
+  const rectField = (axis: keyof LayoutRect, label: string) => selectedObject && <RectNumberField key={`${selectedObject.id}-${axis}`} label={label} valuePt={selectedObject.rect[axis]} readOnly={cropDraft?.frameId === selectedObject.id} onCommit={(value) => command({ type: "upsert-object", pageId: page.id, object: { ...selectedObject, rect: { ...selectedObject.rect, [axis]: value } } })} />;
   const addText = (rect: LayoutRect, pageId: LayoutPageId) => {
     const box: LayoutTextBox = { kind: "text-box", id: newObjectId(), rect, text: "",
       style: { fontFamily: DEFAULT_LAYOUT_FONT, fontWeight: "normal", fontStyle: "normal", fontSizePt: 12, lineHeight: 1.4, color: "#171513", align: "left" } };
@@ -543,7 +560,7 @@ export function LayoutEditor({ document, sequence, dependencies, selectedIndex, 
         <button aria-pressed={tool === "select"} onClick={() => setTool("select")}><svg width="13" height="13" viewBox="0 0 13 13" fill="none" aria-hidden="true"><path d="M2 1L11 6.5L6.5 7.5L5 11L2 1Z" fill="currentColor" /></svg>{fieldLabel(zh, "Select", "选择")}</button>
         <button aria-pressed={tool === "draw"} aria-label={fieldLabel(zh, "Draw frame", "画图像框")} title={fieldLabel(zh, "Draw frame", "画图像框")} onClick={() => setTool("draw")}><svg width="13" height="13" viewBox="0 0 13 13" fill="none" aria-hidden="true"><rect x="1" y="1" width="11" height="11" rx="1.5" stroke="currentColor" strokeWidth="1.2" /><circle cx="4.5" cy="4.5" r="1.2" fill="currentColor" /><path d="M1 9l3-3 2.5 2.5 2-2 3.5 3.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" /></svg>{fieldLabel(zh, "Image", "图像")}</button>
         <button aria-pressed={tool === "text"} aria-label={fieldLabel(zh, "Draw text box", "画文字框")} onClick={() => setTool("text")}><b aria-hidden="true">T</b>{fieldLabel(zh, "Text", "文字")}</button>
-        <button disabled={!selectedFrame?.photoId} aria-pressed={!!cropDraft} onClick={() => { if (selectedFrame) beginCrop(selectedFrame, page.id); }}><svg width="13" height="13" viewBox="0 0 13 13" fill="none" aria-hidden="true"><path d="M3 1v9h9M1 3h9v9" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" /></svg>{fieldLabel(zh, "Crop", "裁切")}</button>
+        <button disabled={!selectedFrame?.photoId} aria-pressed={!!cropDraft} onClick={() => { if (cropRef.current) finishCrop(); else if (selectedFrame) beginCrop(selectedFrame, page.id); }}><svg width="13" height="13" viewBox="0 0 13 13" fill="none" aria-hidden="true"><path d="M3 1v9h9M1 3h9v9" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" /></svg>{fieldLabel(zh, "Crop", "裁切")}</button>
         <span className="layout-toolbar-divider" />
         <LayoutPageSizeControl pageSpec={document.pageSpec} command={command} zh={zh} />
         {!propertiesOpen && <button type="button" onClick={onToggleProperties}>{fieldLabel(zh, "Design", "设计")}</button>}
@@ -555,13 +572,15 @@ export function LayoutEditor({ document, sequence, dependencies, selectedIndex, 
         {document.pages[index].objects.map((object) => {
           const currentGesture = gesture?.kind === "frame" && gesture.object.id === object.id ? gesture : undefined;
           const groupMove = gesture?.kind === "group" && gesture.objects.some((entry) => entry.object.id === object.id) ? gesture : undefined;
-          const rect = currentGesture?.rect ?? (groupMove ? { ...object.rect, x: object.rect.x + groupMove.dx, y: object.rect.y + groupMove.dy } : object.rect);
-          const shown = object.kind === "image-frame" ? { ...object, rect, crop: cropDraft?.frameId === object.id ? cropDraft.crop : object.crop } : { ...object, rect };
+          const cropping = object.kind === "image-frame" && cropDraft?.frameId === object.id;
+          const rect = cropping ? cropDraft.rect : currentGesture?.rect ?? (groupMove ? { ...object.rect, x: object.rect.x + groupMove.dx, y: object.rect.y + groupMove.dy } : object.rect);
+          const shown = object.kind === "image-frame" ? { ...object, rect, crop: cropping ? cropDraft.crop : object.crop } : { ...object, rect };
           return <div key={object.id} className={`layout-object layout-object-${object.kind}${selectedIds.has(object.id) ? " is-selected" : ""}${cropDraft?.frameId === object.id ? " is-cropping" : ""}`} style={formatRect(rect)} onClick={(event) => { event.stopPropagation(); setSelectedIndex(index); if (!event.shiftKey && !selectedIds.has(object.id)) selectOnly(object.id); }} onDoubleClick={(event) => { event.stopPropagation(); if (object.kind === "image-frame") beginCrop(object, document.pages[index].id); else { setSelectedIndex(index); selectOnly(object.id); setEditingTextId(object.id); } }} onPointerDown={(event) => pointerStart(event, index, object)} onWheel={object.kind === "image-frame" ? (event) => wheelCrop(event, object, index) : undefined} onContextMenu={object.kind === "image-frame" && object.photoId ? (event) => event.preventDefault() : undefined} onDragOver={object.kind === "image-frame" ? (event) => event.preventDefault() : undefined} onDrop={object.kind === "image-frame" ? (event) => dropPhoto(event, index, object) : undefined}>
-            {shown.kind === "text-box" && editingTextId === object.id ? renderTextEditor(shown, document.pages[index].id) : <LayoutObjectVisual object={shown} page={document.pages[index]} photoSource={dependencies.photoSource} sourceRevision={sourceRevision} scale={pageHeight / document.pageSpec.heightPt} onMetadata={noteSize} onMissing={markMissing} />}
+            {shown.kind === "text-box" && editingTextId === object.id ? renderTextEditor(shown, document.pages[index].id) : <LayoutObjectVisual object={shown} page={document.pages[index]} photoSource={dependencies.photoSource} sourceRevision={sourceRevision} scale={pageHeight / document.pageSpec.heightPt} onMetadata={noteSize} onMissing={markMissing} cropping={cropping} />}
             {shown.kind === "image-frame" && shown.photoId && (!sequencePhotoIds.has(shown.photoId) || missingPhotos.has(shown.photoId)) && <span className="layout-image-warning">{fieldLabel(zh, "Photo unavailable", "照片不可用")}</span>}
-            {object.kind === "image-frame" && cropDraft?.frameId === object.id && gesture?.kind !== "crop" && <div className="layout-crop-overlay" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => event.stopPropagation()}><span>{fieldLabel(zh, `Drag photo · scroll to zoom · ${Math.round(cropDraft.crop.zoom * 100)}%`, `拖动照片 · 滚轮缩放 · ${Math.round(cropDraft.crop.zoom * 100)}%`)}</span><div><button onClick={cancel}>{fieldLabel(zh, "Cancel", "取消")}</button><button onClick={finishCrop}>{fieldLabel(zh, "Done", "完成")}</button></div></div>}
-            {object.id === selectedId && selectedIds.size === 1 && !cropDraft && (["nw", "n", "ne", "e", "se", "s", "sw", "w"] as const).map((handle) => <button key={handle} className={`layout-resize-handle is-${handle}`} aria-label={`Resize ${handle}`} onPointerDown={(event) => pointerStart(event, index, object, handle)} />)}
+            {cropping && <span className="layout-crop-size">{+(rect.width / MM_TO_PT).toFixed(1)} × {+(rect.height / MM_TO_PT).toFixed(1)} mm</span>}
+            {cropping && !gesture && <div className="layout-crop-overlay" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => event.stopPropagation()}><span>{fieldLabel(zh, `Drag crop edges or photo · scroll to zoom · ${Math.round(cropDraft.crop.zoom * 100)}%`, `拖动裁切边框或照片 · 滚轮缩放 · ${Math.round(cropDraft.crop.zoom * 100)}%`)}</span><div><button onClick={cancel}>{fieldLabel(zh, "Cancel", "取消")}</button><button onClick={finishCrop}>{fieldLabel(zh, "Done", "完成")}</button></div></div>}
+            {object.id === selectedId && selectedIds.size === 1 && (!cropDraft || cropping) && (["nw", "n", "ne", "e", "se", "s", "sw", "w"] as const).map((handle) => <button key={handle} className={`layout-resize-handle is-${handle}`} aria-label={`${cropping ? "Crop" : "Resize"} ${handle}`} onPointerDown={(event) => pointerStart(event, index, object, handle)} />)}
           </div>;
         })}
         {gesture?.kind === "frame" && gesture.pageIndex === index && gesture.guides.length > 0 && <svg className="layout-alignment-guides" width="100%" height="100%" viewBox={`0 0 ${document.pageSpec.widthPt} ${document.pageSpec.heightPt}`} aria-hidden="true">{gesture.guides.map((guide) => guide.axis === "x" ? <line key="x" x1={guide.value} y1={0} x2={guide.value} y2={document.pageSpec.heightPt} /> : <line key="y" x1={0} y1={guide.value} x2={document.pageSpec.widthPt} y2={guide.value} />)}</svg>}
@@ -582,19 +601,19 @@ export function LayoutEditor({ document, sequence, dependencies, selectedIndex, 
         <div className="layout-page-settings">
           <LayoutPaperControls document={document} page={page} command={command} zh={zh} caretIcon={designChevronIcon} />
           <LayoutPhotoAppearanceControls part="elevation" document={document} page={page} command={command} zh={zh} />
-          <section className="table-frame-section"><h3>{fieldLabel(zh, "Template", "模板")}<span>{templateLabels[templateId]}</span></h3><div className="table-frame-template-strip layout-template-strip" role="group" aria-label="Template">
+          <LayoutInspectorSection title={fieldLabel(zh, "Template", "模板")} suffix={templateLabels[templateId]}><div className="table-frame-template-strip layout-template-strip" role="group" aria-label="Template">
             {LAYOUT_TEMPLATES.map((id) => <button key={id} type="button" title={templateLabels[id]} aria-label={templateLabels[id] + " template"} aria-pressed={templateId === id} onClick={() => applyTemplate(id)}><span className={"table-frame-mini mini-" + id} aria-hidden="true" /></button>)}
-          </div></section>
-          <section className="table-frame-section"><h3>{fieldLabel(zh, "Page numbers", "页码")}</h3><label className="table-frame-checkbox layout-page-numbers"><input type="checkbox" checked={document.showPageNumbers !== false} onChange={(event) => command({ type: "set-page-numbers", show: event.currentTarget.checked })} /><span className="layout-checkbox-mark" aria-hidden="true"><img src={designCheckIcon} alt="" width="12" height="12" /></span>{fieldLabel(zh, "Show page numbers", "显示页码")}</label></section>
+          </div></LayoutInspectorSection>
+          <LayoutInspectorSection title={fieldLabel(zh, "Page numbers", "页码")}><label className="table-frame-checkbox layout-page-numbers"><input type="checkbox" checked={document.showPageNumbers !== false} onChange={(event) => command({ type: "set-page-numbers", show: event.currentTarget.checked })} /><span className="layout-checkbox-mark" aria-hidden="true"><img src={designCheckIcon} alt="" width="12" height="12" /></span>{fieldLabel(zh, "Show page numbers", "显示页码")}</label></LayoutInspectorSection>
         </div>
         {selectedFrame ? <div className="layout-object-settings">
           <h2 className="layout-inspector-object-heading">{fieldLabel(zh, "Image", "图片")}<span>{fieldLabel(zh, "Frame", "图像框")}</span></h2>
-          <section className="table-frame-section"><h3>{fieldLabel(zh, "Position & size", "位置与尺寸")}<span>mm</span></h3><div className="table-frame-soft-group"><div className="table-frame-field-grid layout-property-grid">{rectField("x", "X mm")}{rectField("y", "Y mm")}{rectField("width", "W mm")}{rectField("height", "H mm")}</div></div></section>
+          <LayoutInspectorSection title={fieldLabel(zh, "Position & size", "位置与尺寸")} suffix="mm"><div className="table-frame-soft-group"><div className="table-frame-field-grid layout-property-grid">{rectField("x", "X mm")}{rectField("y", "Y mm")}{rectField("width", "W mm")}{rectField("height", "H mm")}</div></div></LayoutInspectorSection>
           <LayoutInspectorSlider label={fieldLabel(zh, "Opacity", "不透明度")} value={(selectedFrame.opacity ?? 1) * 100} max={100} unit="%" inputLabel={fieldLabel(zh, "Image opacity %", "图片不透明度 %")} onChange={(value) => command({ type: "upsert-object", pageId: page.id, object: { ...selectedFrame, opacity: value / 100 } }, "opacity:" + selectedFrame.id)} />
-          <section className="table-frame-section"><h3>{fieldLabel(zh, "Image frame", "图像框")}<button type="button" className="layout-inline-photo-action" disabled={!selectedFrame.photoId} onClick={() => updateFrame(replaceFramePhoto(selectedFrame, null))}>{fieldLabel(zh, "Clear photo", "清空照片")}</button></h3><div className="table-frame-soft-group"><div className="table-frame-segments" role="group" aria-label="Photo fit"><button aria-pressed={(cropDraft?.crop ?? selectedFrame.crop).mode === "fit"} onClick={() => cropDraft ? setActiveCrop({ ...cropDraft, crop: { ...cropDraft.crop, mode: "fit", zoom: 1 } }) : updateFrame({ ...selectedFrame, crop: { ...selectedFrame.crop, mode: "fit", zoom: 1 } })}>Fit</button><button aria-pressed={(cropDraft?.crop ?? selectedFrame.crop).mode === "fill"} onClick={() => cropDraft ? setActiveCrop({ ...cropDraft, crop: { ...cropDraft.crop, mode: "fill", zoom: 1 } }) : updateFrame({ ...selectedFrame, crop: { ...selectedFrame.crop, mode: "fill", zoom: 1 } })}>Fill</button></div><p className="table-frame-hint">{fieldLabel(zh, "Drag the frame handles to define the visible area. Double-click or right-drag to adjust the photo.", "拖动框边缘手柄调整可见区域；双击或右键拖动调整照片。")}</p></div></section>
+          <LayoutInspectorSection title={fieldLabel(zh, "Image frame", "图像框")}><button type="button" className="layout-inline-photo-action" disabled={!selectedFrame.photoId} onClick={() => updateFrame(replaceFramePhoto(selectedFrame, null))}>{fieldLabel(zh, "Clear photo", "清空照片")}</button><div className="table-frame-soft-group"><div className="table-frame-segments" role="group" aria-label="Photo fit"><button aria-pressed={(cropDraft?.crop ?? selectedFrame.crop).mode === "fit"} onClick={() => cropDraft ? setActiveCrop({ ...cropDraft, crop: { ...cropDraft.crop, mode: "fit", zoom: 1 } }) : updateFrame({ ...selectedFrame, crop: { ...selectedFrame.crop, mode: "fit", zoom: 1 } })}>Fit</button><button aria-pressed={(cropDraft?.crop ?? selectedFrame.crop).mode === "fill"} onClick={() => cropDraft ? setActiveCrop({ ...cropDraft, crop: { ...cropDraft.crop, mode: "fill", zoom: 1 } }) : updateFrame({ ...selectedFrame, crop: { ...selectedFrame.crop, mode: "fill", zoom: 1 } })}>Fill</button></div><p className="table-frame-hint">{fieldLabel(zh, "Crop: drag the blue handles to change the visible area, or drag the photo to reposition it.", "裁切时拖动蓝色手柄改变可见范围，拖动照片调整位置。")}</p></div></LayoutInspectorSection>
         </div> : selectedText ? <>
           <h2 className="layout-inspector-object-heading">{fieldLabel(zh, "Text", "文字")}<span>{fieldLabel(zh, "Text box", "文字框")}</span></h2>
-          <section className="table-frame-section"><h3>{fieldLabel(zh, "Typography", "排版")}</h3>
+          <LayoutInspectorSection title={fieldLabel(zh, "Typography", "排版")}>
             <label className="layout-number-field"><span>{fieldLabel(zh, "Font", "字体")}</span><select aria-label={fieldLabel(zh, "Font", "字体")} value={selectedText.style.fontFamily} style={{ fontFamily: layoutFontCssStack(selectedText.style.fontFamily) }} onChange={(event) => updateText({ ...selectedText, style: { ...selectedText.style, fontFamily: event.target.value as LayoutFontFamily } })}>{LAYOUT_FONT_BY_FAMILY[selectedText.style.fontFamily].selectable === false && <option value={selectedText.style.fontFamily} disabled>{LAYOUT_FONT_BY_FAMILY[selectedText.style.fontFamily].label} ({fieldLabel(zh, "Unavailable", "不可用")})</option>}{LAYOUT_FONTS.map((font) => <option key={font.family} value={font.family}>{font.label}</option>)}</select></label>
             <div className="table-frame-segments layout-font-style-controls" role="group" aria-label={fieldLabel(zh, "Font style", "字体样式")}><button type="button" aria-label={fieldLabel(zh, "Bold", "粗体")} title={fieldLabel(zh, "Bold", "粗体")} aria-pressed={layoutFontWeight(selectedText.style.fontWeight) === "bold"} onClick={() => updateText({ ...selectedText, style: { ...selectedText.style, fontWeight: layoutFontWeight(selectedText.style.fontWeight) === "bold" ? "normal" : "bold" } })}><b aria-hidden="true">B</b></button><button type="button" aria-label={fieldLabel(zh, "Italic", "斜体")} title={fieldLabel(zh, "Italic", "斜体")} aria-pressed={layoutFontStyle(selectedText.style.fontStyle) === "italic"} onClick={() => updateText({ ...selectedText, style: { ...selectedText.style, fontStyle: layoutFontStyle(selectedText.style.fontStyle) === "italic" ? "normal" : "italic" } })}><i aria-hidden="true">I</i></button></div>
             <div className="table-frame-field-grid layout-property-grid"><RectNumberField label={fieldLabel(zh, "Size pt", "字号 pt")} valuePt={selectedText.style.fontSizePt * MM_TO_PT} step={1} min={6} max={144} onCommit={(value) => updateText({ ...selectedText, style: { ...selectedText.style, fontSizePt: value / MM_TO_PT } })} /><label className="layout-number-field"><span>{fieldLabel(zh, "Line height", "行距")}</span><input type="number" min="0.8" max="3" step="0.1" value={selectedText.style.lineHeight} onChange={(event) => updateText({ ...selectedText, style: { ...selectedText.style, lineHeight: Number(event.target.value) } })} /></label></div>
@@ -605,10 +624,10 @@ export function LayoutEditor({ document, sequence, dependencies, selectedIndex, 
               { align: "right", en: "Align right", zh: "右对齐", path: "M3 4h14M8 8h9M3 12h14M8 16h9" },
               { align: "justify", en: "Justify", zh: "两端对齐", path: "M3 4h14M3 8h14M3 12h14M3 16h14" },
             ] as const).map(({ align, en, zh: label, path }) => <button type="button" key={align} aria-label={fieldLabel(zh, en, label)} title={fieldLabel(zh, en, label)} aria-pressed={selectedText.style.align === align} onClick={() => updateText({ ...selectedText, style: { ...selectedText.style, align } })}><svg width="16" height="16" viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d={path} stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" /></svg></button>)}</div>
-          </section>
-          <section className="table-frame-section"><h3>{fieldLabel(zh, "Text actions", "文字框操作")}</h3><div className="table-frame-action-row"><button onClick={() => { const duplicate = { ...selectedText, id: newObjectId() }; if (updateText(duplicate)) setSelectedId(duplicate.id); }}>{fieldLabel(zh, "Duplicate", "复制")}</button><button className="is-danger" onClick={() => { command({ type: "remove-object", pageId: page.id, objectId: selectedText.id }); setSelectedId(undefined); }}>{fieldLabel(zh, "Delete", "删除")}</button></div></section>
-        </> : <section className="table-frame-section"><h3>{fieldLabel(zh, "Page", "页面")}</h3><dl><dt>{fieldLabel(zh, "Size", "尺寸")}</dt><dd>{(document.pageSpec.widthPt / MM_TO_PT).toFixed(1)} × {(document.pageSpec.heightPt / MM_TO_PT).toFixed(1)} mm</dd><dt>{fieldLabel(zh, "Current page", "当前页")}</dt><dd>{layoutPageProgressLabel(document, [selectedIndex], zh)}</dd><dt>{fieldLabel(zh, "Objects", "对象")}</dt><dd>{page.objects.length}</dd></dl></section>}
-        <details className="layout-extra-photo-settings"><summary>{fieldLabel(zh, "Photo edges", "照片边缘")}</summary><LayoutPhotoAppearanceControls part="edges" document={document} page={page} command={command} zh={zh} /></details>
+          </LayoutInspectorSection>
+          <LayoutInspectorSection title={fieldLabel(zh, "Text actions", "文字框操作")}><div className="table-frame-action-row"><button onClick={() => { const duplicate = { ...selectedText, id: newObjectId() }; if (updateText(duplicate)) setSelectedId(duplicate.id); }}>{fieldLabel(zh, "Duplicate", "复制")}</button><button className="is-danger" onClick={() => { command({ type: "remove-object", pageId: page.id, objectId: selectedText.id }); setSelectedId(undefined); }}>{fieldLabel(zh, "Delete", "删除")}</button></div></LayoutInspectorSection>
+        </> : <LayoutInspectorSection title={fieldLabel(zh, "Page", "页面")}><dl><dt>{fieldLabel(zh, "Size", "尺寸")}</dt><dd>{(document.pageSpec.widthPt / MM_TO_PT).toFixed(1)} × {(document.pageSpec.heightPt / MM_TO_PT).toFixed(1)} mm</dd><dt>{fieldLabel(zh, "Current page", "当前页")}</dt><dd>{layoutPageProgressLabel(document, [selectedIndex], zh)}</dd><dt>{fieldLabel(zh, "Objects", "对象")}</dt><dd>{page.objects.length}</dd></dl></LayoutInspectorSection>}
+        <LayoutInspectorSection className="layout-extra-photo-settings" title={fieldLabel(zh, "Photo edges", "照片边缘")} defaultOpen={false}><LayoutPhotoAppearanceControls part="edges" document={document} page={page} command={command} zh={zh} /></LayoutInspectorSection>
       </div>
     </aside>}
   </>;

@@ -55,7 +55,7 @@ for (const returnVia of ["Table", "Sequence"] as const) {
     expect((await pile.boundingBox())!.x).toBeGreaterThan(1280);
     await page.goto(`/#/projects/${projectId}/sequences/layout-sequence`);
     const overlay = page.getByRole("dialog", { name: "Sequence layout-sequence", exact: true });
-    await overlay.getByRole("button", { name: "Layout", exact: true }).click();
+    await overlay.getByRole("button", { name: "Create Photo Book", exact: true }).click();
     const workspace = page.getByRole("main", { name: "Layout workspace" });
     await expect(workspace).toBeVisible();
     await workspace.getByRole("navigation", { name: "Workspace", exact: true }).getByRole("button", { name: returnVia === "Table" ? "Table" : "← Sequence", exact: true }).click();

@@ -14,19 +14,20 @@ export function layoutObjectStyle(rect: LayoutRect, pageSpec: LayoutDocument["pa
     width: `${rect.width / pageSpec.widthPt * 100}%`, height: `${rect.height / pageSpec.heightPt * 100}%` };
 }
 
-export function LayoutObjectVisual({ object, photoSource, sourceRevision, scale, previewEdge = 768, eager = false, onMetadata, onMissing, page }: {
+export function LayoutObjectVisual({ object, photoSource, sourceRevision, scale, previewEdge = 768, eager = false, onMetadata, onMissing, page, cropping = false }: {
   readonly object: LayoutObject;
   readonly photoSource: PhotoSource;
   readonly sourceRevision: number;
   readonly scale: number;
   readonly page?: LayoutPage;
+  readonly cropping?: boolean;
   readonly previewEdge?: DerivedPreviewMaxEdge;
   readonly eager?: boolean;
   readonly onMetadata: (photoId: PhotoId, size: { width: number; height: number }) => void;
   readonly onMissing: (photoId: PhotoId) => void;
 }) {
   return object.kind === "image-frame"
-    ? <LayoutImageFrameView frame={object} page={page} scale={scale} photoSource={photoSource} sourceRevision={sourceRevision} previewEdge={previewEdge} eager={eager} onMetadata={onMetadata} onMissing={onMissing} />
+    ? <LayoutImageFrameView frame={object} page={page} scale={scale} photoSource={photoSource} sourceRevision={sourceRevision} previewEdge={previewEdge} eager={eager} onMetadata={onMetadata} onMissing={onMissing} cropping={cropping} />
     : <LayoutTextView box={object} scale={scale} />;
 }
 

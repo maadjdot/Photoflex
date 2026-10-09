@@ -202,9 +202,9 @@ export function SequenceOverlay({ dependencies, persistence, projectId, sequence
     <header className="sequence-overlay-header">
       <div><span>SEQUENCE</span><h1>{sequence.name}</h1></div>
       <nav aria-label="Sequence controls">
-        <button className="sequence-overlay-folder" disabled={layoutBusy} onClick={() => void openLayout()}>{layoutBusy ? t("common.loading") : "Layout"}</button>
+        <button className="sequence-overlay-folder" title="R" disabled={!photos.length} onClick={() => setReadIndex(0)}>{t("sequence.read")}</button>
         <button className="sequence-overlay-folder" disabled={!photos.length || folderExporting} aria-busy={folderExporting} onClick={() => void createSequenceFolder()}>{folderExporting ? t("sequence.creatingFolder") : t("sequence.createFolder")}</button>
-        <button className="sequence-overlay-read" title="R" disabled={!photos.length} onClick={() => setReadIndex(0)}>{t("sequence.read")}</button>
+        <button className="sequence-overlay-read" disabled={layoutBusy} onClick={() => void openLayout()}>{layoutBusy ? t("common.loading") : "Create Photo Book"}</button>
         <button ref={closeRef} className="sequence-overlay-close" aria-label={`${t("common.close")} Sequence`} onClick={() => void closeOverlay()}>×</button>
       </nav>
     </header>

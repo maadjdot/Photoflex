@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { LayoutDocument, LayoutEditCommand, LayoutPage, LayoutPaper } from "../contracts";
 import { LAYOUT_PAPER_COLORS, LAYOUT_PAPER_MATERIALS, resolveLayoutPaper } from "../modules/layout/layoutPaper";
 import { LayoutPaperBackdrop } from "./LayoutPaperBackdrop";
+import { LayoutInspectorSection } from "./LayoutInspectorSection";
 
 export function LayoutPaperControls({ document, page, command, zh, caretIcon }: {
   readonly document: LayoutDocument;
@@ -14,10 +15,10 @@ export function LayoutPaperControls({ document, page, command, zh, caretIcon }: 
   const setPaper = (next: LayoutPaper, allPages = false) => command({ type: "set-paper",
     pageIds: allPages ? document.pages.map((entry) => entry.id) : [page.id], paper: next });
   const allSame = document.pages.every((entry) => { const current = resolveLayoutPaper(entry); return current.color.toUpperCase() === paper.color.toUpperCase() && current.material === paper.material; });
-  return <PaperControls paper={paper} onChange={setPaper} zh={zh} caretIcon={caretIcon} materialLabel={zh ? "纹理" : "Texture"} onApplyAll={() => setPaper(paper, true)} allSame={allSame} />;
+  return <LayoutInspectorSection title={zh ? "纸张" : "Paper"}><PaperControls paper={paper} onChange={setPaper} zh={zh} caretIcon={caretIcon} materialLabel={zh ? "纹理" : "Texture"} onApplyAll={() => setPaper(paper, true)} allSame={allSame} showHeading={false} /></LayoutInspectorSection>;
 }
 
-export function PaperControls({ paper, onChange, zh = false, onApplyAll, allSame, caretIcon, materialLabel }: {
+export function PaperControls({ paper, onChange, zh = false, onApplyAll, allSame, caretIcon, materialLabel, showHeading = true }: {
   readonly paper: LayoutPaper;
   readonly onChange: (paper: LayoutPaper) => boolean;
   readonly zh?: boolean;
@@ -25,6 +26,7 @@ export function PaperControls({ paper, onChange, zh = false, onApplyAll, allSame
   readonly allSame?: boolean;
   readonly caretIcon?: string;
   readonly materialLabel?: string;
+  readonly showHeading?: boolean;
 }) {
   const [openMenu, setOpenMenu] = useState<"color" | "material" | "custom" | null>(null);
   const controlsRef = useRef<HTMLElement>(null);
@@ -50,7 +52,7 @@ export function PaperControls({ paper, onChange, zh = false, onApplyAll, allSame
       window.document.removeEventListener("keydown", closeOnEscape);
     };
   }, [openMenu]);
-  return <section ref={controlsRef} className="table-frame-section layout-paper-section"><h3>{label(caretIcon ? "Paper" : "PAPER", "纸张")}</h3>
+  return <section ref={controlsRef} className="table-frame-section layout-paper-section">{showHeading && <h3>{label(caretIcon ? "Paper" : "PAPER", "纸张")}</h3>}
     <div className="layout-paper-fields">
     <div className="layout-paper-field">
       <span className="layout-paper-field-label">{label("Color", "颜色")}</span>

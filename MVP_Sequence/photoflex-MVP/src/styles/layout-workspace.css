@@ -71,6 +71,11 @@
 .layout-crop-overlay { position: absolute; right: 5px; bottom: 5px; left: 5px; z-index: 4; display: flex; align-items: center; justify-content: space-between; gap: 5px; padding: 5px; border-radius: 5px; background: rgb(26 25 23 / 82%); color: #fff; font-size: 9px; cursor: default; }
 .layout-crop-overlay > div { display: flex; gap: 3px; }
 .layout-crop-overlay button { padding: 3px 5px; border: 1px solid #fff7; border-radius: 3px; background: #fff; color: #24231f; font-size: 9px; white-space: nowrap; }
+.layout-object-image-frame.is-selected.is-cropping { z-index: 6; outline: 2px solid #0ea5e9; }
+.layout-paper:has(.is-cropping) { overflow: visible; z-index: 4; }
+.layout-object-image-frame.is-cropping .layout-resize-handle { width: 8px; height: 8px; border: 0; border-radius: 0; background: #0ea5e9; }
+.layout-crop-size { position: absolute; z-index: 5; top: calc(100% + 6px); left: 50%; padding: 2px 5px; transform: translateX(-50%); border-radius: 2px; background: #0ea5e9; color: #fff; font: 10px/1.4 Inter, sans-serif; white-space: nowrap; pointer-events: none; }
+.is-cropping .layout-crop-overlay { top: calc(100% + 28px); right: auto; bottom: auto; left: 50%; width: max-content; max-width: 280px; flex-wrap: wrap; transform: translateX(-50%); }
 .layout-alignment-guides { position: absolute; inset: 0; z-index: 4; overflow: visible; pointer-events: none; }
 .layout-alignment-guides line { stroke: #306ce0; stroke-width: 1; stroke-dasharray: 5 4; vector-effect: non-scaling-stroke; }
 .layout-properties-panel dl { display: grid; gap: 4px; padding: 12px 15px; }

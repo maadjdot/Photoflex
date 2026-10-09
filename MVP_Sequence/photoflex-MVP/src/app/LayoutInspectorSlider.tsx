@@ -1,4 +1,5 @@
 import { useEffect, useId, useState, type CSSProperties } from "react";
+import { LayoutInspectorSection } from "./LayoutInspectorSection";
 
 export function LayoutInspectorSlider({ label, value, max, unit, inputLabel, ends, onChange }: {
   label: string; value: number; max: number; unit: string; inputLabel: string;
@@ -8,8 +9,7 @@ export function LayoutInspectorSlider({ label, value, max, unit, inputLabel, end
   const displayed = +value.toFixed(1);
   const [draft, setDraft] = useState(String(displayed));
   useEffect(() => setDraft(String(displayed)), [displayed]);
-  return <section className="table-frame-section layout-inspector-slider">
-    <h3><label htmlFor={id}>{label}</label><span>{displayed}{unit}</span></h3>
+  return <LayoutInspectorSection className="layout-inspector-slider" title={label} suffix={`${displayed}${unit}`}>
     <div className="table-frame-soft-group">
       <div className="layout-slider-controls">
         <input id={id} aria-label={label} type="range" min="0" max={max} step="0.1" value={value}
@@ -21,5 +21,5 @@ export function LayoutInspectorSlider({ label, value, max, unit, inputLabel, end
       </div>
       {ends && <div className="layout-slider-ends"><span>{ends[0]}</span><span>{ends[1]}</span></div>}
     </div>
-  </section>;
+  </LayoutInspectorSection>;
 }

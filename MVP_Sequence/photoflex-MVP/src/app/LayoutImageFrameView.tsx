@@ -6,7 +6,7 @@ import { frameInnerEdge } from "../modules/worktable/frameAppearance";
 import { FramePhotoEdge } from "./FrameEdges";
 import { useLocale } from "./locale";
 
-export function LayoutImageFrameView({ frame, photoSource, sourceRevision, onMetadata, onMissing, previewEdge = 768, eager = false, page, scale = 1 }: {
+export function LayoutImageFrameView({ frame, photoSource, sourceRevision, onMetadata, onMissing, previewEdge = 768, eager = false, page, scale = 1, cropping = false }: {
   frame: LayoutImageFrame; photoSource: PhotoSource;
   sourceRevision: number;
   onMetadata: (photoId: PhotoId, size: { width: number; height: number }) => void;
@@ -15,6 +15,7 @@ export function LayoutImageFrameView({ frame, photoSource, sourceRevision, onMet
   eager?: boolean;
   page?: LayoutPage;
   scale?: number;
+  cropping?: boolean;
 }) {
   const { locale } = useLocale();
   const [preview, setPreview] = useState<{ url: string; width: number; height: number }>();
@@ -53,6 +54,12 @@ export function LayoutImageFrameView({ frame, photoSource, sourceRevision, onMet
   const edge = frameInnerEdge(page ?? {});
   const elevation = (page?.photoElevationPt ?? 0) * scale;
   return <>
+    {cropping && <img draggable={false} className="layout-placed-image layout-crop-photo-outside" src={preview.url} alt="" aria-hidden="true" style={{
+      left: `${placed.x / frame.rect.width * 100}%`, top: `${placed.y / frame.rect.height * 100}%`,
+      width: `${placed.width / frame.rect.width * 100}%`, height: `${placed.height / frame.rect.height * 100}%`,
+      opacity: (frame.opacity ?? 1) * .25,
+      clipPath: `polygon(evenodd, 0 0, 100% 0, 100% 100%, 0 100%, 0 0, ${-placed.x / placed.width * 100}% ${-placed.y / placed.height * 100}%, ${-placed.x / placed.width * 100}% ${(frame.rect.height - placed.y) / placed.height * 100}%, ${(frame.rect.width - placed.x) / placed.width * 100}% ${(frame.rect.height - placed.y) / placed.height * 100}%, ${(frame.rect.width - placed.x) / placed.width * 100}% ${-placed.y / placed.height * 100}%, ${-placed.x / placed.width * 100}% ${-placed.y / placed.height * 100}%)`,
+    }} />}
     {elevation > 0 && <span className="layout-photo-elevation" aria-hidden="true" style={{
       left: `${visible.x / frame.rect.width * 100}%`, top: `${visible.y / frame.rect.height * 100}%`,
       width: `${visible.width / frame.rect.width * 100}%`, height: `${visible.height / frame.rect.height * 100}%`,

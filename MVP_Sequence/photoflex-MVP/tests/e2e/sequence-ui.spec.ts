@@ -140,7 +140,7 @@ test("Layout opens from Sequence and keeps page order at 1280 and 1440", async (
   await expect(page.getByRole("heading", { name: "Projects" })).toBeVisible();
   await seedSequence(page);
   await page.goto(`/#/projects/${PROJECT_ID}/sequences/${SEQUENCE_ID}`);
-  await page.getByRole("dialog", { name: "Sequence Street Edit" }).getByRole("button", { name: "Layout" }).click();
+  await page.getByRole("dialog", { name: "Sequence Street Edit" }).getByRole("button", { name: "Create Photo Book" }).click();
   const creator = page.getByRole("dialog", { name: "Create Layout" });
   await expect(creator).toBeVisible();
   await expect(page.locator(".layout-create-backdrop")).toHaveCSS("position", "fixed");
@@ -240,9 +240,79 @@ test("Layout opens from Sequence and keeps page order at 1280 and 1440", async (
   await expect(layout.getByRole("status")).toContainText("Saved locally");
   await layout.getByRole("button", { name: "← Sequence" }).click();
   await expect(page.getByRole("dialog", { name: "Sequence Street Edit" })).toBeVisible();
-  await page.getByRole("dialog", { name: "Sequence Street Edit" }).getByRole("button", { name: "Layout" }).click();
+  await page.getByRole("dialog", { name: "Sequence Street Edit" }).getByRole("button", { name: "Create Photo Book" }).click();
   await expect(layout).toBeVisible();
   expect(new URL(page.url()).hash).toBe(route);
+});
+
+test("Layout crops a fixed photo with draggable boundaries and collapses each inspector module", async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto("/");
+  await expect(page.getByRole("heading", { name: "Projects" })).toBeVisible();
+  await seedSequence(page);
+  await page.goto(`/#/projects/${PROJECT_ID}/sequences/${SEQUENCE_ID}`);
+  await page.getByRole("dialog", { name: "Sequence Street Edit" }).getByRole("button", { name: "Create Photo Book" }).click();
+  const creator = page.getByRole("dialog", { name: "Create Layout" });
+  await creator.getByLabel("Blank book (front cover, body page, back cover)").check();
+  await creator.getByRole("button", { name: "Create Layout" }).click();
+  const layout = page.getByRole("main", { name: "Layout workspace" });
+  await expect(layout.locator(".layout-page-index")).toHaveCount(0);
+  const pagesTitle = layout.locator(".layout-pages-panel .layout-panel-heading strong");
+  const designTitle = layout.locator(".layout-properties-panel .table-frame-panel-header h2");
+  const titleStyle = (element: Element) => { const style = getComputedStyle(element); return [style.fontSize, style.fontWeight, style.lineHeight, style.letterSpacing]; };
+  expect(await pagesTitle.evaluate(titleStyle)).toEqual(await designTitle.evaluate(titleStyle));
+  expect((await layout.locator(".layout-page-mini").first().boundingBox())!.height).toBeGreaterThan(80);
+  await layout.getByRole("button", { name: "Insert photo 1", exact: true }).click();
+  const frame = layout.locator(".layout-object-image-frame");
+  await expect(frame.locator(".layout-placed-image")).toBeVisible();
+  const original = (await frame.boundingBox())!;
+  const photo = (await frame.locator(".layout-image-clip img").boundingBox())!;
+  await layout.getByRole("button", { name: "Crop", exact: true }).click();
+  await expect(frame.locator(".layout-crop-photo-outside")).toHaveCSS("opacity", "0.25");
+  const dragEdge = async (dx: number) => {
+    const edge = (await frame.getByRole("button", { name: "Crop e", exact: true }).boundingBox())!;
+    await page.mouse.move(edge.x + edge.width / 2, edge.y + edge.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(edge.x + edge.width / 2 + dx, edge.y + edge.height / 2, { steps: 5 });
+    await page.mouse.up();
+  };
+  await dragEdge(-55);
+  const cropped = (await frame.boundingBox())!;
+  expect(cropped.width).toBeCloseTo(original.width - 55, 0);
+  const fixedPhoto = (await frame.locator(".layout-image-clip img").boundingBox())!;
+  for (const key of ["x", "y", "width", "height"] as const) expect(fixedPhoto[key]).toBeCloseTo(photo[key], 0);
+  await page.screenshot({ path: testInfo.outputPath("layout-crop-fixed-photo.png") });
+  await frame.getByRole("button", { name: "Cancel", exact: true }).click();
+  expect((await frame.boundingBox())!.width).toBeCloseTo(original.width, 0);
+  await layout.getByRole("button", { name: "Crop", exact: true }).click();
+  await dragEdge(-55);
+  await frame.getByRole("button", { name: "Done", exact: true }).click();
+  await expect(frame.locator(".layout-crop-photo-outside")).toHaveCount(0);
+  const saved = (await frame.boundingBox())!;
+  await layout.getByRole("button", { name: "Undo", exact: true }).click();
+  expect((await frame.boundingBox())!.width).toBeCloseTo(original.width, 0);
+  await layout.getByRole("button", { name: "Redo", exact: true }).click();
+  expect((await frame.boundingBox())!.width).toBeCloseTo(saved.width, 0);
+  const properties = layout.getByRole("complementary", { name: "Page properties" });
+  for (const section of await properties.locator(".layout-inspector-section").all()) {
+    const summary = section.locator(":scope > summary");
+    if (await section.getAttribute("open") !== null) await summary.click();
+    await expect(section.locator(":scope > .layout-inspector-section-body")).toBeHidden();
+    await summary.click();
+    await expect(section.locator(":scope > .layout-inspector-section-body")).toBeVisible();
+  }
+  await properties.locator(".layout-inspector-section", { has: page.getByRole("heading", { name: "Paper", exact: true }) }).locator("summary").click();
+  await layout.getByRole("checkbox", { name: "Show page numbers" }).uncheck();
+  await expect(layout.getByRole("button", { name: "Paper color", exact: true })).toBeHidden();
+  await expect(layout.locator(".layout-save-status")).toContainText("Saved locally");
+  await page.reload();
+  await expect(frame).toHaveCount(1);
+  expect((await frame.boundingBox())!.width).toBeCloseTo(saved.width, 0);
+  const reloadedPhoto = (await frame.locator(".layout-image-clip img").boundingBox())!;
+  expect(reloadedPhoto.width).toBeCloseTo(photo.width, 0);
+  await layout.getByRole("button", { name: "Read", exact: true }).click();
+  await expect(page.locator(".layout-reader .layout-image-clip img").first()).toBeVisible();
+  await expect(page.locator(".layout-reader .layout-crop-photo-outside")).toHaveCount(0);
 });
 
 test("Layout edits frames, drops photos, crops and applies a template as one undo action", async ({ page }) => {
@@ -250,7 +320,7 @@ test("Layout edits frames, drops photos, crops and applies a template as one und
   await expect(page.getByRole("heading", { name: "Projects" })).toBeVisible();
   await seedSequence(page);
   await page.goto(`/#/projects/${PROJECT_ID}/sequences/${SEQUENCE_ID}`);
-  await page.getByRole("dialog", { name: "Sequence Street Edit" }).getByRole("button", { name: "Layout" }).click();
+  await page.getByRole("dialog", { name: "Sequence Street Edit" }).getByRole("button", { name: "Create Photo Book" }).click();
   const creator = page.getByRole("dialog", { name: "Create Layout" });
   await creator.getByLabel("Blank book (front cover, body page, back cover)").check();
   await creator.getByRole("button", { name: "Create Layout" }).click();
@@ -371,7 +441,7 @@ test("Layout paper color and material persist across thumbnails, reading, duplic
   await expect(page.getByRole("heading", { name: "Projects" })).toBeVisible();
   await seedSequence(page);
   await page.goto(`/#/projects/${PROJECT_ID}/sequences/${SEQUENCE_ID}`);
-  await page.getByRole("dialog", { name: "Sequence Street Edit" }).getByRole("button", { name: "Layout" }).click();
+  await page.getByRole("dialog", { name: "Sequence Street Edit" }).getByRole("button", { name: "Create Photo Book" }).click();
   const creator = page.getByRole("dialog", { name: "Create Layout" });
   await creator.getByLabel("Blank book (front cover, body page, back cover)").check();
   await creator.getByRole("button", { name: "Create Layout" }).click();
@@ -424,7 +494,7 @@ test("Layout edits a facing spread with direct photos and multi-selection", asyn
   await expect(page.getByRole("heading", { name: "Projects" })).toBeVisible();
   await seedSequence(page);
   await page.goto(`/#/projects/${PROJECT_ID}/sequences/${SEQUENCE_ID}`);
-  await page.getByRole("dialog", { name: "Sequence Street Edit" }).getByRole("button", { name: "Layout" }).click();
+  await page.getByRole("dialog", { name: "Sequence Street Edit" }).getByRole("button", { name: "Create Photo Book" }).click();
   const creator = page.getByRole("dialog", { name: "Create Layout" });
   await creator.getByLabel("Blank book (front cover, body page, back cover)").check();
   await creator.getByRole("button", { name: "Create Layout" }).click();
@@ -572,7 +642,7 @@ test("Layout text survives refresh and reading uses the same lines", async ({ pa
   await expect(page.getByRole("heading", { name: "Projects" })).toBeVisible();
   await seedSequence(page);
   await page.goto(`/#/projects/${PROJECT_ID}/sequences/${SEQUENCE_ID}`);
-  await page.getByRole("dialog", { name: "Sequence Street Edit" }).getByRole("button", { name: "Layout" }).click();
+  await page.getByRole("dialog", { name: "Sequence Street Edit" }).getByRole("button", { name: "Create Photo Book" }).click();
   await page.getByRole("dialog", { name: "Create Layout" }).getByRole("button", { name: "Create Layout" }).click();
   const layout = page.getByRole("main", { name: "Layout workspace" });
   await layout.getByRole("button", { name: "Draw text box" }).click();
@@ -673,7 +743,7 @@ test("Layout aligns whole English words and retains justification after reload a
   await expect(page.getByRole("heading", { name: "Projects" })).toBeVisible();
   await seedSequence(page);
   await page.goto(`/#/projects/${PROJECT_ID}/sequences/${SEQUENCE_ID}`);
-  await page.getByRole("dialog", { name: "Sequence Street Edit" }).getByRole("button", { name: "Layout" }).click();
+  await page.getByRole("dialog", { name: "Sequence Street Edit" }).getByRole("button", { name: "Create Photo Book" }).click();
   await page.getByRole("dialog", { name: "Create Layout" }).getByRole("button", { name: "Create Layout" }).click();
   const layout = page.getByRole("main", { name: "Layout workspace" });
   await layout.getByRole("button", { name: "Draw text box" }).click();
@@ -723,7 +793,7 @@ test("Layout exports fixed physical pages with selectable text and keeps blank p
   await expect(page.getByRole("heading", { name: "Projects" })).toBeVisible();
   await seedSequence(page);
   await page.goto(`/#/projects/${PROJECT_ID}/sequences/${SEQUENCE_ID}`);
-  await page.getByRole("dialog", { name: "Sequence Street Edit" }).getByRole("button", { name: "Layout" }).click();
+  await page.getByRole("dialog", { name: "Sequence Street Edit" }).getByRole("button", { name: "Create Photo Book" }).click();
   const creator = page.getByRole("dialog", { name: "Create Layout" });
   await creator.getByLabel("Blank book (front cover, body page, back cover)").check();
   await creator.getByRole("button", { name: "Create Layout" }).click();

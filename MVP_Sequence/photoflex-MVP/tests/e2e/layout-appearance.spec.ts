@@ -50,7 +50,7 @@ test("new Layout includes covers and persists photo effects in editing and readi
   await page.setViewportSize({ width: 1440, height: 900 });
   const projectId = await seedBook(page, false);
   await page.goto(`/#/projects/${projectId}/sequences/cover-sequence`);
-  await page.getByRole("button", { name: "Layout", exact: true }).click();
+  await page.getByRole("button", { name: "Create Photo Book", exact: true }).click();
   const creator = page.getByRole("dialog", { name: "Create Layout" });
   await expect(creator).toContainText("5 pages, including covers");
   await creator.getByRole("button", { name: "Create Layout" }).click();
@@ -59,8 +59,7 @@ test("new Layout includes covers and persists photo effects in editing and readi
   await expect(pages).toHaveCount(5);
   await expect(pages.first()).toContainText("Front cover");
   await expect(pages.last()).toContainText("Back cover");
-  await expect(pages.first().locator(".layout-page-index")).toBeEmpty();
-  await expect(pages.last().locator(".layout-page-index")).toBeEmpty();
+  await expect(pages.locator(".layout-page-index")).toHaveCount(0);
   await expect(pages.nth(1)).toContainText("Page 1");
   await expect(workspace.locator(".layout-paper-number")).toHaveCount(0);
   await expect(workspace.locator(".layout-pages-list")).not.toContainText("objects");
@@ -183,7 +182,7 @@ test("white gaps and page number visibility persist through undo, reload, and re
   await page.setViewportSize({ width: 1440, height: 900 });
   const projectId = await seedBook(page, false);
   await page.goto(`/#/projects/${projectId}/sequences/cover-sequence`);
-  await page.getByRole("button", { name: "Layout", exact: true }).click();
+  await page.getByRole("button", { name: "Create Photo Book", exact: true }).click();
   await page.getByRole("dialog", { name: "Create Layout" }).getByRole("button", { name: "Create Layout" }).click();
   const workspace = page.getByRole("main", { name: "Layout workspace" });
   const pages = workspace.locator(".layout-pages-list button");

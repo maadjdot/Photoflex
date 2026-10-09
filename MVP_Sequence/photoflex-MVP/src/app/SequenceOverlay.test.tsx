@@ -141,7 +141,7 @@ it("creates a Layout from a real Sequence, saves page order, and reopens the sam
   window.location.hash = `#/projects/${projectId}/sequences/${sequenceId}`;
   render(<App dependencies={{ projectStore, photoSource }} />);
   const overlay = await screen.findByRole("dialog", { name: "Sequence Complete photos" });
-  fireEvent.click(within(overlay).getByRole("button", { name: "Layout" }));
+  fireEvent.click(within(overlay).getByRole("button", { name: "Create Photo Book" }));
   const creator = await screen.findByRole("dialog", { name: "Create Layout" });
   expect(within(creator).getByText(/From Sequence \(6 pages, including covers\)/)).toBeTruthy();
   fireEvent.click(within(creator).getByRole("button", { name: "Create Layout" }));
@@ -168,7 +168,7 @@ it("creates a Layout from a real Sequence, saves page order, and reopens the sam
   expect(within(workspace).getByRole("button", { name: "Single" }).getAttribute("aria-pressed")).toBe("true");
   fireEvent.click(within(workspace).getByRole("button", { name: "← Sequence" }));
   await screen.findByRole("dialog", { name: "Sequence Complete photos" });
-  fireEvent.click(screen.getByRole("button", { name: "Layout" }));
+  fireEvent.click(screen.getByRole("button", { name: "Create Photo Book" }));
   await screen.findByRole("main", { name: "Layout workspace" }, { timeout: 5000 });
   const loaded = layoutId && await projectStore.loadLayout(layoutId);
   expect(loaded && loaded.ok && loaded.value.pages).toHaveLength(7);

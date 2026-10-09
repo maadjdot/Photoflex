@@ -98,6 +98,38 @@ export function panImageCrop(crop: ImageCrop, image: { width: number; height: nu
   return { ...crop, focal: { x: clamp(crop.focal.x - dxPt / placement.width, 0, 1), y: clamp(crop.focal.y - dyPt / placement.height, 0, 1) } };
 }
 
+/** Move the crop boundary over a fixed photo, retaining its page position and scale. */
+export function resizeImageCropFrame(frame: LayoutImageFrame, image: { width: number; height: number },
+  handle: Exclude<ResizeHandle, "move">, dxPt: number, dyPt: number): LayoutImageFrame {
+  const placed = resolveImagePlacement(image, frame.rect, frame.crop);
+  const photo = { x: frame.rect.x + placed.x, y: frame.rect.y + placed.y, width: placed.width, height: placed.height };
+  const minWidth = Math.min(photo.width, minimum);
+  const minHeight = Math.min(photo.height, minimum);
+  let left = Math.max(frame.rect.x, photo.x), top = Math.max(frame.rect.y, photo.y);
+  let right = Math.min(frame.rect.x + frame.rect.width, photo.x + photo.width);
+  let bottom = Math.min(frame.rect.y + frame.rect.height, photo.y + photo.height);
+  if (handle.includes("w")) left = clamp(left + dxPt, photo.x, right - minWidth);
+  if (handle.includes("e")) right = clamp(right + dxPt, left + minWidth, photo.x + photo.width);
+  if (handle.includes("n")) top = clamp(top + dyPt, photo.y, bottom - minHeight);
+  if (handle.includes("s")) bottom = clamp(bottom + dyPt, top + minHeight, photo.y + photo.height);
+  // The existing crop format supports at most 8× magnification on the limiting axis.
+  if (Math.max((right - left) / photo.width, (bottom - top) / photo.height) < 1 / 8) {
+    const horizontal = handle === "e" || handle === "w" || (handle !== "n" && handle !== "s"
+      && (right - left) / photo.width >= (bottom - top) / photo.height);
+    if (horizontal) {
+      if (handle.includes("w")) left = right - photo.width / 8;
+      else right = left + photo.width / 8;
+    } else {
+      if (handle.includes("n")) top = bottom - photo.height / 8;
+      else bottom = top + photo.height / 8;
+    }
+  }
+  const rect = { x: left, y: top, width: right - left, height: bottom - top };
+  const base = Math.max(rect.width / image.width, rect.height / image.height);
+  return { ...frame, rect, photoAspectRatio: undefined, crop: { mode: "fill", zoom: clamp(photo.width / image.width / base, 1, 8),
+    focal: { x: (rect.x + rect.width / 2 - photo.x) / photo.width, y: (rect.y + rect.height / 2 - photo.y) / photo.height } } };
+}
+
 export function zoomImageCropAtPoint(crop: ImageCrop, image: { width: number; height: number }, frame: LayoutRect,
   nextZoom: number, point: { x: number; y: number }): ImageCrop {
   const before = resolveImagePlacement(image, frame, crop);
