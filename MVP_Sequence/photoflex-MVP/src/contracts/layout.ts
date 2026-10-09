@@ -53,7 +53,7 @@ export interface LayoutTextBox {
     readonly fontSizePt: number;
     readonly lineHeight: number;
     readonly color: string;
-    readonly align: "left" | "center" | "right";
+    readonly align: "left" | "center" | "right" | "justify";
   };
 }
 

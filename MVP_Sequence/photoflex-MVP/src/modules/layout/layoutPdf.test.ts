@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
-import { PDFArray, PDFDocument, PDFDict, PDFName, PDFNumber, PDFRawStream, decodePDFRawStream } from "pdf-lib";
+import { PDFArray, PDFDocument, PDFDict, PDFHexString, PDFName, PDFNumber, PDFRawStream, decodePDFRawStream } from "pdf-lib";
 import type { LayoutId, LayoutObjectId, LayoutPageId, LayoutTextBox, PhotoId, ProjectId, SequenceId } from "../../contracts";
 import { createEmptyLayout } from "./layoutDocument";
 import { createLayoutPdf } from "./layoutPdf";
@@ -13,6 +13,24 @@ function pageOperators(pdf: PDFDocument, index: number) {
 }
 
 describe("Layout PDF", () => {
+  it("exports whole English words with justified positions and unstretched paragraph endings", async () => {
+    const base = createEmptyLayout({ id: "layout" as LayoutId, projectId: "project" as ProjectId,
+      sequenceId: "sequence" as SequenceId, pageId: "one" as LayoutPageId, name: "Justified text", createdAt: "now" });
+    const text: LayoutTextBox = { kind: "text-box", id: "text" as LayoutObjectId,
+      rect: { x: 40, y: 40, width: 54, height: 100 }, text: "one two three\nlast",
+      style: { fontFamily: "courier-prime", fontSizePt: 10, lineHeight: 1.2, color: "#171513", align: "justify" } };
+    const bytes = new Uint8Array(await readFile("src/assets/fonts/Courier_Prime/CourierPrime-Regular.ttf"));
+    const pdf = await PDFDocument.load(await createLayoutPdf({ ...base, showPageNumbers: false, pages: [{ ...base.pages[0], objects: [text] }] }, {
+      fonts: [{ family: "courier-prime", weight: "normal", style: "normal", bytes, syntheticBold: false, syntheticItalic: false }],
+      loadPhoto: async () => { throw Error("Unexpected photo"); },
+    }));
+    const operators = pageOperators(pdf, 0);
+    for (const line of ["one two", "three", "last"]) expect(operators).toContain(`/ActualText ${PDFHexString.fromText(line)}`);
+    const positions = [...operators.matchAll(/1 0 0 1 ([\d.]+) [\d.]+ Tm/g)].map((match) => Number(match[1]));
+    expect(positions).toHaveLength(4);
+    expect(positions[1]).toBeCloseTo(76, 1);
+    expect([positions[0], ...positions.slice(2)]).toEqual([40, 40, 40]);
+  });
   it.each([false, true])("exports photo opacity for the rendered crop path: %s", async (rendered) => {
     const base = createEmptyLayout({ id: "layout" as LayoutId, projectId: "project" as ProjectId,
       sequenceId: "sequence" as SequenceId, pageId: "one" as LayoutPageId, name: "Opacity", createdAt: "now" });

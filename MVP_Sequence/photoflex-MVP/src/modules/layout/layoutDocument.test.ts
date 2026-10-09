@@ -118,6 +118,16 @@ describe("Layout document commands", () => {
     }
   });
 
+  it.each(["left", "center", "right", "justify"] as const)("accepts and round-trips %s text alignment", (align) => {
+    const original = initial();
+    const text = { kind: "text-box" as const, id: "text" as LayoutObjectId, rect: { x: 20, y: 20, width: 200, height: 80 },
+      text: "Whole words stay together", style: { fontFamily: "roboto" as const, fontSizePt: 12, lineHeight: 1.2, color: "#171513", align } };
+    const edited = applyLayoutCommand(original, { type: "upsert-object", pageId: original.pages[0].id, object: text });
+    expect(edited).toMatchObject({ ok: true, value: { pages: [{ objects: [text] }] } });
+    if (!edited.ok) throw Error("text rejected");
+    expect(isLayoutDocument(JSON.parse(JSON.stringify(edited.value)))).toBe(true);
+  });
+
   it("resizes existing frames with the page while keeping photo crop coordinates", () => {
     const original = initial();
     const frame = { kind: "image-frame" as const, id: "frame" as LayoutObjectId,

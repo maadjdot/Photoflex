@@ -605,7 +605,7 @@ test("Layout text survives refresh and reading uses the same lines", async ({ pa
   await layout.getByRole("button", { name: "Italic", exact: true }).click();
   await expect(layout.locator(".layout-text-content")).toHaveCSS("font-weight", "700");
   await expect(layout.locator(".layout-text-content")).toHaveCSS("font-style", "italic");
-  await layout.getByRole("button", { name: "Centre" }).click();
+  await layout.getByRole("button", { name: "Align centre" }).click();
   await expect(layout.locator(".layout-text-content")).toHaveCSS("text-align", "center");
   await expect(layout.getByRole("spinbutton", { name: "Size pt" })).toHaveAttribute("step", "1");
   await layout.getByRole("spinbutton", { name: "Size pt" }).fill("14");
@@ -665,6 +665,57 @@ test("Layout text survives refresh and reading uses the same lines", async ({ pa
   expect(await layout.locator(".layout-object-text-box .layout-text-line").allTextContents()).toEqual(editLines);
   await expect(layout.locator(".layout-text-content")).toHaveCSS("font-weight", "700");
   await expect(layout.locator(".layout-text-content")).toHaveCSS("font-style", "italic");
+});
+
+test("Layout aligns whole English words and retains justification after reload and reading", async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto("/");
+  await expect(page.getByRole("heading", { name: "Projects" })).toBeVisible();
+  await seedSequence(page);
+  await page.goto(`/#/projects/${PROJECT_ID}/sequences/${SEQUENCE_ID}`);
+  await page.getByRole("dialog", { name: "Sequence Street Edit" }).getByRole("button", { name: "Layout" }).click();
+  await page.getByRole("dialog", { name: "Create Layout" }).getByRole("button", { name: "Create Layout" }).click();
+  const layout = page.getByRole("main", { name: "Layout workspace" });
+  await layout.getByRole("button", { name: "Draw text box" }).click();
+  const paper = (await layout.locator(".layout-paper.is-current").boundingBox())!;
+  await page.mouse.move(paper.x + paper.width * .15, paper.y + paper.height * .15);
+  await page.mouse.down();
+  await page.mouse.move(paper.x + paper.width * (.15 + 40 / 210), paper.y + paper.height * .6, { steps: 6 });
+  await page.mouse.up();
+  const frame = layout.locator(".layout-object-text-box");
+  const input = frame.getByRole("textbox", { name: "Edit text in frame" });
+  await input.fill("one two three four five six\nlast");
+  await expect(input).toHaveCSS("overflow-wrap", "normal");
+  await input.press("Escape");
+  await layout.getByRole("combobox", { name: "Font" }).selectOption("courier-prime");
+  await layout.getByRole("spinbutton", { name: "Size pt", exact: true }).fill("18");
+  await layout.getByRole("spinbutton", { name: "Size pt", exact: true }).press("Tab");
+  const lines = frame.locator(".layout-text-line");
+  await expect(lines).toHaveText(["one two", "three four", "five six", "last"]);
+  const alignment = layout.getByRole("group", { name: "Text alignment" });
+  for (const [name, css] of [["Align right", "right"], ["Align centre", "center"], ["Align left", "left"], ["Justify", "justify"]]) {
+    await alignment.getByRole("button", { name, exact: true }).click();
+    await expect(alignment.getByRole("button", { name, exact: true })).toHaveAttribute("aria-pressed", "true");
+    await expect(frame.locator(".layout-text-content")).toHaveCSS("text-align", css);
+  }
+  const checkEdges = async (line: ReturnType<Page["locator"]>) => {
+    const row = (await line.boundingBox())!, first = (await line.locator("span").first().boundingBox())!, last = (await line.locator("span").last().boundingBox())!;
+    const padding = await line.evaluate((element) => ({ left: parseFloat(getComputedStyle(element).paddingLeft), right: parseFloat(getComputedStyle(element).paddingRight) }));
+    expect(first.x).toBeCloseTo(row.x + padding.left, 0);
+    expect(last.x + last.width).toBeCloseTo(row.x + row.width - padding.right, 0);
+  };
+  await checkEdges(lines.first());
+  expect(await lines.last().locator("span").count()).toBe(1);
+  await page.screenshot({ path: testInfo.outputPath("layout-justified-english.png") });
+  await expect(layout.locator(".layout-save-status")).toContainText("Saved locally");
+  await page.reload();
+  await expect(lines).toHaveText(["one two", "three four", "five six", "last"]);
+  await expect(frame.locator(".layout-text-content")).toHaveCSS("text-align", "justify");
+  await checkEdges(lines.first());
+  await layout.getByRole("button", { name: "Read", exact: true }).click();
+  const reader = page.getByRole("dialog", { name: /Read .*Layout/ });
+  await expect(reader.locator(".layout-object-text-box .layout-text-line")).toHaveText(["one two", "three four", "five six", "last"]);
+  await checkEdges(reader.locator(".layout-object-text-box .layout-text-line").first());
 });
 
 test("Layout exports fixed physical pages with selectable text and keeps blank pages", async ({ page }, testInfo) => {

@@ -4,7 +4,7 @@ import type { LayoutDocument, LayoutFontFamily, LayoutFontStyle, LayoutFontWeigh
 import { LAYOUT_CHINESE_FALLBACK_FONT, layoutFontStyle, layoutFontWeight } from "./layoutFonts";
 import { isDarkLayoutPaper, resolveLayoutPaper } from "./layoutPaper";
 import { layoutPageNumber } from "./layoutPageNumbers";
-import { layoutText } from "./layoutText";
+import { layoutText, layoutTextLineRuns } from "./layoutText";
 import { layoutVisiblePhotoRect } from "./layoutPhotoAppearance";
 import { layoutReaderPageObjects } from "./layoutReader";
 import { frameInnerEdge, frameInnerEdgeWhiteGapPt } from "../worktable/frameAppearance";
@@ -210,20 +210,20 @@ function drawText(page: Page, box: LayoutTextBox, pageHeight: number, fonts: Rea
   const ink = rgb(parseInt(color.slice(0, 2), 16) / 255, parseInt(color.slice(2, 4), 16) / 255, parseInt(color.slice(4, 6), 16) / 255);
   for (const [index, line] of result.lines.entries()) {
     if (!line.text) continue;
-    const runs = fontRuns(line.text, primary, fallback);
-    const lineWidth = runWidth(runs, box.style.fontSizePt);
-    const alignOffset = box.style.align === "right" ? width - lineWidth : box.style.align === "center" ? (width - lineWidth) / 2 : 0;
+    const positionedRuns = layoutTextLineRuns(box, line, (text, size) => runWidth(fontRuns(text, primary, fallback), size));
     // CSS line boxes start at the top; the baseline sits about one font size below it.
     const baseline = pageHeight - y - box.style.fontSizePt - index * result.lineHeightPt;
     if (baseline < pageHeight - y - height - box.style.fontSizePt) break;
     page.pushOperators(PDFOperator.of(PDFOperatorNames.BeginMarkedContentSequence, [PDFName.of("Span"), `<< /ActualText ${PDFHexString.fromText(line.text)} >>`]));
-    let runX = x + alignOffset;
-    for (const run of runs) {
-      const options = { x: runX, y: baseline, font: run.font.font, size: box.style.fontSizePt, color: ink,
-        lineHeight: result.lineHeightPt, xSkew: run.font.syntheticItalic ? degrees(12) : undefined };
-      page.drawText(run.text, options);
-      if (run.font.syntheticBold) page.drawText(run.text, { ...options, x: runX + Math.max(.18, box.style.fontSizePt * .018) });
-      runX += run.font.font.widthOfTextAtSize(run.text, box.style.fontSizePt);
+    for (const positioned of positionedRuns) {
+      let runX = x + positioned.x;
+      for (const run of fontRuns(positioned.text, primary, fallback)) {
+        const options = { x: runX, y: baseline, font: run.font.font, size: box.style.fontSizePt, color: ink,
+          lineHeight: result.lineHeightPt, xSkew: run.font.syntheticItalic ? degrees(12) : undefined };
+        page.drawText(run.text, options);
+        if (run.font.syntheticBold) page.drawText(run.text, { ...options, x: runX + Math.max(.18, box.style.fontSizePt * .018) });
+        runX += run.font.font.widthOfTextAtSize(run.text, box.style.fontSizePt);
+      }
     }
     page.pushOperators(endMarkedContent());
   }
