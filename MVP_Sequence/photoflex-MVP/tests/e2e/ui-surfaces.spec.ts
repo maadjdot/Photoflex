@@ -48,28 +48,27 @@ test("Frame settings stay flush after visiting Layout and translate in Chinese",
   const settings = page.getByRole("complementary", { name: "画框设置", exact: true });
   await expect(settings.locator(".table-frame-panel-header strong")).toHaveText("画框设置");
   await expect(settings.getByRole("button", { name: "添加照片框", exact: true })).toBeVisible();
-  await expect(settings.getByRole("button", { name: "恢复模板尺寸", exact: true })).toBeVisible();
+  await expect(settings.getByRole("button", { name: "添加文字", exact: true })).toBeVisible();
+  await expect(settings.getByRole("spinbutton", { name: "宽度 mm", exact: true })).toHaveValue("54");
+  await expect(settings.getByRole("spinbutton", { name: "高度 mm", exact: true })).toHaveValue("86");
   await settings.getByRole("button", { name: "纸张颜色", exact: true }).click();
   await expect(settings.getByRole("option", { name: "纯白", exact: true })).toBeVisible();
   await settings.getByRole("option", { name: "纯白", exact: true }).click();
-  await settings.getByLabel("模板类型").selectOption("frames");
-  await expect(settings.getByLabel("边框材质")).toContainText("木纹");
-  await expect(settings.getByLabel("画框说明文字")).toHaveAttribute("placeholder", "地点、日期…");
   await expect(settings.getByRole("button", { name: "导出 JPEG", exact: true })).toBeVisible();
-  await expect(settings.locator("h3")).toHaveText(["模板 1 个照片框", "页面尺寸", "照片框 1", "纸张", "外边框", "内边框 照片边缘", "图像适配 所有照片框", "说明文字", "导出"]);
+  await expect(settings.locator(".table-frame-inspector")).toHaveAttribute("data-inspector-context", "page");
+  await expect(settings.locator("h3")).toHaveText(["页面尺寸", "纸张", "导出"]);
   await page.locator("[data-frame-slot-id]").click();
+  await expect(settings.locator(".table-frame-inspector")).toHaveAttribute("data-inspector-context", "photo");
+  await expect(settings.locator("h3")).toHaveText(["照片框 01", "圆角半径", "内边框"]);
   await expect(settings.getByRole("slider", { name: "圆角半径", exact: true })).toBeVisible();
   await expect(settings.getByRole("button", { name: "移除照片框", exact: true })).toBeVisible();
-  const colors = await settings.locator(".table-frame-add-box, .table-frame-panel-header, .table-frame-hint, .table-frame-section h3, select, textarea").evaluateAll((nodes) => nodes.flatMap((node) => {
-    const style = getComputedStyle(node); return [style.color, style.backgroundColor, style.borderTopColor];
-  }));
-  for (const color of colors) {
-    const channels = color.match(/[\d.]+/g)!.slice(0, 3).map(Number);
-    expect(channels[0]).toBe(channels[1]); expect(channels[1]).toBe(channels[2]);
-  }
+  await expect(settings.locator(".table-frame-panel-header strong")).toHaveCSS("font-size", "15px");
+  await expect(settings.locator(".table-frame-panel-header strong")).toHaveCSS("color", "rgb(16, 24, 40)");
   await expectFlush();
   await page.screenshot({ path: testInfo.outputPath("frame-settings-zh.png") });
-  await settings.getByLabel("模板类型").scrollIntoViewIfNeeded();
+  await page.locator(".table-frame-title").click();
+  await expect(settings.locator(".table-frame-inspector")).toHaveAttribute("data-inspector-context", "page");
+  await settings.getByRole("button", { name: "添加照片框", exact: true }).scrollIntoViewIfNeeded();
   await page.screenshot({ path: testInfo.outputPath("frame-settings-zh-top.png") });
   await page.reload();
   await page.locator(".table-frame-title").click();
@@ -79,6 +78,12 @@ test("Frame settings stay flush after visiting Layout and translate in Chinese",
 
 test("Home account menu stays above gallery photos", async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 1280, height: 800 });
+  // Keep the top-right gallery slot occupied so the overlap fixture is deterministic.
+  await page.route("**/src/app/homeGallery.ts", async (route) => {
+    const response = await route.fetch();
+    const body = (await response.text()).replace("random = Math.random", "random = () => 0");
+    await route.fulfill({ response, body });
+  });
   // Supply a signed-in local fixture through the application's dependency seam.
   await page.route("**/src/app/dependencies.ts", async (route) => {
     const response = await route.fetch();
@@ -111,7 +116,8 @@ test("Home account menu stays above gallery photos", async ({ page }, testInfo) 
     db.close();
   });
   await page.reload();
-  await expect(page.locator(".home-gallery img").first()).toBeVisible();
+  await expect(page.locator(".home-gallery img")).toHaveCount(15);
+  await expect(page.locator('.home-gallery-row').first().locator('.home-gallery-photo[style*="grid-column: 7"] img')).toBeVisible();
   await page.getByRole("button", { name: "PhotoFlex account", exact: true }).click();
   const menu = page.locator(".table-account-popover");
   await expect(menu.getByRole("button", { name: "Sign out", exact: true })).toBeVisible();

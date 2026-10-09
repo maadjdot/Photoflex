@@ -264,6 +264,7 @@ test("Canvas uses the same optional white gap and restores it after reload", asy
   const gap = settings.getByRole("checkbox", { name: "Thin white gap" });
   const edge = frame.locator(".inner-edge-color");
   await expect(frame.locator(".table-frame-photo-clip img")).toBeVisible();
+  await frame.locator('[data-frame-slot-id="gap-slot"]').click();
   await expect(gap).toBeChecked();
   await expect(edge).not.toHaveCSS("box-shadow", "none");
   await gap.uncheck();
@@ -275,10 +276,11 @@ test("Canvas uses the same optional white gap and restores it after reload", asy
     const stored = db.transaction("projects").objectStore("projects").get(projectId);
     const project = await new Promise<any>((resolve) => { stored.onsuccess = () => resolve(stored.result); });
     db.close();
-    return project.worktableDraft.frames["gap-frame"].page.innerEdge.whiteGap;
+    return project.worktableDraft.frames["gap-frame"].page.slots[0].innerEdge.whiteGap;
   }, projectId)).toBe(false);
   await page.reload();
   await frame.locator(".table-frame-title").click();
+  await frame.locator('[data-frame-slot-id="gap-slot"]').click();
   await expect(gap).not.toBeChecked();
   await expect(edge).toHaveCSS("box-shadow", "none");
   await gap.check();

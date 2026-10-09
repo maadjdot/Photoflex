@@ -517,14 +517,14 @@ test("Layout edits a facing spread with direct photos and multi-selection", asyn
   await page.mouse.move(stageBounds.x + stageBounds.width / 2, stageBounds.y + stageBounds.height / 2 - 60, { steps: 5 });
   await page.mouse.up({ button: "middle" });
   expect(await stage.evaluate((element) => element.scrollTop)).toBeGreaterThan(beforeMiddlePan);
-  await layout.getByRole("button", { name: "Pan" }).click();
+  await layout.getByRole("button", { name: "Pan", exact: true }).click();
   const beforeLeftPan = await stage.evaluate((element) => element.scrollTop);
   await page.mouse.move(stageBounds.x + stageBounds.width / 2, stageBounds.y + stageBounds.height / 2);
   await page.mouse.down();
   await page.mouse.move(stageBounds.x + stageBounds.width / 2, stageBounds.y + stageBounds.height / 2 + 50, { steps: 5 });
   await page.mouse.up();
   expect(await stage.evaluate((element) => element.scrollTop)).toBeLessThan(beforeLeftPan);
-  await layout.getByRole("button", { name: "Pan" }).click();
+  await layout.getByRole("button", { name: "Pan", exact: true }).click();
   await layout.getByRole("button", { name: "Fit page" }).click();
   await expect(layout.locator(".layout-view-controls")).toContainText("100%");
   await layout.getByRole("button", { name: "Read", exact: true }).click();
