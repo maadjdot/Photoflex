@@ -1,5 +1,6 @@
 import { TableMemos } from "./TableMemos";
 import { TableHeaderControl } from "./TableHeaderControl";
+import { TableToolbarIcon } from "./TableToolbarIcon";
 import {
   forwardRef,
   useCallback,
@@ -108,6 +109,8 @@ interface TableCanvasProps {
   readonly interactionDisabled?: boolean;
   readonly connectorToolActive?: boolean;
   readonly onConnectorToolChange?: (active: boolean) => void;
+  readonly photoTurnToolActive?: boolean;
+  readonly onPhotoTurnToolChange?: (active: boolean) => void;
   readonly selectedConnectorId?: string;
   readonly onSelectConnector?: (id: string | undefined) => void;
   readonly emptyAction?: { readonly label: string; readonly onClick: () => void };
@@ -419,6 +422,9 @@ export const TableCanvas = forwardRef<TableCanvasHandle, TableCanvasProps>(funct
     if (plain && key === "l" && !event.shiftKey && props.onConnectorToolChange) {
       event.preventDefault(); connectors.cancel(); props.onConnectorToolChange(!props.connectorToolActive); return;
     }
+    if (event.key === "Escape" && props.photoTurnToolActive) {
+      event.preventDefault(); props.onPhotoTurnToolChange?.(false); return;
+    }
     if (event.key === "Escape" && props.connectorToolActive) {
       event.preventDefault(); connectors.cancel(); props.onConnectorToolChange?.(false); return;
     }
@@ -635,13 +641,16 @@ export const TableCanvas = forwardRef<TableCanvasHandle, TableCanvasProps>(funct
   return (
     <div
       ref={stageRef}
-      className={`worktable-stage${props.connectorToolActive && !interactionDisabled ? " is-connecting" : ""}`}
+      className={`worktable-stage${props.connectorToolActive && !interactionDisabled ? " is-connecting" : ""}${props.photoTurnToolActive && !interactionDisabled ? " is-turning-photos" : ""}`}
       tabIndex={0}
       aria-keyshortcuts="ArrowLeft ArrowRight ArrowUp ArrowDown J B K Shift+K L Escape"
       aria-label={t("table.worktable")}
       onPointerDownCapture={(event) => {
         const active = document.activeElement;
         const target = event.target as HTMLElement;
+        if (props.photoTurnToolActive && !interactionDisabled && event.button === 0 && !target.closest(".worktable-canvas-controls")) {
+          event.preventDefault(); event.stopPropagation(); stageRef.current?.focus(); return;
+        }
         if (active instanceof HTMLElement && (active.closest(".is-frame-toolbar") || active.matches(".table-frame-text-input")) && !target.closest(".is-frame-toolbar") && target !== active) active.blur();
         if (!props.connectorToolActive && !(event.target as Element).closest("[data-worktable-connector-id], .worktable-canvas-controls")) props.onSelectConnector?.(undefined);
         connectors.onPointerDownCapture(event);
@@ -651,8 +660,21 @@ export const TableCanvas = forwardRef<TableCanvasHandle, TableCanvasProps>(funct
       onPointerCancelCapture={connectors.onPointerCancelCapture}
       onLostPointerCapture={connectors.onLostPointerCapture}
       onPointerLeave={connectors.onPointerLeave}
-      onClickCapture={(event) => { if (props.connectorToolActive && !(event.target as Element).closest(".worktable-canvas-controls")) { event.preventDefault(); event.stopPropagation(); } }}
-      onDoubleClickCapture={(event) => { if (props.connectorToolActive) { event.preventDefault(); event.stopPropagation(); } }}
+      onClickCapture={(event) => {
+        const target = event.target as HTMLElement;
+        if (target.closest(".worktable-canvas-controls")) return;
+        if (props.photoTurnToolActive && !interactionDisabled) {
+          event.preventDefault(); event.stopPropagation();
+          const card = target.closest<HTMLElement>("[data-worktable-photo-id]");
+          const id = card?.dataset.worktablePhotoId as WorktableItemId | undefined;
+          if (id) {
+            if (!draft.placements[id]?.locked) execute({ type: "flip-photos", photoIds: [id] });
+          } else if (!target.closest(".table-memo, .table-frame, .sequence-pile, .worktable-group-frame, [data-worktable-connector-id]")) {
+            props.onPhotoTurnToolChange?.(false);
+          }
+        } else if (props.connectorToolActive) { event.preventDefault(); event.stopPropagation(); }
+      }}
+      onDoubleClickCapture={(event) => { if (props.connectorToolActive || props.photoTurnToolActive) { event.preventDefault(); event.stopPropagation(); } }}
       onPointerDown={(event) => { if (event.target === event.currentTarget || (event.target as HTMLElement).classList.contains("worktable-world")) { props.onSelectMemo?.(undefined); props.onSelectFrame?.(undefined); setSelectedFrameObject(undefined); } gestures.onStagePointerDown(event); }}
       onPointerMove={gestures.onStagePointerMove}
       onPointerUp={(event) => gestures.finishGesture(event)}
@@ -730,18 +752,23 @@ export const TableCanvas = forwardRef<TableCanvasHandle, TableCanvasProps>(funct
             <div key={id} className="worktable-photo-position">
             <article
               data-worktable-photo-id={id}
-              aria-label={`${item.filename}${item.locked ? ` · ${t("table.locked")}` : ""}`}
-              className={`worktable-card${chosen ? " is-selected" : ""}${dragging ? " is-dragging" : ""}${item.locked ? " is-locked" : ""}${missingPhotoIds.has(item.photoId) ? " is-missing" : ""}`}
+              aria-label={`${item.filename}${item.faceDown ? ` · ${t("table.faceDown")}` : ""}${item.locked ? ` · ${t("table.locked")}` : ""}`}
+              className={`worktable-card${chosen ? " is-selected" : ""}${dragging ? " is-dragging" : ""}${item.faceDown ? " is-face-down" : ""}${item.locked ? " is-locked" : ""}${missingPhotoIds.has(item.photoId) ? " is-missing" : ""}`}
               style={{ width: item.width * scale, height: item.height * scale, zIndex: item.z, transform: `translate3d(${item.x + delta.x}px,${item.y + delta.y}px,0)` }}
               onPointerDown={(event) => { props.onSelectFrame?.(undefined); gestures.onPhotoPointerDown(event, id); }}
               onDoubleClick={() => onOpenPhoto(item.photoId)}
             >
               <div className="worktable-photo" style={{ height: item.height * scale }}>
-                {mountedPhotoIds.has(id)
-                  ? <PhotoThumb photoSource={photoSource} photoId={item.photoId} alt={item.filename} onError={onPhotoError} resolution="table" progressiveTo={visiblePhotoIds.has(id) ? tablePreviewEdge(viewport.zoom, chosen) : 768} sourceRevision={sourceRevision} />
-                  : <div className="thumb-placeholder" aria-hidden="true" />}
-                {missingPhotoIds.has(item.photoId) && <span className="worktable-missing">{t("status.missing")}</span>}
-                {item.locked && <span className="worktable-lock-badge" aria-label={t("table.locked")}>LOCK</span>}
+                <div className="worktable-photo-sides">
+                  <div className="worktable-photo-front" aria-hidden={Boolean(item.faceDown)}>
+                    {mountedPhotoIds.has(id)
+                      ? <PhotoThumb photoSource={photoSource} photoId={item.photoId} alt={item.filename} onError={onPhotoError} resolution="table" progressiveTo={visiblePhotoIds.has(id) ? tablePreviewEdge(viewport.zoom, chosen) : 768} sourceRevision={sourceRevision} />
+                      : <div className="thumb-placeholder" aria-hidden="true" />}
+                    {missingPhotoIds.has(item.photoId) && <span className="worktable-missing">{t("status.missing")}</span>}
+                    {item.locked && <span className="worktable-lock-badge" aria-label={t("table.locked")}>LOCK</span>}
+                  </div>
+                  <div className="worktable-photo-back" aria-hidden={!item.faceDown} />
+                </div>
               </div>
               {chosen && !item.locked && selectedPhotoIds.length === 1 && <button aria-label="Resize photo" className="worktable-resize-handle" onPointerDown={(event) => gestures.onPhotoResizePointerDown(event, id)} />}
             </article>
@@ -788,6 +815,7 @@ export const TableCanvas = forwardRef<TableCanvasHandle, TableCanvasProps>(funct
         </>}
       </svg>}
       {props.connectorToolActive && <p className="worktable-connector-hint" role="status">{t("table.lineHint")}</p>}
+      {props.photoTurnToolActive && !interactionDisabled && <p className="worktable-turn-photo-hint" role="status"><TableToolbarIcon name="turn-photo" /><strong>{t("table.turnPhotoTool")}</strong><span>{t("table.turnPhotoHint")}</span><span className="worktable-turn-photo-exit">{t("table.turnPhotoExitHint")} <kbd>Esc</kbd> {t("table.exitTool")}</span></p>}
       {preview.marquee && <div className="worktable-marquee" style={preview.marquee} />}
       {sequenceTray && preview.targetSequenceId === sequenceTray.sequence.id && <div
         className="sequence-insert-tray"
@@ -809,7 +837,7 @@ export const TableCanvas = forwardRef<TableCanvasHandle, TableCanvasProps>(funct
           {preview.insertIndex !== undefined && <span className="sequence-insert-marker" style={{ left: 8 + preview.insertIndex * trayRange.itemStride }} />}
         </div>
       </div>}
-      {!props.connectorToolActive && !draft.connectors?.length && !draft.entryOrder.length && !draft.pileOrder.length && !draft.memos?.length && !draft.frameOrder?.length && (
+      {!props.connectorToolActive && !props.photoTurnToolActive && !draft.connectors?.length && !draft.entryOrder.length && !draft.pileOrder.length && !draft.memos?.length && !draft.frameOrder?.length && (
         <section className="worktable-empty">
           <span>{t("table.emptyLabel")}</span>
           <h1>{t("table.empty")}</h1>

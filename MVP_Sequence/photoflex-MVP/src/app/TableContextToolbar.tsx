@@ -19,6 +19,9 @@ import { useLocale } from "./locale";
 interface TableFloatingToolbarProps {
   readonly connectorToolActive?: boolean;
   readonly onToggleConnectorTool?: () => void;
+  readonly photoTurnToolActive?: boolean;
+  readonly onTogglePhotoTurnTool?: () => void;
+  readonly onExitPhotoTurnTool?: () => void;
   readonly storageKey?: string;
   readonly onAddMemo?: () => void;
   readonly onCreateFrame?: (template: FrameTemplateId, useFirst?: boolean) => boolean;
@@ -32,7 +35,7 @@ interface TableFloatingToolbarProps {
   readonly onExecute: (command: WorktableEditCommand) => void;
 }
 
-export function TableFloatingToolbar({ connectorToolActive, onToggleConnectorTool, storageKey = "photoflex:table-toolbar", actions, canUndo, canRedo, onUndo, onRedo, onExecute, onAddMemo, onCreateFrame, selectedPhotoCount = 0, selectedMemo }: TableFloatingToolbarProps) {
+export function TableFloatingToolbar({ connectorToolActive, onToggleConnectorTool, photoTurnToolActive, onTogglePhotoTurnTool, onExitPhotoTurnTool, storageKey = "photoflex:table-toolbar", actions, canUndo, canRedo, onUndo, onRedo, onExecute, onAddMemo, onCreateFrame, selectedPhotoCount = 0, selectedMemo }: TableFloatingToolbarProps) {
   const { t } = useLocale();
   const toolbarRef = useRef<HTMLDivElement>(null);
   const [visible, setVisible] = useState(() => readToolbarVisible(storageKey));
@@ -59,10 +62,11 @@ export function TableFloatingToolbar({ connectorToolActive, onToggleConnectorToo
   useEffect(() => {
     try { window.sessionStorage.setItem(`${storageKey}:visible`, String(visible)); } catch { /* Visibility is disposable UI state. */ }
   }, [storageKey, visible]);
-  return <><TableHeaderControl targetId="table-header-toolbar-toggle"><TableRailButton icon={visible ? "hide" : "show"} label={t(visible ? "table.hideTools" : "table.showTools")} aria-expanded={visible} className="table-rail-toggle" tooltipBelow onClick={() => { setFrameOpen(false); setVisible((value) => !value); }} /></TableHeaderControl>
-  {visible && <div ref={toolbarRef} className="table-tools-rail"><div className="table-rail-creation" role="group" aria-label={t("table.creationTools")}>
+  return <><TableHeaderControl targetId="table-header-toolbar-toggle"><TableRailButton icon={visible ? "hide" : "show"} label={t(visible ? "table.hideTools" : "table.showTools")} aria-expanded={visible} className="table-rail-toggle" tooltipBelow onClick={() => { onExitPhotoTurnTool?.(); setFrameOpen(false); setVisible((value) => !value); }} /></TableHeaderControl>
+  {visible && <div ref={toolbarRef} className="table-tools-rail" onClickCapture={(event) => { if (photoTurnToolActive && !(event.target as Element).closest("[data-turn-photo-tool]")) onExitPhotoTurnTool?.(); }}><div className="table-rail-creation" role="group" aria-label={t("table.creationTools")}>
     {onAddMemo && <TableRailButton icon="memo" label={t("table.addMemo")} tooltip={t("table.memo")} shortcut="M" active={Boolean(selectedMemo)} onClick={() => { setFrameOpen(false); onAddMemo(); }} />}
     {onToggleConnectorTool && <TableRailButton icon="link" label={t("table.drawLine")} tooltip={t("table.link")} shortcut="L" active={connectorToolActive} onClick={() => { setFrameOpen(false); onToggleConnectorTool(); }} />}
+    {onTogglePhotoTurnTool && <TableRailButton icon="turn-photo" label={t("table.turnPhotoTool")} active={photoTurnToolActive} data-turn-photo-tool onClick={() => { setFrameOpen(false); onTogglePhotoTurnTool(); }} />}
     {onCreateFrame && <div className="table-rail-frame"><TableRailButton ref={frameButtonRef} icon="frame" label="Frame templates" tooltip={t("table.frame")} active={frameOpen} aria-expanded={frameOpen} aria-haspopup="dialog" onClick={toggleFrame} />{frameOpen && <div className={`table-frame-popover${frameAbove ? " is-above" : ""}`} role="dialog" aria-label="Frame templates">
       <header>{frameCategory ? <button type="button" className="table-frame-back" aria-label="Back to template families" onClick={() => setFrameCategory(undefined)}>‹ Templates</button> : <span>Frame templates</span>}<small>{frameCategory ? FRAME_FAMILIES.find((family) => family.id === frameCategory)?.label : `${FRAME_FAMILIES.length} families`}</small></header>
       {!frameCategory ? <nav className="table-frame-family-menu" aria-label="Template families">{FRAME_FAMILIES.map((family) => <button key={family.id} type="button" onClick={() => setFrameCategory(family.id)}><FrameTemplatePreview id={family.templateIds[0]} /><span><strong>{family.label}</strong><small>{family.description}</small></span><span aria-hidden="true">›</span></button>)}</nav>

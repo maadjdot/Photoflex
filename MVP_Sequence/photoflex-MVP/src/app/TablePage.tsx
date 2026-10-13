@@ -43,7 +43,9 @@ export function TablePage({ dependencies, projectId, navigate, focusSequenceId, 
   const [confirmationDragId, setConfirmationDragId] = useState<WorktableItemId>();
   const [selectedMemoId, setSelectedMemoId] = useState<string>();
   const [selectedFrameId, setSelectedFrameId] = useState<FrameId>();
-  const [connectorToolActive, setConnectorToolActive] = useState(false);
+  const [activeCanvasTool, setActiveCanvasTool] = useState<"connector" | "turn-photo">();
+  const connectorToolActive = activeCanvasTool === "connector";
+  const photoTurnToolActive = activeCanvasTool === "turn-photo";
   const [selectedConnectorId, setSelectedConnectorId] = useState<string>();
   const [frameSettingsHost, setFrameSettingsHost] = useState<HTMLElement | null>(null);
   const [addingSource, setAddingSource] = useState(false);
@@ -64,8 +66,14 @@ export function TablePage({ dependencies, projectId, navigate, focusSequenceId, 
   useEffect(() => {
     if (selectedConnectorId && !draft.connectors?.some((line) => line.id === selectedConnectorId)) setSelectedConnectorId(undefined);
   }, [draft.connectors, selectedConnectorId]);
-  useEffect(() => { setConnectorToolActive(false); setSelectedConnectorId(undefined); }, [projectId, sequenceOverlay?.sequenceId]);
-  const toggleConnectorTool = () => { setConnectorToolActive((active) => !active); canvasRef.current?.focus(); };
+  useEffect(() => { setActiveCanvasTool(undefined); setSelectedConnectorId(undefined); }, [projectId, sequenceOverlay?.sequenceId]);
+  const changeCanvasTool = (tool: typeof activeCanvasTool) => {
+    setActiveCanvasTool(tool);
+    if (tool === "turn-photo") { tableSession.clearSelection(); setSelectedMemoId(undefined); setSelectedFrameId(undefined); setSelectedConnectorId(undefined); }
+    canvasRef.current?.focus();
+  };
+  const toggleConnectorTool = () => changeCanvasTool(connectorToolActive ? undefined : "connector");
+  const togglePhotoTurnTool = () => changeCanvasTool(photoTurnToolActive ? undefined : "turn-photo");
   const selectConnector = (id: string | undefined) => {
     setSelectedConnectorId(id);
     if (id || connectorToolActive) { tableSession.clearSelection(); setSelectedMemoId(undefined); setSelectedFrameId(undefined); }
@@ -353,7 +361,9 @@ export function TablePage({ dependencies, projectId, navigate, focusSequenceId, 
       onViewportChange={tableLifecycle.onViewportChange}
       selectedMemoId={selectedMemoId}
       connectorToolActive={connectorToolActive}
-      onConnectorToolChange={setConnectorToolActive}
+      onConnectorToolChange={(active) => changeCanvasTool(active ? "connector" : undefined)}
+      photoTurnToolActive={photoTurnToolActive}
+      onPhotoTurnToolChange={(active) => changeCanvasTool(active ? "turn-photo" : undefined)}
       selectedConnectorId={selectedConnectorId}
       onSelectConnector={selectConnector}
       onSelectMemo={setSelectedMemoId}
@@ -384,9 +394,9 @@ export function TablePage({ dependencies, projectId, navigate, focusSequenceId, 
         onClick: () => void addSource(),
       }}
     />
-    <TableFloatingToolbar connectorToolActive={connectorToolActive} onToggleConnectorTool={toggleConnectorTool} onAddMemo={addMemo} onCreateFrame={createFrame} selectedPhotoCount={actions.mutablePhotoIds.length}
+    <TableFloatingToolbar connectorToolActive={connectorToolActive} onToggleConnectorTool={toggleConnectorTool} photoTurnToolActive={photoTurnToolActive} onTogglePhotoTurnTool={togglePhotoTurnTool} onExitPhotoTurnTool={() => { if (photoTurnToolActive) changeCanvasTool(undefined); }} onAddMemo={addMemo} onCreateFrame={createFrame} selectedPhotoCount={actions.mutablePhotoIds.length}
       selectedMemo={selectedMemo} storageKey={`photoflex:table-toolbar:${projectId}`} actions={actions} canUndo={tableSession.canUndo} canRedo={tableSession.canRedo} onUndo={() => history("undo")} onRedo={() => history("redo")} onExecute={execute} />
-    <TableContextToolbar selectedConnectorId={selectedConnectorId} draft={draft} actions={actions} onExecute={execute} onRequestSequence={requestSequence} onPreview={setPreviewPhotoId} onComparePhotos={setComparePhotoIds} onCompareSequences={(ids) => navigate({ name: "sequence-compare", projectId, leftSequenceId: ids[0], rightSequenceId: ids[1] })} onRemovePiles={(ids) => setDeleteConfirmation(ids)} />
+    {!photoTurnToolActive && <TableContextToolbar selectedConnectorId={selectedConnectorId} draft={draft} actions={actions} onExecute={execute} onRequestSequence={requestSequence} onPreview={setPreviewPhotoId} onComparePhotos={setComparePhotoIds} onCompareSequences={(ids) => navigate({ name: "sequence-compare", projectId, leftSequenceId: ids[0], rightSequenceId: ids[1] })} onRemovePiles={(ids) => setDeleteConfirmation(ids)} />}
     </div>
     {confirmation && <section ref={createSequenceDialogRef} className="sequence-confirmation sequence-pile-confirmation" role="dialog" aria-modal="true" aria-label={t("sequence.createPileAria")}><header><h2>{t("table.createSequence")}</h2><button type="button" aria-label={t("common.close")} onClick={() => setConfirmation(undefined)}>×</button></header><label><span>{t("table.name")}</span><input autoFocus value={confirmation.name} onChange={(event) => setConfirmation({ ...confirmation, name: event.target.value })} onKeyDown={(event) => event.key === "Enter" && void createPile()} /></label><div className="sequence-confirmation-order">{confirmation.itemIds.map((id, index) => { const placement = draft.placements[id]; return <button key={id} draggable onDragStart={() => setConfirmationDragId(id)} onDragOver={(event) => event.preventDefault()} onDrop={() => { if (confirmationDragId) setConfirmation({ ...confirmation, itemIds: moveItem(confirmation.itemIds, confirmationDragId, index) }); setConfirmationDragId(undefined); }}><PhotoThumb photoSource={dependencies.photoSource} photoId={placement.photoId} alt={t("sequence.orderItem", { index: index + 1, filename: placement.filename })} onError={onPhotoError} sourceRevision={sourceRevision} /><span>{index + 1}</span></button>; })}</div><div><button onClick={() => setConfirmation(undefined)}>{t("common.cancel")}</button><button className="button button-primary" onClick={() => void createPile()}>{t("table.createPile")}</button></div></section>}
     {addToSequenceOpen && <TableSequenceAddDialog persistence={coordinator} listSequences={listSequences} projectId={projectId} photoIds={selectedSourcePhotoIds} summaries={summaries} initialSequenceId={addToSequenceId} onClose={() => setAddToSequenceOpen(false)} onSummariesChange={setSummaries} onSequenceChanged={setActiveSequenceId} onNotice={setNotice} />}

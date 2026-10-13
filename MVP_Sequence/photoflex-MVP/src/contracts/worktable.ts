@@ -22,6 +22,8 @@ export interface WorktablePlacement extends WorktablePoint {
   readonly filename: string;
   /** Locked photos stay visible and selectable, but ignore manipulation gestures. */
   readonly locked?: boolean;
+  /** Table card orientation; omitted on older projects means face up. */
+  readonly faceDown?: boolean;
 }
 
 /** A strong Table-only relationship. Members never imply Sequence order. */
@@ -97,6 +99,7 @@ export interface WorktablePlacementSeed {
   readonly width: number;
   readonly height: number;
   readonly filename: string;
+  readonly faceDown?: boolean;
   /** Optional relative geometry used when duplicating a batch. */
   readonly x?: number;
   readonly y?: number;
@@ -150,6 +153,7 @@ export type WorktableEditCommand =
   | { readonly type: "remove-sequence-piles"; readonly sequenceIds: readonly SequenceId[] }
   | { readonly type: "bring-to-front"; readonly photoIds: readonly WorktableItemId[] }
   | { readonly type: "set-locked"; readonly photoIds: readonly WorktableItemId[]; readonly locked: boolean }
+  | { readonly type: "flip-photos"; readonly photoIds: readonly WorktableItemId[] }
   | { readonly type: "remove"; readonly photoIds: readonly WorktableItemId[] };
 
 export type WorktableCommandError =

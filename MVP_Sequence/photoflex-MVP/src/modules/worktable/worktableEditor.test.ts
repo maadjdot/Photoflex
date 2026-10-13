@@ -569,6 +569,30 @@ describe("WorktableEditor", () => {
     expect(removed.ok && removed.value.entryOrder).toEqual(["a"]);
   });
 
+  it("turns individual Table occurrences over without changing their geometry or source photo, with undo and redo", () => {
+    const editor = createWorktableEditor(createEmptyWorktable(projectId));
+    editor.execute({ type: "place", items: [seed("a"), { ...seed("a"), id: photoId("copy-a") }] });
+    const before = editor.snapshot();
+    const result = editor.execute({ type: "flip-photos", photoIds: [photoId("a")] });
+    expect(result.ok).toBe(true);
+    expect(editor.snapshot().placements[photoId("a")]).toEqual({ ...before.placements[photoId("a")], faceDown: true });
+    expect(editor.snapshot().placements[photoId("copy-a")]).toEqual(before.placements[photoId("copy-a")]);
+    expect(editor.undo()).toEqual(before);
+    expect(editor.redo().placements[photoId("a")].faceDown).toBe(true);
+    editor.execute({ type: "flip-photos", photoIds: [photoId("a")] });
+    expect(editor.snapshot().placements[photoId("a")].faceDown).toBe(false);
+  });
+
+  it("rejects flipping missing or locked photos without altering any card", () => {
+    const editor = createWorktableEditor(createEmptyWorktable(projectId));
+    editor.execute({ type: "place", items: [seed("a"), seed("b")] });
+    editor.execute({ type: "set-locked", photoIds: [photoId("b")], locked: true });
+    const before = editor.snapshot();
+    expect(editor.execute({ type: "flip-photos", photoIds: [photoId("a"), photoId("b")] })).toMatchObject({ ok: false, error: { kind: "locked-placement" } });
+    expect(editor.execute({ type: "flip-photos", photoIds: [photoId("missing")] })).toMatchObject({ ok: false, error: { kind: "unknown-placement" } });
+    expect(editor.snapshot()).toEqual(before);
+  });
+
   it("persists photo lock state as an undoable edit", () => {
     const editor = createWorktableEditor(createEmptyWorktable(projectId));
     editor.execute({ type: "place", items: [seed("a"), seed("b")] });

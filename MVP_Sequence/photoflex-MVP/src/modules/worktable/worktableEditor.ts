@@ -162,6 +162,14 @@ function applyCommand(
   const validation = validateKnown(draft, command.photoIds, command.type === "set-locked" || command.type === "shuffle");
   if (!validation.ok) return validation;
   if (command.type === "set-locked") return setLocked(draft, command.photoIds, command.locked);
+  if (command.type === "flip-photos") {
+    if (!command.photoIds.length) return ok(draft);
+    const placements = { ...draft.placements };
+    for (const id of new Set(command.photoIds)) {
+      placements[id] = { ...placements[id], faceDown: !placements[id].faceDown };
+    }
+    return ok({ ...draft, placements });
+  }
   if (command.type === "move") return move(draft, command.photoIds, command.by.x, command.by.y);
   if (command.type === "resize") return resize(draft, command.photoIds, command.scale);
   if (command.type === "arrange") return arrange(draft, command.photoIds, command.layout);

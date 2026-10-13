@@ -24,6 +24,7 @@ describe("TableSession", () => {
     const { session } = createSession();
     session.selectPhotos([photoA, photoB]);
     session.execute({ type: "create-group", photoIds: [photoA, photoB] });
+    session.execute({ type: "flip-photos", photoIds: [photoA] });
 
     expect(session.copySelection()).toBe(true);
     const pasted = session.pasteSelection();
@@ -34,6 +35,7 @@ describe("TableSession", () => {
     expect(addedIds).toHaveLength(2);
     expect(addedIds).not.toEqual([photoA, photoB]);
     expect(addedIds.map((id) => pasted.value.draft.placements[id].photoId)).toEqual([photoA, photoB]);
+    expect(pasted.value.draft.placements[addedIds[0]].faceDown).toBe(true);
     expect(pasted.value.draft.groups).toHaveLength(1);
     expect(pasted.value.draft.groups[0].photoIds).toEqual([photoA, photoB]);
     expect(session.undo().draft.entryOrder).toEqual([photoA, photoB, photoC]);

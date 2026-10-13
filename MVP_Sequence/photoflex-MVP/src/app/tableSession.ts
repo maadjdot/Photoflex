@@ -110,6 +110,7 @@ class TableSessionController implements TableSession {
         width: placement.width,
         height: placement.height,
         filename: placement.filename,
+        faceDown: placement.faceDown,
         x: placement.x,
         y: placement.y,
       }];

@@ -1,12 +1,13 @@
 import type { ReactNode } from "react";
 
-export type TableToolbarIconName = "memo" | "link" | "frame" | "grid" | "row" | "shuffle" | "align" | "group" | "undo" | "redo" | "hide" | "show";
+export type TableToolbarIconName = "memo" | "link" | "turn-photo" | "frame" | "grid" | "row" | "shuffle" | "align" | "group" | "undo" | "redo" | "hide" | "show";
 
 // The inline icon geometry comes from the final Figma Make toolbar reference.
 const icons: Record<TableToolbarIconName, ReactNode> = {
   memo: <><rect height="17" rx="1" width="14" x="5" y="3.5" /><path d="M8.5 8h7M8.5 11.5h7M8.5 15h4.5" /></>,
   link: <><path d="m9.4 14.6 5.2-5.2" /><path d="m7.2 17.9-1.1 1.2a3.2 3.2 0 0 1-4.5-4.6l3.6-3.6a3.2 3.2 0 0 1 4.5 0M16.8 6.1l1.1-1.2a3.2 3.2 0 0 1 4.5 4.6l-3.6 3.6a3.2 3.2 0 0 1-4.5 0" /></>,
   frame: <><path d="M4 4h16v16H4z" /><path d="M8 8h8v8H8z" /></>,
+  "turn-photo": <><path d="M14 6H4a1 1 0 0 0-1 1v12a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1V9" /><path d="M13 4h2a7 7 0 0 1 0 14h-3m3-3-3 3 3 3" /></>,
   grid: <><rect height="6" rx="1" width="6" x="3.5" y="3.5" /><rect height="6" rx="1" width="6" x="14.5" y="3.5" /><rect height="6" rx="1" width="6" x="3.5" y="14.5" /><rect height="6" rx="1" width="6" x="14.5" y="14.5" /></>,
   row: <><rect height="5" rx="1" width="18" x="3" y="4" /><rect height="5" rx="1" width="18" x="3" y="15" /></>,
   shuffle: <><path d="M3 7h3.5c4 0 6 10 10 10H21" /><path d="m18 14 3 3-3 3M3 17h3.5c1.6 0 2.9-1.7 4.1-3.7M14.7 7c.6-.6 1.2-1 1.8-1H21" /><path d="m18 3 3 3-3 3" /></>,

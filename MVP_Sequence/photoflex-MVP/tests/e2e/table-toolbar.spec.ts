@@ -37,7 +37,7 @@ test("left toolbar matches the reference and keeps its actions, hover, focus and
   expect(railBox.y).toBe(stageBox.y);
   expect(railBox.height).toBe(stageBox.height);
   expect(stageBox.x).toBe(railBox.x + 56);
-  await expect(rail.locator(".table-rail-icon")).toHaveCount(10);
+  await expect(rail.locator(".table-rail-icon")).toHaveCount(11);
   await expect(rail.getByRole("button", { name: "Grid", exact: true })).toBeDisabled();
   await expect(rail.locator(".table-rail-button").first()).toHaveCSS("width", "40px");
   await expect(rail.locator(".table-rail-icon").first()).toHaveAttribute("width", "20");

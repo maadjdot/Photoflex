@@ -160,6 +160,7 @@ export function isWorkspace(value: unknown): value is ProjectWorkspace {
       typeof item.photoId === "string" &&
       (item.id === undefined || typeof item.id === "string") &&
       (item.locked === undefined || typeof item.locked === "boolean") &&
+      (item.faceDown === undefined || typeof item.faceDown === "boolean") &&
       [item.x, item.y, item.z].every((value) => typeof value === "number" && Number.isFinite(value)) &&
       [item.width, item.height].every((value) => typeof value === "number" && Number.isFinite(value) && value > 0) &&
       typeof item.filename === "string"
