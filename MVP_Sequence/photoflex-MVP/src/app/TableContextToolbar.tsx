@@ -8,6 +8,8 @@ import lockIcon from "../assets/icons/table-lock.svg";
 import previewIcon from "../assets/icons/table-preview.svg";
 import removeIcon from "../assets/icons/table-remove.svg";
 import sequenceIcon from "../assets/icons/table-sequence.svg";
+import turnPhotoIcon from "../assets/icons/table-turn-photo.svg";
+import filterIcon from "../assets/icons/table-filter.svg";
 import type { FrameTemplateFamily, FrameTemplateId, PhotoId, SequenceId, WorktableAlignment, WorktableDraft, WorktableEditCommand, WorktableItemId, WorktableMemo } from "../contracts";
 import { FRAME_FAMILIES, FRAME_TEMPLATE_LABELS, frameCapacity, frameTemplateNote } from "../modules/worktable/frameLayout";
 import { FrameTemplatePreview } from "./FrameTemplatePreview";
@@ -179,6 +181,8 @@ export function TableContextToolbar({ selectedConnectorId, draft, actions, onExe
     <span className="table-selection-summary">{pileIds.length ? t("common.sequenceCount", { count: pileIds.length }) : t("common.photoCount", { count: photoIds.length })}</span>
     {mutablePhotoIds.length > 0 && <>
       {actions.canPreview && <TableToolButton icon={previewIcon} label={t("table.preview")} shortcut="P / Space" onClick={() => onPreview(sourcePhotoIds[0])} />}
+      <TableToolButton icon={turnPhotoIcon} label={t("table.turnFaceUp")} disabled={!actions.faceDownPhotoIds.length} onClick={() => onExecute({ type: "restore-photo-fronts", photoIds: mutablePhotoIds })} />
+      <TableToolButton icon={filterIcon} label={t("table.filterBySide")} title={t("table.filterBySideHint")} disabled={!actions.canClassifyPhotos} onClick={() => onExecute({ type: "classify-photos", photoIds: mutablePhotoIds, names: { faceUp: t("table.faceUpGroup"), faceDown: t("table.faceDownGroup") } })} />
       {selectedLink && <TableToolButton icon={linkIcon} label={t("table.unlink")} shortcut="Shift+L" onClick={() => onExecute({ type: "remove-link", linkId: selectedLink.id })} />}
       <TableToolButton icon={lockIcon} label={t("table.lock")} shortcut="K" onClick={() => onExecute({ type: "set-locked", photoIds: mutablePhotoIds, locked: true })} />
     </>}

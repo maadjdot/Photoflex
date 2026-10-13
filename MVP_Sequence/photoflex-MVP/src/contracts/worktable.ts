@@ -154,6 +154,8 @@ export type WorktableEditCommand =
   | { readonly type: "bring-to-front"; readonly photoIds: readonly WorktableItemId[] }
   | { readonly type: "set-locked"; readonly photoIds: readonly WorktableItemId[]; readonly locked: boolean }
   | { readonly type: "flip-photos"; readonly photoIds: readonly WorktableItemId[] }
+  | { readonly type: "restore-photo-fronts"; readonly photoIds: readonly WorktableItemId[] }
+  | { readonly type: "classify-photos"; readonly photoIds: readonly WorktableItemId[]; readonly names: { readonly faceUp: string; readonly faceDown: string } }
   | { readonly type: "remove"; readonly photoIds: readonly WorktableItemId[] };
 
 export type WorktableCommandError =

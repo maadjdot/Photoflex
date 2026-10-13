@@ -110,6 +110,59 @@ describe("Table photo turn tool", () => {
     expect(screen.getByRole("button", { name: "Turn photo" }).getAttribute("aria-pressed")).toBe("false");
   });
 
+  it("restores a mixed selection without turning front-facing photos over, with undo and redo", async () => {
+    const dependencies = await fixture(); render(<App dependencies={dependencies} />);
+    const stage = await screen.findByLabelText("Photo worktable"), a = stage.querySelector(`[data-worktable-photo-id='${photoA}']`)!, b = stage.querySelector(`[data-worktable-photo-id='${photoB}']`)!;
+    fireEvent.click(screen.getByRole("button", { name: "Turn photo" })); clickPhoto(a);
+    fireEvent.keyDown(stage, { key: "Escape" });
+    fireEvent.keyDown(stage, { key: "a", ctrlKey: true });
+    const restore = screen.getByRole("button", { name: "Turn face up" }), filter = screen.getByRole("button", { name: "Filter" });
+    expect(restore.hasAttribute("disabled")).toBe(false);
+    expect(filter.hasAttribute("disabled")).toBe(false);
+    fireEvent.click(restore);
+    expect(a.classList.contains("is-face-down")).toBe(false);
+    expect(b.classList.contains("is-face-down")).toBe(false);
+    expect(restore.hasAttribute("disabled")).toBe(true);
+    expect(filter.hasAttribute("disabled")).toBe(true);
+    fireEvent.keyDown(stage, { key: "z", ctrlKey: true });
+    expect(a.classList.contains("is-face-down")).toBe(true);
+    expect(b.classList.contains("is-face-down")).toBe(false);
+    fireEvent.keyDown(stage, { key: "z", ctrlKey: true, shiftKey: true });
+    expect(a.classList.contains("is-face-down")).toBe(false);
+    await waitFor(async () => {
+      const saved = await savedDraft(dependencies.projectStore);
+      expect(saved.placements[photoA].faceDown).toBe(false);
+      expect(saved.placements[photoB].faceDown).toBeUndefined();
+    });
+  });
+
+  it("classifies a mixed selection into two saved groups, including single-photo categories", async () => {
+    const dependencies = await fixture(), view = render(<App dependencies={dependencies} />);
+    const stage = await screen.findByLabelText("Photo worktable"), a = stage.querySelector(`[data-worktable-photo-id='${photoA}']`)!;
+    fireEvent.click(screen.getByRole("button", { name: "Turn photo" })); clickPhoto(a);
+    fireEvent.keyDown(stage, { key: "Escape" });
+    fireEvent.keyDown(stage, { key: "a", ctrlKey: true });
+    fireEvent.click(screen.getByRole("button", { name: "Filter" }));
+    expect(stage.querySelectorAll(".worktable-group-frame")).toHaveLength(2);
+    fireEvent.keyDown(stage, { key: "z", ctrlKey: true });
+    expect(stage.querySelectorAll(".worktable-group-frame")).toHaveLength(0);
+    fireEvent.keyDown(stage, { key: "z", ctrlKey: true, shiftKey: true });
+    await waitFor(async () => {
+      const saved = await savedDraft(dependencies.projectStore);
+      expect(saved.groups).toEqual([
+        { id: "group-1", name: "Face-up photos", photoIds: [photoB] },
+        { id: "group-2", name: "Face-down photos", photoIds: [photoA] },
+      ]);
+      expect(saved.placements[photoA].faceDown).toBe(true);
+      expect(saved.placements[photoB].faceDown).toBeUndefined();
+      expect(saved.placements[photoA].x).toBeGreaterThan(saved.placements[photoB].x + saved.placements[photoB].width);
+    });
+    view.unmount(); render(<App dependencies={dependencies} />);
+    const restored = await screen.findByLabelText("Photo worktable");
+    expect(restored.querySelectorAll(".worktable-group-frame")).toHaveLength(2);
+    expect(restored.querySelector("[data-worktable-photo-id='photo-a']")?.classList.contains("is-face-down")).toBe(true);
+  });
+
   it("uses the simplified Chinese hint without the removed text", async () => {
     window.localStorage.setItem("photoflex:locale", "zh-CN");
     render(<App dependencies={await fixture()} />);

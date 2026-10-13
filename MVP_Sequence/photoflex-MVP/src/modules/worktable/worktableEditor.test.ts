@@ -583,6 +583,67 @@ describe("WorktableEditor", () => {
     expect(editor.snapshot().placements[photoId("a")].faceDown).toBe(false);
   });
 
+  it("restores only selected face-down photos in one undo step, leaving front-facing and unselected photos unchanged", () => {
+    const editor = createWorktableEditor(createEmptyWorktable(projectId));
+    editor.execute({ type: "place", items: [seed("a"), seed("b"), seed("c")] });
+    editor.execute({ type: "flip-photos", photoIds: [photoId("b"), photoId("c")] });
+    const before = editor.snapshot();
+    editor.execute({ type: "restore-photo-fronts", photoIds: [photoId("a"), photoId("b")] });
+    const after = editor.snapshot();
+    expect(after.placements[photoId("a")]).toEqual(before.placements[photoId("a")]);
+    expect(after.placements[photoId("b")]).toEqual({ ...before.placements[photoId("b")], faceDown: false });
+    expect(after.placements[photoId("c")]).toEqual(before.placements[photoId("c")]);
+    editor.execute({ type: "restore-photo-fronts", photoIds: [photoId("a"), photoId("b")] });
+    expect(editor.undo()).toEqual(before);
+    expect(editor.redo()).toEqual(after);
+  });
+
+  it("classifies a mixed selection into separate grids while preserving unselected photos and existing group members", () => {
+    const setup = createWorktableEditor(createEmptyWorktable(projectId));
+    setup.execute({ type: "place", items: [seed("a"), seed("b"), seed("c", 140, 210), seed("d"), seed("e"), seed("f")] });
+    setup.execute({ type: "flip-photos", photoIds: [photoId("b"), photoId("d")] });
+    setup.execute({ type: "set-locked", photoIds: [photoId("f")], locked: true });
+    const editor = createWorktableEditor({ ...setup.snapshot(), groups: [
+      { id: "group-7", name: "Existing", photoIds: [photoId("a"), photoId("b"), photoId("f")] },
+      { id: "group-8", name: "Selected", photoIds: [photoId("c"), photoId("d")] },
+    ] });
+    const before = editor.snapshot();
+    const result = editor.execute({ type: "classify-photos", photoIds: ["e", "d", "c", "b", "a"] as PhotoId[], names: { faceUp: "Face-up photos", faceDown: "Face-down photos" } });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const after = result.value;
+    expect(after.groups).toEqual([
+      { id: "group-7", name: "Existing", photoIds: ["f"] },
+      { id: "group-9", name: "Face-up photos", photoIds: ["a", "c", "e"] },
+      { id: "group-10", name: "Face-down photos", photoIds: ["b", "d"] },
+    ]);
+    expect(after.placements[photoId("a")]).toMatchObject({ x: 64, y: 64 });
+    expect(after.placements[photoId("c")]).toMatchObject({ x: 284, y: 64 });
+    expect(after.placements[photoId("e")]).toMatchObject({ x: 64, y: 318 });
+    expect(after.placements[photoId("b")]).toMatchObject({ x: 496, y: 64, faceDown: true });
+    expect(after.placements[photoId("d")]).toMatchObject({ x: 716, y: 64, faceDown: true });
+    expect(after.placements[photoId("f")]).toEqual(before.placements[photoId("f")]);
+    for (const id of before.entryOrder) {
+      const { x: _beforeX, y: _beforeY, ...beforePhoto } = before.placements[id];
+      const { x: _afterX, y: _afterY, ...afterPhoto } = after.placements[id];
+      expect(afterPhoto).toEqual(beforePhoto);
+    }
+    expect(editor.undo()).toEqual(before);
+    expect(editor.redo()).toEqual(after);
+  });
+
+  it("keeps a single photo in each category and does nothing to a selection with only one side", () => {
+    const setup = createWorktableEditor(createEmptyWorktable(projectId));
+    setup.execute({ type: "place", items: [seed("a"), seed("b")] });
+    const editor = createWorktableEditor(setup.snapshot());
+    const command = { type: "classify-photos" as const, photoIds: [photoId("a"), photoId("b")], names: { faceUp: "Up", faceDown: "Down" } };
+    expect(editor.execute(command)).toMatchObject({ ok: true });
+    expect(editor.canUndo()).toBe(false);
+    editor.execute({ type: "flip-photos", photoIds: [photoId("b")] });
+    const result = editor.execute(command);
+    expect(result.ok && result.value.groups.map((group) => group.photoIds)).toEqual([["a"], ["b"]]);
+  });
+
   it("rejects flipping missing or locked photos without altering any card", () => {
     const editor = createWorktableEditor(createEmptyWorktable(projectId));
     editor.execute({ type: "place", items: [seed("a"), seed("b")] });

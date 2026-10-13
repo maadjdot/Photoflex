@@ -187,7 +187,8 @@ export function isWorkspace(value: unknown): value is ProjectWorkspace {
         && memo.width >= 120 && memo.height >= 80 && memo.fontSize >= 10 && memo.fontSize <= 72
         && Array.isArray(memo.photoIds) && new Set(memo.photoIds).size === memo.photoIds.length && memo.photoIds.every((id: unknown) => typeof id === "string" && table.entryOrder.includes(id as ProjectWorkspace["worktableDraft"]["entryOrder"][number])))) return false;
     }
-    if (!Array.isArray(table.groups) || !table.groups.every((group) => isRelation(group, 2))) return false;
+    // Classification can produce a group with just one photo on either side.
+    if (!Array.isArray(table.groups) || !table.groups.every((group) => isRelation(group, 1))) return false;
     if (!Array.isArray(table.links) || !table.links.every((link) => isRelation(link, 2, 6))) return false;
     if (table.connectors !== undefined && (!Array.isArray(table.connectors)
       || new Set(table.connectors.map((line) => line?.id)).size !== table.connectors.length

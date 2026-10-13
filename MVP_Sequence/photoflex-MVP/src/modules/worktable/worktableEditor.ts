@@ -170,6 +170,14 @@ function applyCommand(
     }
     return ok({ ...draft, placements });
   }
+  if (command.type === "restore-photo-fronts") {
+    const faceDownIds = command.photoIds.filter((id) => draft.placements[id].faceDown);
+    if (!faceDownIds.length) return ok(draft);
+    const placements = { ...draft.placements };
+    for (const id of faceDownIds) placements[id] = { ...placements[id], faceDown: false };
+    return ok({ ...draft, placements });
+  }
+  if (command.type === "classify-photos") return classifyPhotos(draft, command);
   if (command.type === "move") return move(draft, command.photoIds, command.by.x, command.by.y);
   if (command.type === "resize") return resize(draft, command.photoIds, command.scale);
   if (command.type === "arrange") return arrange(draft, command.photoIds, command.layout);
@@ -217,6 +225,38 @@ function createGroup(
     ...packed,
     groups: [...packed.groups, { id: nextRelationId("group", packed.groups), name: `GROUP ${String(packed.groups.length + 1).padStart(2, "0")}`, photoIds: ordered }],
   });
+}
+
+function classifyPhotos(
+  draft: WorktableDraft,
+  command: Extract<WorktableEditCommand, { type: "classify-photos" }>,
+): Result<WorktableDraft, WorktableCommandError> {
+  const ordered = orderWorktableIdsByTablePosition(draft, command.photoIds);
+  const faceUp = ordered.filter((id) => !draft.placements[id].faceDown);
+  const faceDown = ordered.filter((id) => draft.placements[id].faceDown);
+  if (!faceUp.length || !faceDown.length) return ok(draft);
+
+  const selected = new Set(ordered);
+  const remainingGroups = draft.groups.flatMap((group) => {
+    const photoIds = group.photoIds.filter((id) => !selected.has(id));
+    return photoIds.length ? [{ ...group, photoIds }] : [];
+  });
+  const classifiedGroups: WorktableGroup[] = [];
+  let next = draft;
+  let originX = Math.min(...ordered.map((id) => draft.placements[id].x));
+  const originY = Math.min(...ordered.map((id) => draft.placements[id].y));
+  for (const [ids, name] of [[faceUp, command.names.faceUp], [faceDown, command.names.faceDown]] as const) {
+    const packed = arrange(next, ids, { type: "grid" });
+    if (!packed.ok) return packed;
+    const minX = Math.min(...ids.map((id) => packed.value.placements[id].x));
+    const minY = Math.min(...ids.map((id) => packed.value.placements[id].y));
+    const positioned = move(packed.value, ids, originX - minX, originY - minY);
+    if (!positioned.ok) return positioned;
+    next = positioned.value;
+    classifiedGroups.push({ id: nextRelationId("group", [...draft.groups, ...classifiedGroups]), name, photoIds: ids });
+    originX = Math.max(...ids.map((id) => next.placements[id].x + next.placements[id].width)) + 72;
+  }
+  return ok({ ...next, groups: [...remainingGroups, ...classifiedGroups] });
 }
 
 function removeGroup(draft: WorktableDraft, groupId: string): Result<WorktableDraft, WorktableCommandError> {

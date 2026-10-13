@@ -10,6 +10,8 @@ export interface TableActionState {
   readonly photoIds: readonly WorktableItemId[];
   /** Selected photos that are allowed to participate in mutations. */
   readonly mutablePhotoIds: readonly WorktableItemId[];
+  readonly faceDownPhotoIds: readonly WorktableItemId[];
+  readonly canClassifyPhotos: boolean;
   readonly lockedPhotoIds: readonly WorktableItemId[];
   readonly hasLockedPhoto: boolean;
   readonly pileIds: readonly SequenceId[];
@@ -40,6 +42,7 @@ export function deriveTableActions(
   const photoIds = draft.entryOrder.filter((id) => selectedPhotoIds.has(id));
   const lockedPhotoIds = photoIds.filter((id) => Boolean(draft.placements[id]?.locked));
   const mutablePhotoIds = photoIds.filter((id) => !draft.placements[id]?.locked);
+  const faceDownPhotoIds = mutablePhotoIds.filter((id) => draft.placements[id].faceDown);
   const hasLockedPhoto = lockedPhotoIds.length > 0;
   const pileIds = draft.pileOrder.filter((id) => selectedPileIds.has(id));
   const completeGroup = draft.groups.find((group) => (
@@ -66,6 +69,8 @@ export function deriveTableActions(
   return {
     photoIds,
     mutablePhotoIds,
+    faceDownPhotoIds,
+    canClassifyPhotos: pileIds.length === 0 && faceDownPhotoIds.length > 0 && faceDownPhotoIds.length < mutablePhotoIds.length,
     lockedPhotoIds,
     hasLockedPhoto,
     pileIds,
