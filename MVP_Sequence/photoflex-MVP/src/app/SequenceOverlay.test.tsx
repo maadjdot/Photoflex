@@ -90,10 +90,14 @@ it("opens a single-photo preview from the grid and enters continuous Read only f
   const previewImage = within(preview).getByAltText("Sequence photograph 1").parentElement as HTMLElement;
   const previewMedia = preview.querySelector(".sequence-photo-preview-media") as HTMLDivElement;
   previewMedia.getBoundingClientRect = () => ({ x: 0, y: 0, top: 0, left: 0, right: 400, bottom: 400, width: 400, height: 400, toJSON: () => ({}) });
-  fireEvent.wheel(previewMedia, { deltaY: -Math.log(1.25) / .0015, clientX: 300, clientY: 200 });
+  fireEvent.wheel(previewMedia, { ctrlKey: true, deltaY: -Math.log(1.25) / .0015, clientX: 300, clientY: 200 });
   expect(within(preview).getByRole("button", { name: "Reset zoom" }).textContent).toBe("125%");
   expect(previewMedia.classList.contains("is-pannable")).toBe(true);
   expect(previewImage.style.transform).toContain("translate3d(-25px, 0px, 0)");
+  expect(fireEvent.wheel(previewMedia, { deltaX: 30, deltaY: -20 })).toBe(false);
+  expect(within(preview).getByRole("button", { name: "Reset zoom" }).textContent).toBe("125%");
+  expect(previewImage.style.transform).toContain("translate3d(-55px, 20px, 0)");
+  fireEvent.wheel(previewMedia, { deltaX: -30, deltaY: 20 });
   fireEvent(previewMedia, new MouseEvent("pointerdown", { bubbles: true, button: 0, clientX: 300, clientY: 200 }));
   fireEvent(previewMedia, new MouseEvent("pointermove", { bubbles: true, clientX: 340, clientY: 220 }));
   expect(previewImage.style.transform).toContain("translate3d(15px, 20px, 0)");
@@ -117,6 +121,8 @@ it("opens a single-photo preview from the grid and enters continuous Read only f
   track.scrollLeft = 0;
   fireEvent.wheel(track, { deltaX: 0, deltaY: 120 });
   expect(track.scrollLeft).toBe(120);
+  expect(fireEvent.wheel(track, { ctrlKey: true, deltaY: -100 })).toBe(false);
+  expect(within(read).getByRole("group", { name: "Read zoom" }).textContent).toContain("67%");
   expect(within(read).getByText("01 / 02")).toBeTruthy();
   for (const image of track.querySelectorAll("img")) expect(getComputedStyle(image).objectFit).toBe("contain");
 

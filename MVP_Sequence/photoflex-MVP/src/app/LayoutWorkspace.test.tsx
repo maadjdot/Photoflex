@@ -12,6 +12,29 @@ import { exportLayoutPdf, preflightLayoutPdf } from "../platform/browser/exportL
 
 vi.mock("../platform/browser/exportLayoutPdf", () => ({ exportLayoutPdf: vi.fn(), preflightLayoutPdf: vi.fn() }));
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.mocked(preflightLayoutPdf).mockReset(); vi.mocked(exportLayoutPdf).mockReset(); });
+it("keeps two-finger scrolling separate from smooth pinch zoom in the Layout editor", async () => {
+  const projectStore = new MemoryProjectStore(), imported = await projectStore.importBackup(backupBytes());
+  if (!imported.ok) throw Error("fixture import failed");
+  const dependencies = { projectStore, photoSource: new MemoryPhotoSource() };
+  const persistence = createProjectWriteCoordinator(dependencies, imported.value); await persistence.load();
+  const sequences = await persistence.listSequences(); if (!sequences.ok) throw Error("fixture sequence missing");
+  const layout = createEmptyLayout({ id: "trackpad-layout" as LayoutId, projectId: imported.value, sequenceId: sequences.value[0].id,
+    pageId: "trackpad-page" as LayoutPageId, name: "Trackpad", createdAt: "2026-10-27" });
+  await persistence.createLayout(layout);
+  const view = render(<LayoutWorkspace dependencies={dependencies} persistence={persistence} projectId={imported.value} sequenceId={layout.sequenceId} layoutId={layout.id} navigate={vi.fn()} />);
+  await screen.findByRole("button", { name: "Fit page" });
+  const stage = view.container.querySelector<HTMLElement>(".layout-stage")!;
+  const spread = stage.querySelector<HTMLElement>(".layout-spread")!;
+  const originalWidth = spread.style.width;
+  expect(fireEvent.wheel(stage, { deltaX: 40, deltaY: -30 })).toBe(true);
+  expect(spread.style.width).toBe(originalWidth);
+  for (let index = 0; index < 10; index++) expect(fireEvent.wheel(stage, { ctrlKey: true, deltaY: -.5 })).toBe(false);
+  expect(parseFloat(spread.style.width)).toBeGreaterThan(parseFloat(originalWidth));
+  expect(fireEvent.wheel(stage, { metaKey: true, deltaY: 100 })).toBe(false);
+  expect(parseFloat(spread.style.width)).toBeLessThan(parseFloat(originalWidth));
+  view.unmount(); persistence.dispose();
+});
+
 it("bounds Layout undo steps while preserving the last 100 page edits and redo", async () => {
   const projectStore = new MemoryProjectStore(), imported = await projectStore.importBackup(backupBytes()); if (!imported.ok) throw Error("fixture failed");
   const dependencies = { projectStore, photoSource: new MemoryPhotoSource() }, persistence = createProjectWriteCoordinator(dependencies, imported.value); await persistence.load();

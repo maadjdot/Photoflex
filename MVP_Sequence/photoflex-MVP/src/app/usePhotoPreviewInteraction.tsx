@@ -50,10 +50,13 @@ export function usePhotoPreviewInteraction() {
     const viewport = viewportRef.current;
     if (!viewport) return;
     const onWheel = (event: WheelEvent) => {
-      if (!event.deltaY) return;
       event.preventDefault();
       event.stopPropagation();
-      zoomBy(Math.exp(-event.deltaY * .0015), event.clientX, event.clientY);
+      if (event.ctrlKey || event.metaKey) {
+        zoomBy(Math.exp(-event.deltaY * .0015), event.clientX, event.clientY);
+      } else {
+        setView((current) => ({ ...current, panX: current.panX - event.deltaX, panY: current.panY - event.deltaY }));
+      }
     };
     viewport.addEventListener("wheel", onWheel, { passive: false });
     return () => viewport.removeEventListener("wheel", onWheel);

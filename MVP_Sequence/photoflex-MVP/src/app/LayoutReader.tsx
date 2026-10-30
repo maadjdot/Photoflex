@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useReducer, useRef, useState, type PointerEvent as ReactPointerEvent, type WheelEvent as ReactWheelEvent } from "react";
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import type { LayoutDocument, PhotoId, PhotoSource } from "../contracts";
 import { createLayoutReaderState, layoutReaderFitPage, layoutReaderPreviewEdge, layoutReaderReducer, layoutReaderSpreadIndex, layoutReaderSpreads, layoutReaderVisiblePages, resolveLayoutReaderMode, type LayoutReaderMode } from "../modules/layout/layoutReader";
 import { layoutPageLabel, layoutPageProgressLabel } from "../modules/layout/layoutPageNumbers";
@@ -137,6 +137,18 @@ export function LayoutReader({ document: layout, initialPage, photoSource, onClo
   }, [cancelCurlNavigation]);
 
   useEffect(() => {
+    const stage = stageRef.current;
+    if (!stage) return;
+    const onWheel = (event: WheelEvent) => {
+      if (!event.ctrlKey && !event.metaKey) return;
+      event.preventDefault();
+      setZoom(state.zoom * Math.exp(-event.deltaY * .002));
+    };
+    stage.addEventListener("wheel", onWheel, { passive: false });
+    return () => stage.removeEventListener("wheel", onWheel);
+  }, [setZoom, state.zoom]);
+
+  useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       const target = event.target;
       if (
@@ -226,7 +238,7 @@ export function LayoutReader({ document: layout, initialPage, photoSource, onClo
         <button onClick={() => void toggleFullscreen()}>{fullscreen ? (zh ? "退出全屏" : "Exit fullscreen") : (zh ? "全屏" : "Fullscreen")}</button>
       </div>
     </header>
-    <div ref={stageRef} className="layout-reader-stage" onPointerDownCapture={pointerDown} onPointerMove={pointerMove} onPointerUp={pointerEnd} onPointerCancel={pointerEnd} onDragStart={(event) => event.preventDefault()} onDoubleClick={() => setZoom(state.zoom === 1 ? 2 : 1)} onWheel={(event: ReactWheelEvent) => { if (event.ctrlKey || event.metaKey) { event.preventDefault(); setZoom(state.zoom * Math.exp(-event.deltaY * .002)); } }}>
+    <div ref={stageRef} className="layout-reader-stage" onPointerDownCapture={pointerDown} onPointerMove={pointerMove} onPointerUp={pointerEnd} onPointerCancel={pointerEnd} onDragStart={(event) => event.preventDefault()} onDoubleClick={() => setZoom(state.zoom === 1 ? 2 : 1)}>
       <LayoutPageCurl key={resolvedMode} ref={curlRef} pageWidth={pageWidth} pageHeight={pageHeight} currentPage={state.currentPage} mode={resolvedMode} backCover={backCover} ariaLabel={zh ? `${layout.name} 翻页阅读` : `${layout.name} page curl reader`} pageBackground="#f4f1e9" onPageChange={commitPage} onTurnIntent={noteTurnIntent} onTurnSettled={cancelCurlNavigation}>
         {readerPages}
       </LayoutPageCurl>

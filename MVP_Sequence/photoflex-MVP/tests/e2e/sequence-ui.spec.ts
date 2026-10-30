@@ -52,7 +52,9 @@ test("Sequence opens over Table as a clean grid and reads uncropped photos", asy
   expect(previewImage!.x + previewImage!.width).toBeLessThanOrEqual(previewMedia!.x + previewMedia!.width + 1);
   expect(previewImage!.y + previewImage!.height).toBeLessThanOrEqual(previewMedia!.y + previewMedia!.height + 1);
   await preview.locator(".sequence-photo-preview-media").hover({ position: { x: previewMedia!.width * .75, y: previewMedia!.height / 2 } });
+  await page.keyboard.down("Control");
   await page.mouse.wheel(0, -Math.log(1.25) / .0015);
+  await page.keyboard.up("Control");
   await expect(preview.getByRole("button", { name: "Reset zoom" })).toHaveText("125%");
   await expect(preview.locator(".sequence-photo-preview-media")).toHaveCSS("cursor", "grab");
   await expect(preview.locator(".sequence-photo-preview-media")).toHaveCSS("overflow", "hidden");
@@ -381,14 +383,18 @@ test("Layout edits frames, drops photos, crops and applies a template as one und
   await layout.getByRole("button", { name: "Crop", exact: true }).click();
   const cropPoint = (await frame.boundingBox())!;
   await page.mouse.move(cropPoint.x + cropPoint.width / 2, cropPoint.y + cropPoint.height / 2);
+  await page.keyboard.down("Control");
   await page.mouse.wheel(0, -220);
+  await page.keyboard.up("Control");
   await expect(frame.locator(".layout-crop-overlay")).not.toContainText("100%");
   await page.keyboard.press("Escape");
   await frame.click();
   await frame.dblclick();
   await expect(frame.locator(".layout-crop-overlay")).toContainText("100%");
   await page.mouse.move(cropPoint.x + cropPoint.width / 2, cropPoint.y + cropPoint.height / 2);
+  await page.keyboard.down("Control");
   await page.mouse.wheel(0, -220);
+  await page.keyboard.up("Control");
   await frame.getByRole("button", { name: "Done" }).click();
   await expect(layout.getByRole("button", { name: "Crop", exact: true })).toBeVisible();
   const beforeQuickCrop = await frame.locator("img").getAttribute("style");
@@ -578,7 +584,9 @@ test("Layout edits a facing spread with direct photos and multi-selection", asyn
   await expect(layout.locator(".layout-pages-list button")).toHaveCount(4);
   const stage = layout.locator(".layout-stage");
   await stage.hover();
+  await page.keyboard.down("Control");
   await page.mouse.wheel(0, -1500);
+  await page.keyboard.up("Control");
   await expect(layout.locator(".layout-view-controls")).toContainText("300%");
   const stageBounds = (await stage.boundingBox())!;
   const beforeMiddlePan = await stage.evaluate((element) => element.scrollTop);

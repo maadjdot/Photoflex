@@ -139,6 +139,7 @@ export function TableFrameCard({ frame, layerZ, selected, settingsHost, selected
     const article = articleRef.current;
     if (!article) return;
     const wheel = (event: WheelEvent) => {
+      if (!event.ctrlKey && !event.metaKey) return;
       const draft = cropDraftRef.current;
       const target = (event.target as HTMLElement).closest<HTMLElement>("[data-frame-slot-id]");
       if (!selected || !draft || !slot?.photoId || target?.dataset.frameSlotId !== slot.id) return;

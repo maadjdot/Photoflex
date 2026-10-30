@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type DragEvent, type PointerEvent as ReactPointerEvent, type WheelEvent as ReactWheelEvent } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type DragEvent, type PointerEvent as ReactPointerEvent } from "react";
 import type { LayoutDocument, LayoutEditCommand, LayoutFontFamily, LayoutImageFrame, LayoutObjectId, LayoutPageId, LayoutRect, LayoutTextBox, PhotoId, SequenceDocument } from "../contracts";
 import { alignLayoutRect, createImageFrame, drawImageRect, imageTemplateFrames, panImageCrop, replaceFramePhoto, resizeImageCropFrame, transformImageRect, zoomImageCropAtPoint, type LayoutAlignmentGuide, type ResizeHandle } from "../modules/layout/layoutImages";
 import { DEFAULT_LAYOUT_FONT, LAYOUT_FONT_BY_FAMILY, LAYOUT_FONTS, layoutFontCssStack, layoutFontStyle, layoutFontWeight } from "../modules/layout/layoutFonts";
@@ -133,9 +133,23 @@ export function LayoutEditor({ document, sequence, dependencies, selectedIndex, 
     const stage = stageRef.current;
     if (!stage) return;
     const wheel = (event: WheelEvent) => {
+      if (!event.ctrlKey && !event.metaKey) return;
       const target = event.target as HTMLElement;
-      if (target.closest("input, textarea, select") || (cropRef.current && target.closest(".layout-object.is-cropping"))) return;
+      if (target.closest("input, textarea, select")) return;
       event.preventDefault();
+      const draft = cropRef.current;
+      if (draft && target.closest(".layout-object.is-cropping")) {
+        event.stopPropagation();
+        const frame = document.pages.find((page) => page.id === draft.pageId)?.objects.find((object) => object.id === draft.frameId);
+        if (frame?.kind !== "image-frame" || !frame.photoId) return;
+        const size = photoSizes.get(frame.photoId);
+        const paper = paperRefs.current.get(draft.pageId);
+        if (!size || !paper) return;
+        const point = pointOnPaper(event, paper);
+        setActiveCrop({ ...draft, crop: zoomImageCropAtPoint(draft.crop, size, draft.rect, draft.crop.zoom * Math.exp(-event.deltaY * .002),
+          { x: point.x - draft.rect.x, y: point.y - draft.rect.y }) });
+        return;
+      }
       const spread = stage.querySelector<HTMLElement>(".layout-spread");
       if (!spread) return;
       const bounds = spread.getBoundingClientRect();
@@ -143,14 +157,14 @@ export function LayoutEditor({ document, sequence, dependencies, selectedIndex, 
         fractionX: (event.clientX - bounds.left) / bounds.width,
         fractionY: (event.clientY - bounds.top) / bounds.height };
       setZoom((current) => {
-        const next = Math.round(clamp(current * Math.exp(-event.deltaY * .0015), .5, 3) * 100) / 100;
+        const next = clamp(current * Math.exp(-event.deltaY * .0015), .5, 3);
         if (next === current) zoomAnchorRef.current = undefined;
         return next;
       });
     };
     stage.addEventListener("wheel", wheel, { passive: false });
     return () => stage.removeEventListener("wheel", wheel);
-  }, []);
+  }, [document, photoSizes]);
   useLayoutEffect(() => {
     const anchor = zoomAnchorRef.current;
     const stage = stageRef.current;
@@ -481,19 +495,6 @@ export function LayoutEditor({ document, sequence, dependencies, selectedIndex, 
       setActiveCrop(undefined);
     }
   };
-  const wheelCrop = (event: ReactWheelEvent, frame: LayoutImageFrame, pageIndex: number) => {
-    const draft = cropRef.current;
-    if (!draft || draft.frameId !== frame.id || draft.pageId !== document.pages[pageIndex].id || !frame.photoId) return;
-    const size = photoSizes.get(frame.photoId);
-    if (!size) return;
-    event.preventDefault(); event.stopPropagation();
-    const paper = paperRefs.current.get(draft.pageId);
-    if (!paper) return;
-    const point = pointOnPaper(event, paper);
-    const zoom = draft.crop.zoom * Math.exp(-event.deltaY * .002);
-    setActiveCrop({ ...draft, crop: zoomImageCropAtPoint(draft.crop, size, draft.rect, zoom,
-      { x: point.x - draft.rect.x, y: point.y - draft.rect.y }) });
-  };
   const insertPhoto = async (photoId: PhotoId, pageIndex = selectedIndex, at?: Point, targetFrame?: LayoutImageFrame) => {
     const targetPage = document.pages[pageIndex];
     const metadata = photoSizes.get(photoId) ?? await dependencies.photoSource.getPhoto(photoId).then((result) => result.ok ? result.value : undefined);
@@ -575,11 +576,11 @@ export function LayoutEditor({ document, sequence, dependencies, selectedIndex, 
           const cropping = object.kind === "image-frame" && cropDraft?.frameId === object.id;
           const rect = cropping ? cropDraft.rect : currentGesture?.rect ?? (groupMove ? { ...object.rect, x: object.rect.x + groupMove.dx, y: object.rect.y + groupMove.dy } : object.rect);
           const shown = object.kind === "image-frame" ? { ...object, rect, crop: cropping ? cropDraft.crop : object.crop } : { ...object, rect };
-          return <div key={object.id} className={`layout-object layout-object-${object.kind}${selectedIds.has(object.id) ? " is-selected" : ""}${cropDraft?.frameId === object.id ? " is-cropping" : ""}`} style={formatRect(rect)} onClick={(event) => { event.stopPropagation(); setSelectedIndex(index); if (!event.shiftKey && !selectedIds.has(object.id)) selectOnly(object.id); }} onDoubleClick={(event) => { event.stopPropagation(); if (object.kind === "image-frame") beginCrop(object, document.pages[index].id); else { setSelectedIndex(index); selectOnly(object.id); setEditingTextId(object.id); } }} onPointerDown={(event) => pointerStart(event, index, object)} onWheel={object.kind === "image-frame" ? (event) => wheelCrop(event, object, index) : undefined} onContextMenu={object.kind === "image-frame" && object.photoId ? (event) => event.preventDefault() : undefined} onDragOver={object.kind === "image-frame" ? (event) => event.preventDefault() : undefined} onDrop={object.kind === "image-frame" ? (event) => dropPhoto(event, index, object) : undefined}>
+          return <div key={object.id} className={`layout-object layout-object-${object.kind}${selectedIds.has(object.id) ? " is-selected" : ""}${cropDraft?.frameId === object.id ? " is-cropping" : ""}`} style={formatRect(rect)} onClick={(event) => { event.stopPropagation(); setSelectedIndex(index); if (!event.shiftKey && !selectedIds.has(object.id)) selectOnly(object.id); }} onDoubleClick={(event) => { event.stopPropagation(); if (object.kind === "image-frame") beginCrop(object, document.pages[index].id); else { setSelectedIndex(index); selectOnly(object.id); setEditingTextId(object.id); } }} onPointerDown={(event) => pointerStart(event, index, object)} onContextMenu={object.kind === "image-frame" && object.photoId ? (event) => event.preventDefault() : undefined} onDragOver={object.kind === "image-frame" ? (event) => event.preventDefault() : undefined} onDrop={object.kind === "image-frame" ? (event) => dropPhoto(event, index, object) : undefined}>
             {shown.kind === "text-box" && editingTextId === object.id ? renderTextEditor(shown, document.pages[index].id) : <LayoutObjectVisual object={shown} page={document.pages[index]} photoSource={dependencies.photoSource} sourceRevision={sourceRevision} scale={pageHeight / document.pageSpec.heightPt} onMetadata={noteSize} onMissing={markMissing} cropping={cropping} />}
             {shown.kind === "image-frame" && shown.photoId && (!sequencePhotoIds.has(shown.photoId) || missingPhotos.has(shown.photoId)) && <span className="layout-image-warning">{fieldLabel(zh, "Photo unavailable", "照片不可用")}</span>}
             {cropping && <span className="layout-crop-size">{+(rect.width / MM_TO_PT).toFixed(1)} × {+(rect.height / MM_TO_PT).toFixed(1)} mm</span>}
-            {cropping && !gesture && <div className="layout-crop-overlay" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => event.stopPropagation()}><span>{fieldLabel(zh, `Drag crop edges or photo · scroll to zoom · ${Math.round(cropDraft.crop.zoom * 100)}%`, `拖动裁切边框或照片 · 滚轮缩放 · ${Math.round(cropDraft.crop.zoom * 100)}%`)}</span><div><button onClick={cancel}>{fieldLabel(zh, "Cancel", "取消")}</button><button onClick={finishCrop}>{fieldLabel(zh, "Done", "完成")}</button></div></div>}
+            {cropping && !gesture && <div className="layout-crop-overlay" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => event.stopPropagation()}><span>{fieldLabel(zh, `Drag crop edges or photo · pinch or Ctrl/⌘ + scroll to zoom · ${Math.round(cropDraft.crop.zoom * 100)}%`, `拖动裁切边框或照片 · 双指捏合或 Ctrl/⌘＋滚轮缩放 · ${Math.round(cropDraft.crop.zoom * 100)}%`)}</span><div><button onClick={cancel}>{fieldLabel(zh, "Cancel", "取消")}</button><button onClick={finishCrop}>{fieldLabel(zh, "Done", "完成")}</button></div></div>}
             {object.id === selectedId && selectedIds.size === 1 && (!cropDraft || cropping) && (["nw", "n", "ne", "e", "se", "s", "sw", "w"] as const).map((handle) => <button key={handle} className={`layout-resize-handle is-${handle}`} aria-label={`${cropping ? "Crop" : "Resize"} ${handle}`} onPointerDown={(event) => pointerStart(event, index, object, handle)} />)}
           </div>;
         })}

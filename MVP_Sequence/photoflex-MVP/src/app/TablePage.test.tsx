@@ -64,6 +64,35 @@ async function createPileFixture() {
 }
 
 describe("TablePage", () => {
+  it("pans in both axes with two-finger scrolling and anchors pinch zoom at the cursor", async () => {
+    const dependencies = await createFixture();
+    render(<App dependencies={dependencies} />);
+    const stage = await screen.findByLabelText("Photo worktable");
+    const world = stage.querySelector<HTMLElement>(".worktable-world")!;
+    const viewport = () => {
+      const values = world.style.transform.match(/translate3d\(([-\d.]+)px,([-\d.]+)px,0\) scale\(([^)]+)\)/)!;
+      return { x: Number(values[1]), y: Number(values[2]), zoom: Number(values[3]) };
+    };
+    const initial = viewport();
+    for (const delta of [{ deltaX: 0, deltaY: 45 }, { deltaX: 35, deltaY: 0 }, { deltaX: -20, deltaY: -30 }]) {
+      const before = viewport();
+      expect(fireEvent.wheel(stage, delta)).toBe(false);
+      expect(viewport()).toEqual({ x: before.x - delta.deltaX, y: before.y - delta.deltaY, zoom: initial.zoom });
+    }
+    const before = viewport();
+    const point = { clientX: 300, clientY: 200 };
+    expect(fireEvent.wheel(stage, { ...point, ctrlKey: true, deltaY: -100 })).toBe(false);
+    const after = viewport();
+    expect(after.zoom).toBeGreaterThan(before.zoom);
+    expect((point.clientX - after.x) / after.zoom).toBeCloseTo((point.clientX - before.x) / before.zoom);
+    expect((point.clientY - after.y) / after.zoom).toBeCloseTo((point.clientY - before.y) / before.zoom);
+    fireEvent.wheel(stage, { deltaX: 12, deltaY: 18 });
+    expect(viewport()).toEqual({ x: after.x - 12, y: after.y - 18, zoom: after.zoom });
+    fireEvent.wheel(stage, { ...point, metaKey: true, deltaY: 100 });
+    expect(viewport().zoom).toBeCloseTo(initial.zoom);
+    expect((screen.getByRole("button", { name: "Undo" }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
   it("creates a Diptych Frame from selected photos and restores it from the workspace", async () => {
     const dependencies = await createFixture();
     const view = render(<App dependencies={dependencies} />);

@@ -64,7 +64,7 @@ export const userGuideContent: Record<Locale, GuideContent> = {
             { title: "对齐", body: "将照片的左边、右边、顶部、底部或中心对齐。" },
             { title: "分组", body: "将照片组成一组，方便一起选择和移动。" },
           ] },
-          { title: "白板操作", body: "鼠标滚轮可以缩放白板大小，按住鼠标中键／右键可以移动画布区域。" },
+          { title: "白板操作", body: "触控板双指上下左右滑动可移动画布，张开双指放大、捏合缩小。鼠标滚轮移动画布，按住 Ctrl／⌘＋滚轮缩放；按住鼠标中键／右键也可以移动画布区域。" },
         ],
       },
       {
@@ -142,7 +142,7 @@ export const userGuideContent: Record<Locale, GuideContent> = {
             { title: "Align", body: "Align the photos' left, right, top, bottom or centre." },
             { title: "Group", body: "Keep photos in a group to select and move them together." },
           ] },
-          { title: "Navigate the whiteboard", body: "Scroll the mouse wheel to zoom. Hold the middle or right mouse button to move around the canvas." },
+          { title: "Navigate the whiteboard", body: "Slide two fingers on a trackpad to pan; spread them to zoom in and pinch to zoom out. The mouse wheel pans; hold Ctrl/⌘ while scrolling to zoom. Hold the middle or right mouse button to pan." },
         ],
       },
       {
@@ -200,7 +200,7 @@ export const layoutGuideContent: Record<Locale, GuideContent> = {
         steps: [
             { title: "管理页面", body: "新建 Layout 自动包含封面和封底；已有 Layout 可在左侧添加。在左侧选择页面，可以添加空白页、复制页或删除页。拖动正文页面缩略图可以改变顺序。" },
           { title: "页面尺寸", body: "点击工具栏中的页面尺寸，选择预设尺寸或输入自定义尺寸。" },
-          { title: "查看页面", body: "单页显示一张页面，对页显示相邻页面。缩放和「适应页面」方便查看版式；「拖动画布」可以移动查看区域。" },
+          { title: "查看页面", body: "单页显示一张页面，对页显示相邻页面。双指滑动移动查看区域，双指张开／捏合缩放，也可按住 Ctrl／⌘＋滚轮缩放。「适应页面」恢复完整视图；「拖动画布」可以移动查看区域。" },
         ],
       },
       {
@@ -208,7 +208,7 @@ export const layoutGuideContent: Record<Locale, GuideContent> = {
         steps: [
           { title: "添加照片与图像框", body: "点击底部素材照片或拖入页面，可以添加照片。选择「图像」工具并在页面上拖动，可以先画出图像框，再放入照片。" },
           { title: "移动与调整大小", body: "拖动图像框改变位置，拖动边缘手柄调整大小。选中图像框后，也可以在右侧输入位置和尺寸。" },
-          { title: "照片适配", body: "Fit：完整显示照片。Fill：让照片填满图像框。双击照片进入裁切后，可拖动照片调整位置，滚轮调整大小，点击「完成」保存裁切。" },
+          { title: "照片适配", body: "Fit：完整显示照片。Fill：让照片填满图像框。双击照片进入裁切后，可拖动照片调整位置，双指张开／捏合或 Ctrl／⌘＋滚轮调整大小，点击「完成」保存裁切。" },
           { title: "使用模板", body: "在底部素材栏勾选照片，再点击右侧模板，可以将照片放入预设版式。" },
             { title: "照片效果", body: "在右侧设置当前页照片的内边框模式、宽度、颜色与浮起高度，也可以将照片效果应用到全部页面。" },
         ],
@@ -239,7 +239,7 @@ export const layoutGuideContent: Record<Locale, GuideContent> = {
         steps: [
             { title: "Manage pages", body: "New Layouts include front and back covers. Existing Layouts can add them on the left. Select pages to add blank pages, duplicate or delete pages, and drag body thumbnails to change their order." },
           { title: "Page size", body: "Use the page size control in the toolbar to choose a preset or enter custom dimensions." },
-          { title: "View pages", body: "Single shows one page; Facing pages shows adjacent pages. Zoom and Fit page help you review the design. Pan moves the viewing area." },
+          { title: "View pages", body: "Single shows one page; Facing pages shows adjacent pages. Slide two fingers to pan; spread or pinch them to zoom, or use Ctrl/⌘ + scroll. Fit page restores the full view. Pan moves the viewing area." },
         ],
       },
       {
@@ -247,7 +247,7 @@ export const layoutGuideContent: Record<Locale, GuideContent> = {
         steps: [
           { title: "Add photos and image frames", body: "Click a photo in the bottom asset tray or drag it onto a page. Select Image and drag on a page to draw an empty image frame, then place a photo into it." },
           { title: "Move and resize", body: "Drag a frame to move it and drag its edge handles to resize. Select it to enter its position and dimensions on the right." },
-          { title: "Fit and crop", body: "Fit: show the whole photo. Fill: cover the frame. Double-click to crop, drag the photo to reposition it and scroll to resize. Choose Done to save the crop." },
+          { title: "Fit and crop", body: "Fit: show the whole photo. Fill: cover the frame. Double-click to crop, drag the photo to reposition it and pinch or use Ctrl/⌘ + scroll to resize. Choose Done to save the crop." },
           { title: "Use templates", body: "Select photos using the checkboxes in the bottom asset tray, then choose a template on the right to place them in a preset design." },
             { title: "Photo effects", body: "Set the current page's photo edge mode, width, colour and elevation on the right. You can also apply these effects to every page." },
         ],

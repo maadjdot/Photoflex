@@ -185,7 +185,7 @@ test("keeps crop button-only and photo appearance local to the selected photo bo
   const worldBefore = await page.locator(".worktable-world").getAttribute("style");
   const wheel = () => first.evaluate((node) => {
     const rect = node.getBoundingClientRect();
-    node.dispatchEvent(new WheelEvent("wheel", { deltaY: -120, clientX: rect.left + rect.width * .6, clientY: rect.top + rect.height * .4, bubbles: true, cancelable: true }));
+    node.dispatchEvent(new WheelEvent("wheel", { ctrlKey: true, deltaY: -120, clientX: rect.left + rect.width * .6, clientY: rect.top + rect.height * .4, bubbles: true, cancelable: true }));
   });
   await wheel();
   await expect.poll(() => photo.evaluate((node) => parseFloat(node.style.width))).toBeGreaterThan(widthBefore);

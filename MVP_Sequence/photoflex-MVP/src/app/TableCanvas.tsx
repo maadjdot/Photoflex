@@ -336,21 +336,29 @@ export const TableCanvas = forwardRef<TableCanvasHandle, TableCanvasProps>(funct
     const stage = stageRef.current;
     if (!stage) return;
     const onWheel = (event: WheelEvent) => {
+      const zooming = event.ctrlKey || event.metaKey;
       const tray = (event.target as HTMLElement).closest<HTMLElement>("[data-sequence-insert-tray]");
-      if (tray) {
+      if (tray && !zooming) {
         event.preventDefault();
         tray.scrollLeft += event.deltaY + event.deltaX;
         return;
       }
-      if ((event.target as HTMLElement).closest(".table-memo textarea")) return;
+      if (!zooming && (event.target as HTMLElement).closest(".table-memo textarea")) return;
       event.preventDefault();
-      const delta = event.deltaY || event.deltaX;
-      if (!delta) return;
+      if (!zooming) {
+        setViewport({
+          ...viewportRef.current,
+          originX: viewportRef.current.originX - event.deltaX,
+          originY: viewportRef.current.originY - event.deltaY,
+        });
+        return;
+      }
+      if (!event.deltaY) return;
       setViewport(zoomAroundScreenPoint(
         viewportRef.current,
         { x: event.clientX, y: event.clientY },
         stage.getBoundingClientRect(),
-        viewportRef.current.zoom * Math.exp(-delta * .002),
+        viewportRef.current.zoom * Math.exp(-event.deltaY * .002),
       ));
     };
     stage.addEventListener("wheel", onWheel, { passive: false });

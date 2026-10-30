@@ -88,7 +88,7 @@ export function layoutReaderPreviewEdge(page: { width: number; height: number },
 
 export function layoutReaderReducer(state: LayoutReaderState, action: LayoutReaderAction): LayoutReaderState {
   if (action.type === "set-mode") return { ...state, mode: action.mode, zoom: 1 };
-  if (action.type === "set-zoom") return { ...state, zoom: Math.round(clamp(action.zoom, .5, 3) * 100) / 100 };
+  if (action.type === "set-zoom") return { ...state, zoom: clamp(action.zoom, .5, 3) };
   const nextPage = clamp(action.page, 0, Math.max(0, action.pageCount - 1));
   if (nextPage === state.currentPage) return state;
   return { ...state, currentPage: nextPage };

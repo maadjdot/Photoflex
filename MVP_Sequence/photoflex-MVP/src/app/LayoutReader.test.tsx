@@ -20,6 +20,19 @@ const layout = {
 } as LayoutDocument;
 
 describe("LayoutReader", () => {
+  it("leaves two-finger scrolling native and consumes pinch zoom without zooming the browser", () => {
+    const { container } = render(<LayoutReader document={layout} initialPage={0} photoSource={{} as PhotoSource} onClose={() => {}} />);
+    const stage = container.querySelector<HTMLElement>(".layout-reader-stage")!;
+    expect(fireEvent.wheel(stage, { deltaX: 35, deltaY: 45 })).toBe(true);
+    expect(screen.getByRole("button", { name: "100%" })).toBeTruthy();
+    expect(fireEvent.wheel(stage, { ctrlKey: true, deltaY: -100 })).toBe(false);
+    expect(screen.getByRole("button", { name: "122%" })).toBeTruthy();
+    expect(fireEvent.wheel(stage, { metaKey: true, deltaY: 100 })).toBe(false);
+    expect(screen.getByRole("button", { name: "100%" })).toBeTruthy();
+    for (let index = 0; index < 10; index++) fireEvent.wheel(stage, { ctrlKey: true, deltaY: -.5 });
+    expect(screen.getByRole("button", { name: "101%" })).toBeTruthy();
+  });
+
   it("omits cover numbers, numbers the first left body page as one, and hides all printed numbers", () => {
     const book: LayoutDocument = { ...layout, pages: layout.pages.map((page, index) => ({ ...page,
       ...(index === 0 ? { kind: "cover" as const } : index === 4 ? { kind: "back-cover" as const } : {}) })) };

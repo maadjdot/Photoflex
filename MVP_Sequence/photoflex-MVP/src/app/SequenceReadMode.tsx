@@ -84,6 +84,19 @@ export function SequenceReadMode({ sequence, initialIndex, photoSource, onClose,
     return () => window.removeEventListener("keydown", onKey);
   }, [currentIndex, photos.length, scrollToIndex]);
 
+  useEffect(() => {
+    const track = trackRef.current;
+    if (!track) return;
+    const onPinch = (event: WheelEvent) => {
+      if (!event.ctrlKey && !event.metaKey) return;
+      event.preventDefault();
+      event.stopPropagation();
+      setZoom((current) => Math.max(35, Math.min(85, current * Math.exp(-event.deltaY * .002))));
+    };
+    track.addEventListener("wheel", onPinch, { passive: false });
+    return () => track.removeEventListener("wheel", onPinch);
+  }, []);
+
   const onWheel = (event: ReactWheelEvent<HTMLDivElement>) => {
     const intent = horizontalWheelIntent(event.deltaX, event.deltaY);
     if (!intent.handled) return;
@@ -104,7 +117,7 @@ export function SequenceReadMode({ sequence, initialIndex, photoSource, onClose,
     </div>
     <div className="sequence-read-zoom" role="group" aria-label="Read zoom">
       <button aria-label="Zoom out" disabled={zoom <= 35} onClick={() => setZoom((value) => Math.max(35, value - 5))}>−</button>
-      <output>{zoom}%</output>
+      <output>{Math.round(zoom)}%</output>
       <button aria-label="Zoom in" disabled={zoom >= 85} onClick={() => setZoom((value) => Math.min(85, value + 5))}>+</button>
       <button ref={closeRef} className="sequence-read-close" aria-label={t("common.close")} onClick={onClose}>×</button>
     </div>
