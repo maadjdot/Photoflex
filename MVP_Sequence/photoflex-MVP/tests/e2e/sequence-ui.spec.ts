@@ -271,6 +271,8 @@ test("Layout crops a fixed photo with draggable boundaries and collapses each in
   const photo = (await frame.locator(".layout-image-clip img").boundingBox())!;
   await layout.getByRole("button", { name: "Crop", exact: true }).click();
   await expect(frame.locator(".layout-crop-photo-outside")).toHaveCSS("opacity", "0.25");
+  await expect(frame).toHaveCSS("outline-color", "rgb(0, 0, 0)");
+  await expect(frame.getByRole("button", { name: "Crop e", exact: true })).toHaveCSS("background-color", "rgb(0, 0, 0)");
   const dragEdge = async (dx: number) => {
     const edge = (await frame.getByRole("button", { name: "Crop e", exact: true }).boundingBox())!;
     await page.mouse.move(edge.x + edge.width / 2, edge.y + edge.height / 2);

@@ -6,7 +6,7 @@ import closeIcon from "../assets/icons/frame-close.svg";
 import chevronIcon from "../assets/icons/frame-chevron-down.svg";
 import lockIcon from "../assets/icons/table-lock.svg";
 import type { FrameCrop, FrameEditCommand, FrameRect, FrameSlot, FrameSlotId, FrameTextBox, LayoutObjectId, WorktableFrame } from "../contracts";
-import { FRAME_MM_TO_PT, FRAME_PAGE_PRESETS, frameFamily, framePaper } from "../modules/worktable/frameLayout";
+import { FRAME_MM_TO_PT, FRAME_PAGE_PRESETS, frameFamily, framePaper, frameUsesDirectPhotos } from "../modules/worktable/frameLayout";
 import { frameInnerEdge } from "../modules/worktable/frameAppearance";
 import { useLocale } from "./locale";
 
@@ -18,7 +18,6 @@ interface FrameSettingsPanelProps {
   readonly onStartText: () => void;
   readonly cropDraft?: FrameCrop;
   readonly onCropDraft: (crop: FrameCrop | undefined) => void;
-  readonly onFinishCrop: () => void;
   readonly onSelectSlot: (slotId: FrameSlotId | undefined) => void;
   readonly onSelectText: (textId: LayoutObjectId | undefined) => void;
   readonly onClose: () => void;
@@ -28,13 +27,14 @@ interface FrameSettingsPanelProps {
 
 const PAGE_RATIOS = [[1, 1], [2, 3], [3, 4], [4, 5], [9, 16]] as const;
 
-export function FrameSettingsPanel({ frame, slot, textBox, drawingText, onStartText, cropDraft, onCropDraft, onFinishCrop, onSelectSlot, onSelectText, onClose, onExecute, exportButton }: FrameSettingsPanelProps) {
+export function FrameSettingsPanel({ frame, slot, textBox, drawingText, onStartText, cropDraft, onCropDraft, onSelectSlot, onSelectText, onClose, onExecute, exportButton }: FrameSettingsPanelProps) {
   const { locale } = useLocale();
   const zh = locale === "zh-CN";
   const label = (english: string, chinese: string) => zh ? chinese : english;
   const page = frame.page;
   const squareGrid = page.templateSource.id === "square-nine-grid";
   const family = frameFamily(page.templateSource.id);
+  const directPhotos = frameUsesDirectPhotos(page.templateSource.id);
   const pageMaximum = family.id === "plain" ? 600 : 1000;
   const [ratioLocked, setRatioLocked] = useState(false);
   useEffect(() => setRatioLocked(false), [frame.id]);
@@ -65,7 +65,8 @@ export function FrameSettingsPanel({ frame, slot, textBox, drawingText, onStartT
     <div className="table-frame-inspector" data-frame-family={family.id} data-inspector-context={context}>
       {context === "page" && <>
         <section className="table-frame-section table-frame-creation-section">
-          <button type="button" className="table-frame-add-box" onClick={() => { const slotId = crypto.randomUUID() as FrameSlotId; onExecute({ type: "add-frame-slot", frameId: frame.id, slotId }); onSelectSlot(slotId); }}><span aria-hidden="true">＋</span>{label("Add photo box", "添加照片框")}</button>
+          {!directPhotos && <button type="button" className="table-frame-add-box" onClick={() => { const slotId = crypto.randomUUID() as FrameSlotId; onExecute({ type: "add-frame-slot", frameId: frame.id, slotId }); onSelectSlot(slotId); }}><span aria-hidden="true">＋</span>{label("Add photo box", "添加照片框")}</button>}
+          {directPhotos && <p className="table-frame-hint">{label("Drag photos onto the page to move, resize or crop them directly.", "将照片拖入页面，直接移动、缩放或裁切。")}</p>}
           <button type="button" className="table-frame-add-text" aria-pressed={drawingText} onClick={onStartText}><span aria-hidden="true">T</span>{label("Add text", "添加文字")}</button>
         </section>
         <section className="table-frame-section"><h3>{label("Page size", "页面尺寸")}</h3>
@@ -98,16 +99,16 @@ export function FrameSettingsPanel({ frame, slot, textBox, drawingText, onStartT
         <section className="table-frame-section"><h3>{label("Export", "导出")}</h3>{exportButton}</section>
       </>}
       {slot && <>
-        <section className="table-frame-section"><h3>{label("Photo box", "照片框")} {String(page.slots.indexOf(slot) + 1).padStart(2, "0")}</h3>{geometry}</section>
+        <section className="table-frame-section"><h3>{directPhotos ? label("Photo", "照片") : label("Photo box", "照片框")} {String(page.slots.findIndex((item) => item.id === slot.id) + 1).padStart(2, "0")}</h3>{cropDraft ? <p className="table-frame-hint">{label("Drag the black crop handles to change the visible area.", "拖动黑色裁切手柄改变可见范围。")}</p> : geometry}</section>
         <section className="table-frame-section"><h3>{label("Corner radius", "圆角半径")}</h3><input className="table-frame-radius" aria-label={label("Corner radius", "圆角半径")} type="range" min="0" max="32" step="1" value={slot.cornerRadiusPt ?? page.cornerRadiusPt ?? 0} onChange={(event) => onExecute({ type: "set-frame-slot-corner-radius", frameId: frame.id, slotId: slot.id, cornerRadiusPt: Number(event.currentTarget.value) })} /></section>
         <PhotoInnerEdgeControls frameToolbar edge={slot.innerEdge ?? frameInnerEdge(page)} onChange={(edge) => onExecute({ type: "set-frame-slot-inner-edge", frameId: frame.id, slotId: slot.id, edge })} />
         {slot.photoId && <section className="table-frame-section"><h3>{label("Photo fit", "照片适配")}</h3><div className="table-frame-segments" role="group" aria-label={label("Photo fit", "照片适配")}>
           {(["fill", "fit"] as const).map((mode) => <button key={mode} type="button" aria-pressed={(cropDraft ?? slot.crop).mode === mode} onClick={() => cropDraft ? onCropDraft({ ...cropDraft, mode }) : onExecute({ type: "set-frame-photo-crop", frameId: frame.id, slotId: slot.id, crop: { ...slot.crop, mode } })}>{mode === "fill" ? label("Cover", "填满") : label("Contain", "完整显示")}</button>)}
         </div><FramePhotoElevationControls frame={frame} slot={slot} onExecute={onExecute} />
-          <div className="table-frame-action-row"><button type="button" onClick={() => onCropDraft(cropDraft ? undefined : slot.crop)}>{cropDraft ? label("Cancel crop", "取消裁切") : label("Adjust crop", "调整裁切")}</button><button type="button" onClick={() => { onCropDraft(undefined); onExecute({ type: "clear-frame-photo", frameId: frame.id, slotId: slot.id }); }}>{label("Clear photo", "清空照片")}</button></div>
-          {cropDraft && <div className="table-frame-crop-tools"><label>{label("Zoom", "缩放")} <strong>{Math.round(cropDraft.zoom * 100)}%</strong><input aria-label={label("Crop zoom", "裁切缩放")} type="range" min="1" max="8" step="0.01" value={cropDraft.zoom} onChange={(event) => onCropDraft({ ...cropDraft, zoom: Number(event.target.value) })} /></label><button type="button" onClick={onFinishCrop}>{label("Done", "完成")}</button></div>}
+          <div className="table-frame-action-row"><button type="button" onClick={() => onCropDraft(cropDraft ? undefined : slot.crop)}>{cropDraft ? label("Cancel crop", "取消裁切") : label("Crop", "裁切")}</button>{!directPhotos && <button type="button" onClick={() => { onCropDraft(undefined); onExecute({ type: "clear-frame-photo", frameId: frame.id, slotId: slot.id }); }}>{label("Clear photo", "清空照片")}</button>}</div>
+
         </section>}
-        <section className="table-frame-section"><button type="button" className="table-frame-remove-box" onClick={() => { onCropDraft(undefined); onExecute({ type: "remove-frame-slot", frameId: frame.id, slotId: slot.id }); onSelectSlot(undefined); }}>{label("Remove photo box", "移除照片框")}</button></section>
+        <section className="table-frame-section"><button type="button" className="table-frame-remove-box" onClick={() => { onCropDraft(undefined); onExecute({ type: "remove-frame-slot", frameId: frame.id, slotId: slot.id }); onSelectSlot(undefined); }}>{directPhotos ? label("Remove photo", "移除照片") : label("Remove photo box", "移除照片框")}</button></section>
       </>}
       {textBox && <>
         <section className="table-frame-section"><h3>{label("Text box", "文字框")}</h3>{geometry}</section>

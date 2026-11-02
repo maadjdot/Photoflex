@@ -98,8 +98,8 @@ interface TableCanvasProps {
   readonly selectedFrameId?: FrameId;
   readonly frameSettingsHost?: HTMLElement | null;
   readonly onSelectFrame?: (id: FrameId | undefined) => void;
-  readonly onDropPhotosOnFrame?: (ids: readonly WorktableItemId[], frameId: FrameId, slotId?: FrameSlotId) => void;
-  readonly onDropSourcePhotosOnFrame?: (photoIds: readonly PhotoId[], frameId: FrameId, slotId?: FrameSlotId) => void;
+  readonly onDropPhotosOnFrame?: (ids: readonly WorktableItemId[], frameId: FrameId, slotId?: FrameSlotId, point?: { x: number; y: number }) => void;
+  readonly onDropSourcePhotosOnFrame?: (photoIds: readonly PhotoId[], frameId: FrameId, slotId?: FrameSlotId, point?: { x: number; y: number }) => void;
   readonly onSelectMemo?: (id: string | undefined) => void;
   readonly onSelectPile?: (sequenceId: SequenceId) => void;
   readonly onRemovePiles: (sequenceIds: readonly SequenceId[]) => void;
@@ -702,7 +702,7 @@ export const TableCanvas = forwardRef<TableCanvasHandle, TableCanvasProps>(funct
         if (raw) {
           const photoIds = raw.split(",").map((id) => id.trim()).filter(Boolean) as PhotoId[];
           const frameTarget = findFrameDropTarget(stageRef.current, event.clientX, event.clientY);
-          if (photoIds.length && frameTarget && props.onDropSourcePhotosOnFrame) { props.onDropSourcePhotosOnFrame(photoIds, frameTarget.frameId, frameTarget.slotId); return; }
+          if (photoIds.length && frameTarget && props.onDropSourcePhotosOnFrame) { props.onDropSourcePhotosOnFrame(photoIds, frameTarget.frameId, frameTarget.slotId, frameTarget.point); return; }
           if (photoIds.length) onDropPhotos(photoIds, point);
           return;
         }

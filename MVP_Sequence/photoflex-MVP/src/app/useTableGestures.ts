@@ -43,7 +43,7 @@ interface TableGestureOptions {
   readonly clearSelection: () => unknown;
   readonly onOpenSequence?: (sequenceId: SequenceId) => void;
   readonly onDropPhotosOnSequence: (photoIds: readonly WorktableItemId[], sequenceId: SequenceId, at?: number) => void;
-  readonly onDropPhotosOnFrame?: (photoIds: readonly WorktableItemId[], frameId: FrameId, slotId?: FrameSlotId) => void;
+  readonly onDropPhotosOnFrame?: (photoIds: readonly WorktableItemId[], frameId: FrameId, slotId?: FrameSlotId, point?: { x: number; y: number }) => void;
   readonly visiblePhotoIds: ReadonlySet<WorktableItemId>;
   readonly disabled?: boolean;
 }
@@ -382,7 +382,7 @@ export function useTableGestures(options: TableGestureOptions) {
     const frameTarget = !cancelled && moved && gesture.kind === "photo" ? findFrameDropTarget(stage, event.clientX, event.clientY) : undefined;
     const sequenceTarget = !frameTarget && !cancelled && moved && gesture.kind === "photo" ? sequenceDropAt(stage, event.clientX, event.clientY) : undefined;
     if (frameTarget && gesture.kind === "photo") {
-      onDropPhotosOnFrame?.(gesture.ids, frameTarget.frameId, frameTarget.slotId);
+      onDropPhotosOnFrame?.(gesture.ids, frameTarget.frameId, frameTarget.slotId, frameTarget.point);
     } else if (sequenceTarget && gesture.kind === "photo") {
       onDropPhotosOnSequence(gesture.ids, sequenceTarget.sequenceId, sequenceTarget.at);
     } else if (!cancelled && moved && gesture.kind === "photo") execute({ type: "move", photoIds: gesture.ids, by: delta });

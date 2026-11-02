@@ -43,7 +43,7 @@
 .layout-image-clip { position: absolute; inset: 0; overflow: hidden; }
 .layout-photo-elevation { position: absolute; pointer-events: none; }
 .layout-object-image-frame.is-selected { outline: 1px solid #1b1a18; outline-offset: 0; }
-.layout-object-image-frame.is-cropping { outline: 2px solid #9c6b2f; }
+.layout-object-image-frame.is-cropping { outline: 2px solid #000; }
 .layout-object-image-frame:active { cursor: grabbing; }
 .layout-placed-image { position: absolute; display: block; max-width: none; max-height: none; pointer-events: none; }
 .layout-image-placeholder { display: grid; width: 100%; height: 100%; place-items: center; padding: 5px; box-sizing: border-box; color: #777; text-align: center; }
@@ -71,10 +71,10 @@
 .layout-crop-overlay { position: absolute; right: 5px; bottom: 5px; left: 5px; z-index: 4; display: flex; align-items: center; justify-content: space-between; gap: 5px; padding: 5px; border-radius: 5px; background: rgb(26 25 23 / 82%); color: #fff; font-size: 9px; cursor: default; }
 .layout-crop-overlay > div { display: flex; gap: 3px; }
 .layout-crop-overlay button { padding: 3px 5px; border: 1px solid #fff7; border-radius: 3px; background: #fff; color: #24231f; font-size: 9px; white-space: nowrap; }
-.layout-object-image-frame.is-selected.is-cropping { z-index: 6; outline: 2px solid #0ea5e9; }
+.layout-object-image-frame.is-selected.is-cropping { z-index: 6; outline: 2px solid #000; }
 .layout-paper:has(.is-cropping) { overflow: visible; z-index: 4; }
-.layout-object-image-frame.is-cropping .layout-resize-handle { width: 8px; height: 8px; border: 0; border-radius: 0; background: #0ea5e9; }
-.layout-crop-size { position: absolute; z-index: 5; top: calc(100% + 6px); left: 50%; padding: 2px 5px; transform: translateX(-50%); border-radius: 2px; background: #0ea5e9; color: #fff; font: 10px/1.4 Inter, sans-serif; white-space: nowrap; pointer-events: none; }
+.layout-object-image-frame.is-cropping .layout-resize-handle { width: 8px; height: 8px; border: 0; border-radius: 0; background: #000; }
+.layout-crop-size { position: absolute; z-index: 5; top: calc(100% + 6px); left: 50%; padding: 2px 5px; transform: translateX(-50%); border-radius: 2px; background: #000; color: #fff; font: 10px/1.4 Inter, sans-serif; white-space: nowrap; pointer-events: none; }
 .is-cropping .layout-crop-overlay { top: calc(100% + 28px); right: auto; bottom: auto; left: 50%; width: max-content; max-width: 280px; flex-wrap: wrap; transform: translateX(-50%); }
 .layout-alignment-guides { position: absolute; inset: 0; z-index: 4; overflow: visible; pointer-events: none; }
 .layout-alignment-guides line { stroke: #306ce0; stroke-width: 1; stroke-dasharray: 5 4; vector-effect: non-scaling-stroke; }
@@ -119,7 +119,7 @@
 .layout-object-image-frame { background: transparent; }
 .layout-object-image-frame:has(.layout-image-placeholder) { border: 1px dashed #bbb6ae; }
 .layout-object-image-frame.is-selected { outline: 1px dashed #272622; }
-.layout-object-image-frame.is-cropping { outline: 2px solid #35332e; cursor: move; }
+.layout-object-image-frame.is-cropping { outline: 2px solid #000; cursor: move; }
 .layout-resize-handle { border-color: #35332e; border-radius: 2px; }
 .layout-photo-tray { flex-basis: 126px; border-color: #e8e8e6; }
 .layout-photo-tray .layout-panel-heading { flex-basis: 28px; }
@@ -184,3 +184,5 @@
 .layout-resize-handle.is-ne, .layout-resize-handle.is-e, .layout-resize-handle.is-se { left: calc(100% - 5px); }
 .layout-resize-handle.is-nw, .layout-resize-handle.is-n, .layout-resize-handle.is-ne { top: 5px; }
 .layout-resize-handle.is-sw, .layout-resize-handle.is-s, .layout-resize-handle.is-se { top: calc(100% - 5px); }
+
+.layout-object-image-frame.is-cropping .layout-resize-handle { border-color: #000; background: #000; }

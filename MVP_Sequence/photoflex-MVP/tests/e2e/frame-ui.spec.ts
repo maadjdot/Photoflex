@@ -55,6 +55,15 @@ async function createFrame(page: Page, family: string, template: RegExp, withPho
 const settings = (page: Page) => page.getByRole("complementary", { name: "Frame settings" });
 const selectPage = async (frame: Locator) => frame.locator(".table-frame-title").click();
 
+async function dropSourcePhotos(page: Page, frame: Locator, projectId: string, count = 1) {
+  await frame.locator(".table-frame-page").evaluate((node, { projectId, count }) => {
+    const bounds = node.getBoundingClientRect();
+    const dataTransfer = new DataTransfer();
+    dataTransfer.setData("application/x-photoflex-photo", Array.from({ length: count }, (_, i) => `photo-${projectId}-${i}`).join(","));
+    node.dispatchEvent(new DragEvent("drop", { dataTransfer, clientX: bounds.left + bounds.width * .5, clientY: bounds.top + bounds.height * .5, bubbles: true, cancelable: true }));
+  }, { projectId, count });
+}
+
 async function drawText(page: Page, frame: Locator, rect: { x: number; y: number; width: number; height: number }, text: string) {
   await selectPage(frame);
   await settings(page).getByRole("button", { name: "Add text", exact: true }).click();
@@ -74,7 +83,7 @@ async function drawText(page: Page, frame: Locator, rect: { x: number; y: number
 }
 
 test("switches page and photo settings and applies stepped dimensions on Enter or an outside click", async ({ page }, testInfo) => {
-  await workspace(page);
+  const projectId = await workspace(page, 1);
   const frame = await createFrame(page, "Plain Page", /Quad Grid 4 slots/);
   const panel = settings(page);
   await expect(panel.getByRole("heading", { name: "Template", exact: true })).toHaveCount(0);
@@ -93,9 +102,12 @@ test("switches page and photo settings and applies stepped dimensions on Enter o
   await selectPage(frame);
   await expect(panel.getByRole("spinbutton", { name: "H mm", exact: true })).toHaveValue("260");
   await page.screenshot({ path: testInfo.outputPath("page-settings-1440.png") });
-  await panel.getByRole("button", { name: "Add photo box", exact: true }).click();
-  await expect(frame.locator("[data-frame-slot-id]")).toHaveCount(5);
-  await expect(panel.getByRole("heading", { name: "Photo box 05", exact: true })).toBeVisible();
+  await expect(panel.getByRole("button", { name: "Add photo box", exact: true })).toHaveCount(0);
+  await expect(frame.locator("[data-frame-slot-id]")).toHaveCount(0);
+  await dropSourcePhotos(page, frame, projectId);
+  await expect(frame.locator("[data-frame-slot-id]")).toHaveCount(1);
+  await frame.locator("[data-frame-slot-id]").click();
+  await expect(panel.getByRole("heading", { name: "Photo 01", exact: true })).toBeVisible();
   await expect(panel.getByRole("button", { name: "Paper color", exact: true })).toHaveCount(0);
   await expect(panel.getByRole("button", { name: "Add text", exact: true })).toHaveCount(0);
   await panel.getByRole("spinbutton", { name: "X mm", exact: true }).fill("20");
@@ -113,12 +125,38 @@ test("switches page and photo settings and applies stepped dimensions on Enter o
   await expect(panel.getByRole("spinbutton", { name: "H mm", exact: true })).toHaveValue("260");
   await frame.locator("[data-frame-slot-id]").last().click();
   await expect(panel.getByRole("spinbutton", { name: "X mm", exact: true })).toHaveValue("21");
-  await panel.getByRole("button", { name: "Remove photo box", exact: true }).click();
-  await expect(frame.locator("[data-frame-slot-id]")).toHaveCount(4);
+  await panel.getByRole("button", { name: "Remove photo", exact: true }).click();
+  await expect(frame.locator("[data-frame-slot-id]")).toHaveCount(0);
   await page.setViewportSize({ width: 1280, height: 800 });
   await selectPage(frame);
   await page.screenshot({ path: testInfo.outputPath("page-settings-1280.png") });
 });
+
+for (const [family, template] of [["Plain Page", /Single 1 slots/], ["Frames", /Gallery single/]] as const) {
+  test(`${family} accepts photos directly, including repeated drops over another photo`, async ({ page }) => {
+    const projectId = await workspace(page, 2);
+    const frame = await createFrame(page, family, template);
+    await expect(frame.locator("[data-frame-slot-id]")).toHaveCount(0);
+    await expect(settings(page).getByRole("button", { name: "Add photo box", exact: true })).toHaveCount(0);
+    await dropSourcePhotos(page, frame, projectId, 2);
+    await expect(frame.locator("[data-frame-slot-id]")).toHaveCount(2);
+    await dropSourcePhotos(page, frame, projectId);
+    await expect(frame.locator("[data-frame-slot-id]")).toHaveCount(3);
+    const photo = frame.locator("[data-frame-slot-id]").last();
+    const ratio = await photo.evaluate((node) => parseFloat(node.style.width) / parseFloat(node.style.height));
+    expect(ratio).toBeCloseTo(4 / 3, 5);
+    await photo.click();
+    const before = (await photo.boundingBox())!;
+    const handle = (await photo.getByRole("button", { name: "Resize photo se", exact: true }).boundingBox())!;
+    await page.mouse.move(handle.x + handle.width / 2, handle.y + handle.height / 2);
+    await page.mouse.down(); await page.mouse.move(handle.x + 15, handle.y + 15, { steps: 4 }); await page.mouse.up();
+    const after = (await photo.boundingBox())!;
+    expect(after.width).toBeGreaterThan(before.width);
+    expect(after.width / after.height).toBeCloseTo(4 / 3, 4);
+    await page.reload();
+    await expect(frame.locator("[data-frame-slot-id]")).toHaveCount(3);
+  });
+}
 
 test("draws multiple independent text boxes, edits them and restores them after reload", async ({ page }, testInfo) => {
   await workspace(page);
@@ -168,32 +206,42 @@ test("draws multiple independent text boxes, edits them and restores them after 
   await expect(panel.getByRole("button", { name: "Add text", exact: true })).toHaveAttribute("aria-pressed", "false");
 });
 
-test("keeps crop button-only and photo appearance local to the selected photo box", async ({ page }, testInfo) => {
+test("crops photo edges without rescaling and keeps appearance local to the selected photo", async ({ page }, testInfo) => {
   await workspace(page, 2);
   const frame = await createFrame(page, "Plain Page", /Diptych 2 slots/, true);
   const panel = settings(page);
   const first = frame.locator("[data-frame-slot-id]").first();
   const second = frame.locator("[data-frame-slot-id]").nth(1);
   await expect(first.locator("img")).toBeVisible();
-  const photo = first.locator("img");
+  const photo = first.locator(".table-frame-photo-clip img");
   const widthBefore = await photo.evaluate((node) => parseFloat(node.style.width));
   await first.dblclick();
-  await expect(panel.getByRole("button", { name: "Cancel crop", exact: true })).toHaveCount(0);
-  await first.click({ button: "right" });
-  await expect(panel.getByRole("button", { name: "Cancel crop", exact: true })).toHaveCount(0);
-  await panel.getByRole("button", { name: "Adjust crop", exact: true }).click();
-  const worldBefore = await page.locator(".worktable-world").getAttribute("style");
-  const wheel = () => first.evaluate((node) => {
-    const rect = node.getBoundingClientRect();
-    node.dispatchEvent(new WheelEvent("wheel", { ctrlKey: true, deltaY: -120, clientX: rect.left + rect.width * .6, clientY: rect.top + rect.height * .4, bubbles: true, cancelable: true }));
-  });
-  await wheel();
-  await expect.poll(() => photo.evaluate((node) => parseFloat(node.style.width))).toBeGreaterThan(widthBefore);
-  await expect(page.locator(".worktable-world")).toHaveAttribute("style", worldBefore!);
-  await panel.getByRole("button", { name: "Cancel crop", exact: true }).click();
-  await expect.poll(() => photo.evaluate((node) => parseFloat(node.style.width))).toBe(widthBefore);
-  await panel.getByRole("button", { name: "Adjust crop", exact: true }).click(); await wheel();
-  await panel.getByRole("button", { name: "Done", exact: true }).click();
+  await expect(first).toHaveClass(/is-cropping/);
+  await expect(first).toHaveCSS("outline-color", "rgb(0, 0, 0)");
+  await expect(first.getByRole("button", { name: "Crop e", exact: true })).toHaveCSS("background-color", "rgb(0, 0, 0)");
+  await expect(panel.getByRole("slider", { name: "Crop zoom", exact: true })).toHaveCount(0);
+  const before = await first.evaluate((node) => ({ x: parseFloat(node.style.left), y: parseFloat(node.style.top), width: parseFloat(node.style.width), height: parseFloat(node.style.height) }));
+  const edge = (await first.getByRole("button", { name: "Crop e", exact: true }).boundingBox())!;
+  const dragEdge = async () => {
+    await page.mouse.move(edge.x + edge.width / 2, edge.y + edge.height / 2);
+    await page.mouse.down(); await page.mouse.move(edge.x - 25, edge.y + edge.height / 2, { steps: 6 }); await page.mouse.up();
+  };
+  await dragEdge();
+  await expect.poll(() => first.locator(".table-frame-photo-clip img").evaluate((node) => parseFloat(node.style.width))).toBeCloseTo(widthBefore, 4);
+  expect(await first.evaluate((node) => parseFloat(node.style.width))).toBeLessThan(before.width);
+  await expect(first.locator(".table-frame-crop-photo-outside")).toBeVisible();
+  await page.screenshot({ path: testInfo.outputPath("black-crop-boundary.png") });
+  await first.getByRole("button", { name: "Cancel", exact: true }).click();
+  await expect.poll(() => first.evaluate((node) => parseFloat(node.style.width))).toBeCloseTo(before.width, 4);
+  await panel.getByRole("button", { name: "Crop", exact: true }).click();
+  await dragEdge();
+  const croppedWidth = await first.evaluate((node) => parseFloat(node.style.width));
+  await first.getByRole("button", { name: "Done", exact: true }).click();
+  await expect(first).not.toHaveClass(/is-cropping/);
+  await page.keyboard.press("Control+z");
+  await expect.poll(() => first.evaluate((node) => parseFloat(node.style.width))).toBeCloseTo(before.width, 4);
+  await page.keyboard.press("Control+Shift+z");
+  await expect.poll(() => first.evaluate((node) => parseFloat(node.style.width))).toBeCloseTo(croppedWidth, 4);
   await panel.getByRole("group", { name: "Inner edge", exact: true }).getByRole("button", { name: "Mat bevel", exact: true }).click();
   await panel.getByRole("spinbutton", { name: "Inner edge width mm", exact: true }).fill("2");
   await panel.getByRole("spinbutton", { name: "Inner edge width mm", exact: true }).press("Enter");
@@ -205,6 +253,7 @@ test("keeps crop button-only and photo appearance local to the selected photo bo
   await expect(second.locator(".table-frame-photo-elevation")).toHaveCount(0);
   await page.screenshot({ path: testInfo.outputPath("photo-crop-settings.png") });
   await page.reload(); await first.click();
+  await expect.poll(() => first.evaluate((node) => parseFloat(node.style.width))).toBeCloseTo(croppedWidth, 4);
   await expect(panel.getByRole("spinbutton", { name: "Inner edge width mm", exact: true })).toHaveValue("2");
   await expect(panel.getByRole("slider", { name: "Photo elevation", exact: true })).toHaveValue("3");
 });

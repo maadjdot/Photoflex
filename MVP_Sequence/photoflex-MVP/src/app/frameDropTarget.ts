@@ -1,6 +1,6 @@
 import type { FrameId, FrameSlotId } from "../contracts";
 
-export function findFrameDropTarget(stage: HTMLElement | null, clientX: number, clientY: number): { frameId: FrameId; slotId?: FrameSlotId } | undefined {
+export function findFrameDropTarget(stage: HTMLElement | null, clientX: number, clientY: number): { frameId: FrameId; slotId?: FrameSlotId; point: { x: number; y: number } } | undefined {
   if (!stage) return undefined;
   const frames = [...stage.querySelectorAll<HTMLElement>("[data-frame-id]")].sort((a, b) => Number(getComputedStyle(b).zIndex) - Number(getComputedStyle(a).zIndex));
   const hit = (element: HTMLElement) => { const rect = element.getBoundingClientRect(); return clientX >= rect.left && clientX <= rect.right && clientY >= rect.top && clientY <= rect.bottom; };
@@ -8,7 +8,10 @@ export function findFrameDropTarget(stage: HTMLElement | null, clientX: number, 
     const page = frame.querySelector<HTMLElement>(".table-frame-page");
     if (!page || !hit(page)) continue;
     const slot = [...page.querySelectorAll<HTMLElement>("[data-frame-slot-id]")].reverse().find(hit);
-    return { frameId: frame.dataset.frameId as FrameId, slotId: slot?.dataset.frameSlotId as FrameSlotId | undefined };
+    const bounds = page.getBoundingClientRect();
+    return { frameId: frame.dataset.frameId as FrameId, slotId: slot?.dataset.frameSlotId as FrameSlotId | undefined,
+      point: { x: (clientX - bounds.left) * parseFloat(page.style.width) / bounds.width,
+        y: (clientY - bounds.top) * parseFloat(page.style.height) / bounds.height } };
   }
   return undefined;
 }

@@ -165,6 +165,10 @@ export function applyFrameCommand(draft: WorktableDraft, command: FrameEditComma
     return update({ ...frame, displayScale: resetSize ? Math.max(.1, Math.min(4, frame.page.heightPt * frame.displayScale / heightPt)) : frame.displayScale,
       page: { ...frame.page, widthPt, heightPt, ...reflowFrameCaption(frame.page, widthPt, heightPt), ...reflowFrameTextBoxes(frame.page, widthPt, heightPt), templateSource: { ...command.template, modified: false }, slots: [...laidOut, ...manual, ...retainedPhotos] } });
   }
+  if (command.type === "add-frame-photos") {
+    if (!command.slots.length) return ok(draft);
+    return update({ ...frame, page: { ...frame.page, templateSource: { ...frame.page.templateSource, modified: true }, slots: [...frame.page.slots, ...command.slots] } });
+  }
   if (command.type === "add-frame-slot") {
     if (frame.page.slots.some((slot) => slot.id === command.slotId)) return failure("invalid-frame");
     const { widthPt, heightPt } = frame.page;
@@ -210,7 +214,7 @@ export function applyFrameCommand(draft: WorktableDraft, command: FrameEditComma
   const nextSlot: FrameSlot = command.type === "replace-frame-photo" ? { ...slot, photoId: command.photoId, crop: defaultFrameCrop(frame.page.templateSource.id) }
     : command.type === "clear-frame-photo" ? { ...slot, photoId: null }
       : command.type === "transform-frame-slot" ? { ...slot, rect: command.rect }
-        : { ...slot, crop: command.crop };
-  const templateSource = command.type === "transform-frame-slot" ? { ...frame.page.templateSource, modified: true } : frame.page.templateSource;
+        : { ...slot, crop: command.crop, ...(command.rect ? { rect: command.rect } : {}) };
+  const templateSource = command.type === "transform-frame-slot" || (command.type === "set-frame-photo-crop" && command.rect) ? { ...frame.page.templateSource, modified: true } : frame.page.templateSource;
   return update({ ...frame, page: { ...frame.page, templateSource, slots: frame.page.slots.map((item) => item.id === slot.id ? nextSlot : item) } });
 }

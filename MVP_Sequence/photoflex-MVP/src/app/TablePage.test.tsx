@@ -178,10 +178,10 @@ describe("TablePage", () => {
     fireEvent.click(screen.getByRole("button", { name: /Single 1 slots/ }));
     const frame = stage.querySelector<HTMLElement>("[data-frame-id]")!;
     const page = frame.querySelector<HTMLElement>(".table-frame-page")!;
-    const slot = frame.querySelector<HTMLElement>("[data-frame-slot-id]")!;
+    expect(frame.querySelector("[data-frame-slot-id]")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Add photo box" })).toBeNull();
     const rect = (left: number, top: number, width: number, height: number) => ({ left, top, width, height, right: left + width, bottom: top + height, x: left, y: top, toJSON() {} });
     Object.defineProperty(page, "getBoundingClientRect", { configurable: true, value: () => rect(350, 100, 300, 420) });
-    Object.defineProperty(slot, "getBoundingClientRect", { configurable: true, value: () => rect(370, 120, 260, 380) });
     const before = await dependencies.projectStore.loadWorkspace(projectId);
     expect(before.ok).toBe(true);
     if (!before.ok) return;
@@ -201,7 +201,7 @@ describe("TablePage", () => {
     });
   });
 
-  it("only edits a Fill photo crop after the toolbar button is used and saves on Done", async () => {
+  it("crops the photo boundary without rescaling the image and saves one undoable change", async () => {
     const dependencies = await createFixture();
     render(<App dependencies={dependencies} />);
     const stage = await screen.findByLabelText("Photo worktable");
@@ -209,30 +209,38 @@ describe("TablePage", () => {
     fireEvent.click(screen.getByRole("button", { name: "Frame templates" }));
     fireEvent.click(screen.getByRole("button", { name: /^Plain Page/ }));
     fireEvent.click(screen.getByRole("button", { name: /Diptych 2 slots/ }));
-    const frame = await waitFor(() => {
-      const value = stage.querySelector<HTMLElement>("[data-frame-id]");
-      expect(value).toBeTruthy();
-      return value!;
-    });
-    const slot = frame.querySelector<HTMLElement>("[data-frame-slot-id]")!;
-    fireEvent.pointerDown(slot, { pointerId: 81, button: 2, clientX: 200, clientY: 200 });
-    fireEvent.pointerMove(frame, { pointerId: 81, button: 2, clientX: 235, clientY: 200 });
-    fireEvent.pointerUp(frame, { pointerId: 81, button: 2, clientX: 235, clientY: 200 });
-    expect(screen.queryByRole("button", { name: "Cancel crop" })).toBeNull();
-    fireEvent.pointerDown(slot, { pointerId: 82, button: 0, clientX: 200, clientY: 200 });
-    fireEvent.pointerUp(frame, { pointerId: 82, button: 0, clientX: 200, clientY: 200 });
-    fireEvent.click(screen.getByRole("button", { name: "Adjust crop" }));
-    fireEvent.pointerDown(slot, { pointerId: 83, button: 0, clientX: 200, clientY: 200 });
-    fireEvent.pointerMove(frame, { pointerId: 83, button: 0, clientX: 235, clientY: 200 });
-    fireEvent.pointerUp(frame, { pointerId: 83, button: 0, clientX: 235, clientY: 200 });
+    const frame = stage.querySelector<HTMLElement>("[data-frame-id]")!;
+    const photo = frame.querySelector<HTMLElement>("[data-frame-slot-id]")!;
+    await waitFor(() => expect(photo.querySelector<HTMLImageElement>("img")?.style.width).toBeTruthy());
+    const originalRect = { left: photo.style.left, top: photo.style.top, width: photo.style.width, height: photo.style.height };
+    const imageWidth = photo.querySelector<HTMLImageElement>("img")!.style.width;
+    fireEvent.doubleClick(photo);
+    expect(screen.queryByRole("slider", { name: "Crop zoom" })).toBeNull();
+    const edge = screen.getByRole("button", { name: "Crop e" });
+    fireEvent.pointerDown(edge, { pointerId: 83, button: 0, clientX: 300, clientY: 200 });
+    fireEvent.pointerMove(frame, { pointerId: 83, clientX: 280, clientY: 200 });
+    fireEvent.pointerUp(frame, { pointerId: 83, clientX: 280, clientY: 200 });
+    expect(parseFloat(photo.style.width)).toBeLessThan(parseFloat(originalRect.width));
+    expect(photo.querySelector<HTMLImageElement>(".table-frame-photo-clip img")!.style.width).toBe(imageWidth);
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(photo.style.width).toBe(originalRect.width);
+    fireEvent.doubleClick(photo);
+    fireEvent.pointerDown(screen.getByRole("button", { name: "Crop e" }), { pointerId: 84, button: 0, clientX: 300, clientY: 200 });
+    fireEvent.pointerMove(frame, { pointerId: 84, clientX: 280, clientY: 200 });
+    fireEvent.pointerUp(frame, { pointerId: 84, clientX: 280, clientY: 200 });
+    const croppedWidth = photo.style.width;
     fireEvent.click(screen.getByRole("button", { name: "Done" }));
     await waitFor(async () => {
       const workspace = await dependencies.projectStore.loadWorkspace(projectId);
       expect(workspace.ok).toBe(true);
       if (!workspace.ok) return;
       const id = workspace.value.worktableDraft.frameOrder![0];
-      expect(workspace.value.worktableDraft.frames?.[id].page.slots[0].crop.focal.x).toBeLessThan(.5);
+      expect(workspace.value.worktableDraft.frames?.[id].page.slots[0].rect.width).toBeCloseTo(parseFloat(croppedWidth));
     });
+    fireEvent.click(screen.getByRole("button", { name: "Undo" }));
+    expect(photo.style.width).toBe(originalRect.width);
+    fireEvent.click(screen.getByRole("button", { name: "Redo" }));
+    expect(photo.style.width).toBe(croppedWidth);
   });
 
   it("discards an unfinished crop when another photo box is selected", async () => {
@@ -251,14 +259,16 @@ describe("TablePage", () => {
     const [first, second] = frame.querySelectorAll<HTMLElement>("[data-frame-slot-id]");
     fireEvent.pointerDown(first, { pointerId: 82, button: 0, clientX: 200, clientY: 200 });
     fireEvent.pointerUp(frame, { pointerId: 82, button: 0, clientX: 200, clientY: 200 });
-    fireEvent.click(screen.getByRole("button", { name: "Adjust crop" }));
-    fireEvent.change(screen.getByRole("slider", { name: "Crop zoom" }), { target: { value: "2" } });
+    fireEvent.click(screen.getByRole("button", { name: "Crop" }));
+    fireEvent.pointerDown(screen.getByRole("button", { name: "Crop e" }), { pointerId: 84, button: 0, clientX: 300, clientY: 200 });
+    fireEvent.pointerMove(frame, { pointerId: 84, clientX: 280, clientY: 200 });
+    fireEvent.pointerUp(frame, { pointerId: 84, clientX: 280, clientY: 200 });
     expect(screen.getByRole("button", { name: "Done" })).toBeTruthy();
 
     fireEvent.pointerDown(second, { pointerId: 83, button: 0, clientX: 400, clientY: 200 });
     fireEvent.pointerUp(frame, { pointerId: 83, button: 0, clientX: 400, clientY: 200 });
 
-    expect(screen.getByRole("heading", { name: /Photo box 02/ })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: /Photo 02/ })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Done" })).toBeNull();
   });
 

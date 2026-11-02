@@ -91,6 +91,7 @@ export type FrameEditCommand =
   | { readonly type: "resize-frame-page"; readonly frameId: FrameId; readonly widthPt: number; readonly heightPt: number; readonly reflow?: boolean }
   | { readonly type: "apply-frame-template"; readonly frameId: FrameId; readonly template: FrameTemplateSource; readonly expectedSlotIds: readonly FrameSlotId[] }
   | { readonly type: "add-frame-slot"; readonly frameId: FrameId; readonly slotId: FrameSlotId }
+  | { readonly type: "add-frame-photos"; readonly frameId: FrameId; readonly slots: readonly FrameSlot[] }
   | { readonly type: "remove-frame-slot"; readonly frameId: FrameId; readonly slotId: FrameSlotId }
   | { readonly type: "bring-frame-slot-to-front"; readonly frameId: FrameId; readonly slotId: FrameSlotId }
   | { readonly type: "set-frame-slot-corner-radius"; readonly frameId: FrameId; readonly slotId: FrameSlotId; readonly cornerRadiusPt: number }
@@ -112,7 +113,7 @@ export type FrameEditCommand =
   | { readonly type: "clear-frame-photo"; readonly frameId: FrameId; readonly slotId: FrameSlotId }
   | { readonly type: "swap-frame-photos"; readonly frameId: FrameId; readonly firstId: FrameSlotId; readonly secondId: FrameSlotId }
   | { readonly type: "transform-frame-slot"; readonly frameId: FrameId; readonly slotId: FrameSlotId; readonly rect: FrameRect }
-  | { readonly type: "set-frame-photo-crop"; readonly frameId: FrameId; readonly slotId: FrameSlotId; readonly crop: FrameCrop }
+  | { readonly type: "set-frame-photo-crop"; readonly frameId: FrameId; readonly slotId: FrameSlotId; readonly crop: FrameCrop; readonly rect?: FrameRect }
   | { readonly type: "duplicate-frame"; readonly frameId: FrameId; readonly copyId: FrameId; readonly slotIds: readonly FrameSlotId[] }
   | { readonly type: "remove-frame"; readonly frameId: FrameId }
   | { readonly type: "bring-frame-to-front"; readonly frameId: FrameId };

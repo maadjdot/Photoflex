@@ -1,11 +1,11 @@
 import { CloudSaveStatus } from "./CloudControls";
 import { onSharedScanCompleted, startSharedScan, stopSharedScan } from "./ProjectSourceMonitor";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { FrameId, FrameSlotId, FrameTemplateId, PhotoId, PhotoRef, ProjectId, SequenceDocument, SequenceId, SequenceItemId, SequenceSummary, SourceError, SourceId, SourceRecord, VersionId, WorktableDraft, WorktableEditCommand, WorktableItemId, WorktableFrame } from "../contracts";
+import type { FrameId, FrameSlot, FrameSlotId, FrameTemplateId, PhotoId, PhotoRef, ProjectId, SequenceDocument, SequenceId, SequenceItemId, SequenceSummary, SourceError, SourceId, SourceRecord, VersionId, WorktableDraft, WorktableEditCommand, WorktableItemId, WorktableFrame } from "../contracts";
 import type { AppDependencies } from "./dependencies";
 import { createInitialSequenceBundle, createSequenceEditor } from "../modules/sequence";
 import { orderPhotoIdsByTablePosition, orderWorktableItemIdsByTablePosition } from "../modules/worktable";
-import { defaultFrameCrop, framePageSize, frameTemplateRects, frameTemplateSource } from "../modules/worktable/frameLayout";
+import { defaultFrameCrop, fitFramePhotoRect, framePageSize, frameTemplateRects, frameTemplateSource, frameUsesDirectPhotos } from "../modules/worktable/frameLayout";
 import { sourceErrorMessage, useDialogKeyboard, worktableDisplaySize } from "./AppPrimitives";
 import { PhotoThumb } from "./PhotoThumb";
 import type { AppRoute } from "./router";
@@ -115,6 +115,7 @@ export function TablePage({ dependencies, projectId, navigate, focusSequenceId, 
     const template = frameTemplateSource(templateId);
     const { widthPt, heightPt } = framePageSize(templateId);
     const rects = frameTemplateRects(widthPt, heightPt, template);
+    const directPhotos = frameUsesDirectPhotos(templateId);
     if (selectedPhotos.length > rects.length && !useFirst) { setNotice(`Selected ${selectedPhotos.length} photos; ${templateId} has ${rects.length} slots. Select fewer photos or choose Use first ${rects.length}.`); return false; }
     const center = canvasRef.current?.getViewportCenter() ?? { x: 200, y: 160 };
     const scale = 420 / heightPt;
@@ -132,8 +133,13 @@ export function TablePage({ dependencies, projectId, navigate, focusSequenceId, 
       x: position.x, y: position.y,
       z: Math.min(1, ...Object.values(draft.placements).map((item) => item.z)) - 1,
       displayScale: scale,
-      page: { widthPt, heightPt, background: "white", templateSource: template, slots: rects.map((rect, index) => ({ id: crypto.randomUUID() as FrameSlotId, rect,
-        photoId: selectedPhotos[index] ?? null, crop: defaultFrameCrop(templateId) })) },
+      page: { widthPt, heightPt, background: "white", templateSource: template, slots: rects.flatMap((area, index): FrameSlot[] => {
+        const photoId = selectedPhotos[index] ?? null;
+        if (directPhotos && !photoId) return [];
+        const photo = selectedCards.find((card) => card.photoId === photoId);
+        return [{ id: crypto.randomUUID() as FrameSlotId, rect: directPhotos && photo ? fitFramePhotoRect(area, photo) : area,
+          photoId, crop: directPhotos ? defaultFrameCrop("single") : defaultFrameCrop(templateId), ...(directPhotos ? { origin: "manual" as const } : {}) }];
+      }) },
     };
     const result = tableSession.execute({ type: "create-frame", frame });
     if (!result.ok) { setNotice("Frame could not be created."); return false; }
@@ -141,9 +147,24 @@ export function TablePage({ dependencies, projectId, navigate, focusSequenceId, 
     canvasRef.current?.centerOnFrame({ x: frame.x, y: frame.y, width: pageWidth, height: pageHeight });
     return true;
   };
-  const dropOnFrame = useCallback((photoIds: readonly PhotoId[], frameId: FrameId, slotId?: FrameSlotId) => {
+  const dropOnFrame = useCallback(async (photoIds: readonly PhotoId[], frameId: FrameId, slotId?: FrameSlotId, point?: { x: number; y: number }) => {
     let command: WorktableEditCommand;
-    if (slotId) {
+    const frame = draft.frames?.[frameId];
+    if (!frame || !photoIds.length) return;
+    if (frameUsesDirectPhotos(frame.page.templateSource.id)) {
+      const photos = await Promise.all(photoIds.map((id) => dependencies.photoSource.getPhoto(id)));
+      if (photos.some((photo) => !photo.ok)) { setNotice(t("table.operationFailed")); return; }
+      const { widthPt, heightPt } = frame.page;
+      const slots = photos.flatMap((photo, index): FrameSlot[] => {
+        if (!photo.ok) return [];
+        const rect = fitFramePhotoRect({ x: 0, y: 0, width: widthPt * .6, height: heightPt * .6 }, photo.value);
+        const center = point ?? { x: widthPt / 2, y: heightPt / 2 };
+        return [{ id: crypto.randomUUID() as FrameSlotId, photoId: photo.value.id, origin: "manual", crop: defaultFrameCrop("single"),
+          rect: { ...rect, x: Math.max(0, Math.min(widthPt - rect.width, center.x - rect.width / 2 + index * 18)),
+            y: Math.max(0, Math.min(heightPt - rect.height, center.y - rect.height / 2 + index * 18)) } }];
+      });
+      command = { type: "add-frame-photos", frameId, slots };
+    } else if (slotId) {
       if (photoIds.length !== 1) { setNotice("Drop one photo on a photo slot, or drop multiple photos on the page."); return; }
       command = { type: "replace-frame-photo", frameId, slotId, photoId: photoIds[0] };
     } else command = { type: "fill-frame-slots", frameId, photoIds };
@@ -151,7 +172,7 @@ export function TablePage({ dependencies, projectId, navigate, focusSequenceId, 
     if (!result.ok) { setNotice(result.error.kind === "frame-capacity" ? "This Frame has too few empty photo slots." : "Could not place photos in this Frame."); return; }
     tableSession.clearSelection(); setSelectedMemoId(undefined);
     setSelectedFrameId(frameId);
-  }, [tableSession.clearSelection, tableSession.execute]);
+  }, [draft.frames, dependencies.photoSource, t, tableSession.clearSelection, tableSession.execute]);
   const history = useCallback((direction: "undo" | "redo") => {
     if (direction === "undo") tableSession.undo();
     else tableSession.redo();
@@ -370,7 +391,7 @@ export function TablePage({ dependencies, projectId, navigate, focusSequenceId, 
       selectedFrameId={selectedFrameId}
       frameSettingsHost={frameSettingsHost}
       onSelectFrame={(id) => { setSelectedFrameId(id); if (id) { tableSession.clearSelection(); setSelectedMemoId(undefined); } }}
-      onDropPhotosOnFrame={(ids, frameId, slotId) => dropOnFrame(orderPhotoIdsByTablePosition(draft, ids), frameId, slotId)}
+      onDropPhotosOnFrame={(ids, frameId, slotId, point) => dropOnFrame(orderPhotoIdsByTablePosition(draft, ids), frameId, slotId, point)}
       onDropSourcePhotosOnFrame={dropOnFrame}
       onSelectPile={(id) => { setSelectedMemoId(undefined); setActiveSequenceId(id); }}
       onOpenPhoto={setPreviewPhotoId}

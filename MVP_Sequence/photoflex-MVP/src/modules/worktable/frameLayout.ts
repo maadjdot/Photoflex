@@ -1,4 +1,4 @@
-import type { FrameDirection, FrameTemplateFamily, FrameTemplateId, FrameTemplateSource, PlainFrameTemplateId, WorktableFrame } from "../../contracts/frame";
+import type { FrameDirection, FrameRect, FrameTemplateFamily, FrameTemplateId, FrameTemplateSource, PlainFrameTemplateId, WorktableFrame } from "../../contracts/frame";
 import { defaultCrop, defaultTemplate, MM_TO_PT, templateRects } from "../page-layout/pageGeometry";
 import type { LayoutPaper } from "../../contracts";
 
@@ -83,4 +83,16 @@ export function frameTemplateRects(width: number, height: number, template: Fram
 }
 export function frameWorldSize(frame: { page: { widthPt: number; heightPt: number }; displayScale: number }) {
   return { width: frame.page.widthPt * frame.displayScale, height: frame.page.heightPt * frame.displayScale };
+}
+
+export function frameUsesDirectPhotos(id: FrameTemplateId): boolean {
+  const family = frameFamily(id).id;
+  return family === "plain" || family === "frames";
+}
+
+/** Place the entire photo at its own aspect ratio, centered in the available area. */
+export function fitFramePhotoRect(area: FrameRect, photo: { width: number; height: number }): FrameRect {
+  const scale = Math.min(area.width / photo.width, area.height / photo.height);
+  const width = photo.width * scale, height = photo.height * scale;
+  return { x: area.x + (area.width - width) / 2, y: area.y + (area.height - height) / 2, width, height };
 }
