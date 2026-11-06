@@ -104,6 +104,7 @@
 .table-rail-icon { display: block; flex-shrink: 0; }
 .table-rail-button:hover:not(:disabled):not(.is-disabled):not(.is-active) { background: #f4f4f5; color: #18181b; }
 .table-rail-button.is-active, .table-rail-button.is-active:hover { background: #e4e4e7; color: #18181b; }
+.table-rail-research > .table-rail-button { background: #eef0e9; color: #536247; }
 .table-rail-button:active:not(:disabled):not(.is-disabled) { background: #d4d4d8; }
 .table-rail-button:focus-visible, .table-rail-select:has(select:focus-visible) { outline: 2px solid #3f3f46; outline-offset: -2px; }
 .table-rail-button:disabled, .table-rail-button.is-disabled { color: #d4d4d8; cursor: not-allowed; }

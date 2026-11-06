@@ -38,12 +38,13 @@ export function AppHeader({ dependencies, route, projectId, contactSourceId, las
 
   const brand = <button className="brand" onClick={() => navigate({ name: "home" })} aria-label={t("app.backHome")}>Photoflex</button>;
   const label = projectLabel ?? projectName ?? projectId;
-  const settingsProjectId = showProjectSettings ? projectSettingsProjectId ?? (route.name === "home" ? undefined : projectId) : undefined;
-  return <header className={`topbar${variant === "table" ? " is-table" : ""}${route.name === "home" ? " is-home" : ""}`}>
+  const settingsProjectId = showProjectSettings && route.name !== "research" ? projectSettingsProjectId ?? (route.name === "home" ? undefined : projectId) : undefined;
+  return <header className={`topbar${variant === "table" ? " is-table" : ""}${route.name === "home" ? " is-home" : ""}${route.name === "research" ? " is-research" : ""}`}>
     {variant === "table" ? <div className="table-header-project"><div id="table-header-toolbar-toggle" />{brand}{projectId && <><span className="table-header-slash" aria-hidden="true">/</span><span className="project-context-name" title={label}>{label}</span></>}</div> : <>{brand}{projectId && <span className="project-context-name" title={label}>{label}</span>}</>}
-    {route.name !== "home" && route.name !== "table" && route.name !== "sequence" && <nav className="topnav" aria-label={t("nav.main")}>
+    {route.name !== "home" && route.name !== "table" && route.name !== "sequence" && route.name !== "research" && <nav className="topnav" aria-label={t("nav.main")}>
       {(!projectId || variant === "table") && <NavButton onClick={() => navigate({ name: "home" })}>{t("nav.home")}</NavButton>}
       <NavButton active={route.name === "project" || route.name === "contact-sheet"} disabled={!projectId} onClick={() => projectId && navigate(route.name === "layout" ? { name: "table", projectId, focusSequenceId: route.sequenceId } : { name: "table", projectId })}>{t("nav.table")}</NavButton>
+      {projectId && dependencies.projectStore.research && <NavButton onClick={() => navigate({ name: "research", projectId })}>{t("research.nav")}</NavButton>}
       <NavButton active={route.name === "sequence-compare" || route.name === "version-compare"} disabled={!projectId} title={t("nav.openLastSequence")} onClick={() => {
         if (!projectId) return;
         void Promise.all([dependencies.projectStore.listSequences(projectId), dependencies.projectStore.loadWorkspace(projectId)]).then(([sequences, workspace]) => {
@@ -57,6 +58,7 @@ export function AppHeader({ dependencies, route, projectId, contactSourceId, las
     </nav>}
     <div className={route.name === "home" ? "home-header-actions" : "topbar-actions"}>
       {route.name === "home" && <LanguageSwitcher />}
+      {route.name === "research" && <span className="research-mode-label">{t("research.nav")}</span>}
       {actions}
       {settingsProjectId && <NavButton onClick={() => navigate({ name: "project", projectId: settingsProjectId })}>{t("nav.projectSettings")}</NavButton>}
       {route.name !== "layout" && <UserGuideButton />}

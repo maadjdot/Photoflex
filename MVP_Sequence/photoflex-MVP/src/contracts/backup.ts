@@ -3,19 +3,22 @@ import type { ProjectWorkspace } from "./persistence";
 import type { SequenceDocument } from "./sequence";
 import type { LayoutDocument } from "./layout";
 import type { SequenceVersion } from "./versioning";
+import type { ResearchRecord } from "./research";
 
 export const BACKUP_FORMAT = "photoflex-project-backup" as const;
 export const BACKUP_SCHEMA_VERSION = 4 as const;
+export const RESEARCH_BACKUP_SCHEMA_VERSION = 5 as const;
 
 export interface ProjectBackupV1 {
   readonly format: typeof BACKUP_FORMAT;
-  readonly schemaVersion: 2 | 3 | typeof BACKUP_SCHEMA_VERSION;
+  readonly schemaVersion: 2 | 3 | typeof BACKUP_SCHEMA_VERSION | typeof RESEARCH_BACKUP_SCHEMA_VERSION;
   readonly exportedAt: string;
   readonly appVersion: string;
   readonly project: ProjectWorkspace;
   readonly versions: readonly SequenceVersion[];
   readonly sequences: readonly SequenceDocument[];
   readonly layouts: readonly LayoutDocument[];
+  readonly research?: readonly ResearchRecord[];
   readonly photoManifest: ReadonlyArray<{
     readonly sourceId: SourceId;
     readonly photoId: PhotoId;

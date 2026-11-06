@@ -33,10 +33,11 @@ export interface SourceBrowserProps {
   readonly onReconnectAllSources?: () => Promise<{ readonly reconnected: readonly SourceId[]; readonly unmatched: readonly SourceId[] } | undefined>;
   readonly onPhotoError: (photoId: PhotoId, error: SourceError) => void;
   readonly onPanelModeChange?: (mode: SourcePanelMode) => void;
+  readonly onSelectionChange?: (ids: readonly PhotoId[]) => void;
 }
 
 /** Photo Sources browser for Table. It owns only source browsing and pending selection. */
-export function SourceBrowser({ dependencies, workspace, onPlacePhotos, onOpenPhoto, onAddSource, addingSource = false, onRemoveSource, onOpenContactSheet, onReconnectSource, onReconnectSavedSources, onReconnectAllSources, onPhotoError, onPanelModeChange }: SourceBrowserProps) {
+export function SourceBrowser({ dependencies, workspace, onPlacePhotos, onOpenPhoto, onAddSource, addingSource = false, onRemoveSource, onOpenContactSheet, onReconnectSource, onReconnectSavedSources, onReconnectAllSources, onPhotoError, onPanelModeChange, onSelectionChange }: SourceBrowserProps) {
   const { locale, t } = useLocale();
   const sources = workspace.sources;
   const connectedSources = useMemo(() => sources.filter((source) => !source.removedAt), [sources]);
@@ -165,6 +166,8 @@ export function SourceBrowser({ dependencies, workspace, onPlacePhotos, onOpenPh
     return next;
   });
   const eligibleSelected = useMemo(() => selectedVisible.filter((photo) => !tableIds.has(photo.id) && connectedSources.some((source) => source.id === photo.sourceId)), [connectedSources, selectedVisible, tableIds]);
+  useEffect(() => { onSelectionChange?.(eligibleSelected.map((photo) => photo.id)); }, [eligibleSelected, onSelectionChange]);
+  useEffect(() => () => onSelectionChange?.([]), [onSelectionChange]);
   const placeSelected = async () => {
     if (!eligibleSelected.length) return;
     const placed = await onPlacePhotos(eligibleSelected);

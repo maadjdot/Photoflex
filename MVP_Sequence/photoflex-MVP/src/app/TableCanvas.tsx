@@ -1,4 +1,5 @@
 import { TableMemos } from "./TableMemos";
+import { TableResearchContext } from "./research/TableResearch";
 import { TableHeaderControl } from "./TableHeaderControl";
 import { TableToolbarIcon } from "./TableToolbarIcon";
 import {
@@ -8,6 +9,7 @@ import {
   useImperativeHandle,
   useLayoutEffect,
   useMemo,
+  useContext,
   useRef,
   useState,
   type KeyboardEvent,
@@ -82,6 +84,7 @@ interface TableCanvasProps {
   readonly summaries: readonly SequenceSummary[];
   readonly initialViewport: WorktableViewport;
   readonly focusSequenceId?: SequenceId;
+  readonly focusResearchCardId?: string;
   readonly onViewportChange: (viewport: WorktableViewport) => void;
   readonly onOpenPhoto: (photoId: PhotoId) => void;
   readonly onOpenSequence: (sequenceId: SequenceId) => void;
@@ -95,6 +98,7 @@ interface TableCanvasProps {
   readonly onDropPhotosOnSequence: (photoIds: readonly WorktableItemId[], sequenceId: SequenceId, at?: number) => void;
   readonly onReadSequence: (sequenceId: SequenceId) => Promise<SequenceDocument | undefined>;
   readonly selectedMemoId?: string;
+  readonly newNoteCardId?: string;
   readonly selectedFrameId?: FrameId;
   readonly frameSettingsHost?: HTMLElement | null;
   readonly onSelectFrame?: (id: FrameId | undefined) => void;
@@ -118,6 +122,7 @@ interface TableCanvasProps {
 
 export const TableCanvas = forwardRef<TableCanvasHandle, TableCanvasProps>(function TableCanvas(props, forwardedRef) {
   const { t } = useLocale();
+  const research = useContext(TableResearchContext);
   const {
     session,
     photoSource,
@@ -160,6 +165,7 @@ export const TableCanvas = forwardRef<TableCanvasHandle, TableCanvasProps>(funct
   }, []);
   const viewportRef = useRef(viewport);
   const focusedSequenceRef = useRef<SequenceId | undefined>(undefined);
+  const focusedResearchCardRef = useRef<string | undefined>(undefined);
   const photoRetentionRef = useRef(new Map<WorktableItemId, number>());
   const photoRetentionTimerRef = useRef<number | undefined>(undefined);
   viewportRef.current = viewport;
@@ -299,6 +305,19 @@ export const TableCanvas = forwardRef<TableCanvasHandle, TableCanvasProps>(funct
   }, [draft.pilePlacements, props.focusSequenceId, setViewport, stageSize, summaryById]);
 
   useEffect(() => {
+    const id = props.focusResearchCardId;
+    if (!id) { focusedResearchCardRef.current = undefined; return; }
+    if (focusedResearchCardRef.current === id || !stageSize.width || !stageSize.height) return;
+    const memo = draft.memos?.find((item) => item.id === id && (item.extractId || item.researchNoteId));
+    if (!memo) return;
+    const current = viewportRef.current;
+    focusedResearchCardRef.current = id;
+    props.onSelectMemo?.(id);
+    setViewport({ ...current, originX: stageSize.width / 2 - (memo.x + memo.width / 2) * current.zoom,
+      originY: stageSize.height / 2 - (memo.y + memo.height / 2) * current.zoom });
+  }, [draft.memos, props.focusResearchCardId, props.onSelectMemo, setViewport, stageSize]);
+
+  useEffect(() => {
     const retention = photoRetentionRef.current;
     const now = Date.now();
     visiblePhotoIds.forEach((id) => retention.set(id, now));
@@ -343,7 +362,7 @@ export const TableCanvas = forwardRef<TableCanvasHandle, TableCanvasProps>(funct
         tray.scrollLeft += event.deltaY + event.deltaX;
         return;
       }
-      if (!zooming && (event.target as HTMLElement).closest(".table-memo textarea")) return;
+      if (!zooming && (event.target as HTMLElement).closest(".table-memo textarea, .table-note-editor")) return;
       event.preventDefault();
       if (!zooming) {
         setViewport({
@@ -427,6 +446,10 @@ export const TableCanvas = forwardRef<TableCanvasHandle, TableCanvasProps>(funct
     if (event.nativeEvent.isComposing || target.closest("input, textarea, select, [contenteditable='true']")) return;
     const key = event.key.toLowerCase();
     const plain = !event.ctrlKey && !event.metaKey && !event.altKey;
+    if (plain && key === "delete" && props.selectedMemoId && research) {
+      const id = draft.memos?.find((memo) => memo.id === props.selectedMemoId)?.researchNoteId;
+      if (id) { event.preventDefault(); research.requestDelete(id); return; }
+    }
     if (plain && key === "l" && !event.shiftKey && props.onConnectorToolChange) {
       event.preventDefault(); connectors.cancel(); props.onConnectorToolChange(!props.connectorToolActive); return;
     }
@@ -624,6 +647,10 @@ export const TableCanvas = forwardRef<TableCanvasHandle, TableCanvasProps>(funct
     }
   };
 
+  const deselectNote = () => {
+    if (draft.memos?.some((memo) => memo.id === props.selectedMemoId && memo.researchNoteId)) props.onSelectMemo?.(undefined);
+  };
+
   const preview = gestures.preview;
   const shownEndpoint = (endpoint: WorktableConnectorEndpoint) => {
     const point = resolveConnectorEndpoint(draft, endpoint), binding = endpoint.binding;
@@ -651,7 +678,7 @@ export const TableCanvas = forwardRef<TableCanvasHandle, TableCanvasProps>(funct
       ref={stageRef}
       className={`worktable-stage${props.connectorToolActive && !interactionDisabled ? " is-connecting" : ""}${props.photoTurnToolActive && !interactionDisabled ? " is-turning-photos" : ""}`}
       tabIndex={0}
-      aria-keyshortcuts="ArrowLeft ArrowRight ArrowUp ArrowDown J B K Shift+K L Escape"
+      aria-keyshortcuts="ArrowLeft ArrowRight ArrowUp ArrowDown J B K Shift+K L Escape Delete"
       aria-label={t("table.worktable")}
       onPointerDownCapture={(event) => {
         const active = document.activeElement;
@@ -717,7 +744,7 @@ export const TableCanvas = forwardRef<TableCanvasHandle, TableCanvasProps>(funct
       onKeyDown={onKeyDown}
     >
       <div className="worktable-world" style={{ transform: `translate3d(${viewport.originX}px,${viewport.originY}px,0) scale(${viewport.zoom})` }}>
-        <TableMemos draft={draft} zoom={viewport.zoom} selectedId={props.selectedMemoId} onSelect={(id) => props.onSelectMemo?.(id)} onExecute={session.execute} disabled={interactionDisabled} onGeometryPreview={memoGeometryPreview} />
+        <TableMemos draft={draft} zoom={viewport.zoom} selectedId={props.selectedMemoId} newNoteCardId={props.newNoteCardId} onSelect={(id) => props.onSelectMemo?.(id)} onExecute={session.execute} disabled={interactionDisabled} onGeometryPreview={memoGeometryPreview} />
         <TableAlignmentGuides guides={preview.alignmentGuides} />
         <svg className="worktable-links">
           {draft.links.flatMap((link) => link.photoIds.slice(1).map((id, index) => {
@@ -739,7 +766,7 @@ export const TableCanvas = forwardRef<TableCanvasHandle, TableCanvasProps>(funct
         </svg>
         {draft.groups.map((group) => {
           const box = groupBounds(draft, group.photoIds);
-          return <div key={group.id} className="worktable-group-frame" style={{ left: box.left, top: box.top, width: box.width, height: box.height }}><span onPointerDown={(event) => gestures.onGroupPointerDown(event, group.photoIds)}>{group.name} · {t("common.photoCount", { count: group.photoIds.length })}</span></div>;
+          return <div key={group.id} className="worktable-group-frame" style={{ left: box.left, top: box.top, width: box.width, height: box.height }}><span onPointerDown={(event) => { deselectNote(); gestures.onGroupPointerDown(event, group.photoIds); }}>{group.name} · {t("common.photoCount", { count: group.photoIds.length })}</span></div>;
         })}
         {(draft.frameOrder ?? []).filter((id) => {
           const frame = draft.frames?.[id]; if (!frame) return false;
@@ -763,7 +790,7 @@ export const TableCanvas = forwardRef<TableCanvasHandle, TableCanvasProps>(funct
               aria-label={`${item.filename}${item.faceDown ? ` · ${t("table.faceDown")}` : ""}${item.locked ? ` · ${t("table.locked")}` : ""}`}
               className={`worktable-card${chosen ? " is-selected" : ""}${dragging ? " is-dragging" : ""}${item.faceDown ? " is-face-down" : ""}${item.locked ? " is-locked" : ""}${missingPhotoIds.has(item.photoId) ? " is-missing" : ""}`}
               style={{ width: item.width * scale, height: item.height * scale, zIndex: item.z, transform: `translate3d(${item.x + delta.x}px,${item.y + delta.y}px,0)` }}
-              onPointerDown={(event) => { props.onSelectFrame?.(undefined); gestures.onPhotoPointerDown(event, id); }}
+              onPointerDown={(event) => { deselectNote(); props.onSelectFrame?.(undefined); gestures.onPhotoPointerDown(event, id); }}
               onDoubleClick={() => onOpenPhoto(item.photoId)}
             >
               <div className="worktable-photo" style={{ height: item.height * scale }}>

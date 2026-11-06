@@ -14,8 +14,9 @@ import type { SequenceDocument, SequenceSummary } from "./sequence";
 import type { LayoutDocument, LayoutSummary } from "./layout";
 import type { SequenceVersion, VersionSummary } from "./versioning";
 import type { PhotoState, WorktableDraft, WorktableViewport } from "./worktable";
+import type { ResearchStore } from "./research";
 
-export const INDEXED_DB_SCHEMA_VERSION = 13 as const;
+export const INDEXED_DB_SCHEMA_VERSION = 14 as const;
 export const WORKSPACE_SCHEMA_VERSION = 10 as const;
 
 export type SourceStatus =
@@ -270,6 +271,7 @@ export type BackupError =
   | StorageAccessError;
 
 export interface ProjectStore {
+  readonly research?: ResearchStore;
   /** Preserve raw damaged records for manual recovery; this is not an importable project backup. */
   exportRecoveryData?(projectId: ProjectId): Promise<Result<Uint8Array, LoadError>>;
   listProjects(): Promise<Result<readonly ProjectSummary[], CorruptDataError | StorageAccessError>>;

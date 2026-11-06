@@ -9,6 +9,7 @@ import type { AppRoute } from "./router";
  */
 export function useAppNavigationState(dependencies: AppDependencies, route: AppRoute) {
   const currentProjectId: ProjectId | undefined = route.name === "home" ? undefined : route.projectId;
+  const contactSheetSourceId = route.name === "contact-sheet" ? route.sourceId : undefined;
   const [contactSourceId, setContactSourceId] = useState<SourceId>();
   const lastSequenceIdRef = useRef<SequenceId | undefined>(undefined);
 
@@ -22,8 +23,8 @@ export function useAppNavigationState(dependencies: AppDependencies, route: AppR
       setContactSourceId(undefined);
       return () => { active = false; };
     }
-    if (route.name === "contact-sheet") {
-      setContactSourceId(route.sourceId);
+    if (contactSheetSourceId) {
+      setContactSourceId(contactSheetSourceId);
       return () => { active = false; };
     }
     void dependencies.projectStore.loadWorkspace(currentProjectId).then((result) => {
@@ -33,7 +34,7 @@ export function useAppNavigationState(dependencies: AppDependencies, route: AppR
       setContactSourceId(sources.some((source) => source.id === resumed) ? resumed : sources[0]?.id);
     });
     return () => { active = false; };
-  }, [currentProjectId, dependencies.projectStore, route]);
+  }, [currentProjectId, contactSheetSourceId, dependencies.projectStore, route.name]);
 
   return { currentProjectId, contactSourceId, lastSequenceId: lastSequenceIdRef.current };
 }

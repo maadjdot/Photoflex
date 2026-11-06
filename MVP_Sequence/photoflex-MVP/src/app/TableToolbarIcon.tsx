@@ -1,9 +1,10 @@
 import type { ReactNode } from "react";
 
-export type TableToolbarIconName = "memo" | "link" | "turn-photo" | "frame" | "grid" | "row" | "shuffle" | "align" | "group" | "undo" | "redo" | "hide" | "show";
+export type TableToolbarIconName = "research" | "memo" | "link" | "turn-photo" | "frame" | "grid" | "row" | "shuffle" | "align" | "group" | "undo" | "redo" | "hide" | "show";
 
 // The inline icon geometry comes from the final Figma Make toolbar reference.
 const icons: Record<TableToolbarIconName, ReactNode> = {
+  research: <path d="M5 3h9l4 4v5M14 3v5h4M8 12h4M8 16h3M16 15v6M13 18h6" />,
   memo: <><rect height="17" rx="1" width="14" x="5" y="3.5" /><path d="M8.5 8h7M8.5 11.5h7M8.5 15h4.5" /></>,
   link: <><path d="m9.4 14.6 5.2-5.2" /><path d="m7.2 17.9-1.1 1.2a3.2 3.2 0 0 1-4.5-4.6l3.6-3.6a3.2 3.2 0 0 1 4.5 0M16.8 6.1l1.1-1.2a3.2 3.2 0 0 1 4.5 4.6l-3.6 3.6a3.2 3.2 0 0 1-4.5 0" /></>,
   frame: <><path d="M4 4h16v16H4z" /><path d="M8 8h8v8H8z" /></>,

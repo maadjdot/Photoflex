@@ -1,0 +1,10 @@
+.home-notes-card { flex: 0 0 auto; margin: 12px clamp(16px, 4vw, 48px) 0; padding: 14px 16px; border: 1px solid #e5e5e5; border-radius: 16px; background: #fff; color: #222; font-size: 13px; }
+.home-notes-card header { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.home-notes-card h2 { margin: 0; font-size: 14px; }
+.home-notes-card h2 small { margin-left: 4px; color: #666; font-weight: 400; }
+.home-notes-card button { padding: 5px 7px; background: transparent; color: inherit; border: 0; border-radius: 6px; font: inherit; cursor: pointer; }
+.home-notes-card button:hover { background: #f1f1f1; }
+.home-notes-card ul { list-style: none; margin: 5px 0; padding: 0; }
+.home-notes-card li button { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.home-notes-card p { color: #666; margin: 7px 0; }
+.home-notes-card .home-notes-all { color: #595959; }

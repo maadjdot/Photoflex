@@ -502,6 +502,7 @@ export class MemoryProjectStore implements ProjectStore {
   async importBackup(bytes: Uint8Array): Promise<Result<ProjectId, BackupError>> {
     const prepared = prepareBackupImport(bytes);
     if (!prepared.ok) return prepared;
+    if (prepared.value.backup.research?.length) return err({ kind: "invalid-backup", reason: "Research backups require persistent project storage." });
     if (this.options.unavailable) return err({ kind: "unavailable", retryable: true });
     if (this.options.quotaExceeded) return err({ kind: "quota-exceeded" });
     const { backup, photos } = prepared.value;
@@ -517,6 +518,7 @@ export class MemoryProjectStore implements ProjectStore {
   async installCloudSnapshot(document: ProjectBackupV1, sync?: CloudSnapshotInstall): Promise<Result<void, BackupError>> {
     const prepared = prepareBackupImport(new TextEncoder().encode(JSON.stringify(document)), true);
     if (!prepared.ok) return prepared;
+    if (prepared.value.backup.research?.length) return err({ kind: "invalid-backup", reason: "Research snapshots require persistent project storage." });
     if (this.options.unavailable) return err({ kind: "unavailable", retryable: true });
     if (this.options.quotaExceeded) return err({ kind: "quota-exceeded" });
     const { backup, photos } = prepared.value;

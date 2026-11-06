@@ -975,6 +975,32 @@ h1, h2, p { margin-top: 0; }
 
 .table-memo { position: absolute; z-index: 5; display: flex; flex-direction: column; min-width: 120px; min-height: 80px; border: 1px solid #d4d2cc; border-radius: 5px; background: #fff; color: #1a1917; box-shadow: 0 3px 12px rgb(26 25 23 / 8%); pointer-events: auto; }
 .table-memo.is-selected { outline: 1px solid #1a1917; }
+.table-memo.table-research-card { border-color: #dce1d4; border-radius: 14px; box-shadow: 0 4px 12px rgb(38 49 31 / 7%); overflow: hidden; }
+.table-research-card.is-selected:has(.table-note-title:focus, .table-note-text:focus) { outline: none; }
+.table-memo.table-research-card header { height: 37px; padding: 4px 7px 0 10px; align-items: center; }
+.table-research-card header .memo-drag { display: flex; flex: 1; align-items: center; gap: 6px; color: #5d6b51; font-size: 11px; text-align: left; }
+.table-research-card header .table-rail-icon { width: 14px; height: 14px; }
+.table-research-card-body { flex: 1; min-height: 0; overflow: hidden; display: flex; flex-direction: column; gap: 5px; padding: 2px 16px 8px; }
+.table-note-title { width: 100%; border: 0; padding: 2px 0; background: transparent; color: inherit; font: 600 15px/1.4 Inter, sans-serif; user-select: text; }
+.table-note-editor { flex: 1; min-height: 0; overflow: auto; overscroll-behavior: contain; }
+.table-note-text { min-height: 100%; font: 14px/1.45 Inter, sans-serif; cursor: text; overflow-wrap: anywhere; user-select: text; }
+.table-note-title:focus, .table-note-text:focus { outline: none; }
+.table-note-text p { margin: 0 0 4px; }
+.table-note-text [data-research-images] { display: none; }
+.table-note-text:has(> p:only-child > br.ProseMirror-trailingBreak:only-child)::before { content: attr(data-placeholder); color: #72746e; pointer-events: none; position: absolute; }
+.table-note-status { margin: 2px 8px; font-size: 11px; color: #626b5d; }
+.table-research-card footer { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 35px; flex-shrink: 0; padding: 0 16px; border-top: 1px solid #edf0e9; color: #626b5d; font-size: 10px; }
+.table-note-attachments { display: flex; align-items: center; gap: 5px; }
+.table-research-card footer .research-image-view { display: block; width: 22px; height: 22px; overflow: hidden; border-radius: 3px; }
+.table-research-card footer .research-image-view img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.table-research-card footer button { padding: 3px 0; border: 0; background: transparent; color: #4f6440; white-space: nowrap; font: inherit; }
+.table-research-card footer button:hover { text-decoration: underline; }
+.table-extract-content { flex: 1; min-height: 0; overflow: auto; padding: 0 12px 12px; font-size: 11px; color: #555; }
+.table-extract-content blockquote { margin: 0 0 7px; color: #252525; white-space: pre-wrap; overflow-wrap: anywhere; }
+.table-extract-content small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.table-extract-content button, .table-extract-content select { border: 1px solid #ddd; background: #fff; border-radius: 4px; padding: 3px 5px; margin: 3px 4px 0 0; font: inherit; }
+.table-related-notes { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 12px; max-height: 100px; overflow: auto; font-size: 12px; }
+.table-related-notes button { border: 1px solid #ddd; border-radius: 5px; background: #fff; color: #222; padding: 4px 7px; }
 .table-memo header { display: flex; justify-content: space-between; height: 28px; flex-shrink: 0; }
 .table-memo header button { border: 0; background: transparent; color: #777; padding: 2px 8px; }
 .memo-drag { flex: 1; text-align: left; cursor: grab; touch-action: none; }

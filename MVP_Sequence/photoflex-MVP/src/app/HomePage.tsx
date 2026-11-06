@@ -6,6 +6,7 @@ import type { AppRoute } from "./router";
 import { formatUpdated, InlineError, EmptyPanel } from "./AppPrimitives";
 import { NewProjectDialog } from "./ProjectDialog";
 import { deleteProjectWorkspace, projectDeletionErrorMessage, resumePendingProjectDeletions } from "./ProjectWorkspaceActions";
+import { HomeNotesCard } from "./research/HomeNotesCard";
 import { createHomeGallery, type HomeGalleryPhoto } from "./homeGallery";
 import { useLocale } from "./locale";
 import { downloadRecoveryBackup } from "./downloadRecoveryBackup";
@@ -264,6 +265,7 @@ export function HomePage({
                 </button>
               </div>
             )}
+            {dependencies.projectStore.research && <HomeNotesCard key={selectedProject.id} projectId={selectedProject.id} store={dependencies.projectStore.research} navigate={navigate} />}
             <div className="home-project-feature-copy">
               <span>{t("home.updatedAt", { time: formatUpdated(selectedProject.updatedAt, locale) })}</span>
             </div>

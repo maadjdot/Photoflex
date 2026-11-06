@@ -41,7 +41,7 @@ export function installedCloudDocument<T extends { readonly revision: number }>(
   const same = jsonSemanticEqual({ ...incoming, revision: 0 }, { ...previous, revision: 0 });
   return { ...incoming, revision: Math.max(incoming.revision, previous.revision + (same ? 0 : 1)) } as T;
 }
-export const cloudSnapshotContent = ({ project, sequences, versions, layouts, photoManifest }: ProjectBackupV1) => ({
+export const cloudSnapshotContent = ({ project, sequences, versions, layouts, photoManifest, research }: ProjectBackupV1) => ({
   project: { ...project, revision: 0 }, sequences: sequences.map((sequence) => ({ ...sequence, revision: 0 })),
-  layouts: layouts.map((layout) => ({ ...layout, revision: 0 })), versions, photoManifest,
+  layouts: layouts.map((layout) => ({ ...layout, revision: 0 })), versions, photoManifest, research: research ?? [],
 });

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createWorkspace } from "../../src/platform/projectStoreData";
-import type { ProjectId } from "../../src/contracts";
+import { INDEXED_DB_SCHEMA_VERSION, type ProjectId } from "../../src/contracts";
 import {
   migrateToV1,
   migrateToV2,
@@ -294,7 +294,8 @@ describe("IndexedDB schema 12 → 13", () => {
     const opened = await openPhotoFlexDatabase({ databaseName });
     expect(opened.ok).toBe(true); if (!opened.ok) return;
     try {
-      expect(opened.value.version).toBe(13);
+      expect(opened.value.version).toBe(INDEXED_DB_SCHEMA_VERSION);
+      expect(opened.value.objectStoreNames.contains(STORE_NAMES.research)).toBe(true);
       const tx = opened.value.transaction([STORE_NAMES.projects, STORE_NAMES.cloudSync], "readonly");
       expect(tx.objectStore(STORE_NAMES.cloudSync).keyPath).toBe("projectId");
       const [retained, journal] = await Promise.all([

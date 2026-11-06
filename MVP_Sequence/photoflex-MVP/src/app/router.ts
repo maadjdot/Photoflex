@@ -5,7 +5,8 @@ export type AppRoute =
   | { readonly name: "home" }
   | { readonly name: "project"; readonly projectId: ProjectId }
   | { readonly name: "contact-sheet"; readonly projectId: ProjectId; readonly sourceId: SourceId }
-  | { readonly name: "table"; readonly projectId: ProjectId; readonly focusSequenceId?: SequenceId }
+  | { readonly name: "table"; readonly projectId: ProjectId; readonly focusSequenceId?: SequenceId; readonly focusExtractId?: string; readonly focusNoteCardId?: string }
+  | { readonly name: "research"; readonly projectId: ProjectId; readonly noteId?: string; readonly extractId?: string }
   | { readonly name: "sequence"; readonly projectId: ProjectId; readonly sequenceId: SequenceId; readonly openVersionId?: VersionId }
   | { readonly name: "layout"; readonly projectId: ProjectId; readonly sequenceId: SequenceId; readonly layoutId: LayoutId }
   | { readonly name: "sequence-compare"; readonly projectId: ProjectId; readonly leftSequenceId: SequenceId; readonly rightSequenceId: SequenceId }
@@ -14,7 +15,18 @@ export type AppRoute =
 export function routeToHash(route: AppRoute): string {
   if (route.name === "home") return "#/";
   if (route.name === "project") return `#/projects/${route.projectId}`;
-  if (route.name === "table") return `#/projects/${route.projectId}/table${route.focusSequenceId ? `?focusSequence=${encodeURIComponent(route.focusSequenceId)}` : ""}`;
+  if (route.name === "table") {
+    const table = `#/projects/${route.projectId}/table`;
+    if (route.focusSequenceId) return `${table}?focusSequence=${encodeURIComponent(route.focusSequenceId)}`;
+    if (route.focusExtractId) return `${table}?focusExtract=${encodeURIComponent(route.focusExtractId)}`;
+    if (route.focusNoteCardId) return `${table}?focusNoteCard=${encodeURIComponent(route.focusNoteCardId)}`;
+    return table;
+  }
+  if (route.name === "research") {
+    const documentPath = route.noteId ? `/${encodeURIComponent(route.noteId)}` : "";
+    const extractQuery = route.extractId ? `?extract=${encodeURIComponent(route.extractId)}` : "";
+    return `#/projects/${route.projectId}/research${documentPath}${extractQuery}`;
+  }
   if (route.name === "sequence") return `#/projects/${route.projectId}/sequences/${route.sequenceId}${route.openVersionId ? `?openVersion=${encodeURIComponent(route.openVersionId)}` : ""}`;
   if (route.name === "layout") return `#/projects/${route.projectId}/sequences/${route.sequenceId}/layout/${route.layoutId}`;
   if (route.name === "sequence-compare") return `#/projects/${route.projectId}/sequences/compare/${route.leftSequenceId}/${route.rightSequenceId}`;
@@ -29,8 +41,19 @@ export function readRoute(hash = globalThis.location?.hash ?? ""): AppRoute {
   const projectId = safeDecode(parts[1]) as ProjectId | undefined;
   if (!projectId) return { name: "home" };
   if (parts[2] === "table" && parts.length === 3) {
-    const focusSequenceId = hashQuery(hash).get("focusSequence") as SequenceId | null;
-    return focusSequenceId ? { name: "table", projectId, focusSequenceId } : { name: "table", projectId };
+    const query = hashQuery(hash);
+    const focusSequenceId = query.get("focusSequence") as SequenceId | null;
+    const focusExtractId = query.get("focusExtract");
+    const focusNoteCardId = query.get("focusNoteCard");
+    if (focusSequenceId) return { name: "table", projectId, focusSequenceId };
+    if (focusExtractId) return { name: "table", projectId, focusExtractId };
+    if (focusNoteCardId) return { name: "table", projectId, focusNoteCardId };
+    return { name: "table", projectId };
+  }
+  if (parts[2] === "research" && parts.length <= 4) {
+    const noteId = parts[3] && safeDecode(parts[3]);
+    const extractId = hashQuery(hash).get("extract");
+    return { name: "research", projectId, ...(noteId ? { noteId } : {}), ...(extractId ? { extractId } : {}) };
   }
   if (parts[2] === "sequences" && parts[3] === "compare" && parts[4] && parts[5]) {
     const leftSequenceId = safeDecode(parts[4]) as SequenceId | undefined;

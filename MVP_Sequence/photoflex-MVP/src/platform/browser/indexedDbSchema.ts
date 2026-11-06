@@ -19,6 +19,7 @@ export const STORE_NAMES = {
   photoDerivedPreviews: "photo-derived-previews",
   photoFileHandles: "photo-file-handles",
   cloudSync: "cloud-sync",
+  research: "research",
 } as const;
 
 interface OpenDatabaseOptions {
@@ -286,6 +287,12 @@ export function openPhotoFlexDatabase(
           if (migrationFrom >= 10 && migrationFrom < 11) migrateToV11(request.transaction!);
           if (migrationFrom < 12) migrateToV12(request.result, request.transaction!, migrationFrom >= 11);
           if (migrationFrom < 13) request.result.createObjectStore(STORE_NAMES.cloudSync, { keyPath: "projectId" });
+          if (migrationFrom < 14) {
+            const research = request.result.createObjectStore(STORE_NAMES.research, { keyPath: ["projectId", "kind", "id"] });
+            research.createIndex("by-project", "projectId");
+            research.createIndex("by-kind", ["projectId", "kind"]);
+            research.createIndex("by-note", ["projectId", "noteId"]);
+          }
         } catch {
           migrationFailed = true;
           request.transaction?.abort();

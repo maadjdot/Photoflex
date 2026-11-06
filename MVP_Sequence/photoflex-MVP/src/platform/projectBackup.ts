@@ -1,18 +1,23 @@
 import { BACKUP_FORMAT, BACKUP_SCHEMA_VERSION, err, ok, type BackupError, type LayoutDocument, type LayoutId, type LayoutObject, type LayoutObjectId, type LayoutPage, type LayoutPageId, type LayoutRevision, type PhotoId, type PhotoRef, type ProjectBackupV1, type ProjectId, type Result, type SequenceId, type SourceId, type VersionId, type WorkspaceRevision, type SequenceRevision, type WorktableItemId } from "../contracts";
 import { isWorkspace, migrateWorkspaceV7ToV8, migrateWorkspaceV8ToV9, migrateWorkspaceV9ToV10, validateLayoutForProject, validateSequenceForProject, validateVersionForProject } from "./projectStoreData";
 import type { FrameId, FrameSlotId, WorktableConnectorEndpoint } from "../contracts";
+import { validateResearchRecords, remapResearchPhotos } from "./researchBackup";
+import { RESEARCH_BACKUP_SCHEMA_VERSION } from "../contracts/backup";
 
 /** Validate before touching storage. File imports are copies; cloud hydration retains IDs. */
 export function prepareBackupImport(bytes: Uint8Array, preserveIds = false): Result<{ backup: ProjectBackupV1; photos: PhotoRef[] }, BackupError> {
   try {
     const parsed = JSON.parse(new TextDecoder().decode(bytes)) as ProjectBackupV1;
     if (parsed?.format !== BACKUP_FORMAT) throw new Error("This is not a PhotoFlex project backup.");
-    if (parsed.schemaVersion !== 2 && parsed.schemaVersion !== 3 && parsed.schemaVersion !== BACKUP_SCHEMA_VERSION) return err({ kind: "unsupported-schema", found: parsed.schemaVersion, supported: [2, 3, BACKUP_SCHEMA_VERSION] });
+    const supported = [2, 3, BACKUP_SCHEMA_VERSION, RESEARCH_BACKUP_SCHEMA_VERSION];
+    if (!supported.includes(parsed.schemaVersion)) return err({ kind: "unsupported-schema", found: parsed.schemaVersion, supported });
     const legacy = Number(parsed.project?.schemaVersion) < 8 ? migrateWorkspaceV7ToV8(parsed.project as unknown as Record<string, unknown>) : parsed.project as unknown as Record<string, unknown>;
     const project = Number(legacy.schemaVersion) < 9 ? migrateWorkspaceV8ToV9(legacy) as unknown as ProjectBackupV1["project"] : parsed.project;
     const normalizedProject = Number(project.schemaVersion) < 10 ? migrateWorkspaceV9ToV10(project as unknown as Record<string, unknown>) as unknown as ProjectBackupV1["project"] : project;
-    const input = { ...parsed, schemaVersion: BACKUP_SCHEMA_VERSION, project: normalizedProject, layouts: parsed.schemaVersion < 4 ? [] : parsed.layouts } as ProjectBackupV1;
+    const input = { ...parsed, schemaVersion: parsed.research?.length ? RESEARCH_BACKUP_SCHEMA_VERSION : BACKUP_SCHEMA_VERSION,
+      project: normalizedProject, layouts: parsed.schemaVersion < 4 ? [] : parsed.layouts } as ProjectBackupV1;
     if (!isWorkspace(input.project) || !Array.isArray(input.sequences) || !Array.isArray(input.versions) || !Array.isArray(input.layouts) || !Array.isArray(input.photoManifest)) throw new Error("The project backup is incomplete.");
+    validateResearchRecords(input.research, normalizedProject.projectId);
     const unique = (ids: readonly string[]) => ids.every((id) => typeof id === "string" && id.length > 0) && new Set(ids).size === ids.length;
     const sequenceIds = input.sequences.map((s) => s.id);
     const versionIds = input.versions.map((v) => v.id);
@@ -92,6 +97,9 @@ export function prepareBackupImport(bytes: Uint8Array, preserveIds = false): Res
       layouts: input.layouts.map((layout: LayoutDocument) => ({ ...layout, id: layoutId(layout.id), projectId, sequenceId: sequenceId(layout.sequenceId), revision: 0 as LayoutRevision,
         pages: layout.pages.map((page: LayoutPage) => ({ ...page, id: pageId(page.id), objects: page.objects.map((object: LayoutObject) => ({ ...object, id: objectId(object.id), ...(object.kind === "image-frame" && object.photoId ? { photoId: photoId(object.photoId) } : {}) })) })) })),
       photoManifest: manifest,
+      ...(input.research ? { research: input.research.map((row) => row.kind === "note"
+        ? { ...row, projectId, content: remapResearchPhotos(row.content, photoId) }
+        : { ...row, projectId }) } : {}),
     };
     return ok({ backup, photos: manifest.map(({ photoId: id, ...p }) => ({ ...p, id, width: p.width ?? 0, height: p.height ?? 0 })) });
   } catch (error) {

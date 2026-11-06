@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createProjectWriteCoordinator, type ProjectWriteCoordinator } from "./projectWriteCoordinator";
 import { downloadRecoveryBackup } from "./downloadRecoveryBackup";
 import { CloudConflictRecovery } from "./CloudConflictRecovery";
@@ -17,12 +17,15 @@ import { LocaleProvider, useLocale } from "./locale";
 import { AccountWorkspaceGate } from "./AccountWorkspaceGate";
 import type { ProjectId } from "../contracts";
 import { AnalyticsAdminPage } from "./AnalyticsAdminPage";
+import type { ResearchSaveGuard } from "./research/useResearchDraft";
 
 export { VirtualPhotoGrid } from "./VirtualPhotoGrid";
 
 const SequenceComparePage = lazy(() => import("./SequenceComparePages").then((module) => ({ default: module.SequenceComparePage })));
 const VersionComparePage = lazy(() => import("./SequenceComparePages").then((module) => ({ default: module.VersionComparePage })));
 const LayoutWorkspace = lazy(() => import("./LayoutWorkspace").then((module) => ({ default: module.LayoutWorkspace })));
+
+const ResearchWorkspace = lazy(() => import("./research/ResearchWorkspace"));
 
 interface AppProps {
   readonly dependencies: AppDependencies;
@@ -41,6 +44,8 @@ export function M1App(props: AppProps) {
 function M1AppContent({ dependencies }: AppProps) {
   const { locale, t } = useLocale();
   const coordinatorRef = useRef<ProjectWriteCoordinator | undefined>(undefined);
+  const researchGuard = useRef<ResearchSaveGuard | undefined>(undefined);
+  const registerResearchGuard = useCallback((guard?: ResearchSaveGuard) => { researchGuard.current = guard; }, []);
   const [recovery, setRecovery] = useState(false);
   const [homeProjectId, setHomeProjectId] = useState<ProjectId>();
   const [recovering, setRecovering] = useState(false);
@@ -54,6 +59,7 @@ function M1AppContent({ dependencies }: AppProps) {
     else dialog.setAttribute("open", ""); // Non-browser test adapters.
   }, [recovery]);
   const ensureSaved = async () => {
+    if (researchGuard.current?.isDirty() && !await researchGuard.current.flush()) return false;
     const current = coordinatorRef.current;
     if (!current?.hasUnsavedWork()) return true;
     const result = await current.flushAll();
@@ -62,6 +68,7 @@ function M1AppContent({ dependencies }: AppProps) {
   };
   const [route, navigate] = useAppRoute(ensureSaved);
   useEffect(() => {
+    if (route.name === "research") return;
     const feature = route.name === "contact-sheet" ? "contact_sheet" : route.name.includes("compare") ? "compare" : route.name;
     dependencies.analytics?.track("page_view", feature as "home" | "project" | "contact_sheet" | "table" | "sequence" | "layout" | "compare");
   }, [dependencies.analytics, route]);
@@ -73,7 +80,7 @@ function M1AppContent({ dependencies }: AppProps) {
   }, [route.name]);
   useEffect(() => {
     const beforeUnload = (event: BeforeUnloadEvent) => {
-      if (coordinatorRef.current?.hasUnsavedWork() || dependencies.cloudSave?.hasPending?.()) { event.preventDefault(); event.returnValue = ""; }
+      if (researchGuard.current?.isDirty() || coordinatorRef.current?.hasUnsavedWork() || dependencies.cloudSave?.hasPending?.()) { event.preventDefault(); event.returnValue = ""; }
     };
     window.addEventListener("beforeunload", beforeUnload);
     return () => window.removeEventListener("beforeunload", beforeUnload);
@@ -94,17 +101,18 @@ function M1AppContent({ dependencies }: AppProps) {
       }
     } finally { setRecovering(false); }
   };
-  const usesTableChrome = route.name === "home" || route.name === "table" || route.name === "contact-sheet" || route.name === "sequence" || route.name === "sequence-compare" || route.name === "version-compare";
+  const usesTableChrome = route.name === "research" || route.name === "home" || route.name === "table" || route.name === "contact-sheet" || route.name === "sequence" || route.name === "sequence-compare" || route.name === "version-compare";
 
   const projectContent = currentProjectId ? (
     <ProjectWorkspaceProvider key={workspaceEpoch} dependencies={dependencies} projectId={currentProjectId} coordinator={coordinator}>
       {(route.name === "table" || route.name === "sequence") && <TableHeader dependencies={dependencies} projectId={route.projectId} lastSequenceId={lastSequenceId} navigate={navigate} />}
       {route.name === "project" && <ProjectPage dependencies={dependencies} projectId={route.projectId} navigate={navigate} />}
       {route.name === "contact-sheet" && <ContactSheetPage dependencies={dependencies} projectId={route.projectId} sourceId={route.sourceId} navigate={navigate} />}
-      {(route.name === "table" || route.name === "sequence") && <TablePage dependencies={dependencies} projectId={route.projectId} navigate={navigate} focusSequenceId={route.name === "table" ? route.focusSequenceId : undefined} sequenceOverlay={route.name === "sequence" ? { sequenceId: route.sequenceId, openVersionId: route.openVersionId } : undefined} />}
+      {(route.name === "table" || route.name === "sequence") && <TablePage key={route.projectId} dependencies={dependencies} projectId={route.projectId} navigate={navigate} registerResearchGuard={registerResearchGuard} focusSequenceId={route.name === "table" ? route.focusSequenceId : undefined} focusResearchCardId={route.name === "table" ? route.focusExtractId ?? route.focusNoteCardId : undefined} sequenceOverlay={route.name === "sequence" ? { sequenceId: route.sequenceId, openVersionId: route.openVersionId } : undefined} />}
       <Suspense fallback={<main className="page centered-state"><div className="loading-mark" /><p>{t("status.loadingWorkspace")}</p></main>}>
         {route.name === "sequence-compare" && <SequenceComparePage dependencies={dependencies} projectId={route.projectId} leftSequenceId={route.leftSequenceId} rightSequenceId={route.rightSequenceId} navigate={navigate} />}
         {route.name === "version-compare" && <VersionComparePage dependencies={dependencies} projectId={route.projectId} leftVersionId={route.leftVersionId} rightVersionId={route.rightVersionId} navigate={navigate} />}
+        {route.name === "research" && <ResearchWorkspace key={route.projectId} dependencies={dependencies} route={route} navigate={navigate} registerGuard={registerResearchGuard} />}
         {route.name === "layout" && coordinator && <LayoutWorkspace dependencies={dependencies} persistence={coordinator} projectId={route.projectId} sequenceId={route.sequenceId} layoutId={route.layoutId} navigate={navigate} />}
       </Suspense>
     </ProjectWorkspaceProvider>

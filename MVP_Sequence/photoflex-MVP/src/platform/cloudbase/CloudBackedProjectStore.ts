@@ -3,6 +3,7 @@ import { jsonSemanticEqual } from "../jsonSemanticEqual";
 import { prepareBackupImport } from "../projectBackup";
 import { cloudSnapshotContent as content, cloudSyncPending, type CloudSnapshotCache, type CloudSyncSeed, type CloudSyncState } from "../cloudSync";
 import { withProjectSyncLock } from "./projectSyncLock";
+import type { ResearchResult, ResearchStore } from "../../contracts/research";
 export type { CloudSnapshotCache } from "../cloudSync";
 
 export type CloudSaveStatus = "saved" | "saving" | "retrying" | "conflict" | "cached";
@@ -318,6 +319,37 @@ export class CloudBackedProjectStore implements ProjectStore {
     if (result.ok) this.broadcast(id);
     return result;
   }
+
+  private async readResearch<T>(id: ProjectId, action: (store: ResearchStore) => ResearchResult<T>): ResearchResult<T> {
+    const store = this.local.research;
+    if (!store) return err("unavailable");
+    if (!this.openedProjects.has(id)) {
+      const workspace = await this.loadWorkspace(id);
+      if (!workspace.ok) return err(workspace.error.kind === "not-found" ? "missing" : "unavailable");
+    }
+    return action(store);
+  }
+
+  private writeResearch<T>(id: ProjectId, action: (store: ResearchStore) => ResearchResult<T>): ResearchResult<T> {
+    return this.readResearch(id, async (store) => {
+      const result = await this.write(id, () => action(store));
+      return !result.ok && typeof result.error !== "string" ? err("unavailable") : result;
+    });
+  }
+
+  readonly research: ResearchStore = {
+    listNotes: (id, query) => this.readResearch(id, (store) => store.listNotes(id, query)),
+    loadNote: (id, noteId) => this.readResearch(id, (store) => store.loadNote(id, noteId)),
+    listMaterials: (id) => this.readResearch(id, (store) => store.listMaterials(id)),
+    loadMaterial: (id, assetId) => this.readResearch(id, (store) => store.loadMaterial(id, assetId)),
+    listExtracts: (id, noteId) => this.readResearch(id, (store) => store.listExtracts(id, noteId)),
+    saveNote: (note) => this.writeResearch(note.projectId, (store) => store.saveNote(note)),
+    deleteNote: (id, noteId) => this.writeResearch(id, (store) => store.deleteNote(id, noteId)),
+    placeNote: (note, center) => this.writeResearch(note.projectId, (store) => store.placeNote(note, center)),
+    addMaterials: (id, materials) => this.writeResearch(id, (store) => store.addMaterials(id, materials)),
+    saveExtract: (note, extract, placement) => this.writeResearch(note.projectId, (store) => store.saveExtract(note, extract, placement)),
+    updateExtract: (note, previous, next) => this.writeResearch(note.projectId, (store) => store.updateExtract(note, previous, next)),
+  };
 
   async listProjects(): ReturnType<ProjectStore["listProjects"]> {
     if (!(await this.ensureReady())) return unavailable();

@@ -26,6 +26,8 @@ interface TableFloatingToolbarProps {
   readonly onExitPhotoTurnTool?: () => void;
   readonly storageKey?: string;
   readonly onAddMemo?: () => void;
+  readonly onAddResearchNote?: () => void;
+  readonly researchHasSelection?: boolean;
   readonly onCreateFrame?: (template: FrameTemplateId, useFirst?: boolean) => boolean;
   readonly selectedPhotoCount?: number;
   readonly selectedMemo?: WorktableMemo;
@@ -37,7 +39,7 @@ interface TableFloatingToolbarProps {
   readonly onExecute: (command: WorktableEditCommand) => void;
 }
 
-export function TableFloatingToolbar({ connectorToolActive, onToggleConnectorTool, photoTurnToolActive, onTogglePhotoTurnTool, onExitPhotoTurnTool, storageKey = "photoflex:table-toolbar", actions, canUndo, canRedo, onUndo, onRedo, onExecute, onAddMemo, onCreateFrame, selectedPhotoCount = 0, selectedMemo }: TableFloatingToolbarProps) {
+export function TableFloatingToolbar({ connectorToolActive, onToggleConnectorTool, photoTurnToolActive, onTogglePhotoTurnTool, onExitPhotoTurnTool, storageKey = "photoflex:table-toolbar", actions, canUndo, canRedo, onUndo, onRedo, onExecute, onAddMemo, onAddResearchNote, researchHasSelection, onCreateFrame, selectedPhotoCount = 0, selectedMemo }: TableFloatingToolbarProps) {
   const { t } = useLocale();
   const toolbarRef = useRef<HTMLDivElement>(null);
   const [visible, setVisible] = useState(() => readToolbarVisible(storageKey));
@@ -66,6 +68,7 @@ export function TableFloatingToolbar({ connectorToolActive, onToggleConnectorToo
   }, [storageKey, visible]);
   return <><TableHeaderControl targetId="table-header-toolbar-toggle"><TableRailButton icon={visible ? "hide" : "show"} label={t(visible ? "table.hideTools" : "table.showTools")} aria-expanded={visible} className="table-rail-toggle" tooltipBelow onClick={() => { onExitPhotoTurnTool?.(); setFrameOpen(false); setVisible((value) => !value); }} /></TableHeaderControl>
   {visible && <div ref={toolbarRef} className="table-tools-rail" onClickCapture={(event) => { if (photoTurnToolActive && !(event.target as Element).closest("[data-turn-photo-tool]")) onExitPhotoTurnTool?.(); }}><div className="table-rail-creation" role="group" aria-label={t("table.creationTools")}>
+    {onAddResearchNote && <TableRailButton className="table-rail-research" icon="research" label={t("research.newOnTable")} tooltip={t(researchHasSelection ? "research.newWithPhotos" : "research.newOnTable")} onClick={() => { setFrameOpen(false); onAddResearchNote(); }} />}
     {onAddMemo && <TableRailButton icon="memo" label={t("table.addMemo")} tooltip={t("table.memo")} shortcut="M" active={Boolean(selectedMemo)} onClick={() => { setFrameOpen(false); onAddMemo(); }} />}
     {onToggleConnectorTool && <TableRailButton icon="link" label={t("table.drawLine")} tooltip={t("table.link")} shortcut="L" active={connectorToolActive} onClick={() => { setFrameOpen(false); onToggleConnectorTool(); }} />}
     {onTogglePhotoTurnTool && <TableRailButton icon="turn-photo" label={t("table.turnPhotoTool")} active={photoTurnToolActive} data-turn-photo-tool onClick={() => { setFrameOpen(false); onTogglePhotoTurnTool(); }} />}

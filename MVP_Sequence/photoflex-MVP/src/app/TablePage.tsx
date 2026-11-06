@@ -21,11 +21,14 @@ import { useTableWorkspaceLifecycle } from "./useTableWorkspaceLifecycle";
 import { useLocale } from "./locale";
 import { SequenceOverlay } from "./SequenceOverlay";
 import { sequencePileCardWidth } from "./sequenceCardGeometry";
+import { PhotoResearchNotes, TableResearch } from "./research/TableResearch";
+import { newResearchNote } from "../modules/research/notes";
+import type { ResearchSaveGuard } from "./research/useResearchDraft";
 
 const PILE_HEIGHT = 176;
 interface SequenceConfirmation { name: string; itemIds: readonly WorktableItemId[] }
 
-export function TablePage({ dependencies, projectId, navigate, focusSequenceId, sequenceOverlay }: { dependencies: AppDependencies; projectId: ProjectId; navigate: (route: AppRoute) => void; focusSequenceId?: SequenceId; sequenceOverlay?: { readonly sequenceId: SequenceId; readonly openVersionId?: VersionId } }) {
+export function TablePage({ dependencies, projectId, navigate, focusSequenceId, focusResearchCardId, sequenceOverlay, registerResearchGuard }: { dependencies: AppDependencies; projectId: ProjectId; navigate: (route: AppRoute) => void; focusSequenceId?: SequenceId; focusResearchCardId?: string; sequenceOverlay?: { readonly sequenceId: SequenceId; readonly openVersionId?: VersionId }; registerResearchGuard: (guard?: ResearchSaveGuard) => void }) {
   const { locale, t } = useLocale();
   const { workspace, save, saveWorktable, deleteSequences, createSequenceBundle, listSequences, coordinator, loading, error } = useProjectWorkspaceSession(dependencies, projectId);
   const [summaries, setSummaries] = useState<readonly SequenceSummary[]>([]);
@@ -42,6 +45,10 @@ export function TablePage({ dependencies, projectId, navigate, focusSequenceId, 
   const [addToSequenceId, setAddToSequenceId] = useState<SequenceId>();
   const [confirmationDragId, setConfirmationDragId] = useState<WorktableItemId>();
   const [selectedMemoId, setSelectedMemoId] = useState<string>();
+  const [newNoteCardId, setNewNoteCardId] = useState<string>();
+  const [sourceResearchPhotos, setSourceResearchPhotos] = useState<readonly PhotoId[]>([]);
+  const [creatingResearch, setCreatingResearch] = useState(false);
+  const researchCreation = useRef(false);
   const [selectedFrameId, setSelectedFrameId] = useState<FrameId>();
   const [activeCanvasTool, setActiveCanvasTool] = useState<"connector" | "turn-photo">();
   const connectorToolActive = activeCanvasTool === "connector";
@@ -77,6 +84,12 @@ export function TablePage({ dependencies, projectId, navigate, focusSequenceId, 
   const selectConnector = (id: string | undefined) => {
     setSelectedConnectorId(id);
     if (id || connectorToolActive) { tableSession.clearSelection(); setSelectedMemoId(undefined); setSelectedFrameId(undefined); }
+  };
+  const selectMemo = (id: string | undefined) => {
+    setSelectedMemoId(id);
+    if (id && draft.memos?.some((memo) => memo.id === id && memo.researchNoteId)) {
+      tableSession.clearSelection(); setSelectedFrameId(undefined); setSelectedConnectorId(undefined);
+    }
   };
   const selectedSourcePhotoIds = useMemo(
     () => actions.mutablePhotoIds.map((id) => draft.placements[id]?.photoId).filter((id): id is PhotoId => Boolean(id)),
@@ -187,6 +200,7 @@ export function TablePage({ dependencies, projectId, navigate, focusSequenceId, 
   }), [dependencies.photoSource]);
 
   const placeSourcePhotos = useCallback(async (photos: readonly PhotoRef[], point = canvasRef.current?.getViewportCenter() ?? { x: 200, y: 160 }) => {
+    if (researchCreation.current) return false;
     const beforeCount = draft?.entryOrder.length ?? 0;
     const result = tableSession.placePhotos(
       photos.map((photo) => ({
@@ -349,7 +363,36 @@ export function TablePage({ dependencies, projectId, navigate, focusSequenceId, 
     result.value.reconnected.forEach((sourceId) => startSharedScan(dependencies.photoSource, sourceId));
     return result.value;
   };
-  const selectedMemo = draft.memos?.find((memo) => memo.id === selectedMemoId);
+  const selectedMemo = draft.memos?.find((memo) => memo.id === selectedMemoId && !memo.researchNoteId);
+  const addResearchNote = async () => {
+    if (researchCreation.current) return;
+    researchCreation.current = true;
+    setCreatingResearch(true);
+    try {
+      const ids = [...new Set([...orderPhotoIdsByTablePosition(draft, photoIds), ...sourceResearchPhotos])];
+      const note = newResearchNote(projectId);
+      if (ids.length) note.content.content?.push({
+        type: "researchImages", attrs: { images: ids.map((id) => ({ kind: "project", id, caption: "" })) },
+      }, { type: "paragraph", attrs: { blockId: crypto.randomUUID() } });
+      const result = await coordinator.placeResearchNote(note, canvasRef.current?.getViewportCenter() ?? { x: 200, y: 160 });
+      if (!result.ok) { setNotice(t("research.createFailed")); return; }
+      tableSession.resetCommittedDraft(result.value.workspace.worktableDraft);
+      setActiveCanvasTool(undefined);
+      setSelectedFrameId(undefined);
+      setSelectedConnectorId(undefined);
+      setNewNoteCardId(result.value.cardId);
+      setSelectedMemoId(result.value.cardId);
+    } catch { setNotice(t("research.createFailed")); }
+    finally { researchCreation.current = false; setCreatingResearch(false); }
+  };
+  const deleteResearchNote = async (id: string) => {
+    const result = await coordinator.deleteResearchNote(id);
+    if (!result.ok) return false;
+    tableSession.resetCommittedDraft(result.value.worktableDraft);
+    setSelectedMemoId(undefined);
+    canvasRef.current?.focus();
+    return true;
+  };
   const previewPlacement = previewPhotoId
     ? draft.entryOrder.map((itemId) => draft.placements[itemId]).find((placement) => placement.photoId === previewPhotoId)
     : undefined;
@@ -365,13 +408,16 @@ export function TablePage({ dependencies, projectId, navigate, focusSequenceId, 
     stopSharedScan(dependencies.photoSource, sourceId);
     return true;
   };
-  const sourceBrowser = <SourceBrowser addingSource={addingSource} onRemoveSource={removeSource} dependencies={dependencies} projectId={projectId} workspace={workspace} onPlacePhotos={placeSourcePhotos} onOpenPhoto={setPreviewPhotoId} onAddSource={() => void addSource()} onOpenContactSheet={openContactSheet} onReconnectSource={reconnectSource} onReconnectSavedSources={reconnectSavedSources} onReconnectAllSources={reconnectAllSources} onPhotoError={onPhotoError} onPanelModeChange={setSourcePanelMode} />;
+  const sourceBrowser = <SourceBrowser addingSource={addingSource} onRemoveSource={removeSource} dependencies={dependencies} projectId={projectId} workspace={workspace} onPlacePhotos={placeSourcePhotos} onOpenPhoto={setPreviewPhotoId} onAddSource={() => void addSource()} onOpenContactSheet={openContactSheet} onReconnectSource={reconnectSource} onReconnectSavedSources={reconnectSavedSources} onReconnectAllSources={reconnectAllSources} onPhotoError={onPhotoError} onPanelModeChange={setSourcePanelMode} onSelectionChange={dependencies.projectStore.research ? setSourceResearchPhotos : undefined} />;
 
   return <main className="table-page page">
     {notice && <p className="table-notice" role="status">{notice}</p>}
     <div className="table-cloud-save-status"><CloudSaveStatus dependencies={dependencies} projectId={projectId} compact /></div>
     <TableWorkspace sidebar={selectedFrameId ? <aside className="table-frame-settings" aria-label={locale === "zh-CN" ? "画框设置" : "Frame settings"}><div ref={setFrameSettingsHost} className="table-frame-settings-content" /></aside> : sourceBrowser} sidebarMode={selectedFrameId ? "compact" : sourcePanelMode} storageKey={`photoflex:table-sidebar:${projectId}`}>
-    <div className="table-canvas-area" aria-label={t("table.toolbar")}>
+    <div className="table-canvas-area" aria-label={t("table.toolbar")} inert={creatingResearch}>
+    <TableResearch projectId={projectId} store={dependencies.projectStore.research} source={dependencies.photoSource} sources={workspace.sources}
+      noteCount={draft.memos?.filter((memo) => memo.researchNoteId).length ?? 0} hasExtracts={Boolean(draft.memos?.some((memo) => memo.extractId))} navigate={navigate}
+      registerGuard={registerResearchGuard} onDeleteNote={deleteResearchNote}>
     <TableCanvas
       ref={canvasRef}
       session={{ ...tableSession, execute }}
@@ -379,15 +425,17 @@ export function TablePage({ dependencies, projectId, navigate, focusSequenceId, 
       summaries={summaries}
       initialViewport={tableLifecycle.initialViewport}
       focusSequenceId={focusSequenceId ?? sequenceOverlay?.sequenceId}
+      focusResearchCardId={focusResearchCardId}
       onViewportChange={tableLifecycle.onViewportChange}
       selectedMemoId={selectedMemoId}
+      newNoteCardId={newNoteCardId}
       connectorToolActive={connectorToolActive}
       onConnectorToolChange={(active) => changeCanvasTool(active ? "connector" : undefined)}
       photoTurnToolActive={photoTurnToolActive}
       onPhotoTurnToolChange={(active) => changeCanvasTool(active ? "turn-photo" : undefined)}
       selectedConnectorId={selectedConnectorId}
       onSelectConnector={selectConnector}
-      onSelectMemo={setSelectedMemoId}
+      onSelectMemo={selectMemo}
       selectedFrameId={selectedFrameId}
       frameSettingsHost={frameSettingsHost}
       onSelectFrame={(id) => { setSelectedFrameId(id); if (id) { tableSession.clearSelection(); setSelectedMemoId(undefined); } }}
@@ -409,13 +457,15 @@ export function TablePage({ dependencies, projectId, navigate, focusSequenceId, 
       onPhotoError={onPhotoError}
       missingPhotoIds={missing}
       sourceRevision={sourceRevision}
-      interactionDisabled={writeSnapshot.writeState === "failed"}
+      interactionDisabled={writeSnapshot.writeState === "failed" || creatingResearch}
       emptyAction={firstSource ? undefined : {
         label: t("table.addFolder"),
         onClick: () => void addSource(),
       }}
     />
+    </TableResearch>
     <TableFloatingToolbar connectorToolActive={connectorToolActive} onToggleConnectorTool={toggleConnectorTool} photoTurnToolActive={photoTurnToolActive} onTogglePhotoTurnTool={togglePhotoTurnTool} onExitPhotoTurnTool={() => { if (photoTurnToolActive) changeCanvasTool(undefined); }} onAddMemo={addMemo} onCreateFrame={createFrame} selectedPhotoCount={actions.mutablePhotoIds.length}
+      onAddResearchNote={dependencies.projectStore.research ? () => void addResearchNote() : undefined} researchHasSelection={photoIds.length > 0 || sourceResearchPhotos.length > 0}
       selectedMemo={selectedMemo} storageKey={`photoflex:table-toolbar:${projectId}`} actions={actions} canUndo={tableSession.canUndo} canRedo={tableSession.canRedo} onUndo={() => history("undo")} onRedo={() => history("redo")} onExecute={execute} />
     {!photoTurnToolActive && <TableContextToolbar selectedConnectorId={selectedConnectorId} draft={draft} actions={actions} onExecute={execute} onRequestSequence={requestSequence} onPreview={setPreviewPhotoId} onComparePhotos={setComparePhotoIds} onCompareSequences={(ids) => navigate({ name: "sequence-compare", projectId, leftSequenceId: ids[0], rightSequenceId: ids[1] })} onRemovePiles={(ids) => setDeleteConfirmation(ids)} />}
     </div>
@@ -423,7 +473,9 @@ export function TablePage({ dependencies, projectId, navigate, focusSequenceId, 
     {addToSequenceOpen && <TableSequenceAddDialog persistence={coordinator} listSequences={listSequences} projectId={projectId} photoIds={selectedSourcePhotoIds} summaries={summaries} initialSequenceId={addToSequenceId} onClose={() => setAddToSequenceOpen(false)} onSummariesChange={setSummaries} onSequenceChanged={setActiveSequenceId} onNotice={setNotice} />}
     {deleteConfirmation && <section ref={deleteSequenceDialogRef} className="delete-sequence-dialog" role="dialog" aria-modal="true" aria-labelledby="delete-sequence-title"><h2 id="delete-sequence-title">{t("table.deleteQuestion", { target: deleteConfirmation.length > 1 ? t("sequence.many") : t("sequence.one") })}</h2><p>{t("table.deleteWarning", { names: deleteConfirmation.map((id) => summaryById.get(id)?.name ?? t("status.missing")).join(", "), count: deleteConfirmation.reduce((count, id) => count + (summaryById.get(id)?.itemCount ?? 0), 0) })}</p><footer><button type="button" autoFocus disabled={deleteBusy} onClick={() => setDeleteConfirmation(undefined)}>{t("common.cancel")}</button><button type="button" className="button-danger" disabled={deleteBusy} onClick={() => void confirmRemoveSelectedPiles(deleteConfirmation)}>{deleteBusy ? t("project.deleting") : t("table.deleteSequence")}</button></footer></section>}
     </TableWorkspace>
-    {previewPhotoId && previewPlacement && <TablePhotoPreview photoId={previewPhotoId} filename={previewPlacement.filename} photoSource={dependencies.photoSource} onClose={() => setPreviewPhotoId(undefined)} onError={onPhotoError} />}
+    {previewPhotoId && previewPlacement && <TablePhotoPreview photoId={previewPhotoId} filename={previewPlacement.filename} photoSource={dependencies.photoSource} onClose={() => setPreviewPhotoId(undefined)} onError={onPhotoError}>
+      {dependencies.projectStore.research && <PhotoResearchNotes key={previewPhotoId} projectId={projectId} photoId={previewPhotoId} store={dependencies.projectStore.research} navigate={navigate} />}
+    </TablePhotoPreview>}
     {comparePhotoIds && <TablePhotoCompare ids={comparePhotoIds} draft={draft} photoSource={dependencies.photoSource} onClose={() => setComparePhotoIds(undefined)} />}
     {sequenceOverlay && <SequenceOverlay dependencies={dependencies} persistence={coordinator} projectId={projectId} sequenceId={sequenceOverlay.sequenceId} openVersionId={sequenceOverlay.openVersionId} onClose={() => { void listSequences().then((latest) => { if (latest.ok) setSummaries(latest.value); navigate({ name: "table", projectId }); }); }} onOpenLayout={(layoutId) => navigate({ name: "layout", projectId, sequenceId: sequenceOverlay.sequenceId, layoutId })} onPhotoError={onPhotoError} />}
   </main>;

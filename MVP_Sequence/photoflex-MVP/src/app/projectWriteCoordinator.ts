@@ -26,6 +26,7 @@ import {
   type BackupError,
 } from "../contracts";
 import type { AppDependencies } from "./dependencies";
+import type { ResearchError, ResearchNote, ResearchNotePlacement } from "../contracts/research";
 import { createWorktableEditor, moveWorktableRectsToOpenArea } from "../modules/worktable";
 
 export type CoordinatorPausedError = { readonly kind: "writes-paused" };
@@ -80,6 +81,8 @@ export interface ProjectWriteCoordinator extends SequenceWritePort {
   saveWorkspace(update: ProjectWorkspace | ((current: ProjectWorkspace) => ProjectWorkspace)): Promise<Result<ProjectWorkspace, CoordinatorWorkspaceError | CoordinatorPausedError>>;
   updateResumeContext(update: ResumeContextUpdate, touchLastOpened?: boolean): Promise<Result<ProjectWorkspace, CoordinatorWorkspaceError | CoordinatorPausedError>>;
   saveWorktable(update: WorktableUpdate): Promise<Result<ProjectWorkspace, CoordinatorWorkspaceError | CoordinatorPausedError>>;
+  placeResearchNote(note: ResearchNote, center: WorktablePoint): Promise<Result<ResearchNotePlacement, ResearchError | CoordinatorPausedError>>;
+  deleteResearchNote(id: string): Promise<Result<ProjectWorkspace, ResearchError | CoordinatorPausedError>>;
   createSequence(input: CreateSequenceTransaction): Promise<Result<SequenceWriteResult, SequenceWriteError | CoordinatorWorkspaceError | CoordinatorPausedError>>;
   createSequenceBundle(input: CreateSequenceBundleInput): Promise<Result<SequenceWriteResult, SequenceWriteError | WorktableCommandError | CoordinatorWorkspaceError | CoordinatorPausedError>>;
   deleteSequences(sequenceIds: readonly SequenceId[], worktableDraft: WorktableDraft): Promise<Result<ProjectWorkspace, CoordinatorWorkspaceError | CoordinatorPausedError>>;
@@ -234,6 +237,26 @@ export class ProjectWriteCoordinatorImpl implements ProjectWriteCoordinator {
     this.commitWorkspace(saved);
     if (this.latestWorktableDraft === draft) this.latestWorktableDraft = undefined;
     return ok(saved);
+  }
+
+  placeResearchNote(note: ResearchNote, center: WorktablePoint) {
+    return this.enqueue(async () => {
+      const store = this.dependencies.projectStore.research;
+      if (!store || note.projectId !== this.projectId) return err("unavailable" as const);
+      const result = await store.placeNote(note, center);
+      if (result.ok) this.commitWorkspace(result.value.workspace);
+      return result;
+    });
+  }
+
+  deleteResearchNote(id: string) {
+    return this.enqueue(async () => {
+      const store = this.dependencies.projectStore.research;
+      if (!store) return err("unavailable" as const);
+      const result = await store.deleteNote(this.projectId, id);
+      if (result.ok) this.commitWorkspace(result.value);
+      return result;
+    });
   }
 
   createSequence(input: CreateSequenceTransaction): Promise<Result<SequenceWriteResult, SequenceWriteError | CoordinatorWorkspaceError | CoordinatorPausedError>> {

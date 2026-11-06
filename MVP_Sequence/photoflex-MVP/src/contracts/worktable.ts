@@ -66,6 +66,10 @@ export interface WorktableSequencePilePlacement extends WorktablePoint {
 
 export interface WorktableMemo extends WorktablePoint {
   readonly id: string;
+  readonly researchNoteId?: string;
+  /** The text is a fallback for this placement when its extract cannot be loaded. */
+  readonly extractId?: string;
+  readonly extractMode?: "minimal" | "compact" | "expanded";
   /** Shared Table stacking order. Optional for projects saved before memo layering. */
   readonly z?: number;
   readonly text: string;

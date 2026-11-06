@@ -22,7 +22,11 @@ export default defineConfig(({ command, mode }) => {
   let revision = process.env.VITE_SITE_VERSION || packageInfo.version;
   try { revision = process.env.VITE_SITE_VERSION || execFileSync("git", ["rev-parse", "--short=12", "HEAD"], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim(); } catch { /* Local builds may not have Git access. */ }
   const define = { __SITE_VERSION__: JSON.stringify(revision) };
-  if (command !== "build" || mode !== "beta") return { plugins: [react()], define };
+  if (command !== "build" || mode !== "beta") return {
+    plugins: [react()],
+    define,
+    optimizeDeps: { include: ["@tiptap/react", "@tiptap/react/menus", "@tiptap/core", "@tiptap/pm/state", "@tiptap/pm/view", "@tiptap/starter-kit"] },
+  };
   const environment = loadEnv("beta", process.cwd(), "VITE_");
   const development = loadEnv("development", process.cwd(), "VITE_");
   const configuration = readBetaReleaseConfiguration(environment, development.VITE_CLOUDBASE_ENV_ID);

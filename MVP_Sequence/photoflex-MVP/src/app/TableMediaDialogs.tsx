@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { PhotoId, PhotoSource, SourceError, WorktableDraft } from "../contracts";
 import { useDialogKeyboard } from "./AppPrimitives";
 import { useLocale } from "./locale";
@@ -10,12 +10,14 @@ export function TablePhotoPreview({
   photoSource,
   onClose,
   onError,
+  children,
 }: {
   readonly photoId: PhotoId;
   readonly filename: string;
   readonly photoSource: PhotoSource;
   readonly onClose: () => void;
   readonly onError: (id: PhotoId, error: SourceError) => void;
+  readonly children?: ReactNode;
 }) {
   const { t } = useLocale();
   const [url, setUrl] = useState<string>();
@@ -63,6 +65,7 @@ export function TablePhotoPreview({
         {url ? <div className={`table-photo-preview-image${interaction.sideways ? " is-sideways" : ""}`} style={{ transform: interaction.imageTransform }} data-rotation={interaction.normalizedRotation}><img src={url} alt={filename} draggable={false} /></div> : <div className="preview-placeholder">{t("table.previewUnavailable")}</div>}
         <PhotoPreviewControls interaction={interaction} />
       </div>
+      {children}
     </section>
   </div>;
 }
